@@ -24,6 +24,7 @@
 		292D5EE534E203D5321FA90C /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
 		2A5C7EE6C33EE64B687E0499 /* MicrophonePermissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C475CD76B745234E25E28F8C /* MicrophonePermissionService.swift */; };
 		2B1A8987783CC554489A758D /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		2BEAE5263C556CB8D8239465 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DD20768A9B51BB8BFDA096DE /* Assets.xcassets */; };
 		2DAAA5BC52C163DC7AE91D15 /* AmbientSyncEngineConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */; };
 		2EE595A3A3468838319F69E3 /* Mania4KDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */; };
 		32B6ED47721CD5B5E7F6D4C1 /* EnsomiUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -277,6 +278,7 @@
 		D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralEngineTests.swift; sourceTree = "<group>"; };
 		DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSessionEngineTests.swift; sourceTree = "<group>"; };
 		DC883B62F578815D5059958F /* AmbientMicCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientMicCaptureTests.swift; sourceTree = "<group>"; };
+		DD20768A9B51BB8BFDA096DE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E6F1AC6E7432F2565CD460B9 /* LocalTrackResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTrackResolver.swift; sourceTree = "<group>"; };
 		E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceEndpointWebSocketClientTests.swift; sourceTree = "<group>"; };
 		F23F90564319BD411D05FFE7 /* MicFeatureStreamBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeatureStreamBuffer.swift; sourceTree = "<group>"; };
@@ -444,6 +446,7 @@
 		60ED9F82B59B5A332CFE289E /* EnsomiMac */ = {
 			isa = PBXGroup;
 			children = (
+				DD20768A9B51BB8BFDA096DE /* Assets.xcassets */,
 				D2513F9AE00A8F700B937190 /* EnsomiMacApp.swift */,
 				4990B53DCC22200998B7A53A /* Info.plist */,
 			);
@@ -687,6 +690,7 @@
 			buildConfigurationList = 9A18114683DBFF4126F68381 /* Build configuration list for PBXNativeTarget "EnsomiMac" */;
 			buildPhases = (
 				7BB7CCBD87D21DDE374DB8CC /* Sources */,
+				19EA3D00BD7E26ECF1BA5A12 /* Resources */,
 				2B380DDFE0291067789908A1 /* Frameworks */,
 				8F79F412ED65F0EC8E9DD9F1 /* Embed Frameworks */,
 			);
@@ -865,6 +869,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		19EA3D00BD7E26ECF1BA5A12 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2BEAE5263C556CB8D8239465 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C9377F453698A8FD946B4330 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1223,7 +1235,7 @@
 		614D6583DB75109C4114C6EA /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
 				INFOPLIST_FILE = Apps/EnsomiMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1261,7 +1273,7 @@
 		79773BE7E9D48F1E0FCBB83C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
