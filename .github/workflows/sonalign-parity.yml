@@ -6,16 +6,16 @@ on:
       - 'project.yml'
       - 'Tools/check_sonalign_parity.py'
       - 'Tools/swift_sync_parity.swift'
-      - 'Sources/PulsefieldCore/Services/AmbientSync/**'
-      - 'Sources/PulsefieldCore/Domain/AmbientSyncDomain.swift'
+      - 'Sources/EnsomiCore/Services/AmbientSync/**'
+      - 'Sources/EnsomiCore/Domain/AmbientSyncDomain.swift'
       - '.github/workflows/sonalign-parity.yml'
   pull_request:
     paths:
       - 'project.yml'
       - 'Tools/check_sonalign_parity.py'
       - 'Tools/swift_sync_parity.swift'
-      - 'Sources/PulsefieldCore/Services/AmbientSync/**'
-      - 'Sources/PulsefieldCore/Domain/AmbientSyncDomain.swift'
+      - 'Sources/EnsomiCore/Services/AmbientSync/**'
+      - 'Sources/EnsomiCore/Domain/AmbientSyncDomain.swift'
       - '.github/workflows/sonalign-parity.yml'
   workflow_dispatch:
 

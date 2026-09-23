@@ -1,0 +1,1536 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		080631C1DD96DFE16C45F869 /* Sonalign in Frameworks */ = {isa = PBXBuildFile; productRef = C3F3C7E14334949B1EA8AB49 /* Sonalign */; };
+		0910DF077104765F18AACF75 /* LiveRecognitionSyncModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6377E25C0803C1B008F885F9 /* LiveRecognitionSyncModelTests.swift */; };
+		0E194E3C7E63D8B66A2E3E80 /* AmbientMicFeatureStreamService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 288309B776338FE3EC9E59D6 /* AmbientMicFeatureStreamService.swift */; };
+		12DFCBA69C209A0F0EB63E1B /* LocalTrackResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F1AC6E7432F2565CD460B9 /* LocalTrackResolver.swift */; };
+		131CC7BD44380FA65B4E91E6 /* AmbientSyncReferenceIndexBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B5187E9EEDCC1038E187C3 /* AmbientSyncReferenceIndexBuilder.swift */; };
+		16FEB939E42496F4D8299FCF /* AmbientSyncEngineReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55A9417D6A488B35883D673 /* AmbientSyncEngineReadiness.swift */; };
+		17AAE5121A50FE606DC866A2 /* AmbientSyncEngineTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546E9B45E56B429FBEAC9659 /* AmbientSyncEngineTracking.swift */; };
+		18F4A8978FB0DD91C65A7F2C /* Mania4KOffsetCalibrationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B36053FB4B99CE266CED8F2B /* Mania4KOffsetCalibrationModelTests.swift */; };
+		1E488B3D1621686935615C7C /* LiveRecognitionSyncWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD4E6A074A61FDF1FEB4C10 /* LiveRecognitionSyncWindow.swift */; };
+		1F394317FF584744CF78FEEE /* Mania4KNoteRenderLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07E18DF0C055CB6B3A5AC57 /* Mania4KNoteRenderLayoutTests.swift */; };
+		1FE62BF5525ED85E147D3D7E /* EnsomiIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E294482B58EFB7D963E4AE /* EnsomiIOSApp.swift */; };
+		207FE256F829C31053A730CC /* AmbientSyncEngineGates.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB3368394387AB728044654 /* AmbientSyncEngineGates.swift */; };
+		26B0AB00879C68CF9C42DC5F /* Mania4KGameplayFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5643EA37EFC4CF676C92243A /* Mania4KGameplayFeedbackTests.swift */; };
+		27FBA03D712A9953DE509EF7 /* AmbientMicCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC883B62F578815D5059958F /* AmbientMicCaptureTests.swift */; };
+		292D5EE534E203D5321FA90C /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
+		2A5C7EE6C33EE64B687E0499 /* MicrophonePermissionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C475CD76B745234E25E28F8C /* MicrophonePermissionService.swift */; };
+		2B1A8987783CC554489A758D /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		2DAAA5BC52C163DC7AE91D15 /* AmbientSyncEngineConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */; };
+		2EE595A3A3468838319F69E3 /* Mania4KDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */; };
+		32B6ED47721CD5B5E7F6D4C1 /* EnsomiUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		36209F90B7F1607AB6FF214A /* calibration_tick.wav in Resources */ = {isa = PBXBuildFile; fileRef = ADE723E8EECBD38CBC3FE7D3 /* calibration_tick.wav */; };
+		3853A2AFDAE823701FF50AD7 /* LocalLibraryDashboardModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0D4E833CE58191460184BF /* LocalLibraryDashboardModelTests.swift */; };
+		3875AE78611454CB8AF81A5C /* EnsomiUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3E95B7CA9B3DD7C3DA4E907E /* AmbientSyncOffsetHistogramTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B1DEDF6666B7B7F99C81C4 /* AmbientSyncOffsetHistogramTests.swift */; };
+		3F979DEF5D928C64DDAA3956 /* LocalLibraryDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A1D0E6A815C2E152620815 /* LocalLibraryDashboardView.swift */; };
+		40519026FAF92C1DBB965C56 /* CanonicalTrackDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 256BE921A0938041801BDA07 /* CanonicalTrackDomain.swift */; };
+		407F4996590DBCCBDC0F4FEE /* AmbientSyncSpectralMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93C0254C3CC1447149E7E57 /* AmbientSyncSpectralMatcher.swift */; };
+		418DDA959B8C002A1CFA44A1 /* Mania4KPlaySessionModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */; };
+		4966D581F4521D85BA867FDB /* AmbientSyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A23CC773785ED963A925878 /* AmbientSyncEngineTests.swift */; };
+		4FC7CEFC8B9C1E1BF8519FFB /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
+		506E1E4312D5F20ACB0A3342 /* AmbientSyncEngineDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E69ACE12AF9FAA2BB98A0C0 /* AmbientSyncEngineDiagnostics.swift */; };
+		532BCBA85611682A8586911F /* AmbientSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C756630C9C8F6A4A545C8B84 /* AmbientSyncEngine.swift */; };
+		57BCAF78D9F80F3C92837F76 /* AmbientSyncEngineReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA0F500ABD17BAE5AF968E1 /* AmbientSyncEngineReference.swift */; };
+		594071880E0B6F585DBF35F2 /* LocalResolveDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A0CF260A417996D56F25E0 /* LocalResolveDebugView.swift */; };
+		59AAAAF108580B59EC576317 /* AmbientSyncFixtureReplayRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58687AF72722297220FB52F /* AmbientSyncFixtureReplayRunnerTests.swift */; };
+		5B38DA03F2C1D9B982A2FEB6 /* InferenceEndpointWebSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBC3BD7078F8D45DA83A205 /* InferenceEndpointWebSocketClient.swift */; };
+		60B6E13972D3003611FD2B92 /* LocalTrackResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93614D9513236A02A1CE46EF /* LocalTrackResolverTests.swift */; };
+		6182C4604A381CC773440EE1 /* AmbientSyncFixtureRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0805C6675C82D7C6A1F783AC /* AmbientSyncFixtureRecorderView.swift */; };
+		630CA2AF01F48C17F77085F9 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
+		6A06B33CB153B77013F1EE6B /* SystemAudioCaptureSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66E8C212D13212902EB0BC26 /* SystemAudioCaptureSource.swift */; };
+		6A634053BFA8E295609265CB /* EnsomiProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 82991F4AB065812244BD67C3 /* EnsomiProtocol */; };
+		6D62C2F9138E68F60114A4D5 /* LocalAudioLibraryIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BA733B20F927F472BB87547 /* LocalAudioLibraryIndexer.swift */; };
+		726312AB20A4AAF5DD29B215 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = 67690B86BDDCDCB94587505B /* SwiftProtobuf */; };
+		72999D3B63C9E592EDFC8870 /* EnsomiUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		731DA421924D1983351B5ABF /* AmbientSyncEngineLandmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE1E1961664091BFDDB3A506 /* AmbientSyncEngineLandmarks.swift */; };
+		73C88CA17F80079F355CD97E /* RecognitionDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29B6C19CC5EBBDA0D32DDD0E /* RecognitionDomain.swift */; };
+		7624F718B0CA7B90D80A9BC8 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
+		78FA4BFA8D67AF433FE4741A /* ACRCloudDebugCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB5B287E7B66F49377DF98E /* ACRCloudDebugCLI.swift */; };
+		7FA4955A34C85BF533D2C6B5 /* LocalAudioLibraryIndexerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD64B514B050D92BF9DD9D1 /* LocalAudioLibraryIndexerTests.swift */; };
+		89777CC40518DF85D1681C6B /* AmbientSyncSessionEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */; };
+		8B753410741B4B7BED93DEE1 /* AmbientSyncFixtureRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0397B804CFA48F51D360C8 /* AmbientSyncFixtureRecorder.swift */; };
+		8E25EA37322F2CE6BFD7345B /* EnsomiWorkbenchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F79D890BD144DB5B9D5A7354 /* EnsomiWorkbenchView.swift */; };
+		8F17EDC96EDDAF6ABC365256 /* EnsomiCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		8FA9069F376791EB0A9B0862 /* DebugACRCloudRecognitionProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BA95D108A13CDE295DFCB7 /* DebugACRCloudRecognitionProviderTests.swift */; };
+		92544F6B2FBE732067ED0201 /* EnsomiMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2513F9AE00A8F700B937190 /* EnsomiMacApp.swift */; };
+		92FCF43B24E9C69DC26F5A24 /* LocalAudioDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C6FEDB5549691497EBFCE53 /* LocalAudioDomain.swift */; };
+		93F582BAD73910F31C5C9780 /* MicFeatureStreamBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0306E91E9DC618ECFA5D9C53 /* MicFeatureStreamBufferTests.swift */; };
+		96A4096CE39FCD07286B5A0A /* LocalMusicDirectoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B608FF9501BEFEFB812C22F6 /* LocalMusicDirectoryStore.swift */; };
+		9AC6F20B1032F6666A54D1D8 /* LocalAudioLibraryDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E3DDBD53457643B4B34C9C8 /* LocalAudioLibraryDatabase.swift */; };
+		9ACFCC9419DD9540AFA139CF /* AmbientSyncDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 645720FDC93F3FC1AA89C6C1 /* AmbientSyncDomain.swift */; };
+		9B3859C62894E7C991D51C93 /* EnsomiProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = F01BA805C1360DB0ECD47EBE /* EnsomiProtocol */; };
+		9E7449C0B0DD7806ED450A39 /* EnsomiCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A07F3EF400F6BB04B80908FB /* AmbientSyncSpectralEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431AFD6F697DFDD6573D8738 /* AmbientSyncSpectralEngine.swift */; };
+		A5560C4DADFE4DC1587F627C /* AmbientSyncReferenceIndexBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */; };
+		A5BFDF5D8B82712951F0B97A /* AmbientSyncFixtureReplayRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D91BFE00C8D3B9B6E35E6826 /* AmbientSyncFixtureReplayRunner.swift */; };
+		AA3EFF269893034C07E717BF /* Mania4KPlaySessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */; };
+		AD33398E6984823B4976486C /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		AE8D85A6529B51B734AFC631 /* Mania4KPlayExperienceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */; };
+		B0941D59F4DEA563541C4B19 /* DebugACRCloudRecognitionProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */; };
+		B32C144DEA2D9C8E3C390A07 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 274685086015DCD5D91873C2 /* Accelerate.framework */; };
+		B48EBEF1D0A26F3CF9CB0862 /* Mania4KGameplayFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACAF4F2B7F41DA3E05EB11FC /* Mania4KGameplayFeedback.swift */; };
+		B7903A59EFEEC52EEDA2E00B /* AmbientSyncOffsetTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD565660C130A4D72033386 /* AmbientSyncOffsetTracker.swift */; };
+		C63D18FEA08D14A815F0E2EC /* MicFeatureStreamBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F90564319BD411D05FFE7 /* MicFeatureStreamBuffer.swift */; };
+		C646E2188A21BBC6E452B76A /* LocalAudioMetadataExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCE8C2600A887C784F591A8 /* LocalAudioMetadataExtractor.swift */; };
+		C72F3E4EC1C8FD62EFBF367B /* MicFeaturePayloadExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD222D37A68D05890A6690F5 /* MicFeaturePayloadExtractor.swift */; };
+		C7F48E4C91FAD777755D930D /* MicFeaturePayloadExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */; };
+		CD318C007C75AB12AEC83369 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		D14D280CDA4F6D27F7FE2275 /* EnsomiCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		D3CF2858499E0D0CC84DACDE /* SystemAudioFeatureStreamService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBE632F5A61553AA6F2DFD92 /* SystemAudioFeatureStreamService.swift */; };
+		D88ECC12E816AEBB90D44EEE /* AudioClipCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0C5E5E95DCB981EF075F52 /* AudioClipCaptureService.swift */; };
+		D93E3B26B40CD564B7838781 /* Mania4KOffsetCalibrationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DE5E33B40CA0D8FDC815C5E /* Mania4KOffsetCalibrationModel.swift */; };
+		DA7A1B413B03EFC2CB799135 /* AmbientSyncSpectralEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */; };
+		E0145F054DBD5E3E4F78D0A5 /* InferenceEndpointWebSocketClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */; };
+		E1441CE0F24B4C62C19D9C10 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
+		EDB8513ECCADD936D0827B0B /* AmbientSyncEngineConfidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */; };
+		F09D765A490E2123FDBA31A2 /* AmbientSyncSessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4781E32D04C9E36DA67575CB /* AmbientSyncSessionEngine.swift */; };
+		F15608F918A36474402FA973 /* AmbientSyncOffsetHistogram.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56B20E27DE49B69C595FDBB /* AmbientSyncOffsetHistogram.swift */; };
+		F163DF55CD733545386C5480 /* AmbientSyncReferenceIndexBinaryCacheCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */; };
+		F247CEBAA0544386804E99BF /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
+		FAAC48482A997DAFDD595C53 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		FCE05604EFD6A551B01BA282 /* SystemAudioClipCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BA1700B8EF157C5634D1A /* SystemAudioClipCaptureService.swift */; };
+		FD22222510DF2AC8509C7EC3 /* RecognitionArchitecture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A621997DDC829B25137812AB /* RecognitionArchitecture.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		017D3C2C9733A94CC8B809C5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 36EC40A155FBA61F38C35D3C;
+			remoteInfo = EnsomiUI;
+		};
+		117E71D9D3921042357632EA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FEC67BE3C0B9E733D7924C75;
+			remoteInfo = EnsomiCore;
+		};
+		2242345299798D1A29B44CC1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 36EC40A155FBA61F38C35D3C;
+			remoteInfo = EnsomiUI;
+		};
+		383E0B0D28BB90F85C5B3871 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FEC67BE3C0B9E733D7924C75;
+			remoteInfo = EnsomiCore;
+		};
+		58F6FADC3C5DBA2C11557DDF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FEC67BE3C0B9E733D7924C75;
+			remoteInfo = EnsomiCore;
+		};
+		6360FD9C2F53C0803C3FFA4F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FEC67BE3C0B9E733D7924C75;
+			remoteInfo = EnsomiCore;
+		};
+		8E7139EC83A6189B6FC8CDF9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FEC67BE3C0B9E733D7924C75;
+			remoteInfo = EnsomiCore;
+		};
+		F16B2D1D90D47DEF0FAE7562 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DC1ADF527D2CCFD959DB584D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 36EC40A155FBA61F38C35D3C;
+			remoteInfo = EnsomiUI;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		185213D7784F51899281F1A2 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				9E7449C0B0DD7806ED450A39 /* EnsomiCore.framework in Embed Frameworks */,
+				72999D3B63C9E592EDFC8870 /* EnsomiUI.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1AA6E2B1D81CD6A37AE4A915 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				D14D280CDA4F6D27F7FE2275 /* EnsomiCore.framework in Embed Frameworks */,
+				3875AE78611454CB8AF81A5C /* EnsomiUI.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8F79F412ED65F0EC8E9DD9F1 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				8F17EDC96EDDAF6ABC365256 /* EnsomiCore.framework in Embed Frameworks */,
+				32B6ED47721CD5B5E7F6D4C1 /* EnsomiUI.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0306E91E9DC618ECFA5D9C53 /* MicFeatureStreamBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeatureStreamBufferTests.swift; sourceTree = "<group>"; };
+		05A1D0E6A815C2E152620815 /* LocalLibraryDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryDashboardView.swift; sourceTree = "<group>"; };
+		0805C6675C82D7C6A1F783AC /* AmbientSyncFixtureRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureRecorderView.swift; sourceTree = "<group>"; };
+		083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlayExperienceView.swift; sourceTree = "<group>"; };
+		0D9EEAFFD5280852633B24EF /* EnsomiACRCloudDebugCLI */ = {isa = PBXFileReference; includeInIndex = 0; path = EnsomiACRCloudDebugCLI; sourceTree = BUILT_PRODUCTS_DIR; };
+		0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfiguration.swift; sourceTree = "<group>"; };
+		1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilderTests.swift; sourceTree = "<group>"; };
+		1CA123E827CD2F98FFE2B8FD /* EnsomiIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EnsomiIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KDomain.swift; sourceTree = "<group>"; };
+		256BE921A0938041801BDA07 /* CanonicalTrackDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalTrackDomain.swift; sourceTree = "<group>"; };
+		274685086015DCD5D91873C2 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		27B1DEDF6666B7B7F99C81C4 /* AmbientSyncOffsetHistogramTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncOffsetHistogramTests.swift; sourceTree = "<group>"; };
+		288309B776338FE3EC9E59D6 /* AmbientMicFeatureStreamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientMicFeatureStreamService.swift; sourceTree = "<group>"; };
+		29B6C19CC5EBBDA0D32DDD0E /* RecognitionDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionDomain.swift; sourceTree = "<group>"; };
+		2B0D4E833CE58191460184BF /* LocalLibraryDashboardModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryDashboardModelTests.swift; sourceTree = "<group>"; };
+		35B5187E9EEDCC1038E187C3 /* AmbientSyncReferenceIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilder.swift; sourceTree = "<group>"; };
+		365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfidence.swift; sourceTree = "<group>"; };
+		3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlaySessionModel.swift; sourceTree = "<group>"; };
+		3D8BA1700B8EF157C5634D1A /* SystemAudioClipCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioClipCaptureService.swift; sourceTree = "<group>"; };
+		3ED25E9FEBF2485CD6E9F1EC /* architecture.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = architecture.md; sourceTree = "<group>"; };
+		431AFD6F697DFDD6573D8738 /* AmbientSyncSpectralEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralEngine.swift; sourceTree = "<group>"; };
+		4781E32D04C9E36DA67575CB /* AmbientSyncSessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSessionEngine.swift; sourceTree = "<group>"; };
+		4990B53DCC22200998B7A53A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		49BA95D108A13CDE295DFCB7 /* DebugACRCloudRecognitionProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugACRCloudRecognitionProviderTests.swift; sourceTree = "<group>"; };
+		4DE5E33B40CA0D8FDC815C5E /* Mania4KOffsetCalibrationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KOffsetCalibrationModel.swift; sourceTree = "<group>"; };
+		4E3DDBD53457643B4B34C9C8 /* LocalAudioLibraryDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioLibraryDatabase.swift; sourceTree = "<group>"; };
+		52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = EnsomiCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		546E9B45E56B429FBEAC9659 /* AmbientSyncEngineTracking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineTracking.swift; sourceTree = "<group>"; };
+		5643EA37EFC4CF676C92243A /* Mania4KGameplayFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGameplayFeedbackTests.swift; sourceTree = "<group>"; };
+		5E69ACE12AF9FAA2BB98A0C0 /* AmbientSyncEngineDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineDiagnostics.swift; sourceTree = "<group>"; };
+		6377E25C0803C1B008F885F9 /* LiveRecognitionSyncModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRecognitionSyncModelTests.swift; sourceTree = "<group>"; };
+		63A0CF260A417996D56F25E0 /* LocalResolveDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalResolveDebugView.swift; sourceTree = "<group>"; };
+		645720FDC93F3FC1AA89C6C1 /* AmbientSyncDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncDomain.swift; sourceTree = "<group>"; };
+		66E8C212D13212902EB0BC26 /* SystemAudioCaptureSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioCaptureSource.swift; sourceTree = "<group>"; };
+		6BB5B287E7B66F49377DF98E /* ACRCloudDebugCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACRCloudDebugCLI.swift; sourceTree = "<group>"; };
+		6C6FEDB5549691497EBFCE53 /* LocalAudioDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioDomain.swift; sourceTree = "<group>"; };
+		6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeaturePayloadExtractorTests.swift; sourceTree = "<group>"; };
+		7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugACRCloudRecognitionProvider.swift; sourceTree = "<group>"; };
+		7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBinaryCacheCodec.swift; sourceTree = "<group>"; };
+		83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnsomiCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BA733B20F927F472BB87547 /* LocalAudioLibraryIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioLibraryIndexer.swift; sourceTree = "<group>"; };
+		93614D9513236A02A1CE46EF /* LocalTrackResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTrackResolverTests.swift; sourceTree = "<group>"; };
+		97EB5E0DC2F0F85617EF3F1F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		9A23CC773785ED963A925878 /* AmbientSyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineTests.swift; sourceTree = "<group>"; };
+		9BCE8C2600A887C784F591A8 /* LocalAudioMetadataExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioMetadataExtractor.swift; sourceTree = "<group>"; };
+		A4E294482B58EFB7D963E4AE /* EnsomiIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsomiIOSApp.swift; sourceTree = "<group>"; };
+		A55A9417D6A488B35883D673 /* AmbientSyncEngineReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineReadiness.swift; sourceTree = "<group>"; };
+		A56B20E27DE49B69C595FDBB /* AmbientSyncOffsetHistogram.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncOffsetHistogram.swift; sourceTree = "<group>"; };
+		A621997DDC829B25137812AB /* RecognitionArchitecture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionArchitecture.swift; sourceTree = "<group>"; };
+		ACAF4F2B7F41DA3E05EB11FC /* Mania4KGameplayFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGameplayFeedback.swift; sourceTree = "<group>"; };
+		ACD4E6A074A61FDF1FEB4C10 /* LiveRecognitionSyncWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveRecognitionSyncWindow.swift; sourceTree = "<group>"; };
+		ADD64B514B050D92BF9DD9D1 /* LocalAudioLibraryIndexerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioLibraryIndexerTests.swift; sourceTree = "<group>"; };
+		ADE723E8EECBD38CBC3FE7D3 /* calibration_tick.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = calibration_tick.wav; sourceTree = "<group>"; };
+		AE1E1961664091BFDDB3A506 /* AmbientSyncEngineLandmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineLandmarks.swift; sourceTree = "<group>"; };
+		AFA0F500ABD17BAE5AF968E1 /* AmbientSyncEngineReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineReference.swift; sourceTree = "<group>"; };
+		B15A13F4949148FCECD62C3F /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
+		B36053FB4B99CE266CED8F2B /* Mania4KOffsetCalibrationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KOffsetCalibrationModelTests.swift; sourceTree = "<group>"; };
+		B608FF9501BEFEFB812C22F6 /* LocalMusicDirectoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMusicDirectoryStore.swift; sourceTree = "<group>"; };
+		BBE632F5A61553AA6F2DFD92 /* SystemAudioFeatureStreamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioFeatureStreamService.swift; sourceTree = "<group>"; };
+		C288CB29AE9D254EC43949DF /* EnsomiUI.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = EnsomiUI.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		C475CD76B745234E25E28F8C /* MicrophonePermissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophonePermissionService.swift; sourceTree = "<group>"; };
+		C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		C756630C9C8F6A4A545C8B84 /* AmbientSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngine.swift; sourceTree = "<group>"; };
+		C93C0254C3CC1447149E7E57 /* AmbientSyncSpectralMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralMatcher.swift; sourceTree = "<group>"; };
+		CBB3368394387AB728044654 /* AmbientSyncEngineGates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineGates.swift; sourceTree = "<group>"; };
+		CBBC3BD7078F8D45DA83A205 /* InferenceEndpointWebSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceEndpointWebSocketClient.swift; sourceTree = "<group>"; };
+		CFD565660C130A4D72033386 /* AmbientSyncOffsetTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncOffsetTracker.swift; sourceTree = "<group>"; };
+		D07E18DF0C055CB6B3A5AC57 /* Mania4KNoteRenderLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KNoteRenderLayoutTests.swift; sourceTree = "<group>"; };
+		D2513F9AE00A8F700B937190 /* EnsomiMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsomiMacApp.swift; sourceTree = "<group>"; };
+		D505721B77D268F1C7392D25 /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
+		D58687AF72722297220FB52F /* AmbientSyncFixtureReplayRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureReplayRunnerTests.swift; sourceTree = "<group>"; };
+		D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlaySessionModelTests.swift; sourceTree = "<group>"; };
+		D91BFE00C8D3B9B6E35E6826 /* AmbientSyncFixtureReplayRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureReplayRunner.swift; sourceTree = "<group>"; };
+		D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralEngineTests.swift; sourceTree = "<group>"; };
+		DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSessionEngineTests.swift; sourceTree = "<group>"; };
+		DC883B62F578815D5059958F /* AmbientMicCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientMicCaptureTests.swift; sourceTree = "<group>"; };
+		E6F1AC6E7432F2565CD460B9 /* LocalTrackResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTrackResolver.swift; sourceTree = "<group>"; };
+		E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceEndpointWebSocketClientTests.swift; sourceTree = "<group>"; };
+		F23F90564319BD411D05FFE7 /* MicFeatureStreamBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeatureStreamBuffer.swift; sourceTree = "<group>"; };
+		F72B62D3E3DBE3D41C9EA09C /* EnsomiMac.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EnsomiMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F79D890BD144DB5B9D5A7354 /* EnsomiWorkbenchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsomiWorkbenchView.swift; sourceTree = "<group>"; };
+		FD222D37A68D05890A6690F5 /* MicFeaturePayloadExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeaturePayloadExtractor.swift; sourceTree = "<group>"; };
+		FE0C5E5E95DCB981EF075F52 /* AudioClipCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioClipCaptureService.swift; sourceTree = "<group>"; };
+		FF0397B804CFA48F51D360C8 /* AmbientSyncFixtureRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureRecorder.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2B380DDFE0291067789908A1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B1A8987783CC554489A758D /* EnsomiCore.framework in Frameworks */,
+				630CA2AF01F48C17F77085F9 /* EnsomiUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		415FACE650F31EFA610DEB5C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AD33398E6984823B4976486C /* EnsomiCore.framework in Frameworks */,
+				7624F718B0CA7B90D80A9BC8 /* EnsomiUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		47FB2CC4C68F9EB7BA5D5E86 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CD318C007C75AB12AEC83369 /* EnsomiCore.framework in Frameworks */,
+				4FC7CEFC8B9C1E1BF8519FFB /* AVFoundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4A7CF6AAAE1D38965E039CC6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1441CE0F24B4C62C19D9C10 /* EnsomiCore.framework in Frameworks */,
+				F247CEBAA0544386804E99BF /* AVFoundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9F26C7430B700FE5FAEB458E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FAAC48482A997DAFDD595C53 /* EnsomiCore.framework in Frameworks */,
+				E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */,
+				9B3859C62894E7C991D51C93 /* EnsomiProtocol in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D2B5227FD0F6CA7180B0BB4B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				292D5EE534E203D5321FA90C /* AVFoundation.framework in Frameworks */,
+				B32C144DEA2D9C8E3C390A07 /* Accelerate.framework in Frameworks */,
+				6A634053BFA8E295609265CB /* EnsomiProtocol in Frameworks */,
+				726312AB20A4AAF5DD29B215 /* SwiftProtobuf in Frameworks */,
+				080631C1DD96DFE16C45F869 /* Sonalign in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		04EA904449DFB1F8E7A17A34 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				8956C22CE0D075679F410558 /* AmbientSync */,
+				A0BF6A99A1C90849A4899D48 /* Beatmap */,
+				8351F6CFBC32064F4FDFFCA5 /* LocalLibrary */,
+				C9901A4340F24874F6760795 /* Permissions */,
+				7D758435A0D440A9F72A3871 /* Recognition */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		0CCCF8E6FF4213D7B5D3C278 /* LocalLibrary */ = {
+			isa = PBXGroup;
+			children = (
+				0805C6675C82D7C6A1F783AC /* AmbientSyncFixtureRecorderView.swift */,
+				05A1D0E6A815C2E152620815 /* LocalLibraryDashboardView.swift */,
+				63A0CF260A417996D56F25E0 /* LocalResolveDebugView.swift */,
+			);
+			path = LocalLibrary;
+			sourceTree = "<group>";
+		};
+		2D7492E817727A6241F5D128 /* Apps */ = {
+			isa = PBXGroup;
+			children = (
+				49AFBCDDA38E5BAADD811B80 /* EnsomiIOS */,
+				60ED9F82B59B5A332CFE289E /* EnsomiMac */,
+			);
+			path = Apps;
+			sourceTree = "<group>";
+		};
+		2DB67753DE01F8B70FCB528C /* Workbench */ = {
+			isa = PBXGroup;
+			children = (
+				F79D890BD144DB5B9D5A7354 /* EnsomiWorkbenchView.swift */,
+			);
+			path = Workbench;
+			sourceTree = "<group>";
+		};
+		359AC77D19BF43CA5A24AC7D /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				5D9410FA41F0F9F78A5F3045 /* Mania4K */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		451ED20B0324FE1B9E4F4436 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				0CCCF8E6FF4213D7B5D3C278 /* LocalLibrary */,
+				E432B25DB0EB434AD742C371 /* Mania4K */,
+				9DEC0C038BC904097E970C8D /* Recognition */,
+				2DB67753DE01F8B70FCB528C /* Workbench */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		49AFBCDDA38E5BAADD811B80 /* EnsomiIOS */ = {
+			isa = PBXGroup;
+			children = (
+				A4E294482B58EFB7D963E4AE /* EnsomiIOSApp.swift */,
+			);
+			path = EnsomiIOS;
+			sourceTree = "<group>";
+		};
+		4D4B0BF0D61656BFDD8D7F24 /* ACRCloudDebugCLI */ = {
+			isa = PBXGroup;
+			children = (
+				6BB5B287E7B66F49377DF98E /* ACRCloudDebugCLI.swift */,
+			);
+			path = ACRCloudDebugCLI;
+			sourceTree = "<group>";
+		};
+		5798D6B688446ADCB4AD641E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				693CF73240A1C63C555AE02C /* Audio */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		5D9410FA41F0F9F78A5F3045 /* Mania4K */ = {
+			isa = PBXGroup;
+			children = (
+				ACAF4F2B7F41DA3E05EB11FC /* Mania4KGameplayFeedback.swift */,
+				4DE5E33B40CA0D8FDC815C5E /* Mania4KOffsetCalibrationModel.swift */,
+				3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */,
+			);
+			path = Mania4K;
+			sourceTree = "<group>";
+		};
+		60ED9F82B59B5A332CFE289E /* EnsomiMac */ = {
+			isa = PBXGroup;
+			children = (
+				D2513F9AE00A8F700B937190 /* EnsomiMacApp.swift */,
+				4990B53DCC22200998B7A53A /* Info.plist */,
+			);
+			path = EnsomiMac;
+			sourceTree = "<group>";
+		};
+		693CF73240A1C63C555AE02C /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				ADE723E8EECBD38CBC3FE7D3 /* calibration_tick.wav */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		75BC03463AB55573B2396E5B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				274685086015DCD5D91873C2 /* Accelerate.framework */,
+				C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		7D758435A0D440A9F72A3871 /* Recognition */ = {
+			isa = PBXGroup;
+			children = (
+				8572A01917BE9420F5B1E381 /* Live */,
+			);
+			path = Recognition;
+			sourceTree = "<group>";
+		};
+		824DB9DACFDB609220FEF123 = {
+			isa = PBXGroup;
+			children = (
+				D505721B77D268F1C7392D25 /* AGENTS.md */,
+				B15A13F4949148FCECD62C3F /* LICENSE */,
+				97EB5E0DC2F0F85617EF3F1F /* README.md */,
+				2D7492E817727A6241F5D128 /* Apps */,
+				90CC7293C2933FB8D7B8C2D4 /* docs */,
+				E36DE21B8BFC0A3FC2A5AED0 /* Sources */,
+				E1DEB0BA81EC9A159F66D028 /* Tests */,
+				FFEC6830D43A9E52ECF90018 /* Tools */,
+				75BC03463AB55573B2396E5B /* Frameworks */,
+				A0B326C1B9FCAD1270220348 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8351F6CFBC32064F4FDFFCA5 /* LocalLibrary */ = {
+			isa = PBXGroup;
+			children = (
+				4E3DDBD53457643B4B34C9C8 /* LocalAudioLibraryDatabase.swift */,
+				8BA733B20F927F472BB87547 /* LocalAudioLibraryIndexer.swift */,
+				9BCE8C2600A887C784F591A8 /* LocalAudioMetadataExtractor.swift */,
+				B608FF9501BEFEFB812C22F6 /* LocalMusicDirectoryStore.swift */,
+				E6F1AC6E7432F2565CD460B9 /* LocalTrackResolver.swift */,
+			);
+			path = LocalLibrary;
+			sourceTree = "<group>";
+		};
+		8572A01917BE9420F5B1E381 /* Live */ = {
+			isa = PBXGroup;
+			children = (
+				FE0C5E5E95DCB981EF075F52 /* AudioClipCaptureService.swift */,
+				7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */,
+				3D8BA1700B8EF157C5634D1A /* SystemAudioClipCaptureService.swift */,
+			);
+			path = Live;
+			sourceTree = "<group>";
+		};
+		874A279E3BC921D0B56E0F91 /* EnsomiCore */ = {
+			isa = PBXGroup;
+			children = (
+				CD1F1B34AE3284D17B102424 /* Domain */,
+				359AC77D19BF43CA5A24AC7D /* Features */,
+				04EA904449DFB1F8E7A17A34 /* Services */,
+			);
+			path = EnsomiCore;
+			sourceTree = "<group>";
+		};
+		8956C22CE0D075679F410558 /* AmbientSync */ = {
+			isa = PBXGroup;
+			children = (
+				288309B776338FE3EC9E59D6 /* AmbientMicFeatureStreamService.swift */,
+				C756630C9C8F6A4A545C8B84 /* AmbientSyncEngine.swift */,
+				365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */,
+				0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */,
+				5E69ACE12AF9FAA2BB98A0C0 /* AmbientSyncEngineDiagnostics.swift */,
+				CBB3368394387AB728044654 /* AmbientSyncEngineGates.swift */,
+				AE1E1961664091BFDDB3A506 /* AmbientSyncEngineLandmarks.swift */,
+				A55A9417D6A488B35883D673 /* AmbientSyncEngineReadiness.swift */,
+				AFA0F500ABD17BAE5AF968E1 /* AmbientSyncEngineReference.swift */,
+				546E9B45E56B429FBEAC9659 /* AmbientSyncEngineTracking.swift */,
+				FF0397B804CFA48F51D360C8 /* AmbientSyncFixtureRecorder.swift */,
+				D91BFE00C8D3B9B6E35E6826 /* AmbientSyncFixtureReplayRunner.swift */,
+				A56B20E27DE49B69C595FDBB /* AmbientSyncOffsetHistogram.swift */,
+				CFD565660C130A4D72033386 /* AmbientSyncOffsetTracker.swift */,
+				7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */,
+				35B5187E9EEDCC1038E187C3 /* AmbientSyncReferenceIndexBuilder.swift */,
+				4781E32D04C9E36DA67575CB /* AmbientSyncSessionEngine.swift */,
+				431AFD6F697DFDD6573D8738 /* AmbientSyncSpectralEngine.swift */,
+				C93C0254C3CC1447149E7E57 /* AmbientSyncSpectralMatcher.swift */,
+				FD222D37A68D05890A6690F5 /* MicFeaturePayloadExtractor.swift */,
+				F23F90564319BD411D05FFE7 /* MicFeatureStreamBuffer.swift */,
+				66E8C212D13212902EB0BC26 /* SystemAudioCaptureSource.swift */,
+				BBE632F5A61553AA6F2DFD92 /* SystemAudioFeatureStreamService.swift */,
+			);
+			path = AmbientSync;
+			sourceTree = "<group>";
+		};
+		90CC7293C2933FB8D7B8C2D4 /* docs */ = {
+			isa = PBXGroup;
+			children = (
+				3ED25E9FEBF2485CD6E9F1EC /* architecture.md */,
+			);
+			path = docs;
+			sourceTree = "<group>";
+		};
+		9DEC0C038BC904097E970C8D /* Recognition */ = {
+			isa = PBXGroup;
+			children = (
+				ACD4E6A074A61FDF1FEB4C10 /* LiveRecognitionSyncWindow.swift */,
+			);
+			path = Recognition;
+			sourceTree = "<group>";
+		};
+		A0B326C1B9FCAD1270220348 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0D9EEAFFD5280852633B24EF /* EnsomiACRCloudDebugCLI */,
+				52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */,
+				83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */,
+				1CA123E827CD2F98FFE2B8FD /* EnsomiIOS.app */,
+				F72B62D3E3DBE3D41C9EA09C /* EnsomiMac.app */,
+				C288CB29AE9D254EC43949DF /* EnsomiUI.framework */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A0BF6A99A1C90849A4899D48 /* Beatmap */ = {
+			isa = PBXGroup;
+			children = (
+				CBBC3BD7078F8D45DA83A205 /* InferenceEndpointWebSocketClient.swift */,
+			);
+			path = Beatmap;
+			sourceTree = "<group>";
+		};
+		C9901A4340F24874F6760795 /* Permissions */ = {
+			isa = PBXGroup;
+			children = (
+				C475CD76B745234E25E28F8C /* MicrophonePermissionService.swift */,
+			);
+			path = Permissions;
+			sourceTree = "<group>";
+		};
+		CD1F1B34AE3284D17B102424 /* Domain */ = {
+			isa = PBXGroup;
+			children = (
+				645720FDC93F3FC1AA89C6C1 /* AmbientSyncDomain.swift */,
+				256BE921A0938041801BDA07 /* CanonicalTrackDomain.swift */,
+				6C6FEDB5549691497EBFCE53 /* LocalAudioDomain.swift */,
+				1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */,
+				A621997DDC829B25137812AB /* RecognitionArchitecture.swift */,
+				29B6C19CC5EBBDA0D32DDD0E /* RecognitionDomain.swift */,
+			);
+			path = Domain;
+			sourceTree = "<group>";
+		};
+		D6277D5EDAC71BCF9D820650 /* EnsomiCoreTests */ = {
+			isa = PBXGroup;
+			children = (
+				DC883B62F578815D5059958F /* AmbientMicCaptureTests.swift */,
+				9A23CC773785ED963A925878 /* AmbientSyncEngineTests.swift */,
+				D58687AF72722297220FB52F /* AmbientSyncFixtureReplayRunnerTests.swift */,
+				27B1DEDF6666B7B7F99C81C4 /* AmbientSyncOffsetHistogramTests.swift */,
+				1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */,
+				DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */,
+				D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */,
+				49BA95D108A13CDE295DFCB7 /* DebugACRCloudRecognitionProviderTests.swift */,
+				E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */,
+				6377E25C0803C1B008F885F9 /* LiveRecognitionSyncModelTests.swift */,
+				ADD64B514B050D92BF9DD9D1 /* LocalAudioLibraryIndexerTests.swift */,
+				2B0D4E833CE58191460184BF /* LocalLibraryDashboardModelTests.swift */,
+				93614D9513236A02A1CE46EF /* LocalTrackResolverTests.swift */,
+				5643EA37EFC4CF676C92243A /* Mania4KGameplayFeedbackTests.swift */,
+				D07E18DF0C055CB6B3A5AC57 /* Mania4KNoteRenderLayoutTests.swift */,
+				B36053FB4B99CE266CED8F2B /* Mania4KOffsetCalibrationModelTests.swift */,
+				D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */,
+				6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */,
+				0306E91E9DC618ECFA5D9C53 /* MicFeatureStreamBufferTests.swift */,
+			);
+			path = EnsomiCoreTests;
+			sourceTree = "<group>";
+		};
+		E1DEB0BA81EC9A159F66D028 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				D6277D5EDAC71BCF9D820650 /* EnsomiCoreTests */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		E36DE21B8BFC0A3FC2A5AED0 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				874A279E3BC921D0B56E0F91 /* EnsomiCore */,
+				F26CD85C18CB7E36E598F17B /* EnsomiUI */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		E432B25DB0EB434AD742C371 /* Mania4K */ = {
+			isa = PBXGroup;
+			children = (
+				083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */,
+			);
+			path = Mania4K;
+			sourceTree = "<group>";
+		};
+		F26CD85C18CB7E36E598F17B /* EnsomiUI */ = {
+			isa = PBXGroup;
+			children = (
+				451ED20B0324FE1B9E4F4436 /* Features */,
+				5798D6B688446ADCB4AD641E /* Resources */,
+			);
+			path = EnsomiUI;
+			sourceTree = "<group>";
+		};
+		FFEC6830D43A9E52ECF90018 /* Tools */ = {
+			isa = PBXGroup;
+			children = (
+				4D4B0BF0D61656BFDD8D7F24 /* ACRCloudDebugCLI */,
+			);
+			path = Tools;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		12FA571B0C7B22B9F0ADFABF /* EnsomiMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9A18114683DBFF4126F68381 /* Build configuration list for PBXNativeTarget "EnsomiMac" */;
+			buildPhases = (
+				7BB7CCBD87D21DDE374DB8CC /* Sources */,
+				2B380DDFE0291067789908A1 /* Frameworks */,
+				8F79F412ED65F0EC8E9DD9F1 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CBE10E5C361E080782D30EDC /* PBXTargetDependency */,
+				CFF491A749792C9CE89B79C3 /* PBXTargetDependency */,
+			);
+			name = EnsomiMac;
+			packageProductDependencies = (
+			);
+			productName = EnsomiMac;
+			productReference = F72B62D3E3DBE3D41C9EA09C /* EnsomiMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		36EC40A155FBA61F38C35D3C /* EnsomiUI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2B5320FCDA916EF6F8684230 /* Build configuration list for PBXNativeTarget "EnsomiUI" */;
+			buildPhases = (
+				BD7F8BC8FD4C30ABF650331B /* Sources */,
+				C9377F453698A8FD946B4330 /* Resources */,
+				47FB2CC4C68F9EB7BA5D5E86 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FD142703CE70AFFE15558073 /* PBXTargetDependency */,
+			);
+			name = EnsomiUI;
+			packageProductDependencies = (
+			);
+			productName = EnsomiUI;
+			productReference = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+		3CA5687388A6792024A4BCF8 /* EnsomiIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 147984DB15A622EABEA3B150 /* Build configuration list for PBXNativeTarget "EnsomiIOS" */;
+			buildPhases = (
+				A887355F8652DD376AD67FCD /* Sources */,
+				415FACE650F31EFA610DEB5C /* Frameworks */,
+				185213D7784F51899281F1A2 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				01780EAFDA9759FDBCC00E6B /* PBXTargetDependency */,
+				850E43EDA6C906E51A994A1D /* PBXTargetDependency */,
+			);
+			name = EnsomiIOS;
+			packageProductDependencies = (
+			);
+			productName = EnsomiIOS;
+			productReference = 1CA123E827CD2F98FFE2B8FD /* EnsomiIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9A6B0A32148629EEAE452F13 /* EnsomiCoreTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F13E427CE45D73559C74BCBF /* Build configuration list for PBXNativeTarget "EnsomiCoreTests" */;
+			buildPhases = (
+				622BF07556D2C9CA35F5B286 /* Sources */,
+				9F26C7430B700FE5FAEB458E /* Frameworks */,
+				1AA6E2B1D81CD6A37AE4A915 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D3B2F7172AACD809D3E4B8C8 /* PBXTargetDependency */,
+				392F656995C52315F8C8F609 /* PBXTargetDependency */,
+			);
+			name = EnsomiCoreTests;
+			packageProductDependencies = (
+				F01BA805C1360DB0ECD47EBE /* EnsomiProtocol */,
+			);
+			productName = EnsomiCoreTests;
+			productReference = 83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C72F55C814DEB2E310812F33 /* EnsomiACRCloudDebugCLI */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 11DC48D286BFE6697D9DF0B7 /* Build configuration list for PBXNativeTarget "EnsomiACRCloudDebugCLI" */;
+			buildPhases = (
+				F448DF3C258D570939A5608B /* Sources */,
+				4A7CF6AAAE1D38965E039CC6 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2F2199C7DBA44E5D35B53F1A /* PBXTargetDependency */,
+			);
+			name = EnsomiACRCloudDebugCLI;
+			packageProductDependencies = (
+			);
+			productName = EnsomiACRCloudDebugCLI;
+			productReference = 0D9EEAFFD5280852633B24EF /* EnsomiACRCloudDebugCLI */;
+			productType = "com.apple.product-type.tool";
+		};
+		FEC67BE3C0B9E733D7924C75 /* EnsomiCore */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0F1F43C4D6EA02C87A814964 /* Build configuration list for PBXNativeTarget "EnsomiCore" */;
+			buildPhases = (
+				B23FCAA556D1F0581903209C /* Sources */,
+				D2B5227FD0F6CA7180B0BB4B /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnsomiCore;
+			packageProductDependencies = (
+				82991F4AB065812244BD67C3 /* EnsomiProtocol */,
+				67690B86BDDCDCB94587505B /* SwiftProtobuf */,
+				C3F3C7E14334949B1EA8AB49 /* Sonalign */,
+			);
+			productName = EnsomiCore;
+			productReference = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DC1ADF527D2CCFD959DB584D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					12FA571B0C7B22B9F0ADFABF = {
+						ProvisioningStyle = Automatic;
+					};
+					36EC40A155FBA61F38C35D3C = {
+						ProvisioningStyle = Automatic;
+					};
+					3CA5687388A6792024A4BCF8 = {
+						ProvisioningStyle = Automatic;
+					};
+					9A6B0A32148629EEAE452F13 = {
+						ProvisioningStyle = Automatic;
+					};
+					C72F55C814DEB2E310812F33 = {
+						ProvisioningStyle = Automatic;
+					};
+					FEC67BE3C0B9E733D7924C75 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 52D04B5412B12F8A0BD78DFD /* Build configuration list for PBXProject "Ensomi" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 824DB9DACFDB609220FEF123;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */,
+				67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */,
+				CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A0B326C1B9FCAD1270220348 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C72F55C814DEB2E310812F33 /* EnsomiACRCloudDebugCLI */,
+				FEC67BE3C0B9E733D7924C75 /* EnsomiCore */,
+				9A6B0A32148629EEAE452F13 /* EnsomiCoreTests */,
+				3CA5687388A6792024A4BCF8 /* EnsomiIOS */,
+				12FA571B0C7B22B9F0ADFABF /* EnsomiMac */,
+				36EC40A155FBA61F38C35D3C /* EnsomiUI */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C9377F453698A8FD946B4330 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				36209F90B7F1607AB6FF214A /* calibration_tick.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		622BF07556D2C9CA35F5B286 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				27FBA03D712A9953DE509EF7 /* AmbientMicCaptureTests.swift in Sources */,
+				4966D581F4521D85BA867FDB /* AmbientSyncEngineTests.swift in Sources */,
+				59AAAAF108580B59EC576317 /* AmbientSyncFixtureReplayRunnerTests.swift in Sources */,
+				3E95B7CA9B3DD7C3DA4E907E /* AmbientSyncOffsetHistogramTests.swift in Sources */,
+				A5560C4DADFE4DC1587F627C /* AmbientSyncReferenceIndexBuilderTests.swift in Sources */,
+				89777CC40518DF85D1681C6B /* AmbientSyncSessionEngineTests.swift in Sources */,
+				DA7A1B413B03EFC2CB799135 /* AmbientSyncSpectralEngineTests.swift in Sources */,
+				8FA9069F376791EB0A9B0862 /* DebugACRCloudRecognitionProviderTests.swift in Sources */,
+				E0145F054DBD5E3E4F78D0A5 /* InferenceEndpointWebSocketClientTests.swift in Sources */,
+				0910DF077104765F18AACF75 /* LiveRecognitionSyncModelTests.swift in Sources */,
+				7FA4955A34C85BF533D2C6B5 /* LocalAudioLibraryIndexerTests.swift in Sources */,
+				3853A2AFDAE823701FF50AD7 /* LocalLibraryDashboardModelTests.swift in Sources */,
+				60B6E13972D3003611FD2B92 /* LocalTrackResolverTests.swift in Sources */,
+				26B0AB00879C68CF9C42DC5F /* Mania4KGameplayFeedbackTests.swift in Sources */,
+				1F394317FF584744CF78FEEE /* Mania4KNoteRenderLayoutTests.swift in Sources */,
+				18F4A8978FB0DD91C65A7F2C /* Mania4KOffsetCalibrationModelTests.swift in Sources */,
+				418DDA959B8C002A1CFA44A1 /* Mania4KPlaySessionModelTests.swift in Sources */,
+				C7F48E4C91FAD777755D930D /* MicFeaturePayloadExtractorTests.swift in Sources */,
+				93F582BAD73910F31C5C9780 /* MicFeatureStreamBufferTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7BB7CCBD87D21DDE374DB8CC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				92544F6B2FBE732067ED0201 /* EnsomiMacApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A887355F8652DD376AD67FCD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1FE62BF5525ED85E147D3D7E /* EnsomiIOSApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B23FCAA556D1F0581903209C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0E194E3C7E63D8B66A2E3E80 /* AmbientMicFeatureStreamService.swift in Sources */,
+				9ACFCC9419DD9540AFA139CF /* AmbientSyncDomain.swift in Sources */,
+				532BCBA85611682A8586911F /* AmbientSyncEngine.swift in Sources */,
+				EDB8513ECCADD936D0827B0B /* AmbientSyncEngineConfidence.swift in Sources */,
+				2DAAA5BC52C163DC7AE91D15 /* AmbientSyncEngineConfiguration.swift in Sources */,
+				506E1E4312D5F20ACB0A3342 /* AmbientSyncEngineDiagnostics.swift in Sources */,
+				207FE256F829C31053A730CC /* AmbientSyncEngineGates.swift in Sources */,
+				731DA421924D1983351B5ABF /* AmbientSyncEngineLandmarks.swift in Sources */,
+				16FEB939E42496F4D8299FCF /* AmbientSyncEngineReadiness.swift in Sources */,
+				57BCAF78D9F80F3C92837F76 /* AmbientSyncEngineReference.swift in Sources */,
+				17AAE5121A50FE606DC866A2 /* AmbientSyncEngineTracking.swift in Sources */,
+				8B753410741B4B7BED93DEE1 /* AmbientSyncFixtureRecorder.swift in Sources */,
+				A5BFDF5D8B82712951F0B97A /* AmbientSyncFixtureReplayRunner.swift in Sources */,
+				F15608F918A36474402FA973 /* AmbientSyncOffsetHistogram.swift in Sources */,
+				B7903A59EFEEC52EEDA2E00B /* AmbientSyncOffsetTracker.swift in Sources */,
+				F163DF55CD733545386C5480 /* AmbientSyncReferenceIndexBinaryCacheCodec.swift in Sources */,
+				131CC7BD44380FA65B4E91E6 /* AmbientSyncReferenceIndexBuilder.swift in Sources */,
+				F09D765A490E2123FDBA31A2 /* AmbientSyncSessionEngine.swift in Sources */,
+				A07F3EF400F6BB04B80908FB /* AmbientSyncSpectralEngine.swift in Sources */,
+				407F4996590DBCCBDC0F4FEE /* AmbientSyncSpectralMatcher.swift in Sources */,
+				D88ECC12E816AEBB90D44EEE /* AudioClipCaptureService.swift in Sources */,
+				40519026FAF92C1DBB965C56 /* CanonicalTrackDomain.swift in Sources */,
+				B0941D59F4DEA563541C4B19 /* DebugACRCloudRecognitionProvider.swift in Sources */,
+				5B38DA03F2C1D9B982A2FEB6 /* InferenceEndpointWebSocketClient.swift in Sources */,
+				92FCF43B24E9C69DC26F5A24 /* LocalAudioDomain.swift in Sources */,
+				9AC6F20B1032F6666A54D1D8 /* LocalAudioLibraryDatabase.swift in Sources */,
+				6D62C2F9138E68F60114A4D5 /* LocalAudioLibraryIndexer.swift in Sources */,
+				C646E2188A21BBC6E452B76A /* LocalAudioMetadataExtractor.swift in Sources */,
+				96A4096CE39FCD07286B5A0A /* LocalMusicDirectoryStore.swift in Sources */,
+				12DFCBA69C209A0F0EB63E1B /* LocalTrackResolver.swift in Sources */,
+				2EE595A3A3468838319F69E3 /* Mania4KDomain.swift in Sources */,
+				B48EBEF1D0A26F3CF9CB0862 /* Mania4KGameplayFeedback.swift in Sources */,
+				D93E3B26B40CD564B7838781 /* Mania4KOffsetCalibrationModel.swift in Sources */,
+				AA3EFF269893034C07E717BF /* Mania4KPlaySessionModel.swift in Sources */,
+				C72F3E4EC1C8FD62EFBF367B /* MicFeaturePayloadExtractor.swift in Sources */,
+				C63D18FEA08D14A815F0E2EC /* MicFeatureStreamBuffer.swift in Sources */,
+				2A5C7EE6C33EE64B687E0499 /* MicrophonePermissionService.swift in Sources */,
+				FD22222510DF2AC8509C7EC3 /* RecognitionArchitecture.swift in Sources */,
+				73C88CA17F80079F355CD97E /* RecognitionDomain.swift in Sources */,
+				6A06B33CB153B77013F1EE6B /* SystemAudioCaptureSource.swift in Sources */,
+				FCE05604EFD6A551B01BA282 /* SystemAudioClipCaptureService.swift in Sources */,
+				D3CF2858499E0D0CC84DACDE /* SystemAudioFeatureStreamService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BD7F8BC8FD4C30ABF650331B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6182C4604A381CC773440EE1 /* AmbientSyncFixtureRecorderView.swift in Sources */,
+				8E25EA37322F2CE6BFD7345B /* EnsomiWorkbenchView.swift in Sources */,
+				1E488B3D1621686935615C7C /* LiveRecognitionSyncWindow.swift in Sources */,
+				3F979DEF5D928C64DDAA3956 /* LocalLibraryDashboardView.swift in Sources */,
+				594071880E0B6F585DBF35F2 /* LocalResolveDebugView.swift in Sources */,
+				AE8D85A6529B51B734AFC631 /* Mania4KPlayExperienceView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F448DF3C258D570939A5608B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				78FA4BFA8D67AF433FE4741A /* ACRCloudDebugCLI.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		01780EAFDA9759FDBCC00E6B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FEC67BE3C0B9E733D7924C75 /* EnsomiCore */;
+			targetProxy = 383E0B0D28BB90F85C5B3871 /* PBXContainerItemProxy */;
+		};
+		2F2199C7DBA44E5D35B53F1A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FEC67BE3C0B9E733D7924C75 /* EnsomiCore */;
+			targetProxy = 58F6FADC3C5DBA2C11557DDF /* PBXContainerItemProxy */;
+		};
+		392F656995C52315F8C8F609 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 36EC40A155FBA61F38C35D3C /* EnsomiUI */;
+			targetProxy = 017D3C2C9733A94CC8B809C5 /* PBXContainerItemProxy */;
+		};
+		850E43EDA6C906E51A994A1D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 36EC40A155FBA61F38C35D3C /* EnsomiUI */;
+			targetProxy = 2242345299798D1A29B44CC1 /* PBXContainerItemProxy */;
+		};
+		CBE10E5C361E080782D30EDC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FEC67BE3C0B9E733D7924C75 /* EnsomiCore */;
+			targetProxy = 117E71D9D3921042357632EA /* PBXContainerItemProxy */;
+		};
+		CFF491A749792C9CE89B79C3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 36EC40A155FBA61F38C35D3C /* EnsomiUI */;
+			targetProxy = F16B2D1D90D47DEF0FAE7562 /* PBXContainerItemProxy */;
+		};
+		D3B2F7172AACD809D3E4B8C8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FEC67BE3C0B9E733D7924C75 /* EnsomiCore */;
+			targetProxy = 8E7139EC83A6189B6FC8CDF9 /* PBXContainerItemProxy */;
+		};
+		FD142703CE70AFFE15558073 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FEC67BE3C0B9E733D7924C75 /* EnsomiCore */;
+			targetProxy = 6360FD9C2F53C0803C3FFA4F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		040D49081C5ED96B7428176A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		0973AB155CEFAF700173FC49 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path";
+				PRODUCT_BUNDLE_IDENTIFIER = "io.ensomi.acrcloud-debug-cli";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Release;
+		};
+		2396837DB835E441F9A70BDC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = Ensomi;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ensomi uses the microphone to prototype nearby music recognition flows.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.ios;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		372A66446AA86FDBEE4A5F39 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.ui;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		49A50BD238691A052A419CFE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		614D6583DB75109C4114C6EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Apps/EnsomiMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.mac;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Release;
+		};
+		634998F20B7226B1DD16A181 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.core.tests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Release;
+		};
+		79773BE7E9D48F1E0FCBB83C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Apps/EnsomiMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.mac;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Debug;
+		};
+		A3BCEB1606A50A7B25FE1858 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path";
+				PRODUCT_BUNDLE_IDENTIFIER = "io.ensomi.acrcloud-debug-cli";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Debug;
+		};
+		B4F045AFE18CCF18A5E06BA7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.ui;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		C76BB3449C5282B592DCDD35 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_KEY_CFBundleDisplayName = Ensomi;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Ensomi uses the microphone to prototype nearby music recognition flows.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.ios;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DC9D49DAA6B661C3AD971755 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.core;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		DDE7E5FFE8A3F3C9B99B2150 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.core;
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		F6BBC53E7FDFF0482F723947 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.ensomi.core.tests;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0F1F43C4D6EA02C87A814964 /* Build configuration list for PBXNativeTarget "EnsomiCore" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDE7E5FFE8A3F3C9B99B2150 /* Debug */,
+				DC9D49DAA6B661C3AD971755 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		11DC48D286BFE6697D9DF0B7 /* Build configuration list for PBXNativeTarget "EnsomiACRCloudDebugCLI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3BCEB1606A50A7B25FE1858 /* Debug */,
+				0973AB155CEFAF700173FC49 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		147984DB15A622EABEA3B150 /* Build configuration list for PBXNativeTarget "EnsomiIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C76BB3449C5282B592DCDD35 /* Debug */,
+				2396837DB835E441F9A70BDC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		2B5320FCDA916EF6F8684230 /* Build configuration list for PBXNativeTarget "EnsomiUI" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				372A66446AA86FDBEE4A5F39 /* Debug */,
+				B4F045AFE18CCF18A5E06BA7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		52D04B5412B12F8A0BD78DFD /* Build configuration list for PBXProject "Ensomi" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				49A50BD238691A052A419CFE /* Debug */,
+				040D49081C5ED96B7428176A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9A18114683DBFF4126F68381 /* Build configuration list for PBXNativeTarget "EnsomiMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				79773BE7E9D48F1E0FCBB83C /* Debug */,
+				614D6583DB75109C4114C6EA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F13E427CE45D73559C74BCBF /* Build configuration list for PBXNativeTarget "EnsomiCoreTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F6BBC53E7FDFF0482F723947 /* Debug */,
+				634998F20B7226B1DD16A181 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ensomi-labs/protocol.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.0;
+			};
+		};
+		67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ensomi-labs/sonalign";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.0;
+			};
+		};
+		CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.38.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		67690B86BDDCDCB94587505B /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+		82991F4AB065812244BD67C3 /* EnsomiProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */;
+			productName = EnsomiProtocol;
+		};
+		C3F3C7E14334949B1EA8AB49 /* Sonalign */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */;
+			productName = Sonalign;
+		};
+		F01BA805C1360DB0ECD47EBE /* EnsomiProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */;
+			productName = EnsomiProtocol;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DC1ADF527D2CCFD959DB584D /* Project object */;
+}

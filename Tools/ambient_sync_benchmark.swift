@@ -1,10 +1,10 @@
 // Offline fixed-window replay. Features are extracted before replay; audio time
 // drives the engine. This does not simulate callback backlog or UI latency.
-// Link against PulsefieldCore.framework; pass --help for CLI arguments.
+// Link against EnsomiCore.framework; pass --help for CLI arguments.
 import Darwin
 import Dispatch
 import Foundation
-import PulsefieldCore
+import EnsomiCore
 
 struct BenchmarkError: Error, CustomStringConvertible { let description: String }
 func monotonicSeconds() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }

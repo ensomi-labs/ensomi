@@ -1,4 +1,4 @@
-name: Pulsefield
+name: Ensomi
 
 options:
   minimumXcodeGenVersion: 2.45.0
@@ -22,145 +22,141 @@ fileGroups:
 
 packages:
   Sonalign:
-    url: https://github.com/Pulsefield/sonalign
+    url: https://github.com/ensomi-labs/sonalign
     exactVersion: "0.1.0"
-  PulsefieldProtocol:
-    path: ../pulsefield-protocol
+  EnsomiProtocol:
+    url: https://github.com/ensomi-labs/protocol.git
+    exactVersion: "0.1.0"
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf.git
     from: "1.38.0"
 
 targets:
-  PulsefieldiOS:
+  EnsomiIOS:
     type: application
     supportedDestinations:
       - iOS
     sources:
-      - path: Apps/PulsefieldiOS
+      - path: Apps/EnsomiIOS
     dependencies:
-      - target: PulsefieldCore
-      - target: PulsefieldUI
+      - target: EnsomiCore
+      - target: EnsomiUI
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.pulsefield.ios
-        INFOPLIST_KEY_CFBundleDisplayName: Pulsefield
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Pulsefield uses the microphone to prototype nearby music recognition flows.
+        PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.ios
+        INFOPLIST_KEY_CFBundleDisplayName: Ensomi
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Ensomi uses the microphone to prototype nearby music recognition flows.
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
       configs:
         Debug:
           CODE_SIGNING_ALLOWED: NO
           CODE_SIGNING_REQUIRED: NO
 
-  PulsefieldMac:
+  EnsomiMac:
     type: application
     supportedDestinations:
       - macOS
     sources:
-      - path: Apps/PulsefieldMac
+      - path: Apps/EnsomiMac
     info:
-      path: Apps/PulsefieldMac/Info.plist
+      path: Apps/EnsomiMac/Info.plist
       properties:
-        CFBundleDisplayName: Pulsefield
-        NSMicrophoneUsageDescription: Pulsefield uses the microphone to prototype nearby music recognition flows.
-        NSAudioCaptureUsageDescription: Pulsefield captures system audio to synchronize gameplay with audio playing on this Mac.
+        CFBundleDisplayName: Ensomi
+        NSMicrophoneUsageDescription: Ensomi uses the microphone to prototype nearby music recognition flows.
+        NSAudioCaptureUsageDescription: Ensomi captures system audio to synchronize gameplay with audio playing on this Mac.
     dependencies:
-      - target: PulsefieldCore
-      - target: PulsefieldUI
+      - target: EnsomiCore
+      - target: EnsomiUI
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.pulsefield.mac
+        PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.mac
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
       configs:
         Debug:
           CODE_SIGNING_ALLOWED: NO
           CODE_SIGNING_REQUIRED: NO
 
-  PulsefieldCore:
+  EnsomiCore:
     type: framework
     supportedDestinations:
       - iOS
       - macOS
     sources:
-      - path: Sources/PulsefieldCore
+      - path: Sources/EnsomiCore
     dependencies:
       - sdk: AVFoundation.framework
       - sdk: Accelerate.framework
-      - package: PulsefieldProtocol
+      - package: EnsomiProtocol
       - package: SwiftProtobuf
       - package: Sonalign
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.pulsefield.core
+        PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.core
         DEFINES_MODULE: YES
 
-  PulsefieldUI:
+  EnsomiUI:
     type: framework
     supportedDestinations:
       - iOS
       - macOS
     sources:
-      - path: Sources/PulsefieldUI
+      - path: Sources/EnsomiUI
     resources:
-      - path: Sources/PulsefieldUI/Resources
+      - path: Sources/EnsomiUI/Resources
     dependencies:
-      - target: PulsefieldCore
+      - target: EnsomiCore
       - sdk: AVFoundation.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.pulsefield.ui
+        PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.ui
         DEFINES_MODULE: YES
 
-  PulsefieldCoreTests:
+  EnsomiCoreTests:
     type: bundle.unit-test
     supportedDestinations:
       - macOS
     sources:
-      - path: Tests/PulsefieldCoreTests
+      - path: Tests/EnsomiCoreTests
     dependencies:
-      - target: PulsefieldCore
-      - target: PulsefieldUI
-      - package: PulsefieldProtocol
+      - target: EnsomiCore
+      - target: EnsomiUI
+      - package: EnsomiProtocol
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.pulsefield.core.tests
+        PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.core.tests
 
-  PulsefieldACRCloudDebugCLI:
+  EnsomiACRCloudDebugCLI:
     type: tool
     supportedDestinations:
       - macOS
     sources:
       - path: Tools/ACRCloudDebugCLI
     dependencies:
-      - target: PulsefieldCore
+      - target: EnsomiCore
       - sdk: AVFoundation.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.pulsefield.acrcloud-debug-cli
+        PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.acrcloud-debug-cli
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path"
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
 
 schemes:
-  PulsefieldiOS:
+  EnsomiIOS:
     build:
       targets:
-        PulsefieldiOS: all
-        PulsefieldUI: all
-        PulsefieldCore: all
+        EnsomiIOS: all
 
-  PulsefieldMac:
+  EnsomiMac:
     build:
       targets:
-        PulsefieldMac: all
-        PulsefieldUI: all
-        PulsefieldCore: all
+        EnsomiMac: all
     test:
       targets:
-        - name: PulsefieldCoreTests
+        - name: EnsomiCoreTests
 
-  PulsefieldACRCloudDebugCLI:
+  EnsomiACRCloudDebugCLI:
     build:
       targets:
-        PulsefieldACRCloudDebugCLI: all
-        PulsefieldCore: all
+        EnsomiACRCloudDebugCLI: all

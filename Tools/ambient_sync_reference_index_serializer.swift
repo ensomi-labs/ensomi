@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import PulsefieldCore
+import EnsomiCore
 
 private struct Options {
     var roots: [URL] = []

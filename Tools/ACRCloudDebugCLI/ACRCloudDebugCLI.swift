@@ -2,7 +2,7 @@
 import AVFoundation
 import Darwin
 import Foundation
-import PulsefieldCore
+import EnsomiCore
 
 @main
 struct ACRCloudDebugCLI {
@@ -165,7 +165,7 @@ private struct ACRCloudDebugOptions {
 
     static let helpText = """
     Usage:
-      PulsefieldACRCloudDebugCLI [--duration seconds] [--clip-start seconds] [--input-audio path | --fixture sidecar.json]
+      EnsomiACRCloudDebugCLI [--duration seconds] [--clip-start seconds] [--input-audio path | --fixture sidecar.json]
                                  [--output-directory path] [--env-file path] [--no-env-file]
                                  [--access-token token] [--acrcloud-cli path] [--region region] [--container-id id]
                                  [--buckets buckets] [--engine 1|2|3|4] [--audio-type linein|recorded]
@@ -709,7 +709,7 @@ import Foundation
 @main
 struct ACRCloudDebugCLI {
     static func main() {
-        fputs("PulsefieldACRCloudDebugCLI is only available in Debug builds.\n", stderr)
+        fputs("EnsomiACRCloudDebugCLI is only available in Debug builds.\n", stderr)
         exit(2)
     }
 }

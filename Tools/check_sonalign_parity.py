@@ -196,8 +196,8 @@ def generate_cases(features, output, suites):
 
 
 def swift_sources():
-    services = ROOT / "Sources/PulsefieldCore/Services/AmbientSync"
-    return ([ROOT / "Sources/PulsefieldCore/Domain/AmbientSyncDomain.swift"]
+    services = ROOT / "Sources/EnsomiCore/Services/AmbientSync"
+    return ([ROOT / "Sources/EnsomiCore/Domain/AmbientSyncDomain.swift"]
             + sorted(services.glob("AmbientSyncEngine*.swift"))
             + [services / (name + ".swift") for name in ["AmbientSyncOffsetHistogram", "AmbientSyncOffsetTracker",
                                                         "AmbientSyncSpectralEngine", "AmbientSyncSpectralMatcher"]]
@@ -397,7 +397,7 @@ def main():
         sources = swift_sources()
         evidence_sources = sources + [Path(__file__).resolve()]
         metadata = {"baselineCommit": BASELINE, "currentCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-                    "expectedSonalignRelease": {"version": SONALIGN_VERSION, "repository": "https://github.com/Pulsefield/sonalign"},
+                    "expectedSonalignRelease": {"version": SONALIGN_VERSION, "repository": "https://github.com/ensomi-labs/sonalign"},
                     "scope": "Shared cached PCEN features; cold matcher/tracker entries; excludes decoding/resampling/feature extraction",
                     "recordingEnergy": "Exports omit energy; fixture frames use -20 dBFS; synthetic energy files test readiness",
                     "timingScope": "Optimized engine.process only; excludes allocation of input windows, decoding, features and index construction",
