@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ensomi App Prose"
+  short_description: "Keep app prose concise and source-grounded"
+  default_prompt: "Use $ensomi-prose-standard to refine the selected app documentation while preserving its technical contracts."

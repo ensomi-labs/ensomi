@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ensomi App Agent Notes"
+  short_description: "Keep working notes on their own Git branch"
+  default_prompt: "Use $ensomi-archive-agent-notes to manage the requested app decision record on the notes branch."

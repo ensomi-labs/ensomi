@@ -1,117 +1,58 @@
 ---
-commit: c4e4d1127c42d945cab919567b12bd1b6f015e1e
+commit: 5c11794f08016478c1edbe2df27464f649b639c8
 ---
 
-# AGENTS.md
+# Ensomi repository guidance
 
-Repository guidance for coding agents working in Pulsefield.
+`project.yml` owns targets, build settings, and dependency versions. Regenerate
+`Ensomi.xcodeproj` with `xcodegen generate` after changing it. Keep domain and
+service logic in `EnsomiCore`, shared SwiftUI in `EnsomiUI`, and platform wiring in
+`Apps`. Use observation for view-consumed state; keep processing buffers and
+service internals outside observation tracking.
 
-## Scope
+Validate changed behavior with focused tests. Prefer concrete state transitions,
+domain mapping, and regression cases over implementation-mirroring tests or new
+test infrastructure. Build commands are in [README.md](README.md).
 
-These instructions apply to routine implementation, test writing, and documentation work in this repository.
+## macOS installation
 
-## macOS App Builds and Privacy Permissions
-
-When building or updating `PulsefieldMac`, keep the app identity and launch path stable so macOS privacy permissions such as Screen Recording do not point at stale builds.
-
-- Keep `CFBundleIdentifier` stable for the same app channel.
-- Keep the signing identity stable within a channel. Do not casually switch between unsigned, ad-hoc signed, Apple Development, and Developer ID builds for the same bundle ID.
-- Install and launch the permission-tested build from one canonical path, preferably `/Applications/PulsefieldMac.app`.
-- Do not launch permission-sensitive builds from random `DerivedData`, `.build`, `Downloads`, or old build output folders.
-- Remove stale same-named app bundles before asking the user to grant Screen Recording or Screen and System Audio Recording access.
-- If development and production builds need to coexist, use distinct names and bundle IDs, such as `PulsefieldMac Dev.app` with a `.dev` bundle ID.
-- When replacing an installed build, quit the app, replace the existing app bundle at the canonical path, then launch that same path.
-
-Sample canonical local update workflow for this repo:
-
-```sh
-cd <project_dir>
-set -euo pipefail
-
-APP_NAME=PulsefieldMac
-SCHEME=PulsefieldMac
-CONFIGURATION=Debug
-DERIVED_DATA="$PWD/.build/PulsefieldMacInstallDerivedData"
-BUILT_APP="$DERIVED_DATA/Build/Products/$CONFIGURATION/$APP_NAME.app"
-INSTALLED_APP="/Applications/$APP_NAME.app"
-
-pkill -x "$APP_NAME" 2>/dev/null || true
-rm -rf "$DERIVED_DATA"
-
-xcodebuild \
-  -project Pulsefield.xcodeproj \
-  -scheme "$SCHEME" \
-  -configuration "$CONFIGURATION" \
-  -destination 'platform=macOS' \
-  -derivedDataPath "$DERIVED_DATA" \
-  build
-
-test -d "$BUILT_APP"
-rm -rf "$INSTALLED_APP"
-ditto "$BUILT_APP" "$INSTALLED_APP"
-open "$INSTALLED_APP"
-```
-
-Use `Debug` here because `project.yml` currently disables code signing for debug macOS builds. Use `Release` only after signing is configured, and keep the installed app path and bundle ID stable. The current macOS bundle ID is `io.pulsefield.mac`.
-
-Before a permission-sensitive run after stale app copies were launched, clean known local build products first:
+Keep bundle ID `io.ensomi.mac`, signing identity, and launch path stable within a
+channel. Permission-sensitive runs use `/Applications/EnsomiMac.app`; do not
+launch from build output or stale copies. Quit the app before replacing that
+bundle, then launch the installed path. Debug disables signing; use Release only
+after configuring a stable signing identity. Coexisting channels need distinct
+names and bundle IDs.
 
 ```sh
-cd <project_dir>
-pkill -x PulsefieldMac 2>/dev/null || true
-
-for DIR in \
-  "$PWD/.derivedData" \
-  "$PWD/DerivedData" \
-  "$HOME/Library/Developer/Xcode/DerivedData"
-do
-  if [ -d "$DIR" ]; then
-    find "$DIR" \
-      -name PulsefieldMac.app \
-      -type d \
-      -prune \
-      -exec rm -rf {} +
-  fi
-done
-
-rm -rf "$PWD/.build/PulsefieldMacInstallDerivedData"
+set -e
+xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -configuration Debug -destination 'platform=macOS' -derivedDataPath .build/EnsomiMacInstallDerivedData build
+test -d .build/EnsomiMacInstallDerivedData/Build/Products/Debug/EnsomiMac.app
+pkill -x EnsomiMac || true
+rm -rf /Applications/EnsomiMac.app
+ditto .build/EnsomiMacInstallDerivedData/Build/Products/Debug/EnsomiMac.app /Applications/EnsomiMac.app
+open /Applications/EnsomiMac.app
 ```
 
-If macOS privacy permissions still appear to reference an older build after an intentional bundle ID or signing change, reset the Screen Recording permission for the current bundle ID, rerun the canonical workflow, then grant permission again from the launched `/Applications/PulsefieldMac.app`:
+Remove stale same-named app bundles before requesting capture permissions. To
+reset capture access, run `tccutil reset ScreenCapture io.ensomi.mac`, launch the
+canonical app, and grant permission again.
 
-```sh
-tccutil reset ScreenCapture io.pulsefield.mac
-```
+## Documentation
 
-## Tests
+Keep durable product contracts in [docs/architecture.md](docs/architecture.md).
+Pin the repository baseline commit in authored Markdown frontmatter. Write one
+clearly named document by default; keep current behavior, proposed designs, and
+execution plans separate. Exclude private fixture inventories, local paths, run
+reports, and generated artifacts from committed docs.
 
-- Avoid overengineering tests.
-- Write concrete and useful tests only.
-- Prefer tests that validate user-visible behavior, feature-model transitions, domain mapping, or real regression boundaries.
-- Do not add tests just to mirror implementation structure or inflate coverage.
-- Do not introduce elaborate test harnesses, builders, mocks, or abstractions unless the current repo state clearly needs them.
-- Keep tests easy to read, easy to change, and tightly scoped to real behavior.
+Use repository skills when their scope matches the task:
 
-## Docs
+| Task | Skill |
+| --- | --- |
+| Docs, comments, and prose cleanup | [Prose standard](.agents/skills/ensomi-prose-standard/SKILL.md) |
+| Dead code, redundancy, and observation audits | [Find simplifications](.agents/skills/ensomi-find-simplifications/SKILL.md) |
+| Final checks and authorized publication | [Pre-push checks](.agents/skills/ensomi-pre-push-checks/SKILL.md) |
+| Persistent working notes on `agent-notes` | [Agent Notes](.agents/skills/ensomi-archive-agent-notes/SKILL.md) |
 
-- When writing docs, always pin the current commit hash in the frontmatter.
-- This applies to design explanations, future roadmap docs, and execution plan docs.
-- The commit hash must describe the repo baseline the document is talking about.
-
-### Doc Separation
-
-- Clearly distinguish:
-  - current repo status, architecture & design
-  - future roadmap / proposed design
-  - execution plan details
-- Do not combine those categories in one file.
-
-### Doc Count
-
-- When documentation is needed, write only one doc by default.
-- Give that doc a clear name and a single clear intention.
-- Do not split documentation into multiple files unless the user explicitly asks for multiple docs.
-
-### Naming
-
-- Choose doc names that communicate intent directly.
+Skill baseline pins use `metadata.commit` in YAML frontmatter. Product docs must
+remain self-contained without the notes branch.

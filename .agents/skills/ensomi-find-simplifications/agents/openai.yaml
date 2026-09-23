@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ensomi App Simplification"
+  short_description: "Find redundant code and observation work"
+  default_prompt: "Use $ensomi-find-simplifications to identify and implement the requested app cleanup with caller evidence."

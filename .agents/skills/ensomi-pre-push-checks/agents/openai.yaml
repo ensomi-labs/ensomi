@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ensomi App Verification"
+  short_description: "Select checks for the actual Swift app diff"
+  default_prompt: "Use $ensomi-pre-push-checks to verify this app change and report the relevant local evidence."
