@@ -20,7 +20,6 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_FEATURES = ROOT / "LocalFixtures/ambient-sync-voice-memos/.spectral-sync-20260909/features"
 BASELINE = "82381d34e8166050531919b070131117bb1e13ee"
 SONALIGN_VERSION = "0.1.0"
 HOP = 512 / 48_000 * 1000
@@ -181,8 +180,8 @@ def generate_cases(features, output, suites):
                     if times[-1] >= entry + 30000:
                         cases.append({"id": f"entry/{name}/{entry}", "reference": reference, "query": query,
                                       "calls": schedule(times, entry=entry, duration=30000)})
-            if "stress" in suites and "queen-world-created" in name:
-                cases.append({"id": "stress/queen-entry30-cadence100", "reference": reference, "query": query,
+            if "stress" in suites and times[-1] >= 60000:
+                cases.append({"id": f"stress/{name}/entry30-cadence100", "reference": reference, "query": query,
                               "calls": schedule(times, cadence=100, entry=30000, duration=30000)})
             if "wrong" in suites:
                 for other in references:
@@ -364,25 +363,29 @@ def compare(swift_path, rust_path, cases):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--features", type=Path, default=DEFAULT_FEATURES)
+    parser.add_argument("--features", type=Path, help="Local feature directory with manifest.json; required for recording suites")
     parser.add_argument("--output", type=Path, default=ROOT / ".build/sonalign-parity")
     parser.add_argument("--sonalign-bin", "--rust-bin", dest="rust_bin", type=Path,
                         default=ROOT / ".build/sonalign/bin/sonalign-replay",
                         help="Released sonalign-replay CLI; defaults to .build/sonalign/bin/sonalign-replay")
-    parser.add_argument("--suites", default="synthetic,fixtures,entries,stress,wrong")
+    parser.add_argument("--suites", default="synthetic", help="Comma-separated synthetic,fixtures,entries,stress,wrong (default: synthetic)")
     parser.add_argument("--prepare-only", action="store_true", help="Generate inputs and compile/run Swift only")
     parser.add_argument("--compare-only", action="store_true", help="Compare existing traces without rebuilding/running")
     parser.add_argument("--filter", default="", help="Run cases whose ID contains this string")
     args = parser.parse_args()
     args.output = args.output.resolve()
-    args.features = args.features.resolve()
-    args.output.mkdir(parents=True, exist_ok=True)
+    if args.features is not None:
+        args.features = args.features.resolve()
     suites = set(args.suites.split(","))
     if not suites <= {"synthetic", "fixtures", "entries", "stress", "wrong"}:
         parser.error("Unknown suite")
+    if not args.compare_only and suites - {"synthetic"}:
+        if args.features is None or not (args.features / "manifest.json").is_file():
+            parser.error("Recording suites require --features pointing to a directory with manifest.json")
     if not args.prepare_only and not args.compare_only and not args.rust_bin.is_file():
         parser.error(f"Install Sonalign with: cargo install sonalign --version {SONALIGN_VERSION} --locked "
                      "--root .build/sonalign; or provide --sonalign-bin")
+    args.output.mkdir(parents=True, exist_ok=True)
     cases_path = args.output / "cases.jsonl"
     swift_path, rust_path = args.output / "swift.jsonl", args.output / "rust.jsonl"
     metadata_path = args.output / "inputs.json"
