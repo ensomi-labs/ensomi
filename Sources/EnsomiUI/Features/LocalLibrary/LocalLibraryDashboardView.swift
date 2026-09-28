@@ -138,123 +138,113 @@ public struct LocalLibraryDashboardView: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                controls
-                statusGrid
-                directoriesList
-                LocalResolveDebugView(model: model)
-                #if os(macOS)
-                if let ambientFixtureRecorderModel = model.ambientFixtureRecorderModel {
-                    AmbientSyncFixtureRecorderView(model: ambientFixtureRecorderModel)
+        Form {
+            Section {
+                if model.directories.isEmpty {
+                    ContentUnavailableView {
+                        Label("Add Your Music", systemImage: "music.note.list")
+                    } description: {
+                        Text("Choose a folder of audio files to use for recognition and play.")
+                    } actions: {
+                        addFolderButton
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else {
+                    ForEach(model.directories) { directory in
+                        directoryRow(directory)
+                    }
+                    addFolderButton
                 }
-                #endif
+            } header: {
+                Text("Music Folders")
+            } footer: {
+                Text("Removing a folder from the library keeps its audio files on disk.")
             }
-            .padding(24)
-            .frame(maxWidth: 980, alignment: .leading)
+
+            if let error = model.errorMessage {
+                Section("Library Error") {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Section("Scan Status") {
+                statusRow("Discovered", value: model.status.discoveredCount.formatted())
+                statusRow("Indexed", value: model.status.indexedCount.formatted())
+                statusRow("Failed", value: model.status.failedCount.formatted())
+                statusRow("Missing", value: model.status.missingCount.formatted())
+                statusRow("Last scan", value: model.status.lastScanFinishedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Never")
+                Button("Rescan Library", systemImage: "arrow.clockwise", action: model.rescanAll)
+                    .disabled(model.directories.isEmpty)
+                Button("Refresh Status", systemImage: "list.bullet.rectangle", action: model.refresh)
+            }
+
+            Section {
+                DisclosureGroup("Library Tools") {
+                    LocalResolveDebugView(model: model)
+                    #if os(macOS)
+                    if let recorder = model.ambientFixtureRecorderModel {
+                        AmbientSyncFixtureRecorderView(model: recorder)
+                    }
+                    #endif
+                }
+            }
         }
-        .task {
-            model.refresh()
-        }
+        .formStyle(.grouped)
+        .navigationTitle("Library")
+        .task { model.refresh() }
         .fileImporter(
             isPresented: $isImportingDirectory,
             allowedContentTypes: [.folder],
             allowsMultipleSelection: false
         ) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                model.addDirectory(url)
-            }
-        }
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Local Music Library")
-                .font(.title.bold())
-            Text("Directories, scan status, and manual resolve checks for local audio assets.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var controls: some View {
-        HStack(spacing: 12) {
-            Button {
-                isImportingDirectory = true
-            } label: {
-                Label("Add Directory", systemImage: "folder.badge.plus")
-            }
-
-            Button {
-                model.rescanAll()
-            } label: {
-                Label("Rescan", systemImage: "arrow.clockwise")
-            }
-
-            Button {
-                model.refresh()
-            } label: {
-                Label("Refresh", systemImage: "list.bullet.rectangle")
-            }
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var statusGrid: some View {
-        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 10) {
-            statusRow("discovered", "\(model.status.discoveredCount)")
-            statusRow("indexed", "\(model.status.indexedCount)")
-            statusRow("failed", "\(model.status.failedCount)")
-            statusRow("missing", "\(model.status.missingCount)")
-            statusRow("last scan", model.status.lastScanFinishedAt?.formatted(date: .abbreviated, time: .standard) ?? "never")
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func statusRow(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.body.monospaced())
-        }
-    }
-
-    private var directoriesList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Directories")
-                .font(.headline)
-
-            if model.directories.isEmpty {
-                Text("No directories added.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(model.directories) { directory in
-                    HStack(spacing: 12) {
-                        Image(systemName: directory.recursive ? "folder.fill.badge.gearshape" : "folder.fill")
-                            .foregroundStyle(.secondary)
-                        Text(directory.displayPath)
-                            .font(.callout.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button {
-                            model.removeDirectory(directory)
-                        } label: {
-                            Label("Remove", systemImage: "minus.circle")
-                        }
-                    }
-                    .padding(10)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            switch result {
+            case .success(let urls):
+                if let url = urls.first { model.addDirectory(url) }
+            case .failure(let error):
+                let cocoaError = error as NSError
+                if cocoaError.domain != NSCocoaErrorDomain || cocoaError.code != NSUserCancelledError {
+                    model.errorMessage = error.localizedDescription
                 }
             }
+        }
+    }
 
-            if let error = model.errorMessage {
-                Text(error)
-                    .foregroundStyle(.red)
+    private func statusRow(_ title: String, value: String) -> some View {
+        LabeledContent(title, value: value)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(value)
+    }
+
+    private var addFolderButton: some View {
+        Button("Add Music Folder…", systemImage: "folder.badge.plus") {
+            isImportingDirectory = true
+        }
+    }
+
+    private func directoryRow(_ directory: MusicLibraryDirectory) -> some View {
+        HStack(spacing: 12) {
+            Label {
+                Text(directory.displayPath)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            } icon: {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
             }
+            Spacer()
+            Button(role: .destructive) {
+                model.removeDirectory(directory)
+            } label: {
+                Label("Remove", systemImage: "minus.circle")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Remove \(directory.displayPath) from library")
+            .help("Remove from library; audio files stay on disk")
         }
     }
 }

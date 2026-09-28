@@ -8,7 +8,7 @@ public struct EnsomiWorkbenchView: View {
 
     @AppStorage("mania4k.offsetCalibrationState") private var storedOffsetCalibrationState = ""
     @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
-    @State private var selection: WorkbenchTab
+    @State private var selection: WorkbenchTab?
     @State private var maniaModel: Mania4KPlaySessionModel
     @State private var localLibraryModel: LocalLibraryDashboardModel
     @State private var isShowingSettings = false
@@ -28,40 +28,23 @@ public struct EnsomiWorkbenchView: View {
     }
 
     public var body: some View {
-        TabView(selection: $selection) {
-            LocalLibraryDashboardView(model: localLibraryModel)
-            .tabItem {
-                Label("Library", systemImage: "music.note.list")
-            }
-            .tag(WorkbenchTab.localLibrary)
-
-            Mania4KPlayExperienceView(
-                model: maniaModel,
-                onAmbientRecognitionRequested: onAmbientRecognitionRequested
-            )
-                .tabItem {
-                    Label("Play", systemImage: "square.grid.2x2")
-                }
-                .tag(WorkbenchTab.play)
-        }
+        navigation
         .onAppear(perform: restoreStoredManiaSettingsIfNeeded)
+        #if os(iOS)
         .sheet(isPresented: $isShowingSettings) {
-            Mania4KSettingsPageView(
-                model: maniaModel,
-                storedOffsetCalibrationState: $storedOffsetCalibrationState,
-                storedKeyBindings: $storedKeyBindings
-            )
-        }
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    isShowingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .help("Open Settings")
+            NavigationStack {
+                EnsomiSettingsView(model: maniaModel)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { isShowingSettings = false }
+                        }
+                    }
             }
         }
+        #endif
+        #if os(macOS)
+        .toolbar { settingsToolbar }
+        #endif
         #if os(macOS)
         .toolbar {
             ToolbarItem {
@@ -85,6 +68,71 @@ public struct EnsomiWorkbenchView: View {
             }
         }
         #endif
+    }
+
+    @ToolbarContentBuilder
+    private var settingsToolbar: some ToolbarContent {
+        ToolbarItem {
+            #if os(macOS)
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Open Settings")
+            #else
+            Button {
+                isShowingSettings = true
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var navigation: some View {
+        #if os(macOS)
+        NavigationSplitView {
+            List(selection: $selection) {
+                Label("Library", systemImage: "music.note.list")
+                    .tag(WorkbenchTab.localLibrary)
+                Label("Play", systemImage: "square.grid.2x2")
+                    .tag(WorkbenchTab.play)
+            }
+            .navigationTitle("Ensomi")
+            .navigationSplitViewColumnWidth(min: 160, ideal: 190)
+        } detail: {
+            switch selection ?? .localLibrary {
+            case .localLibrary:
+                LocalLibraryDashboardView(model: localLibraryModel)
+            case .play:
+                playExperience
+            }
+        }
+        #else
+        TabView(selection: $selection) {
+            NavigationStack {
+                LocalLibraryDashboardView(model: localLibraryModel)
+                    .toolbar { settingsToolbar }
+            }
+            .tabItem { Label("Library", systemImage: "music.note.list") }
+            .tag(Optional(WorkbenchTab.localLibrary))
+
+            NavigationStack {
+                playExperience
+                    .toolbar { settingsToolbar }
+            }
+            .tabItem { Label("Play", systemImage: "square.grid.2x2") }
+            .tag(Optional(WorkbenchTab.play))
+        }
+        #endif
+    }
+
+    private var playExperience: some View {
+        Mania4KPlayExperienceView(
+            model: maniaModel,
+            onAmbientRecognitionRequested: onAmbientRecognitionRequested
+        )
+        .navigationTitle("Play")
     }
 
     private func restoreStoredManiaSettingsIfNeeded() {

@@ -54,22 +54,22 @@ private enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .localBeatmap:
-            return "Mode 1"
+            return "Imported Chart"
         case .generatedSong:
-            return "Mode 2"
+            return "Generate a Chart"
         case .ambient:
-            return "Mode 3"
+            return "Listen & Play"
         }
     }
 
     var subtitle: String {
         switch self {
         case .localBeatmap:
-            return "Song + beatmap"
+            return "Play a song with an .osu beatmap"
         case .generatedSong:
-            return "Song + backend chart"
+            return "Create a chart from a local song"
         case .ambient:
-            return "Ambient sync + backend chart"
+            return "Recognize nearby music and play along"
         }
     }
 
@@ -95,7 +95,7 @@ private struct SessionSummaryRow: Identifiable {
 }
 
 private struct Mania4KSetupView: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     #if os(macOS) && DEBUG
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -108,13 +108,15 @@ private struct Mania4KSetupView: View {
     let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                setupContent
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header(isCompact: geometry.size.width < 600 || dynamicTypeSize.isAccessibilitySize)
+                    setupContent(isCompact: geometry.size.width < 800 || dynamicTypeSize.isAccessibilitySize)
+                }
+                .padding(24)
+                .frame(maxWidth: 1080, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: 1080, alignment: .leading)
         }
         .scrollContentBackground(.hidden)
         .fileImporter(
@@ -128,8 +130,8 @@ private struct Mania4KSetupView: View {
     }
 
     @ViewBuilder
-    private var setupContent: some View {
-        if horizontalSizeClass == .compact {
+    private func setupContent(isCompact: Bool) -> some View {
+        if isCompact {
             VStack(alignment: .leading, spacing: 16) {
                 inputPanel
                 previewPanel
@@ -145,19 +147,22 @@ private struct Mania4KSetupView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 18) {
+    private func header(isCompact: Bool) -> some View {
+        let layout = isCompact
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 18))
+        return layout {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Ensomi")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .font(.largeTitle.bold())
                     .foregroundStyle(Mania4KStyle.textPrimary)
 
-                Text("mania4k first playable")
+                Text("Choose how you want to play")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Mania4KStyle.textSecondary)
             }
 
-            Spacer()
+            if !isCompact { Spacer() }
 
             HStack(spacing: 10) {
                 Label("4K", systemImage: "square.grid.2x2.fill")
@@ -780,203 +785,94 @@ private struct Mania4KSetupView: View {
     }
 }
 
-struct Mania4KSettingsPageView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var model: Mania4KPlaySessionModel
-    @Binding var storedOffsetCalibrationState: String
-    @Binding var storedKeyBindings: String
+public struct EnsomiSettingsView: View {
+    @Bindable private var model: Mania4KPlaySessionModel
+    @AppStorage("mania4k.offsetCalibrationState") private var storedOffsetCalibrationState = ""
+    @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
     #if os(macOS)
     @State private var offsetCalibrationModel: Mania4KOffsetCalibrationModel?
     @State private var capturingKeyBindingLane: Mania4KLane?
     #endif
 
-    init(
-        model: Mania4KPlaySessionModel,
-        storedOffsetCalibrationState: Binding<String>,
-        storedKeyBindings: Binding<String>
-    ) {
+    public init(model: Mania4KPlaySessionModel) {
         self.model = model
-        _storedOffsetCalibrationState = storedOffsetCalibrationState
-        _storedKeyBindings = storedKeyBindings
     }
 
-    var body: some View {
-        ZStack {
-            Mania4KBackdrop()
+    public var body: some View {
+        Form {
+            Section("Gameplay") {
+                numericField(
+                    title: "Scroll speed",
+                    value: $model.scrollSpeed,
+                    range: 1...40,
+                    step: 0.1,
+                    suffix: "×"
+                )
+                Picker("Judge difficulty", selection: $model.judgeDifficulty) {
+                    ForEach(Mania4KJudgeDifficulty.allCases) { difficulty in
+                        Text(difficulty.rawValue).tag(difficulty)
+                    }
+                }
+            }
+
+            Section("Timing") {
+                offsetSetting(
+                    title: "Audio offset",
+                    description: "Moves song timing and judgement timing. Use when hits sound early or late.",
+                    binding: audioOffsetBinding
+                )
+                offsetSetting(
+                    title: "Visual offset",
+                    description: "Moves note display only. Use when notes look early or late while the sound feels correct.",
+                    binding: visualOffsetBinding
+                )
+                #if os(macOS)
+                Button("Calibrate Timing…", systemImage: "slider.horizontal.3", action: openOffsetCalibration)
+                #endif
+            }
 
             #if os(macOS)
-            if let offsetCalibrationModel {
+            Section("Keyboard") {
+                keyBindingSettings
+            }
+            #endif
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Settings")
+        #if os(macOS)
+        .frame(minWidth: 480, idealWidth: 560, minHeight: 560)
+        .sheet(isPresented: Binding(
+            get: { offsetCalibrationModel != nil },
+            set: { if !$0, let calibration = offsetCalibrationModel { cancelOffsetCalibration(calibration) } }
+        )) {
+            if let calibration = offsetCalibrationModel {
                 ScrollView {
                     Mania4KOffsetCalibrationView(
-                        model: offsetCalibrationModel,
+                        model: calibration,
                         scrollTimeMs: model.scrollTimeMs,
-                        onStateChanged: { state in
-                            persistCalibrationState(state)
-                        },
+                        onStateChanged: { persistCalibrationState($0) },
                         onApply: applyOffsetCalibration,
                         onCancel: cancelOffsetCalibration
                     )
                     .padding(24)
-                    .frame(maxWidth: 1080, alignment: .leading)
                 }
-                .scrollContentBackground(.hidden)
-            } else {
-                settingsContent
+                .frame(minWidth: 720, idealWidth: 1000, minHeight: 600, idealHeight: 720)
+                .background(Mania4KBackdrop())
+                .preferredColorScheme(.dark)
+                .interactiveDismissDisabled()
             }
-            #else
-            settingsContent
-            #endif
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        .frame(minWidth: 720, minHeight: 640)
+        .onDisappear { capturingKeyBindingLane = nil }
         #endif
-        .preferredColorScheme(.dark)
-    }
-
-    private var settingsContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                settingsPanel
-            }
-            .padding(24)
-            .frame(maxWidth: 760, alignment: .leading)
-        }
-        .scrollContentBackground(.hidden)
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Settings")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(Mania4KStyle.textPrimary)
-
-                Text("mania4k play preferences")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Mania4KStyle.textSecondary)
-            }
-
-            Spacer()
-
-            Button {
-                dismiss()
-            } label: {
-                Label("Done", systemImage: "checkmark")
-            }
-            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentGreen))
-        }
-    }
-
-    private var settingsPanel: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            numericField(
-                title: "Scroll speed",
-                value: $model.scrollSpeed,
-                range: 1.0...40.0,
-                step: 0.1,
-                suffix: "x"
-            )
-
-            Divider()
-                .overlay(Mania4KStyle.border)
-
-            offsetSettings
-
-            Divider()
-                .overlay(Mania4KStyle.border)
-
-            judgeDifficultySettings
-
-            #if os(macOS)
-            Divider()
-                .overlay(Mania4KStyle.border)
-
-            keyBindingSettings
-            #endif
-        }
-        .panelStyle()
-    }
-
-    private var offsetSettings: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            offsetSetting(
-                title: "Audio offset",
-                description: "Moves song timing and judgement timing. Use when hits sound early or late.",
-                binding: audioOffsetBinding
-            )
-
-            offsetSetting(
-                title: "Visual offset",
-                description: "Moves note display only. Use when notes look early or late while the sound feels correct.",
-                binding: visualOffsetBinding
-            )
-
-            #if os(macOS)
-            Button {
-                openOffsetCalibration()
-            } label: {
-                Label("Calibration", systemImage: "slider.horizontal.3")
-                    .labelStyle(.titleAndIcon)
-            }
-            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentGreen))
-            #endif
-        }
     }
 
     private func offsetSetting(title: String, description: String, binding: Binding<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Mania4KStyle.textPrimary)
-
+        VStack(alignment: .leading, spacing: 8) {
+            numericField(title: title, value: binding, range: -500...500, step: 1, suffix: "ms")
             Text(description)
                 .font(.caption)
-                .foregroundStyle(Mania4KStyle.textSecondary)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 10) {
-                Stepper(value: binding, in: -500...500, step: 1) {
-                    TextField(
-                        title,
-                        value: binding,
-                        format: .number.precision(.fractionLength(0))
-                    )
-                    .textFieldStyle(.plain)
-                    .multilineTextAlignment(.trailing)
-                    .foregroundStyle(Mania4KStyle.textPrimary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7)
-                            .stroke(Mania4KStyle.border, lineWidth: 1)
-                    )
-                    .frame(minWidth: 82, maxWidth: 120)
-                }
-
-                Text("ms")
-                    .font(.callout.monospaced())
-                    .foregroundStyle(Mania4KStyle.textMuted)
-            }
-        }
-    }
-
-    private var judgeDifficultySettings: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Judge difficulty")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Mania4KStyle.textPrimary)
-
-            Picker("Judge difficulty", selection: $model.judgeDifficulty) {
-                ForEach(Mania4KJudgeDifficulty.allCases) { difficulty in
-                    Text(difficulty.rawValue).tag(difficulty)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .tint(Mania4KStyle.accentBlue)
         }
     }
 
@@ -987,30 +883,25 @@ struct Mania4KSettingsPageView: View {
         step: Double,
         suffix: String
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let boundedValue = Binding<Double>(
+            get: { value.wrappedValue },
+            set: { if $0.isFinite { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) } }
+        )
+        return VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Mania4KStyle.textPrimary)
-
-            HStack(spacing: 10) {
-                Stepper(value: value, in: range, step: step) {
-                    TextField(title, value: value, format: .number.precision(.fractionLength(step < 1 ? 1 : 0)))
-                        .textFieldStyle(.plain)
-                        .multilineTextAlignment(.trailing)
-                        .foregroundStyle(Mania4KStyle.textPrimary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .stroke(Mania4KStyle.border, lineWidth: 1)
-                        )
-                        .frame(minWidth: 82, maxWidth: 120)
-                }
-
+            HStack {
+                TextField(title, value: boundedValue, format: .number.precision(.fractionLength(step < 1 ? 1 : 0)))
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 120)
+                    .accessibilityLabel(title)
                 Text(suffix)
-                    .font(.callout.monospaced())
-                    .foregroundStyle(Mania4KStyle.textMuted)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Stepper(title, value: boundedValue, in: range, step: step)
+                    .labelsHidden()
+                    .accessibilityValue("\(value.wrappedValue.formatted()) \(suffix)")
             }
         }
     }
@@ -1098,26 +989,18 @@ struct Mania4KSettingsPageView: View {
     }
 
     private var keyBindingSettings: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Keybind")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Mania4KStyle.textPrimary)
-
+                Text("Lane keys")
                 Spacer()
-
-                Button {
+                Button("Restore Defaults") {
                     model.resetKeyBindingsToDefault()
                     storedKeyBindings = model.keyBindings.storageValue
                     capturingKeyBindingLane = nil
-                } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
-                        .labelStyle(.titleAndIcon)
                 }
-                .buttonStyle(Mania4KSecondaryButtonStyle())
             }
 
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90))], spacing: 8) {
                 ForEach(Mania4KLane.allCases) { lane in
                     keyBindingButton(for: lane)
                 }
@@ -1130,10 +1013,15 @@ struct Mania4KSettingsPageView: View {
                 }
             )
 
+            if capturingKeyBindingLane != nil {
+                Text("Press a key to assign it. Press Escape to cancel.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if let message = model.keyBindingErrorMessage {
-                Text(message)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Mania4KStyle.accentRed)
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
     }
@@ -1144,19 +1032,17 @@ struct Mania4KSettingsPageView: View {
         } label: {
             VStack(spacing: 5) {
                 Text(laneShortName(for: lane))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Mania4KStyle.textMuted)
-
-                Text(capturingKeyBindingLane == lane ? "..." : model.keyBindings.displayLabel(for: lane))
-                    .font(.headline.monospaced().weight(.bold))
-                    .foregroundStyle(Mania4KStyle.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(height: 22)
+                    .font(.caption)
+                Text(capturingKeyBindingLane == lane ? "Press a key" : model.keyBindings.displayLabel(for: lane))
+                    .font(.body.monospaced())
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(Mania4KKeyBindingButtonStyle(isCapturing: capturingKeyBindingLane == lane))
+        .buttonStyle(.bordered)
+        .tint(capturingKeyBindingLane == lane ? .accentColor : nil)
+        .accessibilityLabel("Lane \(laneShortName(for: lane)) key")
+        .accessibilityValue(capturingKeyBindingLane == lane ? "Waiting for a key" : model.keyBindings.displayLabel(for: lane))
+        .accessibilityHint("Activate, then press the key you want to use.")
     }
 
     private func laneShortName(for lane: Mania4KLane) -> String {
@@ -2579,30 +2465,6 @@ private struct Mania4KSecondaryButtonStyle: ButtonStyle {
                     .stroke((isEnabled ? tint : Mania4KStyle.textMuted).opacity(0.42), lineWidth: 1)
             )
             .opacity(configuration.isPressed ? 0.78 : 1)
-    }
-}
-
-private struct Mania4KKeyBindingButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    let isCapturing: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        let tint = isCapturing ? Mania4KStyle.accentAmber : Mania4KStyle.accentBlue
-
-        configuration.label
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                (isEnabled ? tint : Mania4KStyle.textMuted).opacity(isCapturing ? 0.22 : 0.10),
-                in: RoundedRectangle(cornerRadius: 7)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke((isEnabled ? tint : Mania4KStyle.textMuted).opacity(isCapturing ? 0.62 : 0.28), lineWidth: 1)
-            )
-            .opacity(configuration.isPressed ? 0.78 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }
 }
 

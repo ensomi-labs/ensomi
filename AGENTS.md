@@ -1,5 +1,5 @@
 ---
-commit: 5c11794f08016478c1edbe2df27464f649b639c8
+commit: e376342f9bc8df64a30e7fbc4c77a042042fce25
 ---
 
 # Ensomi repository guidance
@@ -13,6 +13,16 @@ service internals outside observation tracking.
 Validate changed behavior with focused tests. Prefer concrete state transitions,
 domain mapping, and regression cases over implementation-mirroring tests or new
 test infrastructure. Build commands are in [README.md](README.md).
+
+## UI and UX
+
+For user-facing interface changes, read [Design guidelines](docs/design-guidelines.md)
+and the relevant Apple Human Interface Guidelines before editing. Apply platform
+conventions to navigation, settings, controls, accessibility, and layout. Keep
+intentional gameplay presentation distinct from application chrome. Verify API
+availability against `project.yml`, inspect affected screens, and report any UI
+checks that could not be run. Keep UI/UX decisions in the design document; keep
+service and domain contracts in `docs/architecture.md`.
 
 ## macOS installation
 

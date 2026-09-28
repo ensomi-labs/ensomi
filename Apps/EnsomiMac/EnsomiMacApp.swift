@@ -28,7 +28,9 @@ struct EnsomiMacApp: App {
                 initialSelection: model.isReadyToStart ? .play : .localLibrary,
                 onAmbientRecognitionRequested: openRecognitionSyncFromMode3(isMock:)
             )
+            .frame(minWidth: 640, minHeight: 480)
         }
+        .defaultSize(width: 1100, height: 760)
         #if DEBUG
         .commands {
             CommandMenu("Debug") {
@@ -39,6 +41,11 @@ struct EnsomiMacApp: App {
             }
         }
         #endif
+
+        Settings {
+            EnsomiSettingsView(model: model)
+        }
+        .defaultSize(width: 560, height: 680)
 
         #if DEBUG
         Window(LiveRecognitionSyncWindow.windowTitle, id: LiveRecognitionSyncWindow.windowID) {
