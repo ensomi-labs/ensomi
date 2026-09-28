@@ -1,5 +1,5 @@
 ---
-commit: 5c11794f08016478c1edbe2df27464f649b639c8
+commit: e4ae9e80f2b811fcddb265b134d917d7e6d149ce
 ---
 
 # Ensomi
@@ -38,6 +38,13 @@ python3 Tools/check_sonalign_parity.py --suites synthetic
 ```
 
 ## Live recognition and generation
+
+The macOS **Live Demo** toolbar button opens **Listen & Play**: it checks the
+local H/R/R1 service, starts recognition and synchronization automatically, and
+opens gameplay after final lock. Optional difficulty/style requests are captured
+at lock. See the [operation manual](docs/live_generation_demo.md) for backend
+startup, checkpoint identity, local audio preparation and troubleshooting.
+
 
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
 Sync Flow** recognizes microphone or system audio, resolves a local reference,

@@ -6,10 +6,9 @@ import SwiftUI
 @main
 @MainActor
 struct EnsomiMacApp: App {
-    #if DEBUG
     @Environment(\.openWindow) private var openWindow
-    #endif
 
+    @State private var demo = LiveGenerationDemoModel()
     @State private var model: Mania4KPlaySessionModel
     #if DEBUG
     @State private var recognitionModel: LiveRecognitionSyncModel
@@ -50,6 +49,11 @@ struct EnsomiMacApp: App {
         }
         .defaultSize(width: 980, height: 760)
         #endif
+
+        Window("Listen & Play", id: LiveGenerationDemoView.windowID) {
+            LiveGenerationDemoView(model: demo)
+        }
+        .defaultSize(width: 960, height: 760)
 
         Window(Mania4KPlaySessionWindow.windowTitle, id: Mania4KPlaySessionWindow.windowID) {
             Mania4KPlayExperienceView(

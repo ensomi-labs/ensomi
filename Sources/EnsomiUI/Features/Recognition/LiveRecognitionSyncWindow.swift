@@ -1,4 +1,4 @@
-#if os(macOS) && DEBUG
+#if os(macOS)
 import Foundation
 import Observation
 import EnsomiCore
@@ -60,6 +60,7 @@ public final class LiveRecognitionSyncModel {
     public private(set) var inferenceStreamingStarted = false
     public private(set) var inferenceLastTokenDescription: String?
     public var inferenceIsMock = false
+    public var startsPrototypeInference = true
 
     public var firstRequestAtText = "3"
     public var requestCadenceText = "1"
@@ -296,6 +297,18 @@ public final class LiveRecognitionSyncModel {
         }
     }
 
+    public func stopAndWait() async {
+        let previousFlow = flowTask
+        previousFlow?.cancel()
+        flowTask = nil
+        let previousAmbient = takeAmbientSession(markStopped: true)
+        stopInferenceSession(markStopped: true)
+        await captureService.cancelCapture()
+        await systemAudioClipCaptureService.cancelCapture()
+        await previousAmbient?.stopAndWait()
+        await previousFlow?.value
+    }
+
     public func resolveManualTrack() {
         guard !resolveTitle.trimmed.isEmpty else {
             return
@@ -450,7 +463,7 @@ public final class LiveRecognitionSyncModel {
         ambientSessionID = sessionID
         ambientReferenceAsset = asset
         didRequestPlaySessionForAmbientLock = false
-        startInferenceSession(for: asset, musicSource: musicSource)
+        if startsPrototypeInference { startInferenceSession(for: asset, musicSource: musicSource) }
         phase = .buildingReferenceIndex
         statusMessage = "Building ambient reference index"
 

@@ -233,12 +233,17 @@ public struct Mania4KChartMetadata: Equatable, Sendable {
 }
 
 public protocol Mania4KHitObjectStreaming: Sendable {
+    func cancel() async
     func prepare() async throws -> Mania4KChartMetadata
     func read(
         after cursor: Mania4KHitObjectStreamCursor?,
         throughChartTimeMs: Double,
         limit: Int
     ) async throws -> Mania4KHitObjectBatch
+}
+
+public extension Mania4KHitObjectStreaming {
+    func cancel() async {}
 }
 
 public struct Mania4KHitObjectStreamCursor: Hashable, Sendable {

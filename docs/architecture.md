@@ -1,5 +1,5 @@
 ---
-commit: 5c11794f08016478c1edbe2df27464f649b639c8
+commit: e4ae9e80f2b811fcddb265b134d917d7e6d149ce
 ---
 
 # Ensomi architecture
@@ -59,6 +59,33 @@ clock, clamped to track duration, and does not replay the local reference audio.
 The shared play model drives both the workbench Play tab and the macOS play window.
 See [`LiveRecognitionSyncModel`](../Sources/EnsomiUI/Features/Recognition/LiveRecognitionSyncWindow.swift)
 and [`Mania4KPlaySessionModel`](../Sources/EnsomiCore/Features/Mania4K/Mania4KPlaySessionModel.swift).
+
+## Listen & Play demo
+
+The macOS Live Demo entry is available in Debug and Release. It checks the local
+HTTP service before starting capture, then reuses ACRCloud identification, local
+resolution and Sonalign final-lock handling. This path disables the prototype
+inference connection during recognition; final lock starts one controlled
+H/R/R1 generation session and switches the demo window to the shared gameplay
+view. The host-time clock continues external playback without replaying the
+reference file. Difficulty/style selections are fixed when the session starts.
+
+`ControlledGenerationClient` uses `ensomi-demo/v1` at `http://127.0.0.1:8766`.
+A health response requires a loaded compatible model. Session creation sends the
+local audio path, optional controls and a client-owned identity. Sequenced window
+requests receive complete four-lane rows, confirmed `coverage_ms` and EOS.
+The first request may catch up from BOS for a late join; later responses advance
+by at most one audio second. Refill runs independently of frame rendering,
+starting near six seconds ahead and targeting eight seconds. Read requests do
+not themselves establish completeness. Limited pages cannot settle timestamps
+with undelivered events. Settled silence can satisfy initial coverage, but entry
+must not begin inside a hold. Stop, replacement, failure and completion release
+the backend session. The producer's decoded duration owns termination.
+
+The model service caches immutable full-audio features; physical state, history
+caches and RNGs remain private to each generation session. This local protocol
+is independent of the prototype protobuf transport described below. Operator
+setup and limits are in the [demo manual](live_generation_demo.md).
 
 ## Inference transport and chart streams
 

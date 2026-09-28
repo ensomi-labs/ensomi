@@ -258,23 +258,22 @@ final class InferenceEndpointWebSocketClientTests: XCTestCase {
         ])
         XCTAssertEqual(batch.completeThroughChartTimeMs, 75_500)
 
-        await stream.append(contentsOf: [
-            Mania4KHitObject(lane: .innerRight, timeMs: 75_250, kind: .tap)
+        let accepted = await stream.append(contentsOf: [
+            Mania4KHitObject(lane: .innerRight, timeMs: 80_250, kind: .tap)
         ])
+        XCTAssertTrue(accepted)
+        batch = try await stream.read(after: batch.nextCursor, throughChartTimeMs: 80_500, limit: 10)
+        XCTAssertEqual(batch.objects.map(\.timeMs), [80_100, 80_250])
+        XCTAssertEqual(batch.completeThroughChartTimeMs, Double(80_250).nextDown)
 
-        batch = try await stream.read(after: batch.nextCursor, throughChartTimeMs: 75_500, limit: 10)
-        XCTAssertEqual(batch.objects, [
-            Mania4KHitObject(lane: .innerRight, timeMs: 75_250, kind: .tap)
-        ])
-
-        await stream.append(contentsOf: [
+        let lateAccepted = await stream.append(contentsOf: [
             Mania4KHitObject(lane: .right, timeMs: 75_100, kind: .tap)
         ])
-
-        batch = try await stream.read(after: batch.nextCursor, throughChartTimeMs: 75_500, limit: 10)
-        XCTAssertEqual(batch.objects, [
-            Mania4KHitObject(lane: .right, timeMs: 75_100, kind: .tap)
-        ])
+        XCTAssertFalse(lateAccepted)
+        do {
+            _ = try await stream.read(after: batch.nextCursor, throughChartTimeMs: 80_500, limit: 10)
+            XCTFail("Published coverage forbids retroactive insertion")
+        } catch is Mania4KPlayFailure { }
     }
 
     func testBufferRejectsTokensAtOrBeforeReadyWindowEndWithoutChangingReadyWindow() {
@@ -354,6 +353,50 @@ final class InferenceEndpointWebSocketClientTests: XCTestCase {
             Mania4KHitObject(lane: .innerLeft, timeMs: 2_000, kind: .tap)
         ])
         XCTAssertEqual(buffer.readyWindow, InferenceHitObjectReadyWindow(startTimeMS: 1_000, endTimeMS: 2_000))
+    }
+
+    func testPublishedCoverageDoesNotFollowReadRequestAndAcceptsSettledSilence() async throws {
+        let stream = BufferedInferenceMania4KHitObjectStream(
+            metadata: Mania4KChartMetadata(title: "Coverage", sourceDescription: "Test"),
+            referenceTimeProvider: { 0 })
+        try await stream.publish([], completeThroughTimeMS: 8_000)
+        let batch = try await stream.read(after: nil, throughChartTimeMs: 10_000, limit: 512)
+        XCTAssertTrue(batch.objects.isEmpty)
+        XCTAssertEqual(batch.completeThroughChartTimeMs, 8_000)
+        XCTAssertFalse(batch.isEndOfStream)
+        try await stream.publish([Mania4KHitObject(lane: .left, timeMs: 9_000, kind: .tap)], completeThroughTimeMS: 10_000)
+        let next = try await stream.read(after: batch.nextCursor, throughChartTimeMs: 10_000, limit: 512)
+        XCTAssertEqual(next.objects.count, 1)
+        XCTAssertEqual(next.completeThroughChartTimeMs, 10_000)
+    }
+
+    func testLimitedPageCannotSettleUndeliveredSimultaneousEvents() async throws {
+        let stream = BufferedInferenceMania4KHitObjectStream(
+            metadata: Mania4KChartMetadata(title: "Paging", sourceDescription: "Test"),
+            minimumBufferedDurationMS: 0, firstObjectLeadTimeMS: 0, referenceTimeProvider: { 0 })
+        try await stream.publish([
+            Mania4KHitObject(lane: .left, timeMs: 100, kind: .tap),
+            Mania4KHitObject(lane: .innerLeft, timeMs: 100, kind: .tap)
+        ], completeThroughTimeMS: 200)
+        let first = try await stream.read(after: nil, throughChartTimeMs: 200, limit: 1)
+        XCTAssertEqual(first.objects.count, 1)
+        XCTAssertLessThan(first.completeThroughChartTimeMs, 100)
+        let second = try await stream.read(after: first.nextCursor, throughChartTimeMs: 200, limit: 1)
+        XCTAssertEqual(second.objects.count, 1)
+        XCTAssertEqual(second.completeThroughChartTimeMs, 200)
+        do {
+            try await stream.publish([Mania4KHitObject(lane: .right, timeMs: 150, kind: .tap)], completeThroughTimeMS: 300)
+            XCTFail("Late events must be rejected")
+        } catch { }
+    }
+
+    func testCancelledInitialReadDoesNotWaitForAnotherProducerEvent() async throws {
+        let stream = BufferedInferenceMania4KHitObjectStream(
+            metadata: Mania4KChartMetadata(title: "Cancel", sourceDescription: "Test"), referenceTimeProvider: { 0 })
+        let reader = Task { try await stream.read(after: nil, throughChartTimeMs: 1000, limit: 512) }
+        reader.cancel()
+        do { _ = try await reader.value; XCTFail("Expected cancellation") }
+        catch is CancellationError { }
     }
 
     func testBufferedInferenceStreamMarksEndOfStreamAtCompleteThroughTime() async throws {

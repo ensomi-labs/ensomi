@@ -2,7 +2,7 @@ import EnsomiCore
 import SwiftUI
 
 public struct EnsomiWorkbenchView: View {
-    #if os(macOS) && DEBUG
+    #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
 
@@ -62,6 +62,17 @@ public struct EnsomiWorkbenchView: View {
                 .help("Open Settings")
             }
         }
+        #if os(macOS)
+        .toolbar {
+            ToolbarItem {
+                Button { openWindow(id: LiveGenerationDemoView.windowID) } label: {
+                    Label("Live Demo", systemImage: "play.circle.fill")
+                }
+                .help("Recognize, synchronize and play with the generation backend")
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+            }
+        }
+        #endif
         #if os(macOS) && DEBUG
         .toolbar {
             ToolbarItem {

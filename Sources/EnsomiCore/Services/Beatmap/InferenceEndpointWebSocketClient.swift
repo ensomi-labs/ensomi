@@ -654,8 +654,12 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
     private var buffer: InferenceHitObjectTokenBuffer
     private var renderStartWindow: InferenceHitObjectReadyWindow?
     private var endOfStreamTimeMS: Double?
+    private var hasExplicitCoverage = false
+    private var producerCoverageMS = -Double.infinity
+    private var lastSourceTimeMS = -Double.infinity
+    private var streamFailure: Mania4KPlayFailure?
     private var emittedObjectCounts: [EmittedObjectKey: Int] = [:]
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Void, Error>] = [:]
 
     public init(
         metadata: Mania4KChartMetadata,
@@ -682,7 +686,9 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
 
     @discardableResult
     public func append(contentsOf objects: [Mania4KHitObject]) -> Bool {
-        guard endOfStreamTimeMS == nil else {
+        guard endOfStreamTimeMS == nil, streamFailure == nil else { return false }
+        guard objects.allSatisfy({ $0.timeMs.isFinite && $0.timeMs >= lastSourceTimeMS && $0.timeMs > producerCoverageMS }) else {
+            fail("Producer emitted an invalid or already settled event.")
             return false
         }
 
@@ -693,22 +699,51 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
             appended = buffer.appendDirectlyToStreamingBuffer(contentsOf: objects)
         }
         if appended {
+            if let latest = objects.map(\.timeMs).max() {
+                lastSourceTimeMS = latest
+                // Ordered token arrivals settle only times strictly before the newest row.
+                producerCoverageMS = max(producerCoverageMS, latest.nextDown)
+            }
             resumeWaiters()
         }
         return appended
     }
 
+    public func publish(_ objects: [Mania4KHitObject], completeThroughTimeMS: Double) throws {
+        guard completeThroughTimeMS.isFinite, completeThroughTimeMS >= 0,
+              completeThroughTimeMS >= producerCoverageMS,
+              objects.allSatisfy({ $0.timeMs <= completeThroughTimeMS && $0.timeMs > producerCoverageMS }),
+              endOfStreamTimeMS == nil else {
+            throw Mania4KPlayFailure.streamFailed("Invalid producer coverage window.")
+        }
+        if !objects.isEmpty, !append(contentsOf: objects) {
+            throw streamFailure ?? Mania4KPlayFailure.streamFailed("Rejected producer events.")
+        }
+        hasExplicitCoverage = true
+        producerCoverageMS = completeThroughTimeMS
+        resumeWaiters()
+    }
+
     public func finish(completeThroughTimeMS: Double) {
-        guard completeThroughTimeMS.isFinite, completeThroughTimeMS >= 0 else {
+        guard completeThroughTimeMS.isFinite, completeThroughTimeMS >= 0,
+              completeThroughTimeMS >= producerCoverageMS,
+              completeThroughTimeMS >= lastSourceTimeMS else {
+            fail("End of stream precedes confirmed coverage or received events.")
             return
         }
-
-        if let endOfStreamTimeMS {
-            self.endOfStreamTimeMS = min(endOfStreamTimeMS, completeThroughTimeMS)
-        } else {
-            self.endOfStreamTimeMS = completeThroughTimeMS
-        }
+        endOfStreamTimeMS = completeThroughTimeMS
+        producerCoverageMS = completeThroughTimeMS
         buffer.setMaximumAcceptedTimeMS(completeThroughTimeMS)
+        resumeWaiters()
+    }
+
+    public func fail(_ message: String) {
+        streamFailure = .streamFailed(message)
+        resumeWaiters()
+    }
+
+    public func cancel() {
+        streamFailure = .streamFailed("Generation session was cancelled.")
         resumeWaiters()
     }
 
@@ -727,11 +762,7 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
             return nil
         }
 
-        return buffer.renderReadiness(
-            referenceTimeMS: referenceTimeMS,
-            minimumBufferedDurationMS: minimumBufferedDurationMS,
-            firstObjectLeadTimeMS: firstObjectLeadTimeMS
-        )
+        return renderReadiness(referenceTimeMS: referenceTimeMS)
     }
 
     public func read(
@@ -740,6 +771,8 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
         limit: Int
     ) async throws -> Mania4KHitObjectBatch {
         try await waitForInitialRenderWindowIfNeeded()
+        try Task.checkCancellation()
+        if let streamFailure { throw streamFailure }
 
         guard let renderStartWindow else {
             throw Mania4KPlayFailure.streamFailed("Buffered inference stream has no render start window.")
@@ -750,7 +783,7 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
             .filter { $0.timeMs >= renderStartWindow.startTimeMS }
         let safeLimit = max(limit, 1)
         var skippedObjectCounts: [EmittedObjectKey: Int] = [:]
-        var emitted: [Mania4KHitObject] = []
+        var pending: [Mania4KHitObject] = []
 
         for object in orderedObjects {
             guard object.timeMs <= throughChartTimeMs else {
@@ -765,12 +798,16 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
                 continue
             }
 
-            emittedObjectCounts[key] = alreadyEmittedCount + 1
-            emitted.append(object)
-
-            if emitted.count >= safeLimit {
-                break
-            }
+            pending.append(object)
+        }
+        let emitted = Array(pending.prefix(safeLimit))
+        for object in emitted {
+            emittedObjectCounts[EmittedObjectKey(object), default: 0] += 1
+        }
+        var completeThrough = min(throughChartTimeMs, producerCoverageMS)
+        if pending.count > emitted.count {
+            // A limited page may split simultaneous events; that timestamp is still unsettled.
+            completeThrough = min(completeThrough, pending[emitted.count].timeMs.nextDown)
         }
 
         let emittedCount = emittedObjectCounts.values.reduce(0, +)
@@ -781,22 +818,47 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
         return Mania4KHitObjectBatch(
             objects: emitted,
             nextCursor: nextCursor,
-            completeThroughChartTimeMs: throughChartTimeMs,
+            completeThroughChartTimeMs: completeThrough,
             isEndOfStream: didReachEndOfStream
         )
     }
 
+    private func renderReadiness(referenceTimeMS: Double) -> InferenceHitObjectRenderReadiness {
+        guard hasExplicitCoverage else {
+            return buffer.renderReadiness(referenceTimeMS: referenceTimeMS,
+                minimumBufferedDurationMS: minimumBufferedDurationMS, firstObjectLeadTimeMS: firstObjectLeadTimeMS)
+        }
+        let minimum = referenceTimeMS + firstObjectLeadTimeMS
+        var holds = Set<Mania4KLane>()
+        var candidate = minimum
+        let groups = Dictionary(grouping: buffer.objects, by: \.timeMs)
+        for time in groups.keys.sorted() {
+            if time >= minimum, holds.isEmpty { break }
+            for object in groups[time]! {
+                switch object.kind {
+                case .tap: break
+                case .holdStart: holds.insert(object.lane)
+                case .holdEnd: holds.remove(object.lane)
+                }
+            }
+            if time >= minimum { candidate = time.nextUp }
+        }
+        let window = holds.isEmpty && candidate <= producerCoverageMS
+            ? InferenceHitObjectReadyWindow(startTimeMS: candidate, endTimeMS: producerCoverageMS) : nil
+        return InferenceHitObjectRenderReadiness(referenceTimeMS: referenceTimeMS,
+            firstObjectLeadTimeMS: firstObjectLeadTimeMS, minimumBufferedDurationMS: minimumBufferedDurationMS,
+            readyWindow: window)
+    }
+
     private func waitForInitialRenderWindowIfNeeded() async throws {
         while renderStartWindow == nil {
+            try Task.checkCancellation()
+            if let streamFailure { throw streamFailure }
             guard let referenceTimeMS = await referenceTimeProvider() else {
                 throw Mania4KPlayFailure.streamFailed("Reference ambient music time is unavailable.")
             }
 
-            let readiness = buffer.renderReadiness(
-                referenceTimeMS: referenceTimeMS,
-                minimumBufferedDurationMS: minimumBufferedDurationMS,
-                firstObjectLeadTimeMS: firstObjectLeadTimeMS
-            )
+            let readiness = renderReadiness(referenceTimeMS: referenceTimeMS)
             if readiness.isReady, let readyWindow = readiness.readyWindow {
                 renderStartWindow = readyWindow
                 return
@@ -809,21 +871,32 @@ public actor BufferedInferenceMania4KHitObjectStream: Mania4KHitObjectStreaming 
                 return
             }
 
-            await waitForBufferUpdate()
+            try await waitForBufferUpdate()
         }
     }
 
-    private func waitForBufferUpdate() async {
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+    private func waitForBufferUpdate() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                else { waiters[id] = continuation }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
         }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
     }
 
     private func resumeWaiters() {
-        let continuations = waiters
+        let continuations = Array(waiters.values)
         waiters.removeAll()
         continuations.forEach { $0.resume() }
     }
+
 }
 
 public protocol InferenceEndpointClient: Sendable {

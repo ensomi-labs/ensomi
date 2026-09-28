@@ -246,6 +246,32 @@ public final class Mania4KPlaySessionModel {
         )
     }
 
+    /// Start at the recognized reference clock; the local reference is never played aloud.
+    @discardableResult
+    public func startAmbientControlledPlay(
+        audioFileURL: URL, referenceTimeMS: Double, anchorHostTimeMS: Double,
+        title: String? = nil, controls: GenerationControls = .init(),
+        endpointURL: URL = ControlledGenerationClient.defaultURL
+    ) async -> Bool {
+        resetPreparedPlayState()
+        self.audioFileURL = audioFileURL
+        let generation = playStateGeneration
+        let title = title ?? audioFileURL.deletingPathExtension().lastPathComponent
+        // The producer's decoded duration owns EOS; a rounded library duration must not freeze the clock early.
+        let clock = HostTimeAnchoredMania4KAudioClock(referenceTimeAtAnchorMS: referenceTimeMS,
+            title: title, anchorHostTimeMS: anchorHostTimeMS)
+        let stream = ControlledGenerationStream(client: ControlledGenerationClient(baseURL: endpointURL),
+            audioURL: audioFileURL, title: title, controls: controls,
+            referenceTime: { await clock.currentAudioTimeMs() })
+        let configuration = Mania4KPlayConfiguration(chartSource: .generated(displayName: title),
+            audioFileURL: audioFileURL, starDifficulty: controls.difficulty ?? starDifficulty,
+            scrollSpeed: scrollSpeed, audioOffsetMilliseconds: audioOffsetMilliseconds,
+            visualOffsetMilliseconds: visualOffsetMilliseconds, judgeDifficulty: judgeDifficulty,
+            keyBindings: keyBindings)
+        return await startPreparedPlay(configuration: configuration, stream: stream,
+            startGeneration: generation, playbackClock: clock)
+    }
+
     private func startGeneratedBackendPlay(
         audioFileURL: URL,
         isMock: Bool,
@@ -524,8 +550,9 @@ public final class Mania4KPlaySessionModel {
     public func quitToSetup() async {
         frameLoopTask?.cancel()
         frameLoopTask = nil
-        await activeAudioClock.stop()
+        let previousClock = activeAudioClock
         resetPreparedPlayState()
+        await previousClock.stop()
     }
 
     @discardableResult
@@ -729,6 +756,7 @@ public final class Mania4KPlaySessionModel {
         frameLoopTask = nil
         stopBackendSession(markStopped: false)
         activeConfiguration = nil
+        if let previousStream = activeStream { Task { await previousStream.cancel() } }
         activeStream = nil
         engine = nil
         metadata = nil
@@ -1008,6 +1036,7 @@ public final class Mania4KPlaySessionModel {
         frameLoopTask = nil
         await activeAudioClock.stop()
         resetLiveInputLaneStates()
+        if let activeStream { Task { await activeStream.cancel() } }
         phase = .finished(
             Mania4KPlayResult(
                 metadata: metadata,
@@ -1026,6 +1055,7 @@ public final class Mania4KPlaySessionModel {
             return
         }
         resetLiveInputLaneStates()
+        if let activeStream { Task { await activeStream.cancel() } }
         phase = .failed(failure)
     }
 
