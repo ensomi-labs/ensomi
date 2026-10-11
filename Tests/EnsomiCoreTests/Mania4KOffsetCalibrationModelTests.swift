@@ -6,14 +6,14 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
     func testDefaultPlayPresetSeedsStoredCalibrationState() {
         let state = Mania4KOffsetCalibrationStoredState.defaultPlayState
 
-        XCTAssertEqual(state.appliedAudioOffsetMilliseconds, -215)
+        XCTAssertEqual(state.appliedAudioOffsetMilliseconds, -20)
         XCTAssertEqual(state.appliedVisualOffsetMilliseconds, -15)
         XCTAssertEqual(state.activePresetID, Mania4KDefaultPlaySettings.offsetPresetID)
         XCTAssertEqual(state.presets, [
             Mania4KOffsetPreset(
                 id: Mania4KDefaultPlaySettings.offsetPresetID,
-                name: "wh1000xm4-mbaM5",
-                audioOffsetMilliseconds: -215,
+                name: "default",
+                audioOffsetMilliseconds: -20,
                 visualOffsetMilliseconds: -15
             )
         ])

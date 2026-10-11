@@ -4,10 +4,12 @@ import os
 
 public enum Mania4KDefaultPlaySettings {
     public static let scrollSpeed = 25.0
-    public static let audioOffsetMilliseconds = -215
+    /// What the engine clock leaves uncorrected: output latency the device does not report (the built-in speakers'
+    /// stream latency and safety offset, about 13 ms) and keyboard latency.
+    public static let audioOffsetMilliseconds = -20
     public static let visualOffsetMilliseconds = -15
     public static let offsetPresetID = UUID(uuidString: "D46D55AF-109E-48DC-A9F9-CE83F108EBF5")!
-    public static let offsetPresetName = "wh1000xm4-mbaM5"
+    public static let offsetPresetName = "default"
 }
 
 public enum Mania4KJudgeDifficulty: String, CaseIterable, Identifiable, Equatable, Sendable {
@@ -657,57 +659,6 @@ public struct Mania4KAudioMetadata: Equatable, Sendable {
     public init(durationMs: Double? = nil, title: String? = nil) {
         self.durationMs = durationMs
         self.title = title
-    }
-}
-
-public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked Sendable {
-    private let playerLock = OSAllocatedUnfairLock<AVAudioPlayer?>(uncheckedState: nil)
-
-    public init() {}
-
-    public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
-        let player = try AVAudioPlayer(contentsOf: audioFileURL)
-        player.prepareToPlay()
-        playerLock.withLockUnchecked { $0 = player }
-        return Mania4KAudioMetadata(
-            durationMs: player.duration.isFinite ? player.duration * 1000 : nil,
-            title: audioFileURL.deletingPathExtension().lastPathComponent
-        )
-    }
-
-    public func play() async throws {
-        guard let player = playerLock.withLockUnchecked({ $0 }) else {
-            throw Mania4KPlayFailure.audioPrepareFailed("Audio player is not prepared.")
-        }
-
-        player.play()
-    }
-
-    public func pause() async {
-        playerLock.withLockUnchecked { $0 }?.pause()
-    }
-
-    public func stop() async {
-        let player = playerLock.withLockUnchecked { $0 }
-        player?.stop()
-        player?.currentTime = 0
-    }
-
-    public func currentAudioTimeMs() async -> Double {
-        audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS())
-    }
-
-    public func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
-        guard let player = playerLock.withLockUnchecked({ $0 }) else {
-            return 0
-        }
-
-        let nowMs = player.currentTime * 1000
-        return player.isPlaying ? nowMs + hostTimeMs - EnsomiHostClock.currentTimeMS() : nowMs
-    }
-
-    public func isRunning() async -> Bool {
-        playerLock.withLockUnchecked { $0 }?.isPlaying ?? false
     }
 }
 
