@@ -96,6 +96,7 @@
 		C72F3E4EC1C8FD62EFBF367B /* MicFeaturePayloadExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD222D37A68D05890A6690F5 /* MicFeaturePayloadExtractor.swift */; };
 		C7F48E4C91FAD777755D930D /* MicFeaturePayloadExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */; };
 		C8AF806D4590939EEA022486 /* Mania4KMetalRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C1401E306C0D8F6DC4C7D6 /* Mania4KMetalRendererTests.swift */; };
+		C9BE9714CC391DBDC07E5904 /* PlayScreenScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D025F2898D787190247310EB /* PlayScreenScreenshotTests.swift */; };
 		CD318C007C75AB12AEC83369 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
 		CEE5360BFF5796C73190ABED /* ChartGenerationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7F4FDD95701DCD6B212553 /* ChartGenerationClient.swift */; };
 		D14D280CDA4F6D27F7FE2275 /* EnsomiCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -308,6 +309,7 @@
 		CBB3368394387AB728044654 /* AmbientSyncEngineGates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineGates.swift; sourceTree = "<group>"; };
 		CBBC3BD7078F8D45DA83A205 /* InferenceEndpointWebSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceEndpointWebSocketClient.swift; sourceTree = "<group>"; };
 		CFD565660C130A4D72033386 /* AmbientSyncOffsetTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncOffsetTracker.swift; sourceTree = "<group>"; };
+		D025F2898D787190247310EB /* PlayScreenScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayScreenScreenshotTests.swift; sourceTree = "<group>"; };
 		D2513F9AE00A8F700B937190 /* EnsomiMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsomiMacApp.swift; sourceTree = "<group>"; };
 		D505721B77D268F1C7392D25 /* AGENTS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = AGENTS.md; sourceTree = "<group>"; };
 		D58687AF72722297220FB52F /* AmbientSyncFixtureReplayRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureReplayRunnerTests.swift; sourceTree = "<group>"; };
@@ -708,6 +710,7 @@
 				D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */,
 				6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */,
 				0306E91E9DC618ECFA5D9C53 /* MicFeatureStreamBufferTests.swift */,
+				D025F2898D787190247310EB /* PlayScreenScreenshotTests.swift */,
 			);
 			path = EnsomiCoreTests;
 			sourceTree = "<group>";
@@ -1006,6 +1009,7 @@
 				F448112CB2A97D2CBA1160C8 /* Mania4KPlayfieldLayoutTests.swift in Sources */,
 				C7F48E4C91FAD777755D930D /* MicFeaturePayloadExtractorTests.swift in Sources */,
 				93F582BAD73910F31C5C9780 /* MicFeatureStreamBufferTests.swift in Sources */,
+				C9BE9714CC391DBDC07E5904 /* PlayScreenScreenshotTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

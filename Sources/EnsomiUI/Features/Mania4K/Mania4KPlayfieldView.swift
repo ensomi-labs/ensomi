@@ -9,6 +9,16 @@ struct Mania4KPlayfieldMetalView {
     let model: Mania4KPlaySessionModel
 }
 
+/// Draws the playfield into an image in place of the live Metal view, so the play screen can be rendered offscreen
+/// (`ImageRenderer` does not draw platform views). The closure gets the playfield's size in points.
+struct Mania4KPlayfieldSnapshot: Sendable {
+    let image: @MainActor @Sendable (CGSize) -> CGImage?
+}
+
+extension EnvironmentValues {
+    @Entry var mania4kPlayfieldSnapshot: Mania4KPlayfieldSnapshot? = nil
+}
+
 @MainActor
 final class Mania4KPlayfieldView: MTKView {
     var model: Mania4KPlaySessionModel
@@ -61,13 +71,17 @@ final class Mania4KPlayfieldView: MTKView {
             return
         }
 
-        let model = model
-        let quads = Mania4KPlayfieldLayout.quads(
+        let quads = Self.quads(model: model, uiTimeMs: uiTimeMs, size: bounds.size)
+        renderer.draw(quads, viewportSize: bounds.size, pass: pass, drawable: currentDrawable)
+    }
+
+    /// The quads of the model's current frame, with the lane lights at `uiTimeMs`.
+    static func quads(model: Mania4KPlaySessionModel, uiTimeMs: Double, size: CGSize) -> [Mania4KQuad] {
+        Mania4KPlayfieldLayout.quads(
             frame: model.playFrame,
             brightness: { model.gameplayFeedback.laneBrightness(lane: $0.index, uiTimeMs: uiTimeMs) },
-            size: bounds.size
+            size: size
         )
-        renderer.draw(quads, viewportSize: bounds.size, pass: pass, drawable: currentDrawable)
     }
 
     #if os(macOS)

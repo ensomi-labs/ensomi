@@ -1952,6 +1952,7 @@ private struct SetupLanePreview: View {
 
 private struct Mania4KPlaySceneView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.mania4kPlayfieldSnapshot) private var playfieldSnapshot
     @Bindable var model: Mania4KPlaySessionModel
 
     var body: some View {
@@ -1972,7 +1973,7 @@ private struct Mania4KPlaySceneView: View {
 
                         Mania4KGridOverlay(spacing: 42, opacity: 0.10)
 
-                        Mania4KPlayfieldMetalView(model: model)
+                        playfield
                             .overlay(alignment: .bottom) {
                                 keyLabels
                             }
@@ -1989,6 +1990,20 @@ private struct Mania4KPlaySceneView: View {
             #if os(macOS)
             .background(Mania4KKeyboardCaptureView(model: model))
             #endif
+        }
+    }
+
+    @ViewBuilder
+    private var playfield: some View {
+        if let playfieldSnapshot {
+            GeometryReader { proxy in
+                if let image = playfieldSnapshot.image(proxy.size) {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                }
+            }
+        } else {
+            Mania4KPlayfieldMetalView(model: model)
         }
     }
 
