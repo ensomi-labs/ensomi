@@ -2,6 +2,7 @@ import AVFoundation
 import AppKit
 import Metal
 import QuartzCore
+import SwiftUI
 import XCTest
 @testable import EnsomiCore
 @testable import EnsomiUI
@@ -239,6 +240,70 @@ final class GameplayTimingTests: XCTestCase {
         print("TIMING autoplay result: perfect \(finalFrame?.score.perfectCount ?? -1), good \(finalFrame?.score.goodCount ?? -1), miss \(finalFrame?.score.missCount ?? -1), average hit error \(finalFrame?.score.averageHitErrorMs.map { String(format: "%.3f ms", $0) } ?? "none"), notes \(notes.count), scheduled \(scheduledNotes)")
         XCTAssertGreaterThan(frames.count, Int(seconds * 30))
         XCTAssertEqual(finalFrame?.score.missCount, 0)
+    }
+
+    /// The whole play screen in a window: the Metal view under SwiftUI gets its display link, and key events sent
+    /// to the window reach the session with their timestamps.
+    func testHostedPlayScreenRunsFramesAndJudgesKeyEvents() async throws {
+        guard ProcessInfo.processInfo.environment["ENSOMI_TIMING_RUN"] != nil else {
+            throw XCTSkip("Set TEST_RUNNER_ENSOMI_TIMING_RUN=1 with a lit display.")
+        }
+
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.accessory)
+        let url = try writeToneFile(seconds: 20)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let clock = AVFoundationMania4KAudioClock()
+        clock.volume = 0
+        let noteTimes = [2_000.0, 2_600, 3_200, 3_800, 4_400, 5_000]
+        let stream = try InMemoryMania4KHitObjectStream(objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) })
+        let model = Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock, streamFactory: { _ in stream })
+        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/timing.osu"))
+        model.selectAudioFile(url)
+
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: Mania4KPlayExperienceView(model: model).frame(width: 900, height: 800))
+        window.makeKeyAndOrderFront(nil)
+        guard await model.startPlay() else {
+            throw XCTSkip("The audio engine did not start: \(model.phase)")
+        }
+
+        func descendants(of view: NSView) -> [NSView] {
+            view.subviews + view.subviews.flatMap(descendants)
+        }
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let playfield = try XCTUnwrap(descendants(of: try XCTUnwrap(window.contentView)).compactMap { $0 as? Mania4KPlayfieldView }.first)
+        XCTAssertNotNil(playfield.window)
+        XCTAssertGreaterThan(playfield.bounds.width, 280)
+        XCTAssertLessThan(playfield.bounds.width, 621)
+        XCTAssertGreaterThan(playfield.bounds.height, 400)
+        print("TIMING hosted playfield size \(playfield.bounds.size), first responder \(String(describing: window.firstResponder.map { type(of: $0) }))")
+
+        var next = 0
+        while next < noteTimes.count {
+            let chartMs = clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS())
+            if chartMs >= noteTimes[next] {
+                for (isDown, delayMs) in [(true, 0.0), (false, 30.0)] {
+                    let event = NSEvent.keyEvent(
+                        with: isDown ? .keyDown : .keyUp, location: .zero, modifierFlags: [],
+                        timestamp: ProcessInfo.processInfo.systemUptime + delayMs / 1_000, windowNumber: window.windowNumber, context: nil,
+                        characters: "d", charactersIgnoringModifiers: "d", isARepeat: false, keyCode: 2
+                    )
+                    window.sendEvent(try XCTUnwrap(event))
+                }
+                next += 1
+            }
+            try await Task.sleep(nanoseconds: 3_000_000)
+        }
+        try await Task.sleep(nanoseconds: 400_000_000)
+
+        let frame = try XCTUnwrap(model.playFrame)
+        print("TIMING hosted play screen: chart time \(frame.gameplayChartTimeMs), perfect \(frame.score.perfectCount), good \(frame.score.goodCount), miss \(frame.score.missCount), HUD \(model.hud)")
+        XCTAssertEqual(frame.score.perfectCount, noteTimes.count)
+        XCTAssertEqual(frame.score.missCount, 0)
+        await model.quitToSetup()
+        window.close()
     }
 
     private func writeToneFile(seconds: Double) throws -> URL {
