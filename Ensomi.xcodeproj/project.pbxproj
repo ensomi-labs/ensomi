@@ -108,6 +108,7 @@
 		E0145F054DBD5E3E4F78D0A5 /* InferenceEndpointWebSocketClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */; };
 		E1441CE0F24B4C62C19D9C10 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
 		E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
+		EBCC5401ADF74160DA5E9A5E /* EnsomiRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 0B20B7668397204050BDB438 /* EnsomiRuntime */; };
 		EC29E01837B8385F9A18D6FF /* Mania4KChartGenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C88277801C6D92330BC7A0C /* Mania4KChartGenerationModel.swift */; };
 		EDB8513ECCADD936D0827B0B /* AmbientSyncEngineConfidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */; };
 		EFC22D1476938CC885BBEA32 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = F2AA88190E0EA5EA4C617663 /* SwiftProtobuf */; };
@@ -116,6 +117,7 @@
 		F163DF55CD733545386C5480 /* AmbientSyncReferenceIndexBinaryCacheCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */; };
 		F247CEBAA0544386804E99BF /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
 		F448112CB2A97D2CBA1160C8 /* Mania4KPlayfieldLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6B545916C808FAB24CDF233 /* Mania4KPlayfieldLayoutTests.swift */; };
+		F9AE07CDD7CCA3A3729D2C02 /* EnsomiRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 1871CFDD42B27AE4EA34AD7F /* EnsomiRuntime */; };
 		FAAC48482A997DAFDD595C53 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
 		FBEA400EE594E458655742BA /* ControlledGenerationClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */; };
 		FC4CF1C439C75221E68CF515 /* ChartGenerationIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4F6FF715DC785824BE1455 /* ChartGenerationIntegrationTests.swift */; };
@@ -229,6 +231,7 @@
 		083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlayExperienceView.swift; sourceTree = "<group>"; };
 		0D4CB1E0ECC05DDE21DCC556 /* Mania4KDisplayLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KDisplayLink.swift; sourceTree = "<group>"; };
 		0D9EEAFFD5280852633B24EF /* EnsomiACRCloudDebugCLI */ = {isa = PBXFileReference; includeInIndex = 0; path = EnsomiACRCloudDebugCLI; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E28561591EE8BC7C59BFDBE /* HANDOFF-gameplay-shell.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "HANDOFF-gameplay-shell.md"; sourceTree = "<group>"; };
 		0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfiguration.swift; sourceTree = "<group>"; };
 		1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilderTests.swift; sourceTree = "<group>"; };
 		1CA123E827CD2F98FFE2B8FD /* EnsomiIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EnsomiIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -271,6 +274,7 @@
 		700C80AB5EC00DAED021521E /* Mania4KGeneratedChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGeneratedChart.swift; sourceTree = "<group>"; };
 		71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlledGenerationClientTests.swift; sourceTree = "<group>"; };
 		750DCD21FCA11D25899D9F3A /* Mania4KGeneratedChartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGeneratedChartTests.swift; sourceTree = "<group>"; };
+		755356C3BDB1F71A5EFBF29C /* swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = swift; path = "../ensomi-runtime/swift"; sourceTree = SOURCE_ROOT; };
 		7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugACRCloudRecognitionProvider.swift; sourceTree = "<group>"; };
 		7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBinaryCacheCodec.swift; sourceTree = "<group>"; };
 		83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnsomiCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -295,6 +299,7 @@
 		AFA0F500ABD17BAE5AF968E1 /* AmbientSyncEngineReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineReference.swift; sourceTree = "<group>"; };
 		B15A13F4949148FCECD62C3F /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		B36053FB4B99CE266CED8F2B /* Mania4KOffsetCalibrationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KOffsetCalibrationModelTests.swift; sourceTree = "<group>"; };
+		B5EACF580CC80FD55D30F5BC /* gameplay-timing.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "gameplay-timing.md"; sourceTree = "<group>"; };
 		B608FF9501BEFEFB812C22F6 /* LocalMusicDirectoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMusicDirectoryStore.swift; sourceTree = "<group>"; };
 		BBE632F5A61553AA6F2DFD92 /* SystemAudioFeatureStreamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioFeatureStreamService.swift; sourceTree = "<group>"; };
 		C288CB29AE9D254EC43949DF /* EnsomiUI.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = EnsomiUI.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -375,6 +380,7 @@
 				E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */,
 				9B3859C62894E7C991D51C93 /* EnsomiProtocol in Frameworks */,
 				EFC22D1476938CC885BBEA32 /* SwiftProtobuf in Frameworks */,
+				F9AE07CDD7CCA3A3729D2C02 /* EnsomiRuntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -387,6 +393,7 @@
 				6A634053BFA8E295609265CB /* EnsomiProtocol in Frameworks */,
 				726312AB20A4AAF5DD29B215 /* SwiftProtobuf in Frameworks */,
 				080631C1DD96DFE16C45F869 /* Sonalign in Frameworks */,
+				EBCC5401ADF74160DA5E9A5E /* EnsomiRuntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -538,6 +545,7 @@
 				97EB5E0DC2F0F85617EF3F1F /* README.md */,
 				2D7492E817727A6241F5D128 /* Apps */,
 				90CC7293C2933FB8D7B8C2D4 /* docs */,
+				F3DD720B265888831F5DC525 /* Packages */,
 				E36DE21B8BFC0A3FC2A5AED0 /* Sources */,
 				E1DEB0BA81EC9A159F66D028 /* Tests */,
 				FFEC6830D43A9E52ECF90018 /* Tools */,
@@ -613,6 +621,8 @@
 			children = (
 				3ED25E9FEBF2485CD6E9F1EC /* architecture.md */,
 				68C08A79A91D4DD74A70A109 /* design-guidelines.md */,
+				B5EACF580CC80FD55D30F5BC /* gameplay-timing.md */,
+				0E28561591EE8BC7C59BFDBE /* HANDOFF-gameplay-shell.md */,
 				94414F9EF1AB44ADD871D2D2 /* live_generation_demo.md */,
 			);
 			path = docs;
@@ -745,6 +755,14 @@
 			path = EnsomiUI;
 			sourceTree = "<group>";
 		};
+		F3DD720B265888831F5DC525 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				755356C3BDB1F71A5EFBF29C /* swift */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
 		FFEC6830D43A9E52ECF90018 /* Tools */ = {
 			isa = PBXGroup;
 			children = (
@@ -837,6 +855,7 @@
 			packageProductDependencies = (
 				F01BA805C1360DB0ECD47EBE /* EnsomiProtocol */,
 				F2AA88190E0EA5EA4C617663 /* SwiftProtobuf */,
+				1871CFDD42B27AE4EA34AD7F /* EnsomiRuntime */,
 			);
 			productName = EnsomiCoreTests;
 			productReference = 83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */;
@@ -877,6 +896,7 @@
 				82991F4AB065812244BD67C3 /* EnsomiProtocol */,
 				67690B86BDDCDCB94587505B /* SwiftProtobuf */,
 				C3F3C7E14334949B1EA8AB49 /* Sonalign */,
+				0B20B7668397204050BDB438 /* EnsomiRuntime */,
 			);
 			productName = EnsomiCore;
 			productReference = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */;
@@ -924,6 +944,7 @@
 				08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */,
 				67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */,
 				CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+				BD676EAD3E9958E84DCC345D /* XCLocalSwiftPackageReference "../ensomi-runtime/swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A0B326C1B9FCAD1270220348 /* Products */;
@@ -1175,6 +1196,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -1295,6 +1317,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				EXCLUDED_ARCHS = x86_64;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -1585,6 +1608,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		BD676EAD3E9958E84DCC345D /* XCLocalSwiftPackageReference "../ensomi-runtime/swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../ensomi-runtime/swift";
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1613,6 +1643,14 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		0B20B7668397204050BDB438 /* EnsomiRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnsomiRuntime;
+		};
+		1871CFDD42B27AE4EA34AD7F /* EnsomiRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = EnsomiRuntime;
+		};
 		67690B86BDDCDCB94587505B /* SwiftProtobuf */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */;

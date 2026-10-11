@@ -15,7 +15,18 @@ for the timing, streaming, and scoring contracts.
 ## Build and test
 
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
-macOS 14 and iOS 17. Generate the project from `project.yml`:
+macOS 14 and iOS 17. The gameplay rules come from the Rust core in
+[ensomi-runtime](https://github.com/ensomi-labs/runtime), checked out beside this
+repository (`../ensomi-runtime`) and linked as the local Swift package
+`../ensomi-runtime/swift`. Build its xcframework first, which needs Rust (`rustup`
+with the `aarch64-apple-darwin`, `aarch64-apple-ios` and `aarch64-apple-ios-sim`
+targets), and again after the core changes:
+
+```sh
+../ensomi-runtime/scripts/build-apple.sh
+```
+
+Then generate the project from `project.yml`:
 
 ```sh
 xcodegen generate
@@ -29,8 +40,8 @@ follow the [canonical macOS installation guidance](AGENTS.md#macos-installation)
 
 SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
 [Sonalign](https://github.com/ensomi-labs/sonalign), pinned in `project.yml`
-(EnsomiProtocol `0.2.0`, Sonalign `0.1.0`). App builds need neither sibling package
-checkouts nor Rust. The optional synthetic alignment comparison uses the released Rust CLI:
+(EnsomiProtocol `0.2.0`, Sonalign `0.1.0`). The optional synthetic alignment comparison
+uses the released Rust CLI:
 
 ```sh
 cargo install sonalign --version 0.1.0 --locked --root .build/sonalign
