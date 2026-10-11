@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ensomi-labs/protocol.git",
       "state" : {
-        "revision" : "2157297fb10b6cb156469ef91dc7fbc76546ef9b",
-        "version" : "0.1.0"
+        "revision" : "c79ffbe5ac97ed3dbce92b92ef006325a4cddf3b",
+        "version" : "0.2.0"
       }
     },
     {

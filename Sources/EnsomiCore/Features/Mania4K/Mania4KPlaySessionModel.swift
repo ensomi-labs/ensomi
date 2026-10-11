@@ -246,6 +246,39 @@ public final class Mania4KPlaySessionModel {
         )
     }
 
+    /// Play a complete generated chart with its audio from time 0, like an imported beatmap.
+    @discardableResult
+    public func startGeneratedChartPlay(
+        audioFileURL: URL,
+        chart: Mania4KGeneratedChart,
+        title: String? = nil,
+        artist: String? = nil
+    ) async -> Bool {
+        resetPreparedPlayState()
+        self.audioFileURL = audioFileURL
+        let generation = playStateGeneration
+        let title = title?.trimmedNilIfEmpty ?? audioFileURL.deletingPathExtension().lastPathComponent
+        let configuration = Mania4KPlayConfiguration(
+            chartSource: .generated(displayName: "Generated: \(title)"),
+            audioFileURL: audioFileURL, starDifficulty: starDifficulty,
+            scrollSpeed: scrollSpeed, audioOffsetMilliseconds: audioOffsetMilliseconds,
+            visualOffsetMilliseconds: visualOffsetMilliseconds, judgeDifficulty: judgeDifficulty,
+            keyBindings: keyBindings)
+        let metadata = Mania4KChartMetadata(
+            title: title, artist: artist, sourceDescription: "Ensomi chart service",
+            objectCount: chart.objectCount, durationMs: chart.durationMs)
+        do {
+            let stream = try InMemoryMania4KHitObjectStream(objects: chart.objects, metadata: metadata)
+            return await startPreparedPlay(configuration: configuration, stream: stream, startGeneration: generation)
+        } catch let error as Mania4KChartValidationError {
+            await fail(.chartPrepareFailed(error))
+            return false
+        } catch {
+            await fail(.streamFailed(error.localizedDescription))
+            return false
+        }
+    }
+
     /// Start at the recognized reference clock; the local reference is never played aloud.
     @discardableResult
     public func startAmbientControlledPlay(

@@ -161,7 +161,8 @@ enum InferenceEndpointProtocolCodec {
 
         case .error(let event)?:
             throw InferenceEndpointProtocolError.serverError(event.clientMessage)
-        case .nodeHello?, .ready?, .audio?, .referenceTime?, .stopSession?, .mapperStreamBegin?, .status?, nil:
+        case .nodeHello?, .ready?, .audio?, .referenceTime?, .stopSession?, .mapperStreamBegin?, .status?,
+             .generateChart?, .capabilitiesRequest?, .modelCapabilities?, .generationProgress?, .chartResult?, nil:
             return nil
         }
     }
