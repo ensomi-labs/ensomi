@@ -109,11 +109,23 @@ keyboard latency). The visual default stays at -15 ms. The play screen's frame i
 now drawn for the display time instead of the last tick, so it may need a
 different value.
 
-The offset calibration screen still measures from the command to play a tick, with
-its own `AVAudioPlayer`, so its result includes the output latency the clock now
-removes. On the built-in speakers the difference is about 1 ms; with a device that
-reports a large latency, such as Bluetooth headphones, subtract that device's
-`presentationLatency` or adjust the offset during play.
+The offset calibration screen judges as play does, on the same clock. Its click, the
+bundled `calibration_tick.wav`, is laid in a click track that
+`AVFoundationMania4KAudioClock` plays through the graph above: silence for 1 s, then the
+tick every 500 ms as a looped buffer. Tick k is therefore heard at audio time
+`1000 + 500 k` ms, as a sound of the song at that time would be, and the screen's
+clock is that audio time, read at each frame. A key is stamped with
+`NSEvent.timestamp` and converted through `audioTimeMs(atHostTimeMs:)`. Tick k is a
+note at chart time `1000 + 500 k` ms, a key's chart time is its audio time plus the
+audio offset, and the hit error is their difference. A key's suggested audio offset is
+the rendered offset minus its hit error, which is `1000 + 500 k` minus the key's audio
+time: minus the delay between hearing the tick and pressing, whatever offset the screen
+started from. The suggestion is the median of the last 16 accepted keys. The device's
+reported latency is not counted twice, and calibrating again from a result measures a
+hit error near zero. Notes are drawn at audio time plus audio offset plus
+visual offset, but for the time of the screen's 60 Hz loop and not, as in play, the
+display link's presentation time, so a visual offset set there can differ from play's by
+about a frame.
 
 ## Reproduce
 

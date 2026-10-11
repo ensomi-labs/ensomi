@@ -55,6 +55,44 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         XCTAssertFalse(stoppedRunning)
     }
 
+    /// Tick k must start at 1_000 + 500 * k ms of audio time (the offset calibration's notes), so the lead-in and the
+    /// looped interval are rendered through a player as the clock schedules them, in an offline engine with no device.
+    func testCalibrationClickTrackRendersTickKAtLeadInPlusKIntervals() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1))
+        let tick = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 100))
+        tick.frameLength = 100
+        let tickSamples = try XCTUnwrap(tick.floatChannelData)[0]
+        for frame in 0..<100 {
+            tickSamples[frame] = Float(frame + 1)
+        }
+        let track = Mania4KCalibrationClickTrack(tick: tick, leadInMs: 1_000, intervalMs: 500)
+
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        engine.attach(player)
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4_096)
+        track.schedule(on: player)
+        try engine.start()
+        player.play()
+
+        let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
+        var rendered: [Float] = []
+        while rendered.count < 3 * 44_100 {
+            XCTAssertEqual(try engine.renderOffline(4_096, to: output), .success)
+            rendered += UnsafeBufferPointer(start: try XCTUnwrap(output.floatChannelData)[0], count: Int(output.frameLength))
+        }
+
+        let onsets = rendered.indices.filter { abs(rendered[$0]) > 1e-6 && ($0 == 0 || abs(rendered[$0 - 1]) <= 1e-6) }
+        XCTAssertEqual(Array(onsets.prefix(4)), [44_100, 66_150, 88_200, 110_250])
+        // The main mixer pans a mono source (-3 dB), so compare the tick's shape against its first sample.
+        for onset in onsets.prefix(4) {
+            for frame in 0..<100 {
+                XCTAssertEqual(rendered[onset + frame] / rendered[onset], Float(frame + 1), accuracy: 1e-3)
+            }
+        }
+    }
+
     private func writeToneFile(sampleRate: Double, seconds: Double) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

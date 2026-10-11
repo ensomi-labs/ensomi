@@ -1081,7 +1081,7 @@ private actor DelayedSafeMania4KHitObjectStream: Mania4KHitObjectStreaming {
 }
 
 /// A clock whose audio time is the host time plus a constant, so key timestamps map to known chart times.
-private actor LinearMania4KAudioClock: Mania4KAudioClock {
+actor LinearMania4KAudioClock: Mania4KAudioClock {
     private let audioMinusHostMs: Double
     private var running = false
 

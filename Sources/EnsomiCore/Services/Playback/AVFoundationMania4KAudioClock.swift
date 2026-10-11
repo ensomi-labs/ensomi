@@ -44,6 +44,22 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
 
     public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
         let file = try AVAudioFile(forReading: audioFileURL)
+        try prepareEngine(format: file.processingFormat) { player in
+            player.scheduleFile(file, at: nil, completionHandler: nil)
+        }
+
+        return Mania4KAudioMetadata(
+            durationMs: Double(file.length) / file.processingFormat.sampleRate * 1000,
+            title: audioFileURL.deletingPathExtension().lastPathComponent
+        )
+    }
+
+    /// Prepares a click track in place of a file. Audio time 0 is its first frame, as it is a file's first frame.
+    public func prepare(clickTrack: Mania4KCalibrationClickTrack) throws {
+        try prepareEngine(format: clickTrack.loop.format, schedule: clickTrack.schedule)
+    }
+
+    private func prepareEngine(format: AVAudioFormat, schedule: (AVAudioPlayerNode) -> Void) throws {
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         // The mixer runs at the output's rate. Connected straight to the main mixer, a 44.1 kHz file's player
@@ -56,9 +72,9 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
 
         engine.attach(player)
         engine.attach(mixer)
-        engine.connect(player, to: mixer, format: file.processingFormat)
+        engine.connect(player, to: mixer, format: format)
         engine.connect(mixer, to: engine.mainMixerNode, format: outputFormat)
-        player.scheduleFile(file, at: nil, completionHandler: nil)
+        schedule(player)
         engine.prepare()
 
         state.withLockUnchecked {
@@ -69,11 +85,6 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
             $0.pausedAudioTimeMs = 0
             engine.mainMixerNode.outputVolume = $0.volume
         }
-
-        return Mania4KAudioMetadata(
-            durationMs: Double(file.length) / file.processingFormat.sampleRate * 1000,
-            title: audioFileURL.deletingPathExtension().lastPathComponent
-        )
     }
 
     public func play() async throws {
@@ -146,5 +157,38 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
 
     public func isRunning() async -> Bool {
         state.withLockUnchecked { $0.isRunning }
+    }
+}
+
+/// The offset calibration's click track: silence until the first tick at `leadInMs`, then `tick` every `intervalMs`.
+/// `loop` starts with the tick and is as long as the interval, so after `leadIn` it puts tick k at audio time
+/// `leadInMs + k * intervalMs`.
+public struct Mania4KCalibrationClickTrack {
+    let leadIn: AVAudioPCMBuffer
+    let loop: AVAudioPCMBuffer
+
+    public init(tick: AVAudioPCMBuffer, leadInMs: Int, intervalMs: Int) {
+        let format = tick.format
+        leadIn = Self.silence(format: format, milliseconds: leadInMs)
+        loop = Self.silence(format: format, milliseconds: intervalMs)
+        for channel in 0..<Int(format.channelCount) {
+            loop.floatChannelData![channel].update(from: tick.floatChannelData![channel], count: Int(tick.frameLength))
+        }
+    }
+
+    /// `leadIn` plays once, then `loop` repeats until the player stops.
+    func schedule(on player: AVAudioPlayerNode) {
+        player.scheduleBuffer(leadIn, at: nil, options: [], completionHandler: nil)
+        player.scheduleBuffer(loop, at: nil, options: .loops, completionHandler: nil)
+    }
+
+    private static func silence(format: AVAudioFormat, milliseconds: Int) -> AVAudioPCMBuffer {
+        let frames = AVAudioFrameCount((Double(milliseconds) * format.sampleRate / 1000).rounded())
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+        buffer.frameLength = frames
+        for channel in 0..<Int(format.channelCount) {
+            buffer.floatChannelData![channel].update(repeating: 0, count: Int(frames))
+        }
+        return buffer
     }
 }

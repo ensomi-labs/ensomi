@@ -91,6 +91,8 @@ public extension Mania4KOffsetCalibrationStoredState {
     }
 }
 
+/// One accepted key. `rawInputTimeMs` is the key's audio time, `noteTimeMs` the tick's chart time, and the hit error is
+/// the key's chart time (audio time plus the rendered audio offset) minus `noteTimeMs`, as in play.
 public struct Mania4KOffsetCalibrationHitSample: Identifiable, Equatable, Sendable {
     public var id: Int {
         beatIndex
@@ -120,17 +122,9 @@ public struct Mania4KOffsetCalibrationHitSample: Identifiable, Equatable, Sendab
     }
 }
 
-@MainActor
-public protocol Mania4KOffsetCalibrationTickPlaying: AnyObject {
-    func prewarmCalibrationTicks()
-    func playCalibrationTick()
-    func stopCalibrationTicks()
-}
-
-public extension Mania4KOffsetCalibrationTickPlaying {
-    func prewarmCalibrationTicks() {}
-}
-
+/// Judges keys against a click track that sounds on `audioClock`, with play's semantics: the chart time of a tick is
+/// its audio time `initialLeadInMs + k * tickIntervalMs`, and the chart time of a key is its audio time plus the
+/// rendered audio offset. The raw clock and the raw input times are audio times.
 @MainActor
 @Observable
 public final class Mania4KOffsetCalibrationModel {
@@ -154,10 +148,7 @@ public final class Mania4KOffsetCalibrationModel {
     public private(set) var storedState: Mania4KOffsetCalibrationStoredState
 
     @ObservationIgnored
-    private let tickPlayer: (any Mania4KOffsetCalibrationTickPlaying)?
-
-    @ObservationIgnored
-    private let initialRenderedAudioOffsetMilliseconds: Int
+    private let audioClock: any Mania4KAudioClock
 
     @ObservationIgnored
     private var resolvedBeatIndices: Set<Int>
@@ -165,16 +156,13 @@ public final class Mania4KOffsetCalibrationModel {
     @ObservationIgnored
     private var lastRenderedOffsetPublishRawTimeMs: Int?
 
-    @ObservationIgnored
-    private var lastTickedBeatIndex: Int
-
     public init(
         originalAudioOffsetMilliseconds: Int,
         originalVisualOffsetMilliseconds: Int,
         storedState: Mania4KOffsetCalibrationStoredState? = nil,
         fallbackAppliedAudioOffsetMilliseconds: Int = 0,
         fallbackAppliedVisualOffsetMilliseconds: Int = 0,
-        tickPlayer: (any Mania4KOffsetCalibrationTickPlaying)? = nil
+        audioClock: any Mania4KAudioClock = AVFoundationMania4KAudioClock()
     ) {
         let clampedOriginalAudioOffset = Self.clampedOffset(originalAudioOffsetMilliseconds)
         let clampedOriginalVisualOffset = Self.clampedOffset(originalVisualOffsetMilliseconds)
@@ -198,11 +186,9 @@ public final class Mania4KOffsetCalibrationModel {
         self.rawClockTimeMs = 0
         self.hitSamples = []
         self.storedState = normalizedState
-        self.tickPlayer = tickPlayer
-        self.initialRenderedAudioOffsetMilliseconds = initialAudioOffset
+        self.audioClock = audioClock
         self.resolvedBeatIndices = []
         self.lastRenderedOffsetPublishRawTimeMs = nil
-        self.lastTickedBeatIndex = -1
     }
 
     public var gameplayChartTimeMs: Int {
@@ -249,15 +235,20 @@ public final class Mania4KOffsetCalibrationModel {
         return suggestedAudioOffsetMilliseconds - pendingAudioOffsetMilliseconds
     }
 
+    /// The tick's chart time, which is also the audio time it sounds at.
     public func noteTimeMs(forBeatIndex beatIndex: Int) -> Double {
-        Double(Self.initialLeadInMs + initialRenderedAudioOffsetMilliseconds + beatIndex * Self.tickIntervalMs)
+        Double(Self.initialLeadInMs + beatIndex * Self.tickIntervalMs)
+    }
+
+    /// Reads the audio clock for the frame drawn at `hostTimeMs` (`EnsomiHostClock` milliseconds).
+    public func advanceClock(atHostTimeMs hostTimeMs: Double) {
+        advanceClock(rawClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: hostTimeMs).rounded()))
     }
 
     public func advanceClock(rawClockTimeMs: Int) {
         self.rawClockTimeMs = rawClockTimeMs
         publishPendingOffsetsIfAllowed()
         pruneResolvedBeatIndices(referenceGameplayChartTimeMs: Double(gameplayChartTimeMs))
-        playDueCalibrationTicks()
     }
 
     public func visibleObjects(
@@ -305,6 +296,13 @@ public final class Mania4KOffsetCalibrationModel {
                 state: state
             )
         }
+    }
+
+    /// Records a key stamped at `hostTimeMs` (`NSEvent.timestamp`, in `EnsomiHostClock` milliseconds), converted to
+    /// audio time through the clock as play does.
+    @discardableResult
+    public func recordInput(atHostTimeMs hostTimeMs: Double) -> Mania4KOffsetCalibrationHitSample? {
+        recordInput(rawInputTimeMs: audioClock.audioTimeMs(atHostTimeMs: hostTimeMs))
     }
 
     @discardableResult
@@ -434,21 +432,8 @@ public final class Mania4KOffsetCalibrationModel {
         storedState.activePresetID = nil
     }
 
-    public func playCalibrationTick() {
-        tickPlayer?.playCalibrationTick()
-    }
-
-    public func prewarmCalibrationTicks() {
-        tickPlayer?.prewarmCalibrationTicks()
-    }
-
-    public func stopCalibrationTicks() {
-        tickPlayer?.stopCalibrationTicks()
-    }
-
     @discardableResult
     public func apply() -> Mania4KOffsetCalibrationOffsets {
-        stopCalibrationTicks()
         storedState.appliedAudioOffsetMilliseconds = pendingAudioOffsetMilliseconds
         storedState.appliedVisualOffsetMilliseconds = pendingVisualOffsetMilliseconds
         return Mania4KOffsetCalibrationOffsets(
@@ -459,8 +444,7 @@ public final class Mania4KOffsetCalibrationModel {
 
     @discardableResult
     public func cancel() -> Mania4KOffsetCalibrationOffsets {
-        stopCalibrationTicks()
-        return Mania4KOffsetCalibrationOffsets(
+        Mania4KOffsetCalibrationOffsets(
             audioOffsetMilliseconds: originalAudioOffsetMilliseconds,
             visualOffsetMilliseconds: originalVisualOffsetMilliseconds
         )
@@ -508,29 +492,11 @@ public final class Mania4KOffsetCalibrationModel {
         lastRenderedOffsetPublishRawTimeMs = rawClockTimeMs
     }
 
-    private func playDueCalibrationTicks() {
-        let latestBeatIndex = beatIndex(atOrBeforeRawTimeMs: rawClockTimeMs)
-        guard latestBeatIndex > lastTickedBeatIndex else {
-            return
-        }
-
-        tickPlayer?.playCalibrationTick()
-        lastTickedBeatIndex = latestBeatIndex
-    }
-
     private func pruneResolvedBeatIndices(referenceGameplayChartTimeMs: Double) {
         let earliestRetainedNoteTimeMs = referenceGameplayChartTimeMs - Double(Self.resolvedBeatStateRetentionMs)
         resolvedBeatIndices = resolvedBeatIndices.filter { beatIndex in
             noteTimeMs(forBeatIndex: beatIndex) >= earliestRetainedNoteTimeMs
         }
-    }
-
-    private func beatIndex(atOrBeforeRawTimeMs rawTimeMs: Int) -> Int {
-        guard rawTimeMs >= Self.initialLeadInMs else {
-            return -1
-        }
-
-        return (rawTimeMs - Self.initialLeadInMs) / Self.tickIntervalMs
     }
 
     private func nearestUnresolvedBeatIndex(toChartTimeMs chartTimeMs: Double) -> Int {
