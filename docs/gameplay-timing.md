@@ -110,7 +110,14 @@ step minus refresh step sd 0.010 ms, within -0.018 to 0.015 ms; refresh interval
 
 CPU cost per frame (Debug build): laying out a busy frame (130 quads) 0.17 to 0.20 ms
 at p50 with the core's note geometry through the Swift bindings (0.035 ms with the
-Swift layout before), encoding and committing it 0.011 ms. The core session's `advance`,
+Swift layout before), encoding and committing it 0.011 ms. With the play screen's
+current look (`gameplay-look.md`) the same frame plus eight hits at the line is 134
+quads; laying it out, including fetching the recent judgement events through the
+bindings, took 0.25 and 0.33 ms at p50 in two runs, against 0.21 and 0.38 ms for the
+previous layout in two runs on the same machine minutes apart, while another job loaded
+it (the session cost below read 0.06 to 0.11 ms in those runs). The GPU draws the frame
+at 720 by 1400 pixels in 0.52 ms at p50, against 0.93 ms for the previous look, which
+filled every lane twice, stroked it and glowed every note. The core session's `advance`,
 `visibleObjects` and `laneStates` on a 4000-object chart cost 0.050 ms at p50 and
 0.054 ms at p99 through the Swift bindings (maximum 3.7 ms in 1000 frames); the
 core's own frame, timed in Rust (release), is 0.7 us at p50 for 4000 and for 16000

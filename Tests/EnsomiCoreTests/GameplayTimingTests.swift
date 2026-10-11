@@ -103,7 +103,8 @@ final class GameplayTimingTests: XCTestCase {
         print(String(format: "TIMING session advance+visibleObjects+laneStates, 4000 objects: p50 %.3f ms, p99 %.3f ms, max %.3f ms", costsMs.percentile(0.5), costsMs.percentile(0.99), costsMs.max() ?? 0))
     }
 
-    /// CPU cost of laying a busy frame out (about 70 visible notes) and encoding it for the GPU.
+    /// Cost of a busy frame (about 70 visible notes, every lane lit, eight hits flashing at the line): fetching the
+    /// recent judgement events and laying the frame out, encoding it, and the GPU's time drawing it at 2x.
     func testPlayfieldLayoutAndEncodeCost() throws {
         guard let device = MTLCreateSystemDefaultDevice() else {
             throw XCTSkip("No Metal device")
@@ -127,21 +128,36 @@ final class GameplayTimingTests: XCTestCase {
         }
         let frame = Mania4KPlayFrame(
             gameplayChartTimeMs: 1_000, renderChartTimeMs: 1_000, scrollTimeMs: 459,
-            metadata: Mania4KChartMetadata(title: "T", sourceDescription: "T"),
+            metadata: Mania4KChartMetadata(title: "T", sourceDescription: "T", durationMs: 60_000),
             visibleObjects: objects, score: .zero, laneStates: [], latestJudgement: nil
         )
+        let feedback = GameplayFeedback()
+        for index in 0..<8 {
+            let timeMs = 880 + Double(index) * 15
+            let event = JudgementEvent(
+                id: UInt64(index), object: UInt32(index), lane: UInt32(index % 4), part: .head,
+                tier: index % 3 == 0 ? .p1 : .bigP, offsetMs: 5, timeMs: timeMs, objectTimeMs: timeMs - 5
+            )
+            feedback.recordJudgementEvents(events: [event], chartTimeMs: timeMs)
+        }
         let size = CGSize(width: 360, height: 700)
         let dark = { (_: Mania4KLane) in LaneBrightness(receptor: 0.2, lane: 0.05) }
         var layoutCostsMs: [Double] = []
         var encodeCostsMs: [Double] = []
+        var gpuCostsMs: [Double] = []
         var quadCount = 0
         for _ in 0..<300 {
             let layoutStartMs = EnsomiHostClock.currentTimeMS()
-            let quads = Mania4KPlayfieldLayout.quads(frame: frame, brightness: dark, size: size)
+            let quads = Mania4KPlayfieldLayout.quads(
+                frame: frame, brightness: dark, judgements: feedback.judgementEventBatches(), size: size
+            )
             let encodeStartMs = EnsomiHostClock.currentTimeMS()
             let commandBuffer = renderer.draw(quads, viewportSize: size, pass: pass, drawable: nil)
             let endMs = EnsomiHostClock.currentTimeMS()
             commandBuffer?.waitUntilCompleted()
+            if let commandBuffer {
+                gpuCostsMs.append((commandBuffer.gpuEndTime - commandBuffer.gpuStartTime) * 1_000)
+            }
             layoutCostsMs.append(encodeStartMs - layoutStartMs)
             encodeCostsMs.append(endMs - encodeStartMs)
             quadCount = quads.count
@@ -149,6 +165,7 @@ final class GameplayTimingTests: XCTestCase {
 
         print(String(format: "TIMING layout (%d quads): p50 %.3f ms, p99 %.3f ms, max %.3f ms", quadCount, layoutCostsMs.percentile(0.5), layoutCostsMs.percentile(0.99), layoutCostsMs.max() ?? 0))
         print(String(format: "TIMING encode and commit: p50 %.3f ms, p99 %.3f ms, max %.3f ms", encodeCostsMs.percentile(0.5), encodeCostsMs.percentile(0.99), encodeCostsMs.max() ?? 0))
+        print(String(format: "TIMING GPU draw at 720x1400: p50 %.3f ms, p99 %.3f ms, max %.3f ms", gpuCostsMs.percentile(0.5), gpuCostsMs.percentile(0.99), gpuCostsMs.max() ?? 0))
     }
 
     func testFramePacingAndClockJitterOverASilentAutoplay() async throws {
