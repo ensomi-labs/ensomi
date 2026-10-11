@@ -48,8 +48,8 @@ These shaped the clock and are easy to get wrong again:
 - Silencing must not use the player's own volume. At volume 0 the node time drifts
   the same 1.3 ms per second even with the mixer in place. The clock's `volume` sets
   the main mixer's output volume instead.
-- The render timestamp's host time leads the moment of the call by 13 to 22 ms (one
-  I/O buffer, 512 frames at 48 kHz, plus the device's safety offset).
+- The render timestamp's host time leads the moment of the call by 13 to 22 ms,
+  depending on where in the 10.7 ms I/O cycle (512 frames at 48 kHz) the call falls.
 - On the built-in speakers `presentationLatency` is 1.25 ms (60 frames, the device
   latency). CoreAudio also reports 556 frames (11.6 ms) of stream latency and a
   48-frame safety offset that `presentationLatency` leaves out; they stay in the
@@ -81,13 +81,13 @@ through the key path at their stamped times: 418 perfect, 0 miss):
 | Main-thread callback interval | mean 16.670, sd 0.66, p1 16.36, p99 16.98, max 29.2 ms; 6 over 1.5x nominal, none over 2.5x |
 | Callback start after the vsync timestamp | p50 0.36 ms, p99 1.0 ms, max 12.9 ms |
 | Engine chart-time step minus refresh step | sd 0.010 ms, within -0.018 to 0.019 ms |
-| `AVAudioPlayer.currentTime` step minus callback step (the old clock) | sd 0.36 ms, one stall of 21.7 ms |
+| `AVAudioPlayer.currentTime` step minus callback step (the old clock) | sd 0.36 ms, one step 21.7 ms short |
 
 CPU cost per frame (Debug build): laying out a busy frame (130 quads) 0.035 ms at
 p50, encoding and committing it 0.011 ms. The engine's `advance` plus `snapshot`
 on a 4000-object chart cost 2.4 to 3.6 ms at p50 (both walk every object each
-frame; an optimized build is far cheaper), with a rare outlier of several tens of
-milliseconds that is a single dropped frame.
+frame; an optimized build is far cheaper), with one outlier of 57 to 87 ms in 1000
+frames that was not investigated.
 
 ## Offsets
 

@@ -49,10 +49,15 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         // The mixer runs at the output's rate. Connected straight to the main mixer, a 44.1 kHz file's player
         // timeline runs about 1.3 ms per second fast against the device clock.
         let mixer = AVAudioMixerNode()
+        let outputFormat = engine.outputNode.outputFormat(forBus: 0)
+        guard outputFormat.sampleRate > 0 else {
+            throw Mania4KPlayFailure.audioPrepareFailed("There is no audio output device.")
+        }
+
         engine.attach(player)
         engine.attach(mixer)
         engine.connect(player, to: mixer, format: file.processingFormat)
-        engine.connect(mixer, to: engine.mainMixerNode, format: engine.outputNode.outputFormat(forBus: 0))
+        engine.connect(mixer, to: engine.mainMixerNode, format: outputFormat)
         player.scheduleFile(file, at: nil, completionHandler: nil)
         engine.prepare()
 
