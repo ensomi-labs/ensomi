@@ -1,5 +1,5 @@
 ---
-commit: e4ae9e80f2b811fcddb265b134d917d7e6d149ce
+commit: 4f39e8f3675dbb8b722b89e3c352f9d4902cf46f
 ---
 
 # Ensomi
@@ -28,9 +28,9 @@ Debug app builds disable code signing. For microphone or system-audio testing,
 follow the [canonical macOS installation guidance](AGENTS.md#macos-installation).
 
 SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
-[Sonalign](https://github.com/ensomi-labs/sonalign), both pinned to `0.1.0` in
-`project.yml`. App builds need neither sibling package checkouts nor Rust.
-The optional synthetic alignment comparison uses the released Rust CLI:
+[Sonalign](https://github.com/ensomi-labs/sonalign), pinned in `project.yml`
+(EnsomiProtocol `0.2.0`, Sonalign `0.1.0`). App builds need neither sibling package
+checkouts nor Rust. The optional synthetic alignment comparison uses the released Rust CLI:
 
 ```sh
 cargo install sonalign --version 0.1.0 --locked --root .build/sonalign
@@ -45,6 +45,13 @@ opens gameplay after final lock. Optional difficulty/style requests are captured
 at lock. See the [operation manual](docs/live_generation_demo.md) for backend
 startup, checkpoint identity, local audio preparation and troubleshooting.
 
+
+**Generate a Chart** builds a complete chart from a local audio file. Pick the file,
+set the stars (the model's range) and optional sections, and the app sends it to the
+local Ensomi R2 model service (`python -m ensomi_model.service --model-dir <dir>` from
+[ensomi-model](https://github.com/ensomi-labs/ensomi-model), `ws://localhost:8765` by
+default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default). The
+complete chart plays from the start.
 
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
 Sync Flow** recognizes microphone or system audio, resolves a local reference,
