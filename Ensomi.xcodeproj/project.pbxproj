@@ -31,12 +31,15 @@
 		36209F90B7F1607AB6FF214A /* calibration_tick.wav in Resources */ = {isa = PBXBuildFile; fileRef = ADE723E8EECBD38CBC3FE7D3 /* calibration_tick.wav */; };
 		3853A2AFDAE823701FF50AD7 /* LocalLibraryDashboardModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B0D4E833CE58191460184BF /* LocalLibraryDashboardModelTests.swift */; };
 		3875AE78611454CB8AF81A5C /* EnsomiUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3C8C5A513FEE85AAED6BF793 /* Mania4KGeneratedChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700C80AB5EC00DAED021521E /* Mania4KGeneratedChart.swift */; };
 		3E95B7CA9B3DD7C3DA4E907E /* AmbientSyncOffsetHistogramTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27B1DEDF6666B7B7F99C81C4 /* AmbientSyncOffsetHistogramTests.swift */; };
 		3F979DEF5D928C64DDAA3956 /* LocalLibraryDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05A1D0E6A815C2E152620815 /* LocalLibraryDashboardView.swift */; };
 		40519026FAF92C1DBB965C56 /* CanonicalTrackDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 256BE921A0938041801BDA07 /* CanonicalTrackDomain.swift */; };
 		407F4996590DBCCBDC0F4FEE /* AmbientSyncSpectralMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93C0254C3CC1447149E7E57 /* AmbientSyncSpectralMatcher.swift */; };
+		40B639554D7412D427B8B271 /* Mania4KGeneratedChartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750DCD21FCA11D25899D9F3A /* Mania4KGeneratedChartTests.swift */; };
 		418DDA959B8C002A1CFA44A1 /* Mania4KPlaySessionModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */; };
 		4966D581F4521D85BA867FDB /* AmbientSyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A23CC773785ED963A925878 /* AmbientSyncEngineTests.swift */; };
+		4AE7165BEE300B4331BDFA26 /* ChartGenerationClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EA40AFA7CC90EE838C9DB31 /* ChartGenerationClientTests.swift */; };
 		4FC7CEFC8B9C1E1BF8519FFB /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
 		506E1E4312D5F20ACB0A3342 /* AmbientSyncEngineDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E69ACE12AF9FAA2BB98A0C0 /* AmbientSyncEngineDiagnostics.swift */; };
 		532BCBA85611682A8586911F /* AmbientSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C756630C9C8F6A4A545C8B84 /* AmbientSyncEngine.swift */; };
@@ -88,6 +91,7 @@
 		C72F3E4EC1C8FD62EFBF367B /* MicFeaturePayloadExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD222D37A68D05890A6690F5 /* MicFeaturePayloadExtractor.swift */; };
 		C7F48E4C91FAD777755D930D /* MicFeaturePayloadExtractorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */; };
 		CD318C007C75AB12AEC83369 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
+		CEE5360BFF5796C73190ABED /* ChartGenerationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7F4FDD95701DCD6B212553 /* ChartGenerationClient.swift */; };
 		D14D280CDA4F6D27F7FE2275 /* EnsomiCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		D3CF2858499E0D0CC84DACDE /* SystemAudioFeatureStreamService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBE632F5A61553AA6F2DFD92 /* SystemAudioFeatureStreamService.swift */; };
 		D88ECC12E816AEBB90D44EEE /* AudioClipCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0C5E5E95DCB981EF075F52 /* AudioClipCaptureService.swift */; };
@@ -96,13 +100,16 @@
 		E0145F054DBD5E3E4F78D0A5 /* InferenceEndpointWebSocketClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */; };
 		E1441CE0F24B4C62C19D9C10 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
 		E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
+		EC29E01837B8385F9A18D6FF /* Mania4KChartGenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C88277801C6D92330BC7A0C /* Mania4KChartGenerationModel.swift */; };
 		EDB8513ECCADD936D0827B0B /* AmbientSyncEngineConfidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */; };
+		EFC22D1476938CC885BBEA32 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = F2AA88190E0EA5EA4C617663 /* SwiftProtobuf */; };
 		F09D765A490E2123FDBA31A2 /* AmbientSyncSessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4781E32D04C9E36DA67575CB /* AmbientSyncSessionEngine.swift */; };
 		F15608F918A36474402FA973 /* AmbientSyncOffsetHistogram.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56B20E27DE49B69C595FDBB /* AmbientSyncOffsetHistogram.swift */; };
 		F163DF55CD733545386C5480 /* AmbientSyncReferenceIndexBinaryCacheCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */; };
 		F247CEBAA0544386804E99BF /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
 		FAAC48482A997DAFDD595C53 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
 		FBEA400EE594E458655742BA /* ControlledGenerationClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */; };
+		FC4CF1C439C75221E68CF515 /* ChartGenerationIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4F6FF715DC785824BE1455 /* ChartGenerationIntegrationTests.swift */; };
 		FCE05604EFD6A551B01BA282 /* SystemAudioClipCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BA1700B8EF157C5634D1A /* SystemAudioClipCaptureService.swift */; };
 		FD22222510DF2AC8509C7EC3 /* RecognitionArchitecture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A621997DDC829B25137812AB /* RecognitionArchitecture.swift */; };
 /* End PBXBuildFile section */
@@ -225,6 +232,7 @@
 		365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfidence.swift; sourceTree = "<group>"; };
 		3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlaySessionModel.swift; sourceTree = "<group>"; };
 		3D8BA1700B8EF157C5634D1A /* SystemAudioClipCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioClipCaptureService.swift; sourceTree = "<group>"; };
+		3EA40AFA7CC90EE838C9DB31 /* ChartGenerationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartGenerationClientTests.swift; sourceTree = "<group>"; };
 		3ED25E9FEBF2485CD6E9F1EC /* architecture.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = architecture.md; sourceTree = "<group>"; };
 		431AFD6F697DFDD6573D8738 /* AmbientSyncSpectralEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralEngine.swift; sourceTree = "<group>"; };
 		4781E32D04C9E36DA67575CB /* AmbientSyncSessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSessionEngine.swift; sourceTree = "<group>"; };
@@ -245,7 +253,10 @@
 		6BB5B287E7B66F49377DF98E /* ACRCloudDebugCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACRCloudDebugCLI.swift; sourceTree = "<group>"; };
 		6C6FEDB5549691497EBFCE53 /* LocalAudioDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioDomain.swift; sourceTree = "<group>"; };
 		6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeaturePayloadExtractorTests.swift; sourceTree = "<group>"; };
+		6F7F4FDD95701DCD6B212553 /* ChartGenerationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartGenerationClient.swift; sourceTree = "<group>"; };
+		700C80AB5EC00DAED021521E /* Mania4KGeneratedChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGeneratedChart.swift; sourceTree = "<group>"; };
 		71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlledGenerationClientTests.swift; sourceTree = "<group>"; };
+		750DCD21FCA11D25899D9F3A /* Mania4KGeneratedChartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGeneratedChartTests.swift; sourceTree = "<group>"; };
 		7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugACRCloudRecognitionProvider.swift; sourceTree = "<group>"; };
 		7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBinaryCacheCodec.swift; sourceTree = "<group>"; };
 		83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnsomiCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -254,7 +265,9 @@
 		94414F9EF1AB44ADD871D2D2 /* live_generation_demo.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = live_generation_demo.md; sourceTree = "<group>"; };
 		97EB5E0DC2F0F85617EF3F1F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		9A23CC773785ED963A925878 /* AmbientSyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineTests.swift; sourceTree = "<group>"; };
+		9A4F6FF715DC785824BE1455 /* ChartGenerationIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartGenerationIntegrationTests.swift; sourceTree = "<group>"; };
 		9BCE8C2600A887C784F591A8 /* LocalAudioMetadataExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioMetadataExtractor.swift; sourceTree = "<group>"; };
+		9C88277801C6D92330BC7A0C /* Mania4KChartGenerationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KChartGenerationModel.swift; sourceTree = "<group>"; };
 		A4E294482B58EFB7D963E4AE /* EnsomiIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsomiIOSApp.swift; sourceTree = "<group>"; };
 		A55A9417D6A488B35883D673 /* AmbientSyncEngineReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineReadiness.swift; sourceTree = "<group>"; };
 		A56B20E27DE49B69C595FDBB /* AmbientSyncOffsetHistogram.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncOffsetHistogram.swift; sourceTree = "<group>"; };
@@ -343,6 +356,7 @@
 				FAAC48482A997DAFDD595C53 /* EnsomiCore.framework in Frameworks */,
 				E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */,
 				9B3859C62894E7C991D51C93 /* EnsomiProtocol in Frameworks */,
+				EFC22D1476938CC885BBEA32 /* SwiftProtobuf in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -446,6 +460,7 @@
 		5D9410FA41F0F9F78A5F3045 /* Mania4K */ = {
 			isa = PBXGroup;
 			children = (
+				9C88277801C6D92330BC7A0C /* Mania4KChartGenerationModel.swift */,
 				ACAF4F2B7F41DA3E05EB11FC /* Mania4KGameplayFeedback.swift */,
 				4DE5E33B40CA0D8FDC815C5E /* Mania4KOffsetCalibrationModel.swift */,
 				3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */,
@@ -601,8 +616,10 @@
 		A0BF6A99A1C90849A4899D48 /* Beatmap */ = {
 			isa = PBXGroup;
 			children = (
+				6F7F4FDD95701DCD6B212553 /* ChartGenerationClient.swift */,
 				F60C8D56E793128B256B102F /* ControlledGenerationClient.swift */,
 				CBBC3BD7078F8D45DA83A205 /* InferenceEndpointWebSocketClient.swift */,
+				700C80AB5EC00DAED021521E /* Mania4KGeneratedChart.swift */,
 			);
 			path = Beatmap;
 			sourceTree = "<group>";
@@ -638,6 +655,8 @@
 				1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */,
 				DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */,
 				D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */,
+				3EA40AFA7CC90EE838C9DB31 /* ChartGenerationClientTests.swift */,
+				9A4F6FF715DC785824BE1455 /* ChartGenerationIntegrationTests.swift */,
 				71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */,
 				49BA95D108A13CDE295DFCB7 /* DebugACRCloudRecognitionProviderTests.swift */,
 				E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */,
@@ -647,6 +666,7 @@
 				2B0D4E833CE58191460184BF /* LocalLibraryDashboardModelTests.swift */,
 				93614D9513236A02A1CE46EF /* LocalTrackResolverTests.swift */,
 				5643EA37EFC4CF676C92243A /* Mania4KGameplayFeedbackTests.swift */,
+				750DCD21FCA11D25899D9F3A /* Mania4KGeneratedChartTests.swift */,
 				D07E18DF0C055CB6B3A5AC57 /* Mania4KNoteRenderLayoutTests.swift */,
 				B36053FB4B99CE266CED8F2B /* Mania4KOffsetCalibrationModelTests.swift */,
 				D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */,
@@ -781,6 +801,7 @@
 			name = EnsomiCoreTests;
 			packageProductDependencies = (
 				F01BA805C1360DB0ECD47EBE /* EnsomiProtocol */,
+				F2AA88190E0EA5EA4C617663 /* SwiftProtobuf */,
 			);
 			productName = EnsomiCoreTests;
 			productReference = 83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */;
@@ -874,12 +895,12 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C72F55C814DEB2E310812F33 /* EnsomiACRCloudDebugCLI */,
-				FEC67BE3C0B9E733D7924C75 /* EnsomiCore */,
-				9A6B0A32148629EEAE452F13 /* EnsomiCoreTests */,
 				3CA5687388A6792024A4BCF8 /* EnsomiIOS */,
 				12FA571B0C7B22B9F0ADFABF /* EnsomiMac */,
+				FEC67BE3C0B9E733D7924C75 /* EnsomiCore */,
 				36EC40A155FBA61F38C35D3C /* EnsomiUI */,
+				9A6B0A32148629EEAE452F13 /* EnsomiCoreTests */,
+				C72F55C814DEB2E310812F33 /* EnsomiACRCloudDebugCLI */,
 			);
 		};
 /* End PBXProject section */
@@ -915,6 +936,8 @@
 				A5560C4DADFE4DC1587F627C /* AmbientSyncReferenceIndexBuilderTests.swift in Sources */,
 				89777CC40518DF85D1681C6B /* AmbientSyncSessionEngineTests.swift in Sources */,
 				DA7A1B413B03EFC2CB799135 /* AmbientSyncSpectralEngineTests.swift in Sources */,
+				4AE7165BEE300B4331BDFA26 /* ChartGenerationClientTests.swift in Sources */,
+				FC4CF1C439C75221E68CF515 /* ChartGenerationIntegrationTests.swift in Sources */,
 				FBEA400EE594E458655742BA /* ControlledGenerationClientTests.swift in Sources */,
 				8FA9069F376791EB0A9B0862 /* DebugACRCloudRecognitionProviderTests.swift in Sources */,
 				E0145F054DBD5E3E4F78D0A5 /* InferenceEndpointWebSocketClientTests.swift in Sources */,
@@ -924,6 +947,7 @@
 				3853A2AFDAE823701FF50AD7 /* LocalLibraryDashboardModelTests.swift in Sources */,
 				60B6E13972D3003611FD2B92 /* LocalTrackResolverTests.swift in Sources */,
 				26B0AB00879C68CF9C42DC5F /* Mania4KGameplayFeedbackTests.swift in Sources */,
+				40B639554D7412D427B8B271 /* Mania4KGeneratedChartTests.swift in Sources */,
 				1F394317FF584744CF78FEEE /* Mania4KNoteRenderLayoutTests.swift in Sources */,
 				18F4A8978FB0DD91C65A7F2C /* Mania4KOffsetCalibrationModelTests.swift in Sources */,
 				418DDA959B8C002A1CFA44A1 /* Mania4KPlaySessionModelTests.swift in Sources */,
@@ -974,6 +998,7 @@
 				407F4996590DBCCBDC0F4FEE /* AmbientSyncSpectralMatcher.swift in Sources */,
 				D88ECC12E816AEBB90D44EEE /* AudioClipCaptureService.swift in Sources */,
 				40519026FAF92C1DBB965C56 /* CanonicalTrackDomain.swift in Sources */,
+				CEE5360BFF5796C73190ABED /* ChartGenerationClient.swift in Sources */,
 				BB4FE36F8F1FFD4378BD2165 /* ControlledGenerationClient.swift in Sources */,
 				B0941D59F4DEA563541C4B19 /* DebugACRCloudRecognitionProvider.swift in Sources */,
 				5B38DA03F2C1D9B982A2FEB6 /* InferenceEndpointWebSocketClient.swift in Sources */,
@@ -983,8 +1008,10 @@
 				C646E2188A21BBC6E452B76A /* LocalAudioMetadataExtractor.swift in Sources */,
 				96A4096CE39FCD07286B5A0A /* LocalMusicDirectoryStore.swift in Sources */,
 				12DFCBA69C209A0F0EB63E1B /* LocalTrackResolver.swift in Sources */,
+				EC29E01837B8385F9A18D6FF /* Mania4KChartGenerationModel.swift in Sources */,
 				2EE595A3A3468838319F69E3 /* Mania4KDomain.swift in Sources */,
 				B48EBEF1D0A26F3CF9CB0862 /* Mania4KGameplayFeedback.swift in Sources */,
+				3C8C5A513FEE85AAED6BF793 /* Mania4KGeneratedChart.swift in Sources */,
 				D93E3B26B40CD564B7838781 /* Mania4KOffsetCalibrationModel.swift in Sources */,
 				AA3EFF269893034C07E717BF /* Mania4KPlaySessionModel.swift in Sources */,
 				C72F3E4EC1C8FD62EFBF367B /* MicFeaturePayloadExtractor.swift in Sources */,
@@ -1520,7 +1547,7 @@
 			repositoryURL = "https://github.com/ensomi-labs/protocol.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.1.0;
+				version = 0.2.0;
 			};
 		};
 		67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */ = {
@@ -1561,6 +1588,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */;
 			productName = EnsomiProtocol;
+		};
+		F2AA88190E0EA5EA4C617663 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

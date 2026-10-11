@@ -110,6 +110,18 @@ serializes reads, rejects watermark violations, and fails if the judgement clock
 outpaces complete data. Initial inference readiness requires a clean hold boundary
 and sufficient future coverage; it cannot begin halfway through an existing hold.
 
+Local-audio generation uses a complete-chart exchange instead of a stream.
+[`ChartGenerationClient`](../Sources/EnsomiCore/Services/Beatmap/ChartGenerationClient.swift)
+opens a binary websocket (`ENSOMI_SERVICE_URL`, default `ws://localhost:8765`), sends
+`capabilities_request` with an empty session ID (reply: model name and version, star
+range `[min_star, max_star_exclusive)`) and `generate_chart` with a session ID, audio path,
+star and seed. The service replies with `generation_progress` phases, then one `chart_result`,
+or an `ErrorEvent` whose string `code` names the failure; `stop_session` is answered by a
+stopped status. There is no `ready` or node hello. Chart times are whole-millisecond audio
+time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` rejects
+out-of-range lanes or times, unsorted objects and same-lane overlaps, then plays the chart
+with its audio from time 0 as an in-memory chart, with every note.
+
 The `.osu` adapter accepts only four-key mania. It rejects unsupported objects,
 invalid times, and same-lane overlaps before playback. Finite hold ends earlier
 than their starts are clamped to the start; malformed hold ends are rejected.

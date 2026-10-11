@@ -104,6 +104,7 @@ private struct Mania4KSetupView: View {
     @State private var isChoosingFile = false
     @State private var selectedMode: Mania4KSetupGameMode?
     @State private var backendIsMock = false
+    @State private var generation = Mania4KChartGenerationModel()
     @State private var ambientModeStatus = "Idle"
     let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
 
@@ -232,10 +233,14 @@ private struct Mania4KSetupView: View {
     }
 
     private var starDifficultyField: some View {
+        starDifficultyField(range: 0.1...12.0)
+    }
+
+    private func starDifficultyField(range: ClosedRange<Double>) -> some View {
         numericField(
             title: "osu!mania star difficulty",
             value: $model.starDifficulty,
-            range: 0.1...12.0,
+            range: range,
             step: 0.1,
             suffix: "stars"
         )
@@ -285,18 +290,63 @@ private struct Mania4KSetupView: View {
                 action: { presentFileImporter(for: .audio) }
             )
 
-            backendMockToggle
-            starDifficultyField
+            if let description = generation.modelDescription {
+                Text(description)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(Mania4KStyle.textSecondary)
+            }
+            if let range = generation.starRange {
+                starDifficultyField(range: range)
+            }
+            if let message = generation.capabilitiesError {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(Mania4KStyle.textSecondary)
+                Button("Retry") {
+                    Task { await loadGenerationCapabilities() }
+                }
+            }
+
+            switch generation.state {
+            case .idle:
+                EmptyView()
+            case .generating(let phase):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(phase)
+                        .font(.callout)
+                        .foregroundStyle(Mania4KStyle.textSecondary)
+                }
+            case .failed(let message):
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(Mania4KStyle.textSecondary)
+            }
 
             Button {
-                startGeneratedSongMode()
+                if generation.isGenerating {
+                    Task { await generation.stop() }
+                } else {
+                    startGeneratedSongMode()
+                }
             } label: {
-                Label("Publish & Play", systemImage: "play.rectangle.on.rectangle")
-                    .frame(maxWidth: .infinity)
+                Label(
+                    generation.isGenerating ? "Stop" : "Generate & Play",
+                    systemImage: generation.isGenerating ? "stop.fill" : "play.rectangle.on.rectangle"
+                )
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(Mania4KPrimaryButtonStyle())
             .controlSize(.large)
-            .disabled(model.audioFileURL == nil || model.phase == .loading)
+            .disabled(!generation.isGenerating && (model.audioFileURL == nil || model.phase == .loading || generation.starRange == nil))
+        }
+        .task { await loadGenerationCapabilities() }
+    }
+
+    private func loadGenerationCapabilities() async {
+        await generation.loadCapabilities()
+        if let range = generation.starRange {
+            model.starDifficulty = min(max(model.starDifficulty, range.lowerBound), range.upperBound)
         }
     }
 
@@ -500,11 +550,10 @@ private struct Mania4KSetupView: View {
         }
 
         Task {
-            await model.startGeneratedBackendPlay(
-                audioFileURL: audioFileURL,
-                isMock: backendIsMock,
-                referenceTimeMS: 0
-            )
+            guard let chart = await generation.generate(audioURL: audioFileURL, star: model.starDifficulty) else {
+                return
+            }
+            await model.startGeneratedChartPlay(audioFileURL: audioFileURL, chart: chart)
         }
     }
 
@@ -651,7 +700,7 @@ private struct Mania4KSetupView: View {
             SessionSummaryRow(title: "Song", value: model.audioFileURL?.lastPathComponent ?? "--"),
             SessionSummaryRow(title: "Beatmap", value: beatmapSummaryText),
             SessionSummaryRow(title: "Difficulty", value: model.starDifficulty.formatted(.number.precision(.fractionLength(1)))),
-            SessionSummaryRow(title: "Mock", value: backendIsMock ? "true" : "false"),
+            SessionSummaryRow(title: "Mock", value: selectedMode == .generatedSong ? "--" : backendIsMock ? "true" : "false"),
             SessionSummaryRow(title: "Reference", value: referenceSummaryText)
         ]
     }

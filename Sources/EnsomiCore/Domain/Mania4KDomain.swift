@@ -1460,7 +1460,7 @@ private enum EngineObjectState: Sendable {
     case resolved(tier: Mania4KMalodyTier)
 }
 
-private struct Mania4KStreamValidator {
+struct Mania4KStreamValidator {
     static func validated(_ objects: [Mania4KHitObject]) throws -> [Mania4KHitObject] {
         var engine = Mania4KJudgementEngine(judgeDifficulty: .c)
         try engine.ingest(objects)
