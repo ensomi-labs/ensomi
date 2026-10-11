@@ -125,13 +125,15 @@ phases, then one `chart_result`, or an `ErrorEvent` whose string `code` names th
 failure; `stop_session` is answered by a stopped status. Generation state owns the
 setup panels' phase, readiness and error message independently of live inference
 session state. There is no `ready` or node hello. Chart times are whole-millisecond
-audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` rejects
-out-of-range lanes or times, unsorted objects and same-lane overlaps, then plays the chart
-with its audio from time 0 as an in-memory chart, with every note.
+audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` has the
+gameplay core validate the chart (it rejects out-of-range lanes or times, unsorted objects and
+same-lane overlaps), then plays it with its audio from time 0 as an in-memory chart, with every
+note.
 
-The `.osu` adapter accepts only four-key mania. It rejects unsupported objects,
-invalid times, and same-lane overlaps before playback. Finite hold ends earlier
-than their starts are clamped to the start; malformed hold ends are rejected.
+The `.osu` stream reads the file with the gameplay core's loader, which accepts only
+four-key mania. It rejects unsupported objects, invalid times, and same-lane overlaps
+before playback. A hold whose end is missing or earlier than its start becomes a
+zero-length hold. The title falls back to the file name.
 
 ## Gameplay and scoring
 
@@ -156,7 +158,7 @@ timestamp (`NSEvent.timestamp`, system uptime), converted to gameplay time
 through the audio clock's host-time mapping, so judgement uses when the key was
 pressed rather than when it was handled. Repeated presses are filtered. Each
 frame delivers the inputs stamped up to its chart time in timestamp order, then
-advances the engine to that time; an input stamped later waits for the next
+advances the session to that time; an input stamped later waits for the next
 frame. The play view's display link makes the frames, one per display refresh,
 and nothing else ticks the session: each frame judges at the current chart time
 and is drawn for the time the display shows it (`targetTimestamp`). The stream
@@ -174,7 +176,12 @@ toolchain. The HUD (accuracy, combo, judgement text) and the key labels stay in
 SwiftUI over the Metal view and observe `hud` and `judgementPresentation`, which
 change only when their value does, not the per-frame `playFrame`.
 
-[`Mania4KJudgementEngine`](../Sources/EnsomiCore/Domain/Mania4KDomain.swift) owns
+Every play mode judges with the Rust gameplay core (`EnsomiRuntime`, rules in the
+runtime repository's `crates/gameplay/README.md`), driven through
+[`Mania4KGameplay`](../Sources/EnsomiCore/Features/Mania4K/Mania4KGameplay.swift): stream
+pages go in as tokens with their coverage, inputs with their chart time, and each frame
+advances the session. A frame whose session has not decided through the gameplay time
+because the stream lags fails the play. The core applies
 per-lane note lock: earlier unresolved objects cannot remain hittable past the
 next object's start. A tap or hold head pressed too early is ignored; an unresolved
 head misses after its successful window. A hold resolves once, using the worse

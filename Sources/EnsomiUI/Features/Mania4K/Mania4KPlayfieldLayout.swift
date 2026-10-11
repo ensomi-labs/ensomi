@@ -59,7 +59,7 @@ enum Mania4KPlayfieldLayout {
 
     static func quads(
         frame: Mania4KPlayFrame?,
-        brightness: (Mania4KLane) -> Mania4KLaneFeedbackBrightness,
+        brightness: (Mania4KLane) -> LaneBrightness,
         size: CGSize
     ) -> [Mania4KQuad] {
         let laneWidth = max(0, Float(size.width) - laneSpacing * 3) / 4
@@ -91,7 +91,7 @@ enum Mania4KPlayfieldLayout {
             }
 
             if let frame {
-                for object in frame.visibleObjects where object.lane == lane {
+                for object in frame.visibleObjects where object.lane == lane.index {
                     appendObject(
                         object, frame: frame, color: color, laneRect: laneRect, receptorY: receptorY, to: &quads
                     )
@@ -124,7 +124,7 @@ enum Mania4KPlayfieldLayout {
     }
 
     private static func appendObject(
-        _ object: Mania4KVisibleObject,
+        _ object: VisibleObject,
         frame: Mania4KPlayFrame,
         color: SIMD3<Float>,
         laneRect: SIMD4<Float>,
@@ -147,24 +147,27 @@ enum Mania4KPlayfieldLayout {
             ))
         }
 
-        let geometry = Mania4KNoteRenderLayout.geometry(
-            for: object, frame: frame, laneHeight: CGFloat(laneRect.w), receptorY: CGFloat(receptorY)
+        let geometry = noteGeometry(
+            object: object,
+            renderTimeMs: frame.renderChartTimeMs,
+            scrollTimeMs: frame.scrollTimeMs,
+            receptorY: Double(receptorY)
         )
         switch geometry {
-        case .hold(let hold):
+        case .hold(let bodyTopY, let bodyBottomY, let headY, let tailY):
             let bodyWidth = max(laneWidth * 0.52, 24)
             quads.append(Mania4KQuad(
-                rect: SIMD4(laneRect.x + (laneWidth - bodyWidth) / 2, Float(hold.bodyTopY), bodyWidth, Float(hold.bodyHeight)),
+                rect: SIMD4(laneRect.x + (laneWidth - bodyWidth) / 2, Float(bodyTopY), bodyWidth, Float(bodyBottomY - bodyTopY)),
                 color: SIMD4(color, 0.42 * opacity),
                 cornerRadius: 4,
                 clip: laneRect
             ))
-            if let tailY = hold.tailY {
+            if let tailY {
                 appendNote(centerY: Float(tailY), height: 18)
             }
-            appendNote(centerY: Float(hold.headY), height: 22)
-        case .tap(let tap):
-            appendNote(centerY: Float(tap.y), height: 24)
+            appendNote(centerY: Float(headY), height: 22)
+        case .tap(let y):
+            appendNote(centerY: Float(y), height: 24)
         }
     }
 }

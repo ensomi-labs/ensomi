@@ -1354,7 +1354,7 @@ private struct Mania4KOffsetCalibrationView: View {
                 Mania4KLiveLaneView(
                     lane: calibrationLane,
                     frame: calibrationFrame,
-                    brightness: Mania4KLaneFeedbackBrightness(receptor: 0, lane: 0),
+                    brightness: LaneBrightness(receptor: 0, lane: 0),
                     noteColor: Mania4KStyle.accentGreen,
                     keyLabel: Mania4KOffsetCalibrationModel.calibrationKey.uppercased()
                 )
@@ -2136,7 +2136,7 @@ private struct Mania4KPlaySceneView: View {
         case .finished(let result):
             statePanel(
                 title: "Results",
-                detail: "\(formatAccuracy(result.score.accuracy))  \(result.score.maxCombo)x max  \(result.score.missCount) miss"
+                detail: "\(formatAccuracy(result.score.accuracy))  \(result.score.maxCombo)x max  \(result.score.tierCounts.missCount) miss"
             )
         default:
             EmptyView()
@@ -2186,7 +2186,7 @@ private struct Mania4KPlaySceneView: View {
     }
 
     private var latestJudgementText: String {
-        model.hud.latestJudgement?.rawValue ?? "-"
+        model.hud.latestJudgement?.title ?? "-"
     }
 
     private var subtitleText: String {
@@ -2216,9 +2216,9 @@ private struct Mania4KJudgementBurstView: View {
         }
     }
 
-    private func judgementBurst(for event: Mania4KJudgementEvent) -> some View {
+    private func judgementBurst(for event: JudgementEvent) -> some View {
         ZStack {
-            Text(event.judgement.rawValue)
+            Text(event.judgement.title)
                 .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundStyle(event.judgement == .miss ? Mania4KStyle.accentRed : Mania4KStyle.textPrimary)
                 .shadow(color: Color.black.opacity(0.45), radius: 12, x: 0, y: 8)
@@ -2234,9 +2234,9 @@ private struct Mania4KJudgementBurstView: View {
         .frame(width: 210, height: 56)
     }
 
-    private func timingArrowHint(for event: Mania4KJudgementEvent) -> (systemName: String, color: Color)? {
+    private func timingArrowHint(for event: JudgementEvent) -> (systemName: String, color: Color)? {
         guard event.judgement == .perfect || event.judgement == .good,
-              let hitErrorMs = event.hitErrorMs,
+              let hitErrorMs = event.offsetMs,
               hitErrorMs != 0
         else {
             return nil
@@ -2251,7 +2251,7 @@ private struct Mania4KJudgementBurstView: View {
 private struct Mania4KLiveLaneView: View {
     let lane: Mania4KLane
     let frame: Mania4KPlayFrame?
-    let brightness: Mania4KLaneFeedbackBrightness
+    let brightness: LaneBrightness
     let noteColor: Color
     let keyLabel: String
 
@@ -2268,7 +2268,7 @@ private struct Mania4KLiveLaneView: View {
                     .blendMode(.plusLighter)
 
                 if let frame {
-                    ForEach(frame.visibleObjects.filter { $0.lane == lane }) { object in
+                    ForEach(frame.visibleObjects.filter { $0.lane == lane.index }, id: \.id) { object in
                         visibleObject(object, frame: frame, laneSize: proxy.size, receptorY: receptorY)
                     }
                 }
@@ -2311,31 +2311,36 @@ private struct Mania4KLiveLaneView: View {
 
     @ViewBuilder
     private func visibleObject(
-        _ object: Mania4KVisibleObject,
+        _ object: VisibleObject,
         frame: Mania4KPlayFrame,
         laneSize: CGSize,
         receptorY: CGFloat
     ) -> some View {
         let opacity = object.state == .resolved ? 0.28 : (object.state == .missedButVisible ? 0.36 : 0.96)
 
-        switch Mania4KNoteRenderLayout.geometry(for: object, frame: frame, laneHeight: laneSize.height, receptorY: receptorY) {
-        case .hold(let geometry):
+        switch noteGeometry(
+            object: object,
+            renderTimeMs: frame.renderChartTimeMs,
+            scrollTimeMs: frame.scrollTimeMs,
+            receptorY: Double(receptorY)
+        ) {
+        case .hold(let bodyTopY, let bodyBottomY, let headY, let tailY):
             RoundedRectangle(cornerRadius: 4)
                 .fill(noteColor.opacity(0.42 * opacity))
-                .frame(width: max(laneSize.width * 0.52, 24), height: geometry.bodyHeight)
-                .position(x: laneSize.width / 2, y: geometry.bodyCenterY)
+                .frame(width: max(laneSize.width * 0.52, 24), height: CGFloat(bodyBottomY - bodyTopY))
+                .position(x: laneSize.width / 2, y: CGFloat((bodyTopY + bodyBottomY) / 2))
 
-            if let tailY = geometry.tailY {
+            if let tailY {
                 note(width: laneSize.width, height: 18, opacity: opacity)
-                    .position(x: laneSize.width / 2, y: tailY)
+                    .position(x: laneSize.width / 2, y: CGFloat(tailY))
             }
 
             note(width: laneSize.width, height: 22, opacity: opacity)
-                .position(x: laneSize.width / 2, y: geometry.headY)
+                .position(x: laneSize.width / 2, y: CGFloat(headY))
 
-        case .tap(let geometry):
+        case .tap(let y):
             note(width: laneSize.width, height: 24, opacity: opacity)
-                .position(x: laneSize.width / 2, y: geometry.y)
+                .position(x: laneSize.width / 2, y: CGFloat(y))
         }
     }
 
@@ -2346,83 +2351,6 @@ private struct Mania4KLiveLaneView: View {
             .shadow(color: noteColor.opacity(0.45), radius: 10, x: 0, y: 0)
     }
 
-}
-
-struct Mania4KNoteRenderLayout {
-    static let minimumHoldBodyHeight: CGFloat = 12
-
-    enum Geometry: Equatable {
-        case tap(TapGeometry)
-        case hold(HoldGeometry)
-    }
-
-    struct TapGeometry: Equatable {
-        let y: CGFloat
-    }
-
-    struct HoldGeometry: Equatable {
-        let bodyTopY: CGFloat
-        let bodyBottomY: CGFloat
-        let headY: CGFloat
-        let tailY: CGFloat?
-
-        var bodyHeight: CGFloat {
-            bodyBottomY - bodyTopY
-        }
-
-        var bodyCenterY: CGFloat {
-            bodyTopY + bodyHeight / 2
-        }
-    }
-
-    static func geometry(
-        for object: Mania4KVisibleObject,
-        frame: Mania4KPlayFrame,
-        laneHeight: CGFloat,
-        receptorY: CGFloat
-    ) -> Geometry {
-        let headY = displayedY(
-            rawY: yPosition(for: object.startTimeMs, frame: frame, laneHeight: laneHeight, receptorY: receptorY),
-            objectState: object.state,
-            receptorY: receptorY
-        )
-        let isHold = object.endTimeMs != nil || object.state == .holding || object.state == .openEnded
-
-        guard isHold else {
-            return .tap(TapGeometry(y: headY))
-        }
-
-        let tailY = object.endTimeMs.map {
-            displayedY(
-                rawY: yPosition(for: $0, frame: frame, laneHeight: laneHeight, receptorY: receptorY),
-                objectState: object.state,
-                receptorY: receptorY
-            )
-        }
-        let rawTopY = tailY.map { min(headY, $0) } ?? min(0, headY)
-        let rawBottomY = tailY.map { max(headY, $0) } ?? max(0, headY)
-        let bodyHeight = max(rawBottomY - rawTopY, minimumHoldBodyHeight)
-        let bodyBottomY = rawBottomY
-
-        return .hold(
-            HoldGeometry(
-                bodyTopY: bodyBottomY - bodyHeight,
-                bodyBottomY: bodyBottomY,
-                headY: headY,
-                tailY: tailY
-            )
-        )
-    }
-
-    static func yPosition(for objectTimeMs: Double, frame: Mania4KPlayFrame, laneHeight: CGFloat, receptorY: CGFloat) -> CGFloat {
-        let travelHeight = max(receptorY - 18, 1)
-        let progress = (objectTimeMs - frame.renderChartTimeMs) / max(frame.scrollTimeMs, 1)
-        return receptorY - CGFloat(progress) * travelHeight
-    }
-
-    private static func displayedY(rawY: CGFloat, objectState: Mania4KVisibleObjectState, receptorY: CGFloat) -> CGFloat {
-        objectState == .holding ? min(rawY, receptorY) : rawY
-    }
 }
 
 #if os(macOS)

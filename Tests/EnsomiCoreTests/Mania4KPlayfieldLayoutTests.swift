@@ -5,7 +5,7 @@ import XCTest
 
 final class Mania4KPlayfieldLayoutTests: XCTestCase {
     private let size = CGSize(width: 360, height: 700)
-    private let dark = { (_: Mania4KLane) in Mania4KLaneFeedbackBrightness(receptor: 0, lane: 0) }
+    private let dark = { (_: Mania4KLane) in LaneBrightness(receptor: 0, lane: 0) }
 
     func testQuadIsTheGPUInstanceLayout() {
         XCTAssertEqual(MemoryLayout<Mania4KQuad>.stride, 80)
@@ -70,8 +70,8 @@ final class Mania4KPlayfieldLayoutTests: XCTestCase {
     func testLaneLightsAreAdditiveAndOnlyPresentWhenLit() throws {
         let lit = { (lane: Mania4KLane) in
             lane == .innerRight
-                ? Mania4KLaneFeedbackBrightness(receptor: 0.5, lane: 0.13)
-                : Mania4KLaneFeedbackBrightness(receptor: 0, lane: 0)
+                ? LaneBrightness(receptor: 0.5, lane: 0.13)
+                : LaneBrightness(receptor: 0, lane: 0)
         }
 
         let quads = Mania4KPlayfieldLayout.quads(frame: nil, brightness: lit, size: size)
@@ -86,18 +86,18 @@ final class Mania4KPlayfieldLayoutTests: XCTestCase {
         _ lane: Mania4KLane,
         _ startTimeMs: Double,
         endTimeMs: Double? = nil,
-        state: Mania4KVisibleObjectState = .waiting
-    ) -> Mania4KVisibleObject {
-        Mania4KVisibleObject(
-            id: Mania4KObjectOrdinal(rawValue: 0),
-            lane: lane,
+        state: VisibleState = .waiting
+    ) -> VisibleObject {
+        VisibleObject(
+            id: 0,
+            lane: lane.index,
             startTimeMs: startTimeMs,
             endTimeMs: endTimeMs,
             state: state
         )
     }
 
-    private func playFrame(renderChartTimeMs: Double, objects: [Mania4KVisibleObject]) -> Mania4KPlayFrame {
+    private func playFrame(renderChartTimeMs: Double, objects: [VisibleObject]) -> Mania4KPlayFrame {
         Mania4KPlayFrame(
             gameplayChartTimeMs: renderChartTimeMs,
             renderChartTimeMs: renderChartTimeMs,

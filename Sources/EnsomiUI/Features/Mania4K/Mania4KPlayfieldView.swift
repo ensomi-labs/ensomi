@@ -61,7 +61,7 @@ final class Mania4KPlayfieldView: MTKView {
         let model = model
         let quads = Mania4KPlayfieldLayout.quads(
             frame: model.playFrame,
-            brightness: { model.gameplayFeedback.laneBrightness(for: $0, atUITimeMs: uiTimeMs) },
+            brightness: { model.gameplayFeedback.laneBrightness(lane: $0.index, uiTimeMs: uiTimeMs) },
             size: bounds.size
         )
         renderer.draw(quads, viewportSize: bounds.size, pass: pass, drawable: currentDrawable)

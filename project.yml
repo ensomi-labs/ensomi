@@ -127,7 +127,6 @@ targets:
       - target: EnsomiUI
       - package: EnsomiProtocol
       - package: SwiftProtobuf
-      - package: EnsomiRuntime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.core.tests

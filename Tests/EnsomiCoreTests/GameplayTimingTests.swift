@@ -21,7 +21,9 @@ final class GameplayTimingTests: XCTestCase {
         XCTAssertEqual(event.timestamp * 1_000, EnsomiHostClock.currentTimeMS(), accuracy: 20)
     }
 
-    /// Key events with known timestamps, handled up to 60 ms after they happened, against the real engine clock.
+    /// Key events with known timestamps, handled up to 60 ms after they happened, against the real engine clock. Frames
+    /// declare inputs delivered only up to `inputDeliveryAllowanceMs` (100 ms) before their chart time, so each is
+    /// judged at its timestamp.
     func testKeyEventsHandledLateAreJudgedAtTheirTimestamps() async throws {
         let url = try writeToneFile(seconds: 14)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -29,7 +31,7 @@ final class GameplayTimingTests: XCTestCase {
         clock.volume = 0
         let audioOffset = -20.0
         let noteTimes = Array(stride(from: 1_500.0, through: 9_500.0, by: 400))
-        let stream = try InMemoryMania4KHitObjectStream(
+        let stream = InMemoryMania4KHitObjectStream(
             objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) }
         )
         let model = Mania4KPlaySessionModel(
@@ -63,8 +65,8 @@ final class GameplayTimingTests: XCTestCase {
             }
 
             await model.tick()
-            for event in model.gameplayFeedback.judgementEventBatches.flatMap(\.events) where seenEventIDs.insert(event.id).inserted {
-                if let hitErrorMs = event.hitErrorMs, let index = noteTimes.firstIndex(of: event.objectTimeMs) {
+            for event in model.gameplayFeedback.judgementEventBatches().flatMap(\.events) where seenEventIDs.insert(event.id).inserted {
+                if let hitErrorMs = event.offsetMs, let index = noteTimes.firstIndex(of: event.objectTimeMs) {
                     errorsByDelay[delays[index], default: []].append(hitErrorMs)
                 }
             }
@@ -82,21 +84,23 @@ final class GameplayTimingTests: XCTestCase {
         }
     }
 
-    /// CPU cost of one frame's engine work on a long chart: advance plus snapshot.
-    func testEngineFrameCostOnALongChart() throws {
-        var engine = Mania4KJudgementEngine(judgeDifficulty: .c)
-        let objects = (0..<4_000).map { Mania4KHitObject(lane: Mania4KLane.allCases[$0 % 4], timeMs: 500 + Double($0) * 50, kind: .tap) }
-        try engine.ingest(objects)
+    /// CPU cost of one frame's session work on a long chart: advance, visible objects and lane states.
+    func testSessionFrameCostOnALongChart() throws {
+        let objects = (0..<4_000).map { ChartObject(lane: UInt32($0 % 4), startMs: 500 + UInt32($0) * 50, endMs: nil) }
+        let session = try GameplaySession(
+            chart: Chart(durationMs: 201_000, objects: objects), ruleset: Ruleset(judge: .c)
+        )
         var costsMs: [Double] = []
         for frame in 0..<1_000 {
             let chartTimeMs = 90_000 + Double(frame) * 16.667
             let startMs = EnsomiHostClock.currentTimeMS()
-            _ = engine.advance(to: chartTimeMs)
-            _ = engine.snapshot(visibleRange: (chartTimeMs - 700)...(chartTimeMs + 1_000))
+            _ = session.advance(watermarkMs: chartTimeMs)
+            _ = session.visibleObjects(lowerMs: chartTimeMs - 700, upperMs: chartTimeMs + 1_000)
+            _ = session.laneStates()
             costsMs.append(EnsomiHostClock.currentTimeMS() - startMs)
         }
 
-        print(String(format: "TIMING engine advance+snapshot, 4000 objects: p50 %.3f ms, p99 %.3f ms, max %.3f ms", costsMs.percentile(0.5), costsMs.percentile(0.99), costsMs.max() ?? 0))
+        print(String(format: "TIMING session advance+visibleObjects+laneStates, 4000 objects: p50 %.3f ms, p99 %.3f ms, max %.3f ms", costsMs.percentile(0.5), costsMs.percentile(0.99), costsMs.max() ?? 0))
     }
 
     /// CPU cost of laying a busy frame out (about 70 visible notes) and encoding it for the GPU.
@@ -114,10 +118,11 @@ final class GameplayTimingTests: XCTestCase {
         pass.colorAttachments[0].texture = texture
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
-        let objects = (0..<70).map { index in
-            Mania4KVisibleObject(
-                id: Mania4KObjectOrdinal(rawValue: index), lane: Mania4KLane.allCases[index % 4],
-                startTimeMs: 1_000 + Double(index) * 25, endTimeMs: index % 5 == 0 ? 1_000 + Double(index) * 25 + 200 : nil, state: .waiting
+        let objects = (0..<70).map { index -> VisibleObject in
+            let startMs = 1_000 + Double(index) * 25
+            return VisibleObject(
+                id: UInt32(index), lane: Mania4KLane.allCases[index % 4].index,
+                startTimeMs: startMs, endTimeMs: index % 5 == 0 ? startMs + 200 : nil, state: .waiting
             )
         }
         let frame = Mania4KPlayFrame(
@@ -126,7 +131,7 @@ final class GameplayTimingTests: XCTestCase {
             visibleObjects: objects, score: .zero, laneStates: [], latestJudgement: nil
         )
         let size = CGSize(width: 360, height: 700)
-        let dark = { (_: Mania4KLane) in Mania4KLaneFeedbackBrightness(receptor: 0.2, lane: 0.05) }
+        let dark = { (_: Mania4KLane) in LaneBrightness(receptor: 0.2, lane: 0.05) }
         var layoutCostsMs: [Double] = []
         var encodeCostsMs: [Double] = []
         var quadCount = 0
@@ -172,7 +177,7 @@ final class GameplayTimingTests: XCTestCase {
             note.endMs.map { [Mania4KHitObject(lane: note.lane, timeMs: note.startMs, kind: .holdStart), Mania4KHitObject(lane: note.lane, timeMs: $0, kind: .holdEnd)] }
                 ?? [Mania4KHitObject(lane: note.lane, timeMs: note.startMs, kind: .tap)]
         }.sorted { ($0.timeMs, $0.lane.rawValue) < ($1.timeMs, $1.lane.rawValue) }
-        let stream = try InMemoryMania4KHitObjectStream(objects: objects)
+        let stream = InMemoryMania4KHitObjectStream(objects: objects)
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: 0,
@@ -237,9 +242,10 @@ final class GameplayTimingTests: XCTestCase {
         print(String(format: "TIMING callback intervals over 1.5x nominal: %d, over 2.5x: %d", callbackIntervals.filter { $0 > nominal * 1.5 }.count, callbackIntervals.filter { $0 > nominal * 2.5 }.count))
         print("TIMING engine-clock chart-time step minus refresh step (ms): \(chartJitter.summary)")
         print("TIMING AVAudioPlayer.currentTime step minus callback step (ms): \(oldJitter.summary)")
-        print("TIMING autoplay result: perfect \(finalFrame?.score.perfectCount ?? -1), good \(finalFrame?.score.goodCount ?? -1), miss \(finalFrame?.score.missCount ?? -1), average hit error \(finalFrame?.score.averageHitErrorMs.map { String(format: "%.3f ms", $0) } ?? "none"), notes \(notes.count), scheduled \(scheduledNotes)")
+        let finalCounts = finalFrame?.score.tierCounts
+        print("TIMING autoplay result: perfect \(finalCounts.map { Int($0.perfectCount) } ?? -1), good \(finalCounts.map { Int($0.goodCount) } ?? -1), miss \(finalCounts.map { Int($0.missCount) } ?? -1), average hit error \(finalFrame?.score.suggestedAudioOffsetMs.map { String(format: "%.3f ms", -$0) } ?? "none"), notes \(notes.count), scheduled \(scheduledNotes)")
         XCTAssertGreaterThan(frames.count, Int(seconds * 30))
-        XCTAssertEqual(finalFrame?.score.missCount, 0)
+        XCTAssertEqual(finalCounts?.missCount, 0)
     }
 
     /// The whole play screen in a window: the Metal view under SwiftUI gets its display link, and key events sent
@@ -256,7 +262,7 @@ final class GameplayTimingTests: XCTestCase {
         let clock = AVFoundationMania4KAudioClock()
         clock.volume = 0
         let noteTimes = [2_000.0, 2_600, 3_200, 3_800, 4_400, 5_000]
-        let stream = try InMemoryMania4KHitObjectStream(objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) })
+        let stream = InMemoryMania4KHitObjectStream(objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) })
         let model = Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock, streamFactory: { _ in stream })
         model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/timing.osu"))
         model.selectAudioFile(url)
@@ -299,9 +305,10 @@ final class GameplayTimingTests: XCTestCase {
         try await Task.sleep(nanoseconds: 400_000_000)
 
         let frame = try XCTUnwrap(model.playFrame)
-        print("TIMING hosted play screen: chart time \(frame.gameplayChartTimeMs), perfect \(frame.score.perfectCount), good \(frame.score.goodCount), miss \(frame.score.missCount), HUD \(model.hud)")
-        XCTAssertEqual(frame.score.perfectCount, noteTimes.count)
-        XCTAssertEqual(frame.score.missCount, 0)
+        let counts = frame.score.tierCounts
+        print("TIMING hosted play screen: chart time \(frame.gameplayChartTimeMs), perfect \(counts.perfectCount), good \(counts.goodCount), miss \(counts.missCount), HUD \(model.hud)")
+        XCTAssertEqual(Int(counts.perfectCount), noteTimes.count)
+        XCTAssertEqual(counts.missCount, 0)
         await model.quitToSetup()
         window.close()
     }

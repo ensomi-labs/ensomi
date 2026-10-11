@@ -20,8 +20,12 @@ offsets.
   (they agree to within 1 ms). The session converts it to chart time through the
   audio clock's `audioTimeMs(atHostTimeMs:)` the moment the key is handled and
   queues the input. The next frame delivers the inputs stamped up to its chart time
-  in timestamp order, then advances the engine, so a press is judged when it
-  happened and not when the main thread got to it.
+  in timestamp order, then advances the session to its chart time less 100 ms
+  (`inputDeliveryAllowanceMs`). The gameplay core never moves its clock back, and
+  key events stamped before a frame can still wait in the main thread's queue, so a
+  frame only declares inputs delivered up to that allowance. A press handled within
+  100 ms of happening is judged when it happened; hits show at once, misses up to
+  100 ms after they fall due.
 - **Audio clock.** Local files play through `AVAudioEngine`. The clock takes the
   player node's sample time at the last render (`lastRenderTime`,
   `playerTime(forNodeTime:)`), carries it to the asked host time at rate 1, and
@@ -62,15 +66,17 @@ These shaped the clock and are easy to get wrong again:
 
 Key events with known timestamps, handled 0 to 60 ms after they happened, against
 the engine clock (21 presses). Error is the judged hit error of a press stamped at
-the chart time of its note; stamping at handling time, as before, makes the error
-equal to the delay.
+the chart time of its note, judged by the gameplay core; stamping at handling time
+makes the error equal to the delay. Without the input allowance a press handled
+after a frame had passed its stamp was judged at the frame's time (8, 28 and 58 ms
+at the delays below).
 
 | Delay between press and handling | Presses | Mean abs error | Max abs error | Error stamping at handling |
 | ---: | ---: | ---: | ---: | ---: |
-| 0 ms | 6 | 0.110 ms | 0.154 ms | 0 ms |
-| 10 ms | 5 | 0.097 ms | 0.128 ms | 10 ms |
-| 30 ms | 5 | 0.110 ms | 0.142 ms | 30 ms |
-| 60 ms | 5 | 0.107 ms | 0.146 ms | 60 ms |
+| 0 ms | 6 | 0.106 ms | 0.138 ms | 0 ms |
+| 10 ms | 5 | 0.093 ms | 0.122 ms | 10 ms |
+| 30 ms | 5 | 0.106 ms | 0.135 ms | 30 ms |
+| 60 ms | 5 | 0.101 ms | 0.130 ms | 60 ms |
 
 A 60 s silent autoplay on the 60 Hz display (3601 frames, 418 notes pressed
 through the key path at their stamped times: 418 perfect, 0 miss):
@@ -84,10 +90,12 @@ through the key path at their stamped times: 418 perfect, 0 miss):
 | `AVAudioPlayer.currentTime` step minus callback step (the old clock) | sd 0.36 ms, one step 21.7 ms short |
 
 CPU cost per frame (Debug build): laying out a busy frame (130 quads) 0.035 ms at
-p50, encoding and committing it 0.011 ms. The engine's `advance` plus `snapshot`
-on a 4000-object chart cost 2.4 to 3.6 ms at p50 (both walk every object each
-frame; an optimized build is far cheaper), with one outlier of 57 to 87 ms in 1000
-frames that was not investigated.
+p50, encoding and committing it 0.011 ms. The core session's `advance`,
+`visibleObjects` and `laneStates` on a 4000-object chart cost 0.050 ms at p50 and
+0.054 ms at p99 through the Swift bindings (maximum 3.7 ms in 1000 frames); the
+core's own frame, timed in Rust (release), is 0.7 us at p50 for 4000 and for 16000
+objects, since it only looks at the objects near the current time. The Swift engine
+it replaced cost 2.4 to 3.6 ms at p50, walking every object each frame.
 
 ## Offsets
 

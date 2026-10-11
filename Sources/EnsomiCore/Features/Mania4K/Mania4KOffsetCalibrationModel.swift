@@ -1,3 +1,4 @@
+import EnsomiRuntime
 import Foundation
 import Observation
 
@@ -264,7 +265,7 @@ public final class Mania4KOffsetCalibrationModel {
         postLineVisibleMs: Double,
         lookaheadPaddingMs: Double,
         lane: Mania4KLane = .innerRight
-    ) -> [Mania4KVisibleObject] {
+    ) -> [VisibleObject] {
         let renderChartTimeMs = Double(renderedChartTimeMs)
         let gameplayChartTimeMs = Double(gameplayChartTimeMs)
         let lowerBound = renderChartTimeMs - max(0, postLineVisibleMs)
@@ -287,7 +288,7 @@ public final class Mania4KOffsetCalibrationModel {
 
         return (startBeatIndex...endBeatIndex).map { beatIndex in
             let noteTimeMs = noteTimeMs(forBeatIndex: beatIndex)
-            let state: Mania4KVisibleObjectState
+            let state: VisibleState
             if resolvedBeatIndices.contains(beatIndex) {
                 state = .resolved
             } else if gameplayChartTimeMs > noteTimeMs + Double(Self.hitWindowMs) {
@@ -296,9 +297,9 @@ public final class Mania4KOffsetCalibrationModel {
                 state = .waiting
             }
 
-            return Mania4KVisibleObject(
-                id: Mania4KObjectOrdinal(rawValue: beatIndex),
-                lane: lane,
+            return VisibleObject(
+                id: UInt32(beatIndex),
+                lane: lane.index,
                 startTimeMs: noteTimeMs,
                 endTimeMs: nil,
                 state: state
