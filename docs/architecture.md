@@ -166,15 +166,20 @@ is read ahead in the background, and a frame the stream has not covered fails th
 session. Paused sessions do not judge input or advance misses. The renderer
 consumes snapshots and never infers judgements.
 
-The playfield (lanes, notes, hold bodies, the judgement line and the lane-press
-lights) is drawn with Metal by the view that owns the display link. A pure
-function, `Mania4KPlayfieldLayout`, turns the published play frame and the lane
-brightness into a flat list of rounded-rectangle primitives (`Mania4KQuad`: five
-float vectors, 80 bytes), which the renderer draws in order as one instanced
-call. The shader is compiled from source at run time, so building needs no Metal
-toolchain. The HUD (accuracy, combo, judgement text) and the key labels stay in
-SwiftUI over the Metal view and observe `hud` and `judgementPresentation`, which
-change only when their value does, not the per-frame `playFrame`.
+The playfield (lanes, notes, hold bodies, the key tray, the judgement line, the
+lane-press lights, the hit feedback at the line and the song progress) is drawn
+with Metal by the view that owns the display link. A pure function,
+`Mania4KPlayfieldLayout`, turns the published play frame, the lane brightness and
+the feedback's recent judgement event batches into a flat list of
+rounded-rectangle primitives (`Mania4KQuad`: five float vectors, 80 bytes), which
+the renderer draws in order as one instanced call. Hit feedback is drawn only for
+the events the core reported, aged from the chart time each batch was recorded at;
+note states (hit, missed, held) come from the core's visible objects. The shader is
+compiled from source at run time, so building needs no Metal toolchain. The HUD
+(accuracy), the judgement text and combo, and the key labels stay in SwiftUI over
+the Metal view and observe `hud`, `judgementPresentation` and the live lane states,
+which change only when their value does, not the per-frame `playFrame`. The look
+is described in [gameplay look](gameplay-look.md).
 
 Every play mode judges with the Rust gameplay core (`EnsomiRuntime`, rules in the
 runtime repository's `crates/gameplay/README.md`), driven through

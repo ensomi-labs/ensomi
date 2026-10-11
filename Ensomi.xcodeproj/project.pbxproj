@@ -249,6 +249,7 @@
 		35B5187E9EEDCC1038E187C3 /* AmbientSyncReferenceIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilder.swift; sourceTree = "<group>"; };
 		365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfidence.swift; sourceTree = "<group>"; };
 		3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlaySessionModel.swift; sourceTree = "<group>"; };
+		3D10763130D12076E19238C7 /* 4-miss.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "4-miss.png"; sourceTree = "<group>"; };
 		3D36C062D329D0524907F978 /* Mania4KMetalRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KMetalRenderer.swift; sourceTree = "<group>"; };
 		3D8BA1700B8EF157C5634D1A /* SystemAudioClipCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAudioClipCaptureService.swift; sourceTree = "<group>"; };
 		3EA40AFA7CC90EE838C9DB31 /* ChartGenerationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartGenerationClientTests.swift; sourceTree = "<group>"; };
@@ -279,10 +280,12 @@
 		745E56D4599AE08524EC2304 /* 2-chord-passage.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "2-chord-passage.png"; sourceTree = "<group>"; };
 		750DCD21FCA11D25899D9F3A /* Mania4KGeneratedChartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGeneratedChartTests.swift; sourceTree = "<group>"; };
 		755356C3BDB1F71A5EFBF29C /* swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = swift; path = "../ensomi-runtime/swift"; sourceTree = SOURCE_ROOT; };
+		76CAF87E8285006A4D695988 /* gameplay-look.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "gameplay-look.md"; sourceTree = "<group>"; };
 		7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugACRCloudRecognitionProvider.swift; sourceTree = "<group>"; };
 		7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBinaryCacheCodec.swift; sourceTree = "<group>"; };
 		83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnsomiCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BA733B20F927F472BB87547 /* LocalAudioLibraryIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioLibraryIndexer.swift; sourceTree = "<group>"; };
+		8ECB3EEABE4BC35423FAA2BD /* 6-narrow.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "6-narrow.png"; sourceTree = "<group>"; };
 		8F2284B92443BFD02DCDEB7B /* 5-paused.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "5-paused.png"; sourceTree = "<group>"; };
 		93614D9513236A02A1CE46EF /* LocalTrackResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTrackResolverTests.swift; sourceTree = "<group>"; };
 		94414F9EF1AB44ADD871D2D2 /* live_generation_demo.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = live_generation_demo.md; sourceTree = "<group>"; };
@@ -310,6 +313,7 @@
 		C288CB29AE9D254EC43949DF /* EnsomiUI.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = EnsomiUI.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C475CD76B745234E25E28F8C /* MicrophonePermissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophonePermissionService.swift; sourceTree = "<group>"; };
 		C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		C6E0E543F0C3CD80F0463291 /* 2-chord-passage.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "2-chord-passage.png"; sourceTree = "<group>"; };
 		C756630C9C8F6A4A545C8B84 /* AmbientSyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngine.swift; sourceTree = "<group>"; };
 		C9194A67A66BD6D8D6230AAE /* Mania4KPlayfieldView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlayfieldView.swift; sourceTree = "<group>"; };
 		C93C0254C3CC1447149E7E57 /* AmbientSyncSpectralMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralMatcher.swift; sourceTree = "<group>"; };
@@ -322,13 +326,16 @@
 		D58687AF72722297220FB52F /* AmbientSyncFixtureReplayRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureReplayRunnerTests.swift; sourceTree = "<group>"; };
 		D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlaySessionModelTests.swift; sourceTree = "<group>"; };
 		D7C1401E306C0D8F6DC4C7D6 /* Mania4KMetalRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KMetalRendererTests.swift; sourceTree = "<group>"; };
+		D80E527F34D9FFC771F24847 /* 1-before-first-note.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "1-before-first-note.png"; sourceTree = "<group>"; };
 		D91BFE00C8D3B9B6E35E6826 /* AmbientSyncFixtureReplayRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureReplayRunner.swift; sourceTree = "<group>"; };
 		D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSpectralEngineTests.swift; sourceTree = "<group>"; };
 		D9C776D2E675382AE1366975 /* Mania4KGameplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGameplay.swift; sourceTree = "<group>"; };
 		DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSessionEngineTests.swift; sourceTree = "<group>"; };
 		DC883B62F578815D5059958F /* AmbientMicCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientMicCaptureTests.swift; sourceTree = "<group>"; };
 		DD20768A9B51BB8BFDA096DE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E624D5281CEFB59F016F2B21 /* 5-paused.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "5-paused.png"; sourceTree = "<group>"; };
 		E6F1AC6E7432F2565CD460B9 /* LocalTrackResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTrackResolver.swift; sourceTree = "<group>"; };
+		E8C365BDE4893E09D71BF12E /* 3-hold.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "3-hold.png"; sourceTree = "<group>"; };
 		E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InferenceEndpointWebSocketClientTests.swift; sourceTree = "<group>"; };
 		F23F90564319BD411D05FFE7 /* MicFeatureStreamBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeatureStreamBuffer.swift; sourceTree = "<group>"; };
 		F60C8D56E793128B256B102F /* ControlledGenerationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlledGenerationClient.swift; sourceTree = "<group>"; };
@@ -488,6 +495,19 @@
 			path = ACRCloudDebugCLI;
 			sourceTree = "<group>";
 		};
+		4DAAB7C796858519A0C3716D /* after */ = {
+			isa = PBXGroup;
+			children = (
+				D80E527F34D9FFC771F24847 /* 1-before-first-note.png */,
+				C6E0E543F0C3CD80F0463291 /* 2-chord-passage.png */,
+				E8C365BDE4893E09D71BF12E /* 3-hold.png */,
+				3D10763130D12076E19238C7 /* 4-miss.png */,
+				E624D5281CEFB59F016F2B21 /* 5-paused.png */,
+				8ECB3EEABE4BC35423FAA2BD /* 6-narrow.png */,
+			);
+			path = after;
+			sourceTree = "<group>";
+		};
 		5798D6B688446ADCB4AD641E /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -626,6 +646,7 @@
 			children = (
 				3ED25E9FEBF2485CD6E9F1EC /* architecture.md */,
 				68C08A79A91D4DD74A70A109 /* design-guidelines.md */,
+				76CAF87E8285006A4D695988 /* gameplay-look.md */,
 				B5EACF580CC80FD55D30F5BC /* gameplay-timing.md */,
 				0E28561591EE8BC7C59BFDBE /* HANDOFF-gameplay-shell.md */,
 				94414F9EF1AB44ADD871D2D2 /* live_generation_demo.md */,
@@ -776,6 +797,7 @@
 		EA23AA1FE84D8FADFE1082C8 /* gameplay-look */ = {
 			isa = PBXGroup;
 			children = (
+				4DAAB7C796858519A0C3716D /* after */,
 				AA6B91AD4643D20FA99304F4 /* before */,
 			);
 			path = "gameplay-look";

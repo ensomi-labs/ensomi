@@ -33,6 +33,15 @@ helps people read the chart or understand game feedback. It must not replace
 standard window controls, hide settings, or change scoring and capture behavior.
 Library and ordinary settings use system appearance and semantic colors.
 
+The play screen takes its look from the brand's dark plum theme, with one palette
+(`Mania4KPlayPalette`) for the Metal playfield and the SwiftUI over it, and SF Pro
+Rounded for its text. Notes are coloured by kind, not by lane: rose taps, lavender
+hold heads and tails, purple hold bodies. The coral action colour marks only the
+judgement line, song progress and the primary action. Hit feedback follows the
+judgement events the core reports, and each tier is named in words as well as
+coloured. With Reduce Motion, feedback fades without growing, pulsing or drifting.
+The choices and their reasons are in [gameplay look](gameplay-look.md).
+
 Use descriptive action and mode names. Keep backend implementation details in
 supporting explanations or tools unless people need them to make a decision.
 When a custom interaction is necessary, preserve keyboard focus, accessible
