@@ -57,7 +57,9 @@ public final class Mania4KPlaySessionModel {
     private let streamReadGate: AsyncGate
     @ObservationIgnored private var inputSequenceNumber: UInt64
     @ObservationIgnored private var keyboardRouter: Mania4KKeyboardInputRouter
-    @ObservationIgnored private var frameLoopTask: Task<Void, Never>?
+    @ObservationIgnored private var streamRefillTask: Task<Void, Never>?
+    @ObservationIgnored private var isCheckingForFinish: Bool
+    @ObservationIgnored private var engineIsResolved: Bool
     @ObservationIgnored private var playStateGeneration: UInt64
     @ObservationIgnored private var pendingInputs: [Mania4KInputEvent]
 
@@ -105,6 +107,8 @@ public final class Mania4KPlaySessionModel {
         self.keyboardRouter = Mania4KKeyboardInputRouter(keyBindings: keyBindings)
         self.playStateGeneration = 0
         self.pendingInputs = []
+        self.isCheckingForFinish = false
+        self.engineIsResolved = false
     }
 
     public var isReadyToStart: Bool {
@@ -495,7 +499,6 @@ public final class Mania4KPlaySessionModel {
                 return false
             }
             phase = .playing
-            startFrameLoop()
             return true
         } catch let validationError as Mania4KChartValidationError {
             guard isCurrentStart(startGeneration) else {
@@ -550,8 +553,6 @@ public final class Mania4KPlaySessionModel {
         }
 
         phase = .paused
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         pendingInputs.removeAll()
         await activeAudioClock.pause()
     }
@@ -576,26 +577,28 @@ public final class Mania4KPlaySessionModel {
         }
 
         phase = .playing
-        startFrameLoop()
     }
 
     public func quitToSetup() async {
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         let previousClock = activeAudioClock
         resetPreparedPlayState()
         await previousClock.stop()
     }
 
-    /// One game frame: reads the stream ahead, delivers the inputs stamped up to this frame in timestamp order,
-    /// then advances judgement to the chart time of `hostTimeMs`.
+    /// One game frame that waits for the stream to cover it: reads ahead, delivers the inputs stamped up to this
+    /// frame in timestamp order, then advances judgement to the chart time of `hostTimeMs`. The frame is drawn for
+    /// `presentationHostTimeMs`, when the display shows it.
     @discardableResult
-    public func tick(atHostTimeMs hostTimeMs: Double = EnsomiHostClock.currentTimeMS()) async -> Bool {
+    public func tick(
+        atHostTimeMs hostTimeMs: Double = EnsomiHostClock.currentTimeMS(),
+        presentationHostTimeMs: Double? = nil
+    ) async -> Bool {
         guard phase == .playing else {
             return false
         }
 
-        let timing = frameTiming(atHostTimeMs: hostTimeMs)
+        let presentationHostTimeMs = presentationHostTimeMs ?? hostTimeMs
+        let timing = frameTiming(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
         let streamReadThrough = max(
             timing.streamReadThroughChartTimeMs(scrollTimeMs: scrollTimeMs),
             pendingInputs.map(\.chartTimeMs).max() ?? -.infinity
@@ -607,17 +610,31 @@ public final class Mania4KPlaySessionModel {
                 return false
             }
 
-            let advancedTiming = try advanceFrame(atHostTimeMs: hostTimeMs)
-            await finishIfNeeded(chartTimeMs: advancedTiming.gameplayChartTimeMs)
+            let judgedTiming = try judgeFrame(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
+            await finishIfNeeded(chartTimeMs: judgedTiming.gameplayChartTimeMs)
             return true
-        } catch let validationError as Mania4KChartValidationError {
-            await fail(.engineRejectedObjects(validationError))
-            return false
-        } catch let failure as Mania4KPlayFailure {
-            await fail(failure)
-            return false
         } catch {
-            await fail(.streamFailed(error.localizedDescription))
+            await fail(Self.playFailure(for: error))
+            return false
+        }
+    }
+
+    /// One game frame for the display link, without suspending between delivering inputs and advancing the engine.
+    /// The stream is read ahead in the background, so a stream that has not covered the frame fails the session.
+    @discardableResult
+    public func advanceFrame(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) -> Bool {
+        guard phase == .playing else {
+            return false
+        }
+
+        do {
+            let timing = try judgeFrame(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
+            refillStreamIfNeeded(for: timing)
+            finishIfResolved(atChartTimeMs: timing.gameplayChartTimeMs)
+            return true
+        } catch {
+            phase = .failed(Self.playFailure(for: error))
+            Task { await releaseAfterFailure() }
             return false
         }
     }
@@ -700,8 +717,8 @@ public final class Mania4KPlaySessionModel {
     }
 
     @discardableResult
-    private func advanceFrame(atHostTimeMs hostTimeMs: Double) throws -> Mania4KFrameTiming {
-        let timing = frameTiming(atHostTimeMs: hostTimeMs)
+    private func judgeFrame(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) throws -> Mania4KFrameTiming {
+        let timing = frameTiming(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
         guard var engine else {
             return timing
         }
@@ -726,10 +743,66 @@ public final class Mania4KPlaySessionModel {
         return timing
     }
 
+    private func refillStreamIfNeeded(for timing: Mania4KFrameTiming) {
+        let through = timing.streamReadThroughChartTimeMs(scrollTimeMs: scrollTimeMs)
+        guard streamRefillTask == nil, !streamEnded, through > streamCompleteThroughChartTimeMs + 250 else {
+            return
+        }
+
+        let generation = playStateGeneration
+        streamRefillTask = Task { [weak self] in
+            do {
+                try await self?.readStream(throughChartTimeMs: through, expectedGeneration: generation)
+            } catch is StaleMania4KPlayStateError {
+            } catch {
+                await self?.failIfCurrent(generation, Self.playFailure(for: error))
+            }
+            if self?.playStateGeneration == generation {
+                self?.streamRefillTask = nil
+            }
+        }
+    }
+
+    private func finishIfResolved(atChartTimeMs chartTimeMs: Double) {
+        guard streamEnded, engineIsResolved, !isCheckingForFinish else {
+            return
+        }
+
+        isCheckingForFinish = true
+        let generation = playStateGeneration
+        Task {
+            await finishIfNeeded(chartTimeMs: chartTimeMs)
+            if playStateGeneration == generation {
+                isCheckingForFinish = false
+            }
+        }
+    }
+
+    private func failIfCurrent(_ generation: UInt64, _ failure: Mania4KPlayFailure) async {
+        guard playStateGeneration == generation, phase == .playing else {
+            return
+        }
+
+        await fail(failure)
+    }
+
+    private static func playFailure(for error: Error) -> Mania4KPlayFailure {
+        switch error {
+        case let validationError as Mania4KChartValidationError:
+            return .engineRejectedObjects(validationError)
+        case let failure as Mania4KPlayFailure:
+            return failure
+        default:
+            return .streamFailed(error.localizedDescription)
+        }
+    }
+
     private func resetPreparedPlayState() {
         playStateGeneration &+= 1
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
+        streamRefillTask?.cancel()
+        streamRefillTask = nil
+        isCheckingForFinish = false
+        engineIsResolved = false
         stopBackendSession(markStopped: false)
         activeConfiguration = nil
         if let previousStream = activeStream { Task { await previousStream.cancel() } }
@@ -853,25 +926,6 @@ public final class Mania4KPlaySessionModel {
         backendSessionStatus = markStopped ? "Stopped" : "Idle"
     }
 
-    private func startFrameLoop() {
-        frameLoopTask?.cancel()
-        frameLoopTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 16_666_667)
-                } catch {
-                    break
-                }
-
-                guard !Task.isCancelled else {
-                    break
-                }
-
-                await self?.tick()
-            }
-        }
-    }
-
     private func readStream(throughChartTimeMs: Double, expectedGeneration: UInt64? = nil) async throws {
         try validatePlayStateGeneration(expectedGeneration)
         guard !streamEnded, throughChartTimeMs > streamCompleteThroughChartTimeMs else {
@@ -953,6 +1007,7 @@ public final class Mania4KPlaySessionModel {
         let snapshot = engine.snapshot(
             visibleRange: (timing.renderChartTimeMs - 700)...(timing.renderChartTimeMs + scrollTimeMs + 250)
         )
+        engineIsResolved = snapshot.isResolved
         playFrame = Mania4KPlayFrame(
             gameplayChartTimeMs: timing.gameplayChartTimeMs,
             renderChartTimeMs: timing.renderChartTimeMs,
@@ -984,8 +1039,6 @@ public final class Mania4KPlaySessionModel {
             return
         }
 
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         await activeAudioClock.stop()
         resetLiveInputLaneStates()
         if let activeStream { Task { await activeStream.cancel() } }
@@ -999,16 +1052,18 @@ public final class Mania4KPlaySessionModel {
     }
 
     private func fail(_ failure: Mania4KPlayFailure) async {
+        phase = .failed(failure)
+        await releaseAfterFailure()
+    }
+
+    private func releaseAfterFailure() async {
         let failureGeneration = playStateGeneration
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         await activeAudioClock.stop()
         guard playStateGeneration == failureGeneration else {
             return
         }
         resetLiveInputLaneStates()
         if let activeStream { Task { await activeStream.cancel() } }
-        phase = .failed(failure)
     }
 
     private func currentFrameTiming() async -> Mania4KFrameTiming {
@@ -1021,8 +1076,11 @@ public final class Mania4KPlaySessionModel {
         return frameTiming(gameplayChartTimeMs: gameplayChartTimeMs)
     }
 
-    private func frameTiming(atHostTimeMs hostTimeMs: Double) -> Mania4KFrameTiming {
-        frameTiming(gameplayChartTimeMs: gameplayChartTimeMs(atHostTimeMs: hostTimeMs))
+    private func frameTiming(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) -> Mania4KFrameTiming {
+        Mania4KFrameTiming(
+            gameplayChartTimeMs: gameplayChartTimeMs(atHostTimeMs: hostTimeMs),
+            renderChartTimeMs: gameplayChartTimeMs(atHostTimeMs: presentationHostTimeMs) + visualOffsetMilliseconds
+        )
     }
 
     private func gameplayChartTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {

@@ -157,7 +157,11 @@ through the audio clock's host-time mapping, so judgement uses when the key was
 pressed rather than when it was handled. Repeated presses are filtered. Each
 frame delivers the inputs stamped up to its chart time in timestamp order, then
 advances the engine to that time; an input stamped later waits for the next
-frame. Paused sessions do not judge input or advance misses. The renderer
+frame. The play view's display link makes the frames, one per display refresh,
+and nothing else ticks the session: each frame judges at the current chart time
+and is drawn for the time the display shows it (`targetTimestamp`). The stream
+is read ahead in the background, and a frame the stream has not covered fails the
+session. Paused sessions do not judge input or advance misses. The renderer
 consumes snapshots and never infers judgements.
 
 [`Mania4KJudgementEngine`](../Sources/EnsomiCore/Domain/Mania4KDomain.swift) owns

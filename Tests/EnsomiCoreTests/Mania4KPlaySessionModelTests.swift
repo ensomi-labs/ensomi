@@ -708,6 +708,63 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.playFrame?.latestJudgement?.judgement, .perfect)
     }
 
+    func testFramesAdvanceOnlyWhenDrivenAndDrawForThePresentationTime() async throws {
+        let clock = FakeMania4KAudioClock()
+        let model = try modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock, visualOffset: -10)
+        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
+        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
+        let started = await model.startPlay()
+        XCTAssertTrue(started)
+
+        await clock.setAudioTimeMs(500)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 0)
+
+        XCTAssertTrue(model.advanceFrame(atHostTimeMs: 0, presentationHostTimeMs: 0))
+        XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 500)
+        XCTAssertEqual(model.playFrame?.renderChartTimeMs, 490)
+        XCTAssertEqual(model.playFrame?.latestJudgement?.judgement, .miss)
+    }
+
+    func testRenderTimeFollowsThePresentationHostTime() async throws {
+        let origin = EnsomiHostClock.currentTimeMS() + 10_000
+        let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
+        let model = try modelWithInMemoryChart(objects: [tap(.left, 5_000)], clock: clock, visualOffset: -10)
+        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
+        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
+        let started = await model.startPlay()
+        XCTAssertTrue(started)
+
+        await model.tick(atHostTimeMs: origin + 1_000, presentationHostTimeMs: origin + 1_017)
+
+        XCTAssertEqual(model.playFrame?.gameplayChartTimeMs ?? .nan, 1_000, accuracy: 0.001)
+        XCTAssertEqual(model.playFrame?.renderChartTimeMs ?? .nan, 1_007, accuracy: 0.001)
+    }
+
+    func testFrameBeyondTheStreamWatermarkFailsTheSession() async throws {
+        let clock = FakeMania4KAudioClock()
+        let stream = LaggingMania4KHitObjectStream(completeThroughChartTimeMs: 0)
+        let model = Mania4KPlaySessionModel(
+            audioOffsetMilliseconds: 0,
+            visualOffsetMilliseconds: 0,
+            audioClock: clock,
+            streamFactory: { _ in stream }
+        )
+        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
+        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
+        let started = await model.startPlay()
+        XCTAssertTrue(started)
+
+        await clock.setAudioTimeMs(100)
+        XCTAssertFalse(model.advanceFrame(atHostTimeMs: 0, presentationHostTimeMs: 0))
+        XCTAssertFalse(model.advanceFrame(atHostTimeMs: 0, presentationHostTimeMs: 0))
+
+        guard case .failed(let failure) = model.phase else {
+            return XCTFail("Expected failed phase, got \(model.phase)")
+        }
+        XCTAssertEqual(failure, .streamFailed("The chart stream fell behind the judgement clock."))
+    }
+
     func testSessionFailsWhenStreamEmitsObjectBehindPreviousWatermark() async throws {
         let clock = FakeMania4KAudioClock()
         let stream = WatermarkViolatingMania4KHitObjectStream()

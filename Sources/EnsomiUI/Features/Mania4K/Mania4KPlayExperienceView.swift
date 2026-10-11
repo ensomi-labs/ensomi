@@ -2014,6 +2014,7 @@ private struct Mania4KPlaySceneView: View {
                 }
             }
             .background(Mania4KStyle.stageFill)
+            .background(Mania4KFrameDriver(model: model))
             #if os(macOS)
             .background(Mania4KKeyboardCaptureView(model: model))
             #endif

@@ -15,6 +15,7 @@
 		16FEB939E42496F4D8299FCF /* AmbientSyncEngineReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55A9417D6A488B35883D673 /* AmbientSyncEngineReadiness.swift */; };
 		17AAE5121A50FE606DC866A2 /* AmbientSyncEngineTracking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546E9B45E56B429FBEAC9659 /* AmbientSyncEngineTracking.swift */; };
 		18F4A8978FB0DD91C65A7F2C /* Mania4KOffsetCalibrationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B36053FB4B99CE266CED8F2B /* Mania4KOffsetCalibrationModelTests.swift */; };
+		1E1907D2AC9E4C668DE17323 /* Mania4KDisplayLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D4CB1E0ECC05DDE21DCC556 /* Mania4KDisplayLink.swift */; };
 		1E488B3D1621686935615C7C /* LiveRecognitionSyncWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD4E6A074A61FDF1FEB4C10 /* LiveRecognitionSyncWindow.swift */; };
 		1F394317FF584744CF78FEEE /* Mania4KNoteRenderLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07E18DF0C055CB6B3A5AC57 /* Mania4KNoteRenderLayoutTests.swift */; };
 		1FE62BF5525ED85E147D3D7E /* EnsomiIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E294482B58EFB7D963E4AE /* EnsomiIOSApp.swift */; };
@@ -220,6 +221,7 @@
 		06E3E9C2D5355E56A8B637FA /* AVFoundationMania4KAudioClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVFoundationMania4KAudioClock.swift; sourceTree = "<group>"; };
 		0805C6675C82D7C6A1F783AC /* AmbientSyncFixtureRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureRecorderView.swift; sourceTree = "<group>"; };
 		083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlayExperienceView.swift; sourceTree = "<group>"; };
+		0D4CB1E0ECC05DDE21DCC556 /* Mania4KDisplayLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KDisplayLink.swift; sourceTree = "<group>"; };
 		0D9EEAFFD5280852633B24EF /* EnsomiACRCloudDebugCLI */ = {isa = PBXFileReference; includeInIndex = 0; path = EnsomiACRCloudDebugCLI; sourceTree = BUILT_PRODUCTS_DIR; };
 		0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfiguration.swift; sourceTree = "<group>"; };
 		1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilderTests.swift; sourceTree = "<group>"; };
@@ -710,6 +712,7 @@
 		E432B25DB0EB434AD742C371 /* Mania4K */ = {
 			isa = PBXGroup;
 			children = (
+				0D4CB1E0ECC05DDE21DCC556 /* Mania4KDisplayLink.swift */,
 				083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */,
 			);
 			path = Mania4K;
@@ -1051,6 +1054,7 @@
 				1E488B3D1621686935615C7C /* LiveRecognitionSyncWindow.swift in Sources */,
 				3F979DEF5D928C64DDAA3956 /* LocalLibraryDashboardView.swift in Sources */,
 				594071880E0B6F585DBF35F2 /* LocalResolveDebugView.swift in Sources */,
+				1E1907D2AC9E4C668DE17323 /* Mania4KDisplayLink.swift in Sources */,
 				AE8D85A6529B51B734AFC631 /* Mania4KPlayExperienceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
