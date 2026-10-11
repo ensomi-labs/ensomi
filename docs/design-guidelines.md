@@ -1,5 +1,5 @@
 ---
-commit: e376342f9bc8df64a30e7fbc4c77a042042fce25
+commit: 8e3de3b
 ---
 
 # Ensomi design guidelines
@@ -38,6 +38,14 @@ supporting explanations or tools unless people need them to make a decision.
 When a custom interaction is necessary, preserve keyboard focus, accessible
 names and values, and an explicit way to cancel or leave it. Record a new lasting
 exception here with its user benefit and affected surface.
+
+Generate a Chart places a Sections list below the song's star target. Each section
+uses start and end fields in `mm:ss`, a capability-backed kind picker, and either
+a strength slider from 0 to 1 or a star target with the song's range. Experimental
+kinds are labelled; controls marked not working are hidden. Show validation by
+the list before enabling generation. During generation, the Session and Backend
+panels show the current phase; failures retain the service's message. Playback
+actions stay on one line and move below the statistics at narrow widths.
 
 ## Layout and accessibility
 

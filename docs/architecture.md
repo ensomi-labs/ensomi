@@ -1,5 +1,5 @@
 ---
-commit: e4ae9e80f2b811fcddb265b134d917d7e6d149ce
+commit: 8e3de3b
 ---
 
 # Ensomi architecture
@@ -115,10 +115,17 @@ Local-audio generation uses a complete-chart exchange instead of a stream.
 opens a binary websocket (`ENSOMI_SERVICE_URL`, default `ws://localhost:8765`), sends
 `capabilities_request` with an empty session ID (reply: model name and version, star
 range `[min_star, max_star_exclusive)`) and `generate_chart` with a session ID, audio path,
-star and seed. The service replies with `generation_progress` phases, then one `chart_result`,
-or an `ErrorEvent` whose string `code` names the failure; `stop_session` is answered by a
-stopped status. There is no `ready` or node hello. Chart times are whole-millisecond audio
-time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` rejects
+star, seed and `ChartControls.sections`. Section targets map to either a star or
+a pattern kind and strength. The app reads the local audio duration and requires
+ordered endpoints inside the song, no overlapping sections (adjacency is allowed),
+8–32-second pattern spans, strength in `[0, 1]`, and section stars in the song's
+selectable range. Capability statuses determine which section kinds are offered;
+long-note controls remain unspecified. The service replies with `generation_progress`
+phases, then one `chart_result`, or an `ErrorEvent` whose string `code` names the
+failure; `stop_session` is answered by a stopped status. Generation state owns the
+setup panels' phase, readiness and error message independently of live inference
+session state. There is no `ready` or node hello. Chart times are whole-millisecond
+audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` rejects
 out-of-range lanes or times, unsorted objects and same-lane overlaps, then plays the chart
 with its audio from time 0 as an in-memory chart, with every note.
 
