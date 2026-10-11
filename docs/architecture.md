@@ -144,10 +144,14 @@ scrollTimeMs        = 11485 / scrollSpeed
 ```
 
 Audio offset affects judgement and hit errors. Visual offset and scroll speed
-affect rendering and lookahead only. Input uses gameplay time, filters repeated
-presses, and preserves press/release order across asynchronous clock reads.
-Paused sessions do not judge input or advance misses. The renderer consumes
-snapshots and never infers judgements.
+affect rendering and lookahead only. A key event is stamped with its own
+timestamp (`NSEvent.timestamp`, system uptime), converted to gameplay time
+through the audio clock's host-time mapping, so judgement uses when the key was
+pressed rather than when it was handled. Repeated presses are filtered. Each
+frame delivers the inputs stamped up to its chart time in timestamp order, then
+advances the engine to that time; an input stamped later waits for the next
+frame. Paused sessions do not judge input or advance misses. The renderer
+consumes snapshots and never infers judgements.
 
 [`Mania4KJudgementEngine`](../Sources/EnsomiCore/Domain/Mania4KDomain.swift) owns
 per-lane note lock: earlier unresolved objects cannot remain hittable past the

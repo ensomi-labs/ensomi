@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 
 public enum Mania4KDefaultPlaySettings {
     public static let scrollSpeed = 25.0
@@ -643,6 +644,9 @@ public protocol Mania4KAudioClock: Sendable {
     func pause() async
     func stop() async
     func currentAudioTimeMs() async -> Double
+    /// The audio time heard at `hostTimeMs` (`EnsomiHostClock` milliseconds), past or future.
+    /// Never suspends, so a key event's timestamp converts where the event is handled.
+    func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double
     func isRunning() async -> Bool
 }
 
@@ -656,15 +660,15 @@ public struct Mania4KAudioMetadata: Equatable, Sendable {
     }
 }
 
-public actor AVFoundationMania4KAudioClock: Mania4KAudioClock {
-    private var player: AVAudioPlayer?
+public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked Sendable {
+    private let playerLock = OSAllocatedUnfairLock<AVAudioPlayer?>(uncheckedState: nil)
 
     public init() {}
 
     public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
         let player = try AVAudioPlayer(contentsOf: audioFileURL)
         player.prepareToPlay()
-        self.player = player
+        playerLock.withLockUnchecked { $0 = player }
         return Mania4KAudioMetadata(
             durationMs: player.duration.isFinite ? player.duration * 1000 : nil,
             title: audioFileURL.deletingPathExtension().lastPathComponent
@@ -672,7 +676,7 @@ public actor AVFoundationMania4KAudioClock: Mania4KAudioClock {
     }
 
     public func play() async throws {
-        guard let player else {
+        guard let player = playerLock.withLockUnchecked({ $0 }) else {
             throw Mania4KPlayFailure.audioPrepareFailed("Audio player is not prepared.")
         }
 
@@ -680,30 +684,36 @@ public actor AVFoundationMania4KAudioClock: Mania4KAudioClock {
     }
 
     public func pause() async {
-        player?.pause()
+        playerLock.withLockUnchecked { $0 }?.pause()
     }
 
     public func stop() async {
+        let player = playerLock.withLockUnchecked { $0 }
         player?.stop()
         player?.currentTime = 0
     }
 
     public func currentAudioTimeMs() async -> Double {
-        guard let player else {
+        audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS())
+    }
+
+    public func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
+        guard let player = playerLock.withLockUnchecked({ $0 }) else {
             return 0
         }
 
-        return player.currentTime * 1000
+        let nowMs = player.currentTime * 1000
+        return player.isPlaying ? nowMs + hostTimeMs - EnsomiHostClock.currentTimeMS() : nowMs
     }
 
     public func isRunning() async -> Bool {
-        player?.isPlaying ?? false
+        playerLock.withLockUnchecked { $0 }?.isPlaying ?? false
     }
 }
 
 public actor FakeMania4KAudioClock: Mania4KAudioClock {
     private let metadata: Mania4KAudioMetadata
-    private var audioTimeMs: Double
+    private let storedAudioTimeMs: OSAllocatedUnfairLock<Double>
     private var running: Bool
     private let prepareError: Error?
 
@@ -714,7 +724,7 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
         prepareError: Error? = nil
     ) {
         self.metadata = metadata
-        self.audioTimeMs = audioTimeMs
+        self.storedAudioTimeMs = OSAllocatedUnfairLock(initialState: audioTimeMs)
         self.running = isRunning
         self.prepareError = prepareError
     }
@@ -724,7 +734,7 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
             throw prepareError
         }
 
-        audioTimeMs = 0
+        storedAudioTimeMs.withLock { $0 = 0 }
         return metadata
     }
 
@@ -738,11 +748,16 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
 
     public func stop() async {
         running = false
-        audioTimeMs = 0
+        storedAudioTimeMs.withLock { $0 = 0 }
     }
 
     public func currentAudioTimeMs() async -> Double {
-        audioTimeMs
+        storedAudioTimeMs.withLock { $0 }
+    }
+
+    /// The fake stands still: every host time reads the time last set.
+    public nonisolated func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
+        storedAudioTimeMs.withLock { $0 }
     }
 
     public func isRunning() async -> Bool {
@@ -750,11 +765,11 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
     }
 
     public func setAudioTimeMs(_ audioTimeMs: Double) {
-        self.audioTimeMs = audioTimeMs
+        storedAudioTimeMs.withLock { $0 = audioTimeMs }
     }
 
     public func advance(by milliseconds: Double) {
-        audioTimeMs += milliseconds
+        storedAudioTimeMs.withLock { $0 += milliseconds }
     }
 
     public func setRunning(_ running: Bool) {
@@ -802,7 +817,11 @@ public actor HostTimeAnchoredMania4KAudioClock: Mania4KAudioClock {
     }
 
     public func currentAudioTimeMs() async -> Double {
-        let projectedTimeMS = referenceTimeAtAnchorMS + hostTimeProvider() - anchorHostTimeMS
+        audioTimeMs(atHostTimeMs: hostTimeProvider())
+    }
+
+    public nonisolated func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
+        let projectedTimeMS = referenceTimeAtAnchorMS + hostTimeMs - anchorHostTimeMS
         guard let durationMs = metadata.durationMs else {
             return max(0, projectedTimeMS)
         }

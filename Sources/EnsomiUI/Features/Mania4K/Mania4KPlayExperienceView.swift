@@ -2473,9 +2473,12 @@ private struct Mania4KKeyboardCaptureView: NSViewRepresentable {
                 return
             }
 
-            Task {
-                await model?.handleKeyboardInput(key: key, isPressed: true, isRepeat: event.isARepeat)
-            }
+            model?.handleKeyboardInput(
+                key: key,
+                isPressed: true,
+                isRepeat: event.isARepeat,
+                hostTimeMs: event.timestamp * 1_000
+            )
         }
 
         override func keyUp(with event: NSEvent) {
@@ -2483,9 +2486,12 @@ private struct Mania4KKeyboardCaptureView: NSViewRepresentable {
                 return
             }
 
-            Task {
-                await model?.handleKeyboardInput(key: key, isPressed: false, isRepeat: false)
-            }
+            model?.handleKeyboardInput(
+                key: key,
+                isPressed: false,
+                isRepeat: false,
+                hostTimeMs: event.timestamp * 1_000
+            )
         }
     }
 }
