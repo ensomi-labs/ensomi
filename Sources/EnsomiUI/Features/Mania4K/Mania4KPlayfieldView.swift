@@ -14,6 +14,9 @@ final class Mania4KPlayfieldView: MTKView {
     var model: Mania4KPlaySessionModel
     private var renderer: Mania4KMetalRenderer?
     private var displayLink: Mania4KDisplayLink?
+    #if os(macOS)
+    private var visibilityObserver: Mania4KWindowVisibilityObserver?
+    #endif
 
     init(model: Mania4KPlaySessionModel) {
         self.model = model
@@ -71,6 +74,17 @@ final class Mania4KPlayfieldView: MTKView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         attachDisplayLink()
+        // The display link stops with the window, so frames and stream reads would too: pause for the player to resume.
+        visibilityObserver?.invalidate()
+        visibilityObserver = window.map { window in
+            Mania4KWindowVisibilityObserver(window: window) { [weak self] isVisible in
+                guard !isVisible, let model = self?.model else {
+                    return
+                }
+
+                Task { await model.pause() }
+            }
+        }
     }
     #else
     override func didMoveToWindow() {

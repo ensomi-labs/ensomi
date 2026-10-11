@@ -1266,7 +1266,7 @@ private struct Mania4KOffsetCalibrationView: View {
     let onApply: (Mania4KOffsetCalibrationModel) -> Void
     let onCancel: (Mania4KOffsetCalibrationModel) -> Void
 
-    @State private var frameLoopTask: Task<Void, Never>?
+    @State private var audioTask: Task<Void, Never>?
     @State private var audioFailure: String?
     @State private var presetName = ""
     @State private var presetIDPendingDeletion: UUID?
@@ -1287,6 +1287,25 @@ private struct Mania4KOffsetCalibrationView: View {
             }
         }
         .background(
+            Mania4KOffsetCalibrationFrameLinkView(
+                onFrame: { link in
+                    model.advanceClock(
+                        atHostTimeMs: EnsomiHostClock.currentTimeMS(),
+                        presentationHostTimeMs: link.targetTimestamp * 1_000
+                    )
+                },
+                onVisibilityChange: { isVisible in
+                    runAudio {
+                        if isVisible {
+                            try? await audioClock.play()
+                        } else {
+                            await audioClock.pause()
+                        }
+                    }
+                }
+            )
+        )
+        .background(
             Mania4KOffsetCalibrationKeyboardCaptureView(
                 calibrationKey: Mania4KOffsetCalibrationModel.calibrationKey,
                 isCaptureEnabled: focusedTextField == nil
@@ -1294,8 +1313,8 @@ private struct Mania4KOffsetCalibrationView: View {
                 _ = model.recordInput(atHostTimeMs: hostTimeMs)
             }
         )
-        .onAppear(perform: startFrameLoop)
-        .onDisappear(perform: stopFrameLoop)
+        .onAppear(perform: startAudio)
+        .onDisappear(perform: stopAudio)
     }
 
     private var header: some View {
@@ -1706,34 +1725,31 @@ private struct Mania4KOffsetCalibrationView: View {
         onStateChanged(model.storedState)
     }
 
-    /// Plays the click track on the audio clock and draws each frame at the clock's audio time.
-    private func startFrameLoop() {
-        guard frameLoopTask == nil else {
-            return
-        }
-
-        frameLoopTask = Task { @MainActor in
+    /// Plays the click track on the audio clock. Frames come from the display link, which reads the clock.
+    private func startAudio() {
+        runAudio {
             do {
                 try audioClock.prepare(clickTrack: clickTrack())
                 try await audioClock.play()
             } catch {
-                if !Task.isCancelled {
-                    audioFailure = error.localizedDescription
-                }
+                audioFailure = error.localizedDescription
             }
+        }
+    }
 
-            while !Task.isCancelled {
-                model.advanceClock(atHostTimeMs: EnsomiHostClock.currentTimeMS())
-                try? await Task.sleep(nanoseconds: 16_666_667)
-            }
-
+    private func stopAudio() {
+        runAudio {
             await audioClock.stop()
         }
     }
 
-    private func stopFrameLoop() {
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
+    /// Runs audio commands one after another, so a stop never overtakes a play still starting.
+    private func runAudio(_ command: @escaping @MainActor () async -> Void) {
+        let previous = audioTask
+        audioTask = Task { @MainActor in
+            await previous?.value
+            await command()
+        }
     }
 
     private func clickTrack() throws -> Mania4KCalibrationClickTrack {
@@ -1754,6 +1770,46 @@ private struct Mania4KOffsetCalibrationView: View {
 }
 
 private final class Mania4KOffsetCalibrationResourceBundleToken: NSObject {}
+
+/// Calls `onFrame` once per display refresh, as the play playfield's display link does, and `onVisibilityChange` when
+/// the window is hidden or shown.
+private struct Mania4KOffsetCalibrationFrameLinkView: NSViewRepresentable {
+    let onFrame: (CADisplayLink) -> Void
+    let onVisibilityChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> LinkView {
+        let view = LinkView()
+        view.onFrame = onFrame
+        view.onVisibilityChange = onVisibilityChange
+        return view
+    }
+
+    func updateNSView(_ nsView: LinkView, context: Context) {
+        nsView.onFrame = onFrame
+        nsView.onVisibilityChange = onVisibilityChange
+    }
+
+    final class LinkView: NSView {
+        var onFrame: ((CADisplayLink) -> Void)?
+        var onVisibilityChange: ((Bool) -> Void)?
+        private var displayLink: Mania4KDisplayLink?
+        private var visibilityObserver: Mania4KWindowVisibilityObserver?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            displayLink?.invalidate()
+            visibilityObserver?.invalidate()
+            displayLink = window == nil ? nil : Mania4KDisplayLink(view: self) { [weak self] link in
+                self?.onFrame?(link)
+            }
+            visibilityObserver = window.map { window in
+                Mania4KWindowVisibilityObserver(window: window) { [weak self] isVisible in
+                    self?.onVisibilityChange?(isVisible)
+                }
+            }
+        }
+    }
+}
 
 private struct Mania4KOffsetCalibrationKeyboardCaptureView: NSViewRepresentable {
     let calibrationKey: String

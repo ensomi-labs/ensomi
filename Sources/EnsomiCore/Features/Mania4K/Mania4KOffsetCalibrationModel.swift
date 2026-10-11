@@ -144,6 +144,8 @@ public final class Mania4KOffsetCalibrationModel {
     public private(set) var renderedAudioOffsetMilliseconds: Int
     public private(set) var renderedVisualOffsetMilliseconds: Int
     public private(set) var rawClockTimeMs: Int
+    /// The audio time at the host time the display shows the frame, which is when `rawClockTimeMs` is the frame's own.
+    public private(set) var presentationClockTimeMs: Int
     public private(set) var hitSamples: [Mania4KOffsetCalibrationHitSample]
     public private(set) var storedState: Mania4KOffsetCalibrationStoredState
 
@@ -184,6 +186,7 @@ public final class Mania4KOffsetCalibrationModel {
         self.renderedAudioOffsetMilliseconds = initialAudioOffset
         self.renderedVisualOffsetMilliseconds = initialVisualOffset
         self.rawClockTimeMs = 0
+        self.presentationClockTimeMs = 0
         self.hitSamples = []
         self.storedState = normalizedState
         self.audioClock = audioClock
@@ -196,7 +199,7 @@ public final class Mania4KOffsetCalibrationModel {
     }
 
     public var renderedChartTimeMs: Int {
-        gameplayChartTimeMs + renderedVisualOffsetMilliseconds
+        presentationClockTimeMs + renderedAudioOffsetMilliseconds + renderedVisualOffsetMilliseconds
     }
 
     public var presets: [Mania4KOffsetPreset] {
@@ -240,13 +243,18 @@ public final class Mania4KOffsetCalibrationModel {
         Double(Self.initialLeadInMs + beatIndex * Self.tickIntervalMs)
     }
 
-    /// Reads the audio clock for the frame drawn at `hostTimeMs` (`EnsomiHostClock` milliseconds).
-    public func advanceClock(atHostTimeMs hostTimeMs: Double) {
-        advanceClock(rawClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: hostTimeMs).rounded()))
+    /// Reads the audio clock for a frame judged at `hostTimeMs` and shown by the display at `presentationHostTimeMs`
+    /// (`EnsomiHostClock` milliseconds), as play reads it.
+    public func advanceClock(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) {
+        advanceClock(
+            rawClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: hostTimeMs).rounded()),
+            presentationClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: presentationHostTimeMs).rounded())
+        )
     }
 
-    public func advanceClock(rawClockTimeMs: Int) {
+    public func advanceClock(rawClockTimeMs: Int, presentationClockTimeMs: Int? = nil) {
         self.rawClockTimeMs = rawClockTimeMs
+        self.presentationClockTimeMs = presentationClockTimeMs ?? rawClockTimeMs
         publishPendingOffsetsIfAllowed()
         pruneResolvedBeatIndices(referenceGameplayChartTimeMs: Double(gameplayChartTimeMs))
     }

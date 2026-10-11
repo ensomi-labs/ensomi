@@ -35,7 +35,10 @@ offsets.
   (`NSView.displayLink(target:selector:)`, `CADisplayLink` on iOS). Each
   refresh it judges at the current chart time, publishes a frame whose render time
   is the chart time at the link's `targetTimestamp`, and draws it. There is no
-  other tick.
+  other tick. The link stops while the window is minimized, hidden, fully covered or
+  on another Space (its occlusion state is not visible), so frames and stream reads
+  stop too. The playfield view then pauses the session, `pause()`, and the player
+  resumes with the Resume button.
 - **Drawing.** `Mania4KPlayfieldLayout` turns the play frame into rounded
   rectangles, `Mania4KMetalRenderer` draws them in one instanced call. The HUD is
   SwiftUI over the Metal view.
@@ -58,6 +61,17 @@ These shaped the clock and are easy to get wrong again:
   latency). CoreAudio also reports 556 frames (11.6 ms) of stream latency and a
   48-frame safety offset that `presentationLatency` leaves out; they stay in the
   audio offset.
+- A change of output device (headphones connecting or unplugging) stops the engine
+  and posts `AVAudioEngineConfigurationChange`. The clock builds a new engine, player
+  and mixer for the new device, so the mixer is at the new output rate, and schedules
+  the source from the position that was being heard: the file from that frame
+  (`scheduleSegment`), the click track from its place in the lead-in or the interval.
+  The audio time of the player's first frame becomes that position, so the audio time
+  carries on from it and the gap only delays the song; reads in between hold it. The
+  clock reads the position being heard, so after the restart it reads lower by the new
+  device's latency (plus the render lead below) until the resumed sound is heard. The
+  gameplay core never moves its clock back, so the chart waits for the clock to catch up. A paused clock is
+  rebuilt paused at its position.
 - `playerTime(forNodeTime:)` is nil while the player is paused, and the player
   timeline continues across pause and resume. The clock holds the paused time and
   waits for the first buffer after `play()` before it extrapolates again.
@@ -122,10 +136,11 @@ the rendered offset minus its hit error, which is `1000 + 500 k` minus the key's
 time: minus the delay between hearing the tick and pressing, whatever offset the screen
 started from. The suggestion is the median of the last 16 accepted keys. The device's
 reported latency is not counted twice, and calibrating again from a result measures a
-hit error near zero. Notes are drawn at audio time plus audio offset plus
-visual offset, but for the time of the screen's 60 Hz loop and not, as in play, the
-display link's presentation time, so a visual offset set there can differ from play's by
-about a frame.
+hit error near zero. Notes are drawn at the audio time of the display's presentation of the frame plus the
+audio offset plus the visual offset, as in play: a display link on a view behind the
+screen calls the model each refresh with the link's `targetTimestamp`, and the SwiftUI
+update that follows is the frame. A hidden or minimized window stops the link and the
+screen pauses its clock until the window is visible again.
 
 ## Reproduce
 
@@ -159,7 +174,7 @@ under the derived data path if a default test disagrees with the source.
   assume 60 Hz, but only a 60 Hz display was measured.
 - Bluetooth and other devices that report a latency: the clock uses what the
   device reports.
-- An audio route change during play (for example unplugging headphones) stops the
-  engine; the session does not restart it.
+- A route change to a device the engine cannot start on (no output device): the clock
+  stays paused at its position and nothing reports it.
 - The delay from sound to ear and from frame to eye, which only the offsets can
   absorb.

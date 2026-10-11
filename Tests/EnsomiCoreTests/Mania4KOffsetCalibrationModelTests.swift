@@ -150,18 +150,20 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         }
     }
 
-    /// The clock is read at the host time of the frame and of the key event, as play reads it.
+    /// The clock is read at the host time of the frame, of the display's presentation of it and of the key event, as
+    /// play reads it.
     func testFramesAndKeysAreJudgedAtTheAudioTimeOfTheirHostTime() throws {
         // Audio time is host time minus 5 s, so only a conversion through the clock lands a key on the note.
         let model = Mania4KOffsetCalibrationModel(
             originalAudioOffsetMilliseconds: -20,
-            originalVisualOffsetMilliseconds: 0,
+            originalVisualOffsetMilliseconds: -15,
             audioClock: LinearMania4KAudioClock(audioMinusHostMs: -5_000)
         )
 
-        model.advanceClock(atHostTimeMs: 6_500)
+        model.advanceClock(atHostTimeMs: 6_500, presentationHostTimeMs: 6_517)
         XCTAssertEqual(model.rawClockTimeMs, 1_500)
         XCTAssertEqual(model.gameplayChartTimeMs, 1_480)
+        XCTAssertEqual(model.renderedChartTimeMs, 1_482)
 
         let sample = try XCTUnwrap(model.recordInput(atHostTimeMs: 6_040))
         XCTAssertEqual(sample.rawInputTimeMs, 1_040, accuracy: 0.001)
