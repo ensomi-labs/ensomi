@@ -1980,41 +1980,32 @@ private struct Mania4KPlaySceneView: View {
                 playHUD(isCompact: geometry.size.width < 800 || dynamicTypeSize.isAccessibilitySize)
 
                 GeometryReader { proxy in
-                    TimelineView(.animation) { _ in
-                        let uiTimeMs = EnsomiHostClock.currentTimeMS()
+                    ZStack {
+                        LinearGradient(
+                            colors: [
+                                Mania4KStyle.stageFill,
+                                Color(red: 0.02, green: 0.025, blue: 0.035)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
 
-                        ZStack {
-                            LinearGradient(
-                                colors: [
-                                    Mania4KStyle.stageFill,
-                                    Color(red: 0.02, green: 0.025, blue: 0.035)
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                        Mania4KGridOverlay(spacing: 42, opacity: 0.10)
 
-                            Mania4KGridOverlay(spacing: 42, opacity: 0.10)
-
-                            playField(atUITimeMs: uiTimeMs)
-                                .frame(width: playFieldWidth(for: proxy.size.width))
-                                .padding(.bottom, 22)
-
-                            if let frame = model.playFrame,
-                               let presentation = model.gameplayFeedback.judgementPresentation(atChartTimeMs: frame.gameplayChartTimeMs) {
-                                judgementBurst(for: presentation.event)
-                                    .opacity(presentation.opacity)
-                                    .scaleEffect(presentation.scale)
-                                    .offset(y: presentation.verticalOffset)
-                                    .position(x: proxy.size.width / 2, y: max(proxy.size.height * 0.34, 120))
+                        Mania4KPlayfieldMetalView(model: model)
+                            .overlay(alignment: .bottom) {
+                                keyLabels
                             }
+                            .frame(width: playFieldWidth(for: proxy.size.width))
+                            .padding(.bottom, 22)
 
-                            overlayState
-                        }
+                        Mania4KJudgementBurstView(model: model, size: proxy.size)
+
+                        overlayState
                     }
                 }
             }
             .background(Mania4KStyle.stageFill)
-            .background(Mania4KFrameDriver(model: model))
             #if os(macOS)
             .background(Mania4KKeyboardCaptureView(model: model))
             #endif
@@ -2063,7 +2054,7 @@ private struct Mania4KPlaySceneView: View {
 
     private var playTitle: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(model.playFrame?.metadata.title ?? model.activeConfiguration?.chartSource.displayName ?? "mania4k")
+            Text(model.hud.title ?? model.activeConfiguration?.chartSource.displayName ?? "mania4k")
                 .font(.headline)
                 .foregroundStyle(Mania4KStyle.textPrimary)
                 .lineLimit(1)
@@ -2122,25 +2113,17 @@ private struct Mania4KPlaySceneView: View {
         .frame(minWidth: 76, alignment: .trailing)
     }
 
-    private func playField(atUITimeMs uiTimeMs: Double) -> some View {
-        GeometryReader { proxy in
-            let laneSpacing: CGFloat = 8
-            let laneWidth = max(0, proxy.size.width - laneSpacing * 3) / 4
-
-            HStack(alignment: .bottom, spacing: laneSpacing) {
-                ForEach(Mania4KLane.allCases) { lane in
-                    Mania4KLiveLaneView(
-                        lane: lane,
-                        frame: model.playFrame,
-                        brightness: model.gameplayFeedback.laneBrightness(for: lane, atUITimeMs: uiTimeMs),
-                        noteColor: noteColor(for: lane.rawValue),
-                        keyLabel: model.keyBindings.displayLabel(for: lane)
-                    )
-                    .frame(width: laneWidth)
-                }
+    private var keyLabels: some View {
+        HStack(alignment: .bottom, spacing: CGFloat(Mania4KPlayfieldLayout.laneSpacing)) {
+            ForEach(Mania4KLane.allCases) { lane in
+                Text(model.keyBindings.displayLabel(for: lane))
+                    .font(.headline.monospaced())
+                    .foregroundStyle(Mania4KStyle.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: CGFloat(Mania4KPlayfieldLayout.receptorHeight))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -2190,6 +2173,49 @@ private struct Mania4KPlaySceneView: View {
         )
     }
 
+    private func playFieldWidth(for availableWidth: CGFloat) -> CGFloat {
+        min(max(0, availableWidth), min(max(availableWidth * 0.58, 280), 620))
+    }
+
+    private var accuracyText: String {
+        formatAccuracy(model.hud.accuracy)
+    }
+
+    private var comboText: String {
+        String(model.hud.combo)
+    }
+
+    private var latestJudgementText: String {
+        model.hud.latestJudgement?.rawValue ?? "-"
+    }
+
+    private var subtitleText: String {
+        guard let configuration = model.activeConfiguration else {
+            return "--"
+        }
+
+        return "\(configuration.starDifficulty.formatted(.number.precision(.fractionLength(1)))) stars  \(configuration.scrollSpeed.formatted(.number.precision(.fractionLength(1))))x"
+    }
+
+    private func formatAccuracy(_ accuracy: Double) -> String {
+        (accuracy * 100).formatted(.number.precision(.fractionLength(2))) + "%"
+    }
+}
+
+private struct Mania4KJudgementBurstView: View {
+    let model: Mania4KPlaySessionModel
+    let size: CGSize
+
+    var body: some View {
+        if let presentation = model.judgementPresentation {
+            judgementBurst(for: presentation.event)
+                .opacity(presentation.opacity)
+                .scaleEffect(presentation.scale)
+                .offset(y: presentation.verticalOffset)
+                .position(x: size.width / 2, y: max(size.height * 0.34, 120))
+        }
+    }
+
     private func judgementBurst(for event: Mania4KJudgementEvent) -> some View {
         ZStack {
             Text(event.judgement.rawValue)
@@ -2219,47 +2245,6 @@ private struct Mania4KPlaySceneView: View {
         return hitErrorMs < 0
             ? ("arrow.up", Mania4KStyle.accentBlue)
             : ("arrow.down", Mania4KStyle.accentAmber)
-    }
-
-    private func playFieldWidth(for availableWidth: CGFloat) -> CGFloat {
-        min(max(0, availableWidth), min(max(availableWidth * 0.58, 280), 620))
-    }
-
-    private var accuracyText: String {
-        formatAccuracy(model.playFrame?.score.accuracy ?? 1)
-    }
-
-    private var comboText: String {
-        String(model.playFrame?.score.combo ?? 0)
-    }
-
-    private var latestJudgementText: String {
-        model.playFrame?.latestJudgement?.judgement.rawValue ?? "-"
-    }
-
-    private var subtitleText: String {
-        guard let configuration = model.activeConfiguration else {
-            return "--"
-        }
-
-        return "\(configuration.starDifficulty.formatted(.number.precision(.fractionLength(1)))) stars  \(configuration.scrollSpeed.formatted(.number.precision(.fractionLength(1))))x"
-    }
-
-    private func formatAccuracy(_ accuracy: Double) -> String {
-        (accuracy * 100).formatted(.number.precision(.fractionLength(2))) + "%"
-    }
-
-    private func noteColor(for lane: Int) -> Color {
-        switch lane {
-        case 0:
-            return Color(red: 0.96, green: 0.67, blue: 0.21)
-        case 1:
-            return Color(red: 0.26, green: 0.70, blue: 0.64)
-        case 2:
-            return Color(red: 0.89, green: 0.35, blue: 0.37)
-        default:
-            return Color(red: 0.56, green: 0.63, blue: 0.94)
-        }
     }
 }
 

@@ -1,6 +1,5 @@
 import EnsomiCore
 import QuartzCore
-import SwiftUI
 #if os(macOS)
 import AppKit
 typealias Mania4KPlatformView = NSView
@@ -45,70 +44,3 @@ extension Mania4KPlaySessionModel {
         )
     }
 }
-
-/// Drives the session from the display link: the one source of game frames.
-struct Mania4KFrameDriver {
-    let model: Mania4KPlaySessionModel
-}
-
-#if os(macOS)
-extension Mania4KFrameDriver: NSViewRepresentable {
-    func makeNSView(context: Context) -> DriverView {
-        DriverView(model: model)
-    }
-
-    func updateNSView(_ nsView: DriverView, context: Context) {}
-
-    final class DriverView: NSView {
-        private let model: Mania4KPlaySessionModel
-        private var displayLink: Mania4KDisplayLink?
-
-        init(model: Mania4KPlaySessionModel) {
-            self.model = model
-            super.init(frame: .zero)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) is not supported")
-        }
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            displayLink?.invalidate()
-            displayLink = window == nil ? nil : Mania4KDisplayLink(view: self) { [model] link in
-                model.advanceFrame(for: link)
-            }
-        }
-    }
-}
-#else
-extension Mania4KFrameDriver: UIViewRepresentable {
-    func makeUIView(context: Context) -> DriverView {
-        DriverView(model: model)
-    }
-
-    func updateUIView(_ uiView: DriverView, context: Context) {}
-
-    final class DriverView: UIView {
-        private let model: Mania4KPlaySessionModel
-        private var displayLink: Mania4KDisplayLink?
-
-        init(model: Mania4KPlaySessionModel) {
-            self.model = model
-            super.init(frame: .zero)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) is not supported")
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            displayLink?.invalidate()
-            displayLink = window == nil ? nil : Mania4KDisplayLink(view: self) { [model] link in
-                model.advanceFrame(for: link)
-            }
-        }
-    }
-}
-#endif

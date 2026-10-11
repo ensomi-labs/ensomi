@@ -164,6 +164,16 @@ is read ahead in the background, and a frame the stream has not covered fails th
 session. Paused sessions do not judge input or advance misses. The renderer
 consumes snapshots and never infers judgements.
 
+The playfield (lanes, notes, hold bodies, the judgement line and the lane-press
+lights) is drawn with Metal by the view that owns the display link. A pure
+function, `Mania4KPlayfieldLayout`, turns the published play frame and the lane
+brightness into a flat list of rounded-rectangle primitives (`Mania4KQuad`: five
+float vectors, 80 bytes), which the renderer draws in order as one instanced
+call. The shader is compiled from source at run time, so building needs no Metal
+toolchain. The HUD (accuracy, combo, judgement text) and the key labels stay in
+SwiftUI over the Metal view and observe `hud` and `judgementPresentation`, which
+change only when their value does, not the per-frame `playFrame`.
+
 [`Mania4KJudgementEngine`](../Sources/EnsomiCore/Domain/Mania4KDomain.swift) owns
 per-lane note lock: earlier unresolved objects cannot remain hittable past the
 next object's start. A tap or hold head pressed too early is ignored; an unresolved

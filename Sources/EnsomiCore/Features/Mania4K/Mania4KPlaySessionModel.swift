@@ -4,6 +4,20 @@ import Observation
 public typealias Mania4KHitObjectStreamFactory = @Sendable (URL) -> any Mania4KHitObjectStreaming
 public typealias InferenceEndpointClientFactory = @Sendable (InferenceEndpointConfiguration) -> any InferenceEndpointClient
 
+public struct Mania4KPlayHUD: Equatable, Sendable {
+    public let title: String?
+    public let accuracy: Double
+    public let combo: Int
+    public let latestJudgement: Mania4KJudgement?
+
+    public init(title: String? = nil, accuracy: Double = 1, combo: Int = 0, latestJudgement: Mania4KJudgement? = nil) {
+        self.title = title
+        self.accuracy = accuracy
+        self.combo = combo
+        self.latestJudgement = latestJudgement
+    }
+}
+
 private struct Mania4KFrameTiming {
     let gameplayChartTimeMs: Double
     let renderChartTimeMs: Double
@@ -31,6 +45,8 @@ public final class Mania4KPlaySessionModel {
     public private(set) var activeConfiguration: Mania4KPlayConfiguration?
     public private(set) var phase: Mania4KPlayPhase
     public private(set) var playFrame: Mania4KPlayFrame?
+    public private(set) var hud: Mania4KPlayHUD
+    public private(set) var judgementPresentation: Mania4KJudgementPresentation?
     public private(set) var gameplayFeedback: Mania4KGameplayFeedbackState
     public private(set) var liveInputLaneStates: [Mania4KLaneState]
     public private(set) var backendSessionID: String?
@@ -91,6 +107,7 @@ public final class Mania4KPlaySessionModel {
         self.streamFactory = streamFactory
         self.inferenceEndpointClientFactory = inferenceEndpointClientFactory
         self.phase = .setup
+        self.hud = Mania4KPlayHUD()
         self.gameplayFeedback = Mania4KGameplayFeedbackState()
         self.liveInputLaneStates = Self.makeLaneStates(pressedLanes: [])
         self.backendSessionID = nil
@@ -811,6 +828,8 @@ public final class Mania4KPlaySessionModel {
         metadata = nil
         audioMetadata = nil
         playFrame = nil
+        hud = Mania4KPlayHUD()
+        judgementPresentation = nil
         gameplayFeedback = Mania4KGameplayFeedbackState()
         phase = .setup
         streamCursor = nil
@@ -1018,6 +1037,21 @@ public final class Mania4KPlaySessionModel {
             laneStates: snapshot.laneStates,
             latestJudgement: snapshot.latestJudgement
         )
+
+        // Views observe these two instead of `playFrame`, which changes every frame, so they redraw only when needed.
+        let hud = Mania4KPlayHUD(
+            title: metadata.title,
+            accuracy: snapshot.score.accuracy,
+            combo: snapshot.score.combo,
+            latestJudgement: snapshot.latestJudgement?.judgement
+        )
+        if hud != self.hud {
+            self.hud = hud
+        }
+        let presentation = gameplayFeedback.judgementPresentation(atChartTimeMs: timing.gameplayChartTimeMs)
+        if presentation != judgementPresentation {
+            judgementPresentation = presentation
+        }
     }
 
     private func finishIfNeeded(chartTimeMs: Double) async {
