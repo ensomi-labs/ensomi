@@ -7,9 +7,9 @@ import XCTest
 @testable import EnsomiUI
 
 /// Renders the play screen offscreen into PNGs at chosen chart times of a fixed chart and input log, for judging its
-/// look. The session runs through the play model with a clock that stands still at each frame's time; the playfield
-/// is drawn by the Metal renderer and the HUD by `ImageRenderer`, without a window. Runs only with
-/// `TEST_RUNNER_ENSOMI_SCREENSHOT_DIR` set to the directory to write into.
+/// look; `6-narrow` is the miss moment in a narrow window. The session runs through the play model with a clock that
+/// stands still at each frame's time; the playfield is drawn by the Metal renderer and the HUD by `ImageRenderer`,
+/// without a window. Runs only with `TEST_RUNNER_ENSOMI_SCREENSHOT_DIR` set to the directory to write into.
 @MainActor
 final class PlayScreenScreenshotTests: XCTestCase {
     private static let screenSize = CGSize(width: 1_120, height: 780)
@@ -93,6 +93,10 @@ final class PlayScreenScreenshotTests: XCTestCase {
             XCTAssertEqual(model.phase, .playing)
             try write(model: model, snapshotter: snapshotter, uiTimeMs: timeMs, to: directoryURL, name: moment.name)
         }
+        try write(
+            model: model, snapshotter: snapshotter, uiTimeMs: timeMs, to: directoryURL, name: "6-narrow",
+            size: CGSize(width: 520, height: 760)
+        )
         await model.pause()
         try write(model: model, snapshotter: snapshotter, uiTimeMs: timeMs, to: directoryURL, name: "5-paused")
 
@@ -107,7 +111,8 @@ final class PlayScreenScreenshotTests: XCTestCase {
         snapshotter: PlayfieldSnapshotter,
         uiTimeMs: Double,
         to directoryURL: URL,
-        name: String
+        name: String,
+        size: CGSize = PlayScreenScreenshotTests.screenSize
     ) throws {
         let snapshot = Mania4KPlayfieldSnapshot { size in
             snapshotter.image(model: model, uiTimeMs: uiTimeMs, size: size)
@@ -115,7 +120,7 @@ final class PlayScreenScreenshotTests: XCTestCase {
         let content = Mania4KPlayExperienceView(model: model)
             .environment(\.colorScheme, .dark)
             .environment(\.mania4kPlayfieldSnapshot, snapshot)
-            .frame(width: Self.screenSize.width, height: Self.screenSize.height)
+            .frame(width: size.width, height: size.height)
         let renderer = ImageRenderer(content: content)
         renderer.scale = Self.scale
         let image = try XCTUnwrap(renderer.cgImage, "ImageRenderer produced no image for \(name)")

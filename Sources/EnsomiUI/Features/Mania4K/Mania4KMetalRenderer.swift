@@ -166,6 +166,10 @@ final class Mania4KMetalRenderer {
         }
 
         float alpha = fill + (1.0 - fill) * glow;
+        if (quad.flags.y > 0.5) {
+            float fromTop = clamp((in.local.y + quad.rect.w * 0.5) / max(quad.rect.w, 1e-3), 0.0, 1.0);
+            alpha *= fromTop * fromTop;
+        }
         return float4(quad.color.rgb * alpha, quad.flags.x > 0.5 ? 0.0 : alpha);
     }
     """

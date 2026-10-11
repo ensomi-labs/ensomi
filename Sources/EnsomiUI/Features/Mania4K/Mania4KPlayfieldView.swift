@@ -3,10 +3,12 @@ import Metal
 import MetalKit
 import SwiftUI
 
-/// The playfield: lanes, notes, hold bodies, the judgement line and the lane-press lights, drawn with Metal. Its
-/// display link is the session's only source of game frames; each one advances the session, then draws it.
+/// The playfield: lanes, notes, hold bodies, the key tray, the judgement line, the lane-press lights, the hit
+/// feedback and the song progress, drawn with Metal. Its display link is the session's only source of game frames;
+/// each one advances the session, then draws it.
 struct Mania4KPlayfieldMetalView {
     let model: Mania4KPlaySessionModel
+    let reduceMotion: Bool
 }
 
 /// Draws the playfield into an image in place of the live Metal view, so the play screen can be rendered offscreen
@@ -22,6 +24,7 @@ extension EnvironmentValues {
 @MainActor
 final class Mania4KPlayfieldView: MTKView {
     var model: Mania4KPlaySessionModel
+    var reduceMotion = false
     private var renderer: Mania4KMetalRenderer?
     private var displayLink: Mania4KDisplayLink?
     #if os(macOS)
@@ -71,16 +74,24 @@ final class Mania4KPlayfieldView: MTKView {
             return
         }
 
-        let quads = Self.quads(model: model, uiTimeMs: uiTimeMs, size: bounds.size)
+        let quads = Self.quads(model: model, uiTimeMs: uiTimeMs, size: bounds.size, reduceMotion: reduceMotion)
         renderer.draw(quads, viewportSize: bounds.size, pass: pass, drawable: currentDrawable)
     }
 
     /// The quads of the model's current frame, with the lane lights at `uiTimeMs`.
-    static func quads(model: Mania4KPlaySessionModel, uiTimeMs: Double, size: CGSize) -> [Mania4KQuad] {
-        Mania4KPlayfieldLayout.quads(
+    static func quads(
+        model: Mania4KPlaySessionModel,
+        uiTimeMs: Double,
+        size: CGSize,
+        reduceMotion: Bool = false
+    ) -> [Mania4KQuad] {
+        let feedback = model.gameplayFeedback
+        return Mania4KPlayfieldLayout.quads(
             frame: model.playFrame,
-            brightness: { model.gameplayFeedback.laneBrightness(lane: $0.index, uiTimeMs: uiTimeMs) },
-            size: size
+            brightness: { feedback.laneBrightness(lane: $0.index, uiTimeMs: uiTimeMs) },
+            judgements: feedback.judgementEventBatches(),
+            size: size,
+            reduceMotion: reduceMotion
         )
     }
 
@@ -116,6 +127,7 @@ extension Mania4KPlayfieldMetalView: NSViewRepresentable {
 
     func updateNSView(_ nsView: Mania4KPlayfieldView, context: Context) {
         nsView.model = model
+        nsView.reduceMotion = reduceMotion
     }
 }
 #else
@@ -126,6 +138,7 @@ extension Mania4KPlayfieldMetalView: UIViewRepresentable {
 
     func updateUIView(_ uiView: Mania4KPlayfieldView, context: Context) {
         uiView.model = model
+        uiView.reduceMotion = reduceMotion
     }
 }
 #endif

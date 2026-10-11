@@ -1950,43 +1950,50 @@ private struct SetupLanePreview: View {
     }
 }
 
+/// The play screen: the HUD row, the Metal playfield with its key labels and judgement text, and the loading, paused
+/// and result panels. Its colours and type follow the brand (`Mania4KPlayPalette`, SF Pro Rounded); the setup screens
+/// keep `Mania4KStyle`.
 private struct Mania4KPlaySceneView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.mania4kPlayfieldSnapshot) private var playfieldSnapshot
     @Bindable var model: Mania4KPlaySessionModel
 
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                playHUD(isCompact: geometry.size.width < 800 || dynamicTypeSize.isAccessibilitySize)
+                Mania4KPlayHUDBar(
+                    model: model,
+                    isCompact: geometry.size.width < 800 || dynamicTypeSize.isAccessibilitySize
+                )
 
                 GeometryReader { proxy in
                     ZStack {
-                        LinearGradient(
-                            colors: [
-                                Mania4KStyle.stageFill,
-                                Color(red: 0.02, green: 0.025, blue: 0.035)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-
-                        Mania4KGridOverlay(spacing: 42, opacity: 0.10)
-
                         playfield
                             .overlay(alignment: .bottom) {
-                                keyLabels
+                                Mania4KKeyLabelsView(model: model)
+                            }
+                            .overlay {
+                                Mania4KJudgementTextView(model: model, reduceMotion: reduceMotion)
+                            }
+                            .overlay {
+                                if model.phase == .paused {
+                                    UnevenRoundedRectangle(
+                                        bottomLeadingRadius: CGFloat(Mania4KPlayfieldLayout.trayCornerRadius),
+                                        bottomTrailingRadius: CGFloat(Mania4KPlayfieldLayout.trayCornerRadius)
+                                    )
+                                    .fill(Color(Mania4KPlayPalette.ground, opacity: 0.6))
+                                }
                             }
                             .frame(width: playFieldWidth(for: proxy.size.width))
-                            .padding(.bottom, 22)
-
-                        Mania4KJudgementBurstView(model: model, size: proxy.size)
+                            .padding(.bottom, 16)
 
                         overlayState
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .background(Mania4KStyle.stageFill)
+            .background(Mania4KStageBackground())
             #if os(macOS)
             .background(Mania4KKeyboardCaptureView(model: model))
             #endif
@@ -2003,62 +2010,133 @@ private struct Mania4KPlaySceneView: View {
                 }
             }
         } else {
-            Mania4KPlayfieldMetalView(model: model)
+            Mania4KPlayfieldMetalView(model: model, reduceMotion: reduceMotion)
         }
     }
 
-    private func playHUD(isCompact: Bool) -> some View {
+    @ViewBuilder
+    private var overlayState: some View {
+        switch model.phase {
+        case .loading:
+            Mania4KStatePanel(title: "Loading", detail: model.activeConfiguration?.chartSource.displayName ?? "Preparing chart") {
+                ProgressView()
+                    .controlSize(.small)
+            } actions: {
+                Button("Cancel") {
+                    Task { await model.quitToSetup() }
+                }
+                .buttonStyle(Mania4KPillButtonStyle(tint: Color(Mania4KPlayPalette.mutedText)))
+            }
+        case .paused:
+            Mania4KStatePanel(title: "Paused", detail: "Resume when you're ready.") {
+                EmptyView()
+            } actions: {
+                Button {
+                    Task { await model.resume() }
+                } label: {
+                    Label("Resume", systemImage: "play.fill")
+                }
+                .buttonStyle(Mania4KActionButtonStyle())
+
+                Button("Quit") {
+                    Task { await model.quitToSetup() }
+                }
+                .buttonStyle(Mania4KPillButtonStyle(tint: Color(Mania4KPlayPalette.mutedText)))
+            }
+        case .failed(let failure):
+            Mania4KStatePanel(title: "Play stopped", detail: failure.localizedDescription) {
+                EmptyView()
+            } actions: {
+                backToSetupButton
+            }
+        case .finished(let result):
+            Mania4KStatePanel(
+                title: "Results",
+                detail: "\(Mania4KPlayHUDBar.formatAccuracy(result.score.accuracy))  ·  \(result.score.maxCombo) max combo  ·  \(result.score.tierCounts.missCount) miss"
+            ) {
+                EmptyView()
+            } actions: {
+                backToSetupButton
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var backToSetupButton: some View {
+        Button {
+            Task { await model.quitToSetup() }
+        } label: {
+            Label("Back to Setup", systemImage: "slider.horizontal.3")
+        }
+        .buttonStyle(Mania4KActionButtonStyle())
+    }
+
+    private func playFieldWidth(for availableWidth: CGFloat) -> CGFloat {
+        min(max(0, availableWidth - 32), 440)
+    }
+}
+
+/// Title, accuracy and the pause and quit buttons, on the stage without a panel of their own.
+private struct Mania4KPlayHUDBar: View {
+    let model: Mania4KPlaySessionModel
+    let isCompact: Bool
+
+    var body: some View {
         Group {
             if isCompact {
                 VStack(alignment: .leading, spacing: 12) {
-                    playTitle
+                    title
 
-                    HStack(spacing: 14) {
-                        hudValue(title: "Accuracy", value: accuracyText)
-                        hudValue(title: "Combo", value: comboText)
-                        hudValue(title: "Judge", value: latestJudgementText)
-                    }
-                    HStack {
+                    HStack(spacing: 12) {
+                        accuracy(alignment: .leading)
+                        Spacer(minLength: 0)
                         pauseButton
                         quitButton
                     }
                 }
             } else {
-                HStack(spacing: 18) {
-                    playTitle
+                HStack(spacing: 14) {
+                    title
 
                     Spacer()
 
-                    hudValue(title: "Accuracy", value: accuracyText)
-                    hudValue(title: "Combo", value: comboText)
-                    hudValue(title: "Judge", value: latestJudgementText)
+                    accuracy(alignment: .trailing)
+                        .padding(.trailing, 10)
                     pauseButton
                     quitButton
                 }
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 14)
-        .background(Mania4KStyle.panelFill.opacity(0.96))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Mania4KStyle.borderStrong)
-                .frame(height: 1)
-        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
     }
 
-    private var playTitle: some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private var title: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(model.hud.title ?? model.activeConfiguration?.chartSource.displayName ?? "mania4k")
-                .font(.headline)
-                .foregroundStyle(Mania4KStyle.textPrimary)
+                .font(.system(.title3, design: .rounded, weight: .semibold))
+                .foregroundStyle(Color(Mania4KPlayPalette.text))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Text(subtitleText)
-                .font(.caption.monospaced())
-                .foregroundStyle(Mania4KStyle.textSecondary)
+                .font(.system(.subheadline, design: .rounded))
+                .foregroundStyle(Color(Mania4KPlayPalette.mutedText))
         }
+    }
+
+    private func accuracy(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 0) {
+            Text(Self.formatAccuracy(model.hud.accuracy))
+                .font(.system(.title2, design: .rounded, weight: .bold).monospacedDigit())
+                .foregroundStyle(Color(Mania4KPlayPalette.text))
+
+            Text("Accuracy")
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(Color(Mania4KPlayPalette.mutedText))
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var pauseButton: some View {
@@ -2078,7 +2156,7 @@ private struct Mania4KPlaySceneView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentAmber))
+        .buttonStyle(Mania4KPillButtonStyle(tint: Color(Mania4KPlayPalette.hold)))
         .disabled(model.phase != .playing && model.phase != .paused)
     }
 
@@ -2092,96 +2170,7 @@ private struct Mania4KPlaySceneView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentRed))
-    }
-
-    private func hudValue(title: String, value: String) -> some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Mania4KStyle.textMuted)
-
-            Text(value)
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(Mania4KStyle.textPrimary)
-        }
-        .frame(minWidth: 76, alignment: .trailing)
-    }
-
-    private var keyLabels: some View {
-        HStack(alignment: .bottom, spacing: CGFloat(Mania4KPlayfieldLayout.laneSpacing)) {
-            ForEach(Mania4KLane.allCases) { lane in
-                Text(model.keyBindings.displayLabel(for: lane))
-                    .font(.headline.monospaced())
-                    .foregroundStyle(Mania4KStyle.textPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: CGFloat(Mania4KPlayfieldLayout.receptorHeight))
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private var overlayState: some View {
-        switch model.phase {
-        case .loading:
-            statePanel(title: "Loading", detail: model.activeConfiguration?.chartSource.displayName ?? "Preparing chart")
-        case .failed(let failure):
-            statePanel(title: "Failed", detail: failure.localizedDescription)
-        case .finished(let result):
-            statePanel(
-                title: "Results",
-                detail: "\(formatAccuracy(result.score.accuracy))  \(result.score.maxCombo)x max  \(result.score.tierCounts.missCount) miss"
-            )
-        default:
-            EmptyView()
-        }
-    }
-
-    private func statePanel(title: String, detail: String) -> some View {
-        VStack(spacing: 10) {
-            Text(title)
-                .font(.title2.bold())
-                .foregroundStyle(Mania4KStyle.textPrimary)
-
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(Mania4KStyle.textSecondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(4)
-
-            Button {
-                Task {
-                    await model.quitToSetup()
-                }
-            } label: {
-                Label("Setup", systemImage: "slider.horizontal.3")
-            }
-            .buttonStyle(Mania4KSecondaryButtonStyle())
-        }
-        .padding(18)
-        .frame(maxWidth: 360)
-        .background(Mania4KStyle.panelFill.opacity(0.96), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Mania4KStyle.borderStrong, lineWidth: 1)
-        )
-    }
-
-    private func playFieldWidth(for availableWidth: CGFloat) -> CGFloat {
-        min(max(0, availableWidth), min(max(availableWidth * 0.58, 280), 620))
-    }
-
-    private var accuracyText: String {
-        formatAccuracy(model.hud.accuracy)
-    }
-
-    private var comboText: String {
-        String(model.hud.combo)
-    }
-
-    private var latestJudgementText: String {
-        model.hud.latestJudgement?.title ?? "-"
+        .buttonStyle(Mania4KPillButtonStyle(tint: Color(Mania4KPlayPalette.mutedText)))
     }
 
     private var subtitleText: String {
@@ -2189,57 +2178,210 @@ private struct Mania4KPlaySceneView: View {
             return "--"
         }
 
-        return "\(configuration.starDifficulty.formatted(.number.precision(.fractionLength(1)))) stars  \(configuration.scrollSpeed.formatted(.number.precision(.fractionLength(1))))x"
+        return "\(configuration.starDifficulty.formatted(.number.precision(.fractionLength(1)))) stars  ·  \(configuration.scrollSpeed.formatted(.number.precision(.fractionLength(1))))x speed"
     }
 
-    private func formatAccuracy(_ accuracy: Double) -> String {
+    static func formatAccuracy(_ accuracy: Double) -> String {
         (accuracy * 100).formatted(.number.precision(.fractionLength(2))) + "%"
     }
 }
 
-private struct Mania4KJudgementBurstView: View {
+/// The key bound to each lane, over its key cap; a pressed key's label brightens with the cap.
+private struct Mania4KKeyLabelsView: View {
     let model: Mania4KPlaySessionModel
-    let size: CGSize
 
     var body: some View {
-        if let presentation = model.judgementPresentation {
-            judgementBurst(for: presentation.event)
-                .opacity(presentation.opacity)
-                .scaleEffect(presentation.scale)
-                .offset(y: presentation.verticalOffset)
-                .position(x: size.width / 2, y: max(size.height * 0.34, 120))
-        }
-    }
-
-    private func judgementBurst(for event: JudgementEvent) -> some View {
-        ZStack {
-            Text(event.judgement.title)
-                .font(.system(size: 34, weight: .black, design: .rounded))
-                .foregroundStyle(event.judgement == .miss ? Mania4KStyle.accentRed : Mania4KStyle.textPrimary)
-                .shadow(color: Color.black.opacity(0.45), radius: 12, x: 0, y: 8)
-
-            if let hint = timingArrowHint(for: event) {
-                Image(systemName: hint.systemName)
-                    .font(.system(size: 22, weight: .black, design: .rounded))
-                    .foregroundStyle(hint.color)
-                    .shadow(color: Color.black.opacity(0.36), radius: 8, x: 0, y: 4)
-                    .offset(x: 82)
+        HStack(spacing: 0) {
+            ForEach(Mania4KLane.allCases) { lane in
+                let isPressed = model.liveInputLaneStates.contains { $0.lane == lane.index && $0.isPressed }
+                Text(model.keyBindings.displayLabel(for: lane))
+                    .font(.system(.headline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(Color(isPressed ? Mania4KPlayPalette.text : Mania4KPlayPalette.mutedText))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: CGFloat(Mania4KPlayfieldLayout.keyAreaHeight))
             }
         }
-        .frame(width: 210, height: 56)
+        .allowsHitTesting(false)
+    }
+}
+
+/// The latest judgement in its tier's colour and the combo, over the middle of the lanes. The core's presentation
+/// sets the judgement's opacity, scale and drift; with Reduce Motion only the opacity is used. A Good shows whether
+/// it was early or late. Until the first judgement of a play, a quiet "Ready" holds the place.
+private struct Mania4KJudgementTextView: View {
+    let model: Mania4KPlaySessionModel
+    let reduceMotion: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            let lineY = max(0, proxy.size.height - CGFloat(Mania4KPlayfieldLayout.keyAreaHeight))
+
+            VStack(spacing: 2) {
+                ZStack {
+                    if let presentation = model.judgementPresentation {
+                        judgement(presentation)
+                    } else if model.phase == .playing, model.hud.latestJudgement == nil {
+                        Text("Ready")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(Mania4KPlayPalette.mutedText, opacity: 0.75))
+                    }
+                }
+                .frame(height: 40)
+
+                if model.hud.combo > 1 {
+                    VStack(spacing: -4) {
+                        Text("\(model.hud.combo)")
+                            .font(.system(size: 44, weight: .bold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(Color(Mania4KPlayPalette.text, opacity: 0.85))
+
+                        Text("combo")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(Mania4KPlayPalette.mutedText, opacity: 0.8))
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .shadow(color: Color(Mania4KPlayPalette.ground, opacity: 0.9), radius: 8)
+            .position(x: proxy.size.width / 2, y: lineY * 0.42)
+        }
+        .allowsHitTesting(false)
     }
 
-    private func timingArrowHint(for event: JudgementEvent) -> (systemName: String, color: Color)? {
-        guard event.judgement == .perfect || event.judgement == .good,
-              let hitErrorMs = event.offsetMs,
-              hitErrorMs != 0
-        else {
+    private func judgement(_ presentation: JudgementPresentation) -> some View {
+        let event = presentation.event
+        let hint = timingHint(for: event)
+        // Equal slots either side keep the word centred whether or not the hint shows.
+        return HStack(spacing: 6) {
+            Color.clear
+                .frame(width: 18, height: 1)
+
+            Text(event.judgement.title)
+                .font(.system(size: 30, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(Mania4KPlayPalette.judgement(event.judgement)))
+                .fixedSize()
+
+            ZStack {
+                if let hint {
+                    Image(systemName: hint.systemName)
+                        .font(.system(size: 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Color(hint.color))
+                        .accessibilityLabel(hint.label)
+                }
+            }
+            .frame(width: 18)
+        }
+        .opacity(presentation.opacity)
+            .scaleEffect(reduceMotion ? 1 : presentation.scale)
+            .offset(y: reduceMotion ? 0 : presentation.verticalOffset)
+    }
+
+    private func timingHint(for event: JudgementEvent) -> (systemName: String, color: SIMD3<Float>, label: String)? {
+        guard event.judgement == .good, let hitErrorMs = event.offsetMs, hitErrorMs != 0 else {
             return nil
         }
 
         return hitErrorMs < 0
-            ? ("arrow.up", Mania4KStyle.accentBlue)
-            : ("arrow.down", Mania4KStyle.accentAmber)
+            ? ("arrow.up", Mania4KPlayPalette.early, "Early")
+            : ("arrow.down", Mania4KPlayPalette.late, "Late")
+    }
+}
+
+/// The stage ground with the brand's diagonal division behind the playfield.
+private struct Mania4KStageBackground: View {
+    var body: some View {
+        LinearGradient(
+            stops: [
+                .init(color: Color(Mania4KPlayPalette.ground), location: 0.58),
+                .init(color: Color(Mania4KPlayPalette.groundSecondHalf), location: 0.58)
+            ],
+            startPoint: UnitPoint(x: 0.27, y: 0.06),
+            endPoint: UnitPoint(x: 0.73, y: 0.94)
+        )
+        .ignoresSafeArea()
+    }
+}
+
+/// A panel in the brand's card shape: soft corners with a tighter bottom-left one.
+private struct Mania4KStatePanel<Accessory: View, Actions: View>: View {
+    let title: String
+    let detail: String
+    @ViewBuilder let accessory: Accessory
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 26, bottomLeadingRadius: 10, bottomTrailingRadius: 26, topTrailingRadius: 26
+        )
+
+        VStack(spacing: 10) {
+            accessory
+
+            Text(title)
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .foregroundStyle(Color(Mania4KPlayPalette.text))
+
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(Color(Mania4KPlayPalette.mutedText))
+                .multilineTextAlignment(.center)
+                .lineLimit(4)
+
+            HStack(spacing: 10) {
+                actions
+            }
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .frame(maxWidth: 380)
+        .background(shape.fill(Color(Mania4KPlayPalette.surface)))
+        .overlay(shape.stroke(Color(Mania4KPlayPalette.border), lineWidth: 1))
+        .shadow(color: Color.black.opacity(0.35), radius: 24, x: 0, y: 12)
+    }
+}
+
+/// The brand's primary action: a pill in the action gradient with dark ink.
+private struct Mania4KActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(.body, design: .rounded, weight: .bold))
+            .foregroundStyle(Color(Mania4KPlayPalette.actionInk))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 9)
+            .background(
+                Capsule().fill(
+                    LinearGradient(
+                        colors: [
+                            Color(Mania4KPlayPalette.actionStart),
+                            Color(Mania4KPlayPalette.action),
+                            Color(Mania4KPlayPalette.actionEnd)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            )
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.82 : 1)
+    }
+}
+
+/// An outlined pill for secondary play actions.
+private struct Mania4KPillButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    let tint: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        let color = isEnabled ? tint : Color(Mania4KPlayPalette.mutedText, opacity: 0.5)
+        configuration.label
+            .font(.system(.callout, design: .rounded, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(color.opacity(configuration.isPressed ? 0.22 : 0.10)))
+            .overlay(Capsule().stroke(color.opacity(0.5), lineWidth: 1))
+            .contentShape(Capsule())
     }
 }
 
