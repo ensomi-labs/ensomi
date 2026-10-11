@@ -4,6 +4,7 @@ import Foundation
 public typealias ChartGenerationCapabilities = Ensomi_Protocol_V1_ModelCapabilities
 public typealias ChartGenerationResult = Ensomi_Protocol_V1_ChartResult
 public typealias ChartGenerationPhase = Ensomi_Protocol_V1_GenerationPhase
+public typealias ChartGenerationControls = Ensomi_Protocol_V1_ChartControls
 
 public enum ChartGenerationEvent: Equatable, Sendable {
     case progress(ChartGenerationPhase)
@@ -104,6 +105,7 @@ public actor ChartGenerationClient {
     public func generate(
         audioURL: URL,
         star: Double,
+        controls: ChartGenerationControls = .init(),
         seed: UInt64? = nil,
         title: String? = nil,
         artist: String? = nil
@@ -111,6 +113,7 @@ public actor ChartGenerationClient {
         let request = Ensomi_Protocol_V1_GenerateChartRequest.with {
             $0.audio.localPath = audioURL.path
             $0.star = star
+            $0.controls = controls
             if let seed { $0.seed = seed }
             if let title { $0.title = title }
             if let artist { $0.artist = artist }
