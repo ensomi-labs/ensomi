@@ -103,8 +103,14 @@ through the key path at their stamped times: 418 perfect, 0 miss):
 | Engine chart-time step minus refresh step | sd 0.010 ms, within -0.018 to 0.019 ms |
 | `AVAudioPlayer.currentTime` step minus callback step (the old clock) | sd 0.36 ms, one step 21.7 ms short |
 
-CPU cost per frame (Debug build): laying out a busy frame (130 quads) 0.035 ms at
-p50, encoding and committing it 0.011 ms. The core session's `advance`,
+With the gameplay core, a 30 s silent autoplay (1795 frames, 203 notes pressed
+through the key path: 203 perfect, 0 miss) gave the same clock behaviour: chart-time
+step minus refresh step sd 0.010 ms, within -0.018 to 0.015 ms; refresh interval
+16.666 ms at p50 and p99.
+
+CPU cost per frame (Debug build): laying out a busy frame (130 quads) 0.17 to 0.20 ms
+at p50 with the core's note geometry through the Swift bindings (0.035 ms with the
+Swift layout before), encoding and committing it 0.011 ms. The core session's `advance`,
 `visibleObjects` and `laneStates` on a 4000-object chart cost 0.050 ms at p50 and
 0.054 ms at p99 through the Swift bindings (maximum 3.7 ms in 1000 frames); the
 core's own frame, timed in Rust (release), is 0.7 us at p50 for 4000 and for 16000

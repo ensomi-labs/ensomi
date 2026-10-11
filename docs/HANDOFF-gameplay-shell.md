@@ -20,6 +20,10 @@ was running. Timing details and numbers are in [gameplay-timing](gameplay-timing
 
 ## Next steps
 
+Branch `gameplay/core` has since done 3 (calibration on the engine clock and event
+timestamps), 4 (the Rust gameplay core, whose frame cost does not grow with the
+chart) and the route-change and hidden-window parts of 5; 1 and 2 remain.
+
 1. Install with the commands in `AGENTS.md` once `EnsomiMac` is not running; copy the
    current `/Applications/EnsomiMac.app` aside first.
 2. Recalibrate the audio and visual offsets by ear. Stored offsets from the old
