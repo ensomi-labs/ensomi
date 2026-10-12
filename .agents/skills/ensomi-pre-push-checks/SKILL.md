@@ -19,7 +19,7 @@ permission to commit, push, rewrite history, or change PR state.
 | Gameplay, observation, input, offsets | Owning `Mania4K*Tests`; check immediate input, idle expiry, and UI consumers of changed state. |
 | Recognition, local library, capture lifecycle | Owning model/service tests; hardware capture requires a separate actual run. |
 | Inference/protobuf | Codec and live-session model tests; inspect the resolved package version. A round trip is not a live service handshake. |
-| Ambient matching/features/cache | Owning `AmbientSync*`, `MicFeature*` tests; run synthetic Sonalign parity for matching/backend changes. |
+| Ambient matching/features/cache | Owning `AmbientSync*`, `MicFeature*` tests. |
 | Targets, dependencies, shared platform code | Regenerate the project, resolve packages, run macOS tests, and build the iOS simulator and affected tools/configurations. |
 | Docs or skills | Check claims, relative links, frontmatter, UI metadata, and whitespace; run the installed skill-creator validator for changed skills. |
 
@@ -36,10 +36,8 @@ Check Release when conditional code changes; an unsigned validation build may us
 Follow [AGENTS.md](../../../AGENTS.md#macos-installation) for capture runs.
 Run builds sequentially when they share derived data.
 
-`python3 Tools/check_sonalign_parity.py --suites synthetic` compares the Swift
-engine with the released replay CLI; installation is in [README](../../../README.md).
-Private suites require explicit local inputs. Report skipped fixtures and missing
-services or hardware as limits of the evidence, not passes.
+Report skipped fixtures and missing services or hardware as limits of the
+evidence, not passes.
 
 Do not rerun passing checks unless relevant source, generated output, dependencies,
 or environment changed. Do not hide a failure by weakening assertions or silently
