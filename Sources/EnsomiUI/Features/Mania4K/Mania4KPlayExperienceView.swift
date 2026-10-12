@@ -282,6 +282,22 @@ private struct Mania4KSetupView: View {
 
     private var generatedSongSetup: some View {
         VStack(alignment: .leading, spacing: 18) {
+            Picker("Where to generate", selection: Binding(
+                get: { generation.engine },
+                set: { generation.choose(engine: $0) }
+            )) {
+                ForEach(ChartGenerationEngine.allCases) { engine in
+                    Text(engine.title).tag(engine)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(generation.isGenerating)
+
+            if generation.engine == .device, !generation.models.hasModel {
+                ChartModelManagementView(library: generation.models)
+            }
+
             filePickerRow(
                 title: "Audio",
                 value: model.audioFileName,
@@ -353,6 +369,8 @@ private struct Mania4KSetupView: View {
             .disabled(!generation.isGenerating && !generation.canGenerate(star: model.starDifficulty))
         }
         .task { await loadGenerationCapabilities() }
+        .onChange(of: generation.engine) { Task { await loadGenerationCapabilities() } }
+        .onChange(of: generation.models.activeModel) { Task { await loadGenerationCapabilities() } }
         .onChange(of: model.audioFileURL, initial: true) { _, url in
             generation.loadAudioDuration(for: url)
         }
@@ -764,7 +782,7 @@ private struct Mania4KSetupView: View {
 
             if shouldShowBackendDetails {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Backend")
+                    Text(selectedMode == .generatedSong ? generation.engine.title : "Backend")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Mania4KStyle.textPrimary)
 
@@ -820,6 +838,9 @@ private struct Mania4KSetupView: View {
         case .failed(let message): return message
         case .ready: return "Chart ready"
         case .idle:
+            if generation.engine == .device, !generation.models.hasModel {
+                return "Install the on-device model to generate on this device"
+            }
             return generation.capabilitiesError ?? generation.audioDurationError ?? generation.sectionValidationMessage
                 ?? (generation.canGenerate(star: model.starDifficulty) ? "Ready to generate" : "Choose audio and a supported star target")
         }
@@ -969,6 +990,7 @@ private struct Mania4KSetupView: View {
 
 public struct EnsomiSettingsView: View {
     @Bindable private var model: Mania4KPlaySessionModel
+    private let chartModels: ChartModelLibrary
     @AppStorage("mania4k.offsetCalibrationState") private var storedOffsetCalibrationState = ""
     @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
     #if os(macOS)
@@ -977,8 +999,9 @@ public struct EnsomiSettingsView: View {
     @State private var capturingKeyBindingLane: Mania4KLane?
     #endif
 
-    public init(model: Mania4KPlaySessionModel) {
+    public init(model: Mania4KPlaySessionModel, chartModels: ChartModelLibrary = .shared) {
         self.model = model
+        self.chartModels = chartModels
     }
 
     public var body: some View {
@@ -1012,6 +1035,14 @@ public struct EnsomiSettingsView: View {
                 #if os(macOS)
                 Button("Calibrate Timing…", systemImage: "slider.horizontal.3", action: openOffsetCalibration)
                 #endif
+            }
+
+            Section {
+                ChartModelManagementView(library: chartModels)
+            } header: {
+                Text("Chart model")
+            } footer: {
+                Text("Generate a Chart makes charts on this device with this model. Nothing is sent to a server.")
             }
 
             #if os(macOS)
