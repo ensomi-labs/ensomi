@@ -5,9 +5,9 @@ import os
 
 public enum Mania4KDefaultPlaySettings {
     public static let scrollSpeed = 25.0
-    /// What the engine clock leaves uncorrected: output latency the device does not report (the built-in speakers'
-    /// stream latency and safety offset, about 13 ms) and keyboard latency.
-    public static let audioOffsetMilliseconds = -20
+    /// What the engine clock leaves uncorrected: output latency the device does not report and keyboard latency.
+    /// Tuned by ear on Sony WH-1000XM4 headphones with this clock.
+    public static let audioOffsetMilliseconds = -15
     public static let visualOffsetMilliseconds = -15
     public static let offsetPresetID = UUID(uuidString: "D46D55AF-109E-48DC-A9F9-CE83F108EBF5")!
     public static let offsetPresetName = "default"

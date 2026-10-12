@@ -173,8 +173,14 @@ The audio time is the audio heard at a host time, not how far the decoder has
 got. The local-file clock plays through `AVAudioEngine`: it takes the player
 node's sample time at its last render, carries it to the asked host time at rate
 1, and subtracts the output's presentation latency, so it is smooth between
-render callbacks and monotonic. Audio offset therefore corrects only what the
-device does not report. Ambient play projects from a host-time anchor instead.
+render callbacks and monotonic while the output stays the same. Audio offset
+therefore corrects only what the device does not report. When the output device
+changes, the clock rebuilds the engine for the new device and resumes from the
+position being heard; until the resumed audio is heard, it reads earlier by the
+new device's latency plus the render lead (up to about 22 ms), and the gameplay
+core, which never moves its clock back, waits for it to catch up. Ambient play
+projects from a host-time anchor instead. [Gameplay timing](gameplay-timing.md)
+records the engine behavior behind this and what the audio offset still corrects.
 
 Audio offset affects judgement and hit errors. Visual offset and scroll speed
 affect rendering and lookahead only. A key event is stamped with its own

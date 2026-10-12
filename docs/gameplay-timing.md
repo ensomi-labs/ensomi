@@ -54,7 +54,8 @@ These shaped the clock and are easy to get wrong again:
   at the output rate in between, the drift is 7 ppm, the same as a 48 kHz file.
 - Silencing must not use the player's own volume. At volume 0 the node time drifts
   the same 1.3 ms per second even with the mixer in place. The clock's `volume` sets
-  the main mixer's output volume instead.
+  the main mixer's output volume instead. `AVAudioPlayer` at volume 0 drifts the same
+  way, so a silent comparison against it plays a file of zeros at full volume.
 - The render timestamp's host time leads the moment of the call by 13 to 22 ms,
   depending on where in the 10.7 ms I/O cycle (512 frames at 48 kHz) the call falls.
 - On the built-in speakers `presentationLatency` is 1.25 ms (60 frames, the device
@@ -63,9 +64,10 @@ These shaped the clock and are easy to get wrong again:
   audio offset.
 - A change of output device (headphones connecting or unplugging) stops the engine
   and posts `AVAudioEngineConfigurationChange`. The clock builds a new engine, player
-  and mixer for the new device, so the mixer is at the new output rate, and schedules
-  the source from the position that was being heard: the file from that frame
-  (`scheduleSegment`), the click track from its place in the lead-in or the interval.
+  and mixer for the new device, so the mixer is at the new output rate, re-reads the
+  presentation latency, and schedules the source from the position that was being
+  heard: the file from that frame (`scheduleSegment`), the click track from its place
+  in the lead-in or the interval.
   The audio time of the player's first frame becomes that position, so the audio time
   carries on from it and the gap only delays the song; reads in between hold it. The
   clock reads the position being heard, so after the restart it reads lower by the new
@@ -108,6 +110,12 @@ through the key path: 203 perfect, 0 miss) gave the same clock behaviour: chart-
 step minus refresh step sd 0.010 ms, within -0.018 to 0.015 ms; refresh interval
 16.666 ms at p50 and p99.
 
+The old clock's row was measured with `AVAudioPlayer` at volume 0, which drifts as
+described above; at normal volume it is nearly as smooth. What the engine clock gains
+is heard time: it reads the song time being heard, with the latency the device
+reports removed, where `AVAudioPlayer.currentTime` saw neither the render schedule nor
+the output device.
+
 CPU cost per frame (Debug build): laying out a busy frame (130 quads) 0.17 to 0.20 ms
 at p50 with the core's note geometry through the Swift bindings (0.035 ms with the
 Swift layout before), encoding and committing it 0.011 ms. With the play screen's
@@ -130,11 +138,18 @@ The default audio offset was -215 ms, from `3ef07b0` ("better preset", June 2026
 a preset named for Sony WH-1000XM4 headphones on a MacBook Air M5. With
 `AVAudioPlayer.currentTime`, which does not see the output device, almost all of it
 was Bluetooth latency. The engine clock now subtracts the latency the device
-reports, so the default is the residual: -20 ms, which is what the built-in
-speakers needed (unreported stream latency and safety offset, about 13 ms, and
-keyboard latency). The visual default stays at -15 ms. The play screen's frame is
-now drawn for the display time instead of the last tick, so it may need a
-different value.
+reports, so the default is the residual: -15 ms, tuned by ear on the same
+WH-1000XM4 headphones with this clock (the built-in speakers measured about -20 ms:
+unreported stream latency and safety offset, about 13 ms, and keyboard latency).
+The visual default stays at -15 ms. The play screen's frame is now drawn for the
+display time instead of the last tick, so it may need a different value.
+
+What the clock does not see stays in the audio offset: latency a device leaves out
+of `presentationLatency`, keyboard and input-handling delay, and the time from
+speaker to ear. Applied offsets and presets stored before this clock
+(`mania4k.offsetCalibrationState`) are kept as they are. They were tuned against
+`AVAudioPlayer.currentTime` and include the device latency the clock now removes,
+so they are too negative by about that latency.
 
 The offset calibration screen judges as play does, on the same clock. Its click, the
 bundled `calibration_tick.wav`, is laid in a click track that
@@ -181,12 +196,19 @@ default such as `Mania4KDefaultPlaySettings` can leave the test target with a st
 inlined value in an incremental build; delete the test target's intermediates
 under the derived data path if a default test disagrees with the source.
 
+`-only-testing:EnsomiCoreTests/AVFoundationMania4KAudioClockTests` runs the clock's
+own checks, silently: it follows the host clock within 0.5 ms and only forward while
+playing, holds while paused, renders the click track's ticks at their audio times,
+and resumes from the heard position after a simulated device change. Those that play
+skip when there is no audio output.
+
 ## Not covered
 
 - Displays faster than 60 Hz: the code uses the link's own timestamps and does not
   assume 60 Hz, but only a 60 Hz display was measured.
 - Bluetooth and other devices that report a latency: the clock uses what the
   device reports.
+- A real device change: the tests call the clock's restart directly.
 - A route change to a device the engine cannot start on (no output device): the clock
   stays paused at its position and nothing reports it.
 - The delay from sound to ear and from frame to eye, which only the offsets can

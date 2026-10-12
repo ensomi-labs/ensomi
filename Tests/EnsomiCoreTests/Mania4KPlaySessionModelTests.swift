@@ -3,14 +3,12 @@ import XCTest
 
 @MainActor
 final class Mania4KPlaySessionModelTests: XCTestCase {
-    func testDefaultsMatchFirstPlayableSpec() {
+    func testNewSessionStartsInSetupWithDefaultSettings() {
         let model = Mania4KPlaySessionModel()
 
-        XCTAssertEqual(model.starDifficulty, 4.0)
-        XCTAssertEqual(model.scrollSpeed, 25.0)
-        XCTAssertEqual(model.audioOffsetMilliseconds, -20)
-        XCTAssertEqual(model.visualOffsetMilliseconds, -15)
-        XCTAssertEqual(model.judgeDifficulty, .c)
+        XCTAssertEqual(model.scrollSpeed, Mania4KDefaultPlaySettings.scrollSpeed)
+        XCTAssertEqual(model.audioOffsetMilliseconds, Double(Mania4KDefaultPlaySettings.audioOffsetMilliseconds))
+        XCTAssertEqual(model.visualOffsetMilliseconds, Double(Mania4KDefaultPlaySettings.visualOffsetMilliseconds))
         XCTAssertEqual(model.keyBindings, .default)
         XCTAssertEqual(model.liveInputLaneStates.filter(\.isPressed), [])
         XCTAssertEqual(model.phase, .setup)

@@ -6,22 +6,20 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
     func testDefaultPlayPresetSeedsStoredCalibrationState() {
         let state = Mania4KOffsetCalibrationStoredState.defaultPlayState
 
-        XCTAssertEqual(state.appliedAudioOffsetMilliseconds, -20)
-        XCTAssertEqual(state.appliedVisualOffsetMilliseconds, -15)
+        XCTAssertEqual(state.appliedAudioOffsetMilliseconds, Mania4KDefaultPlaySettings.audioOffsetMilliseconds)
+        XCTAssertEqual(state.appliedVisualOffsetMilliseconds, Mania4KDefaultPlaySettings.visualOffsetMilliseconds)
         XCTAssertEqual(state.activePresetID, Mania4KDefaultPlaySettings.offsetPresetID)
         XCTAssertEqual(state.presets, [
             Mania4KOffsetPreset(
                 id: Mania4KDefaultPlaySettings.offsetPresetID,
-                name: "default",
-                audioOffsetMilliseconds: -20,
-                visualOffsetMilliseconds: -15
+                name: Mania4KDefaultPlaySettings.offsetPresetName,
+                audioOffsetMilliseconds: Mania4KDefaultPlaySettings.audioOffsetMilliseconds,
+                visualOffsetMilliseconds: Mania4KDefaultPlaySettings.visualOffsetMilliseconds
             )
         ])
     }
 
-    // Renamed from ...AndRawTickCadence: the ticks are a click track on the audio clock now, not commands the model
-    // issues, so the tick-count assertions went. Beat 0 is at chart time 1_000 (was 1_075): a tick's chart time is its
-    // audio time, whatever offset the screen starts from.
+    // Beat 0 is at chart time 1_000: a tick's chart time is its audio time, whatever offset the screen starts from.
     func testPairedOffsetsSeedAudioTimingAndVisualTiming() {
         let model = Mania4KOffsetCalibrationModel(
             originalAudioOffsetMilliseconds: 75,
@@ -83,9 +81,7 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
             originalVisualOffsetMilliseconds: 120
         )
 
-        // The key is at audio time 1_100 (was 1_120): the note is at chart time 1_000 (was 1_020, which included the
-        // starting offset), so a 120 ms hit error under the 20 ms offset needs a key 20 ms earlier. The error and the
-        // suggestion below are unchanged.
+        // The note is at chart time 1_000, so a 120 ms hit error under the 20 ms offset is a key at audio time 1_100.
         let audioOnlySample = try XCTUnwrap(audioOnlyModel.recordInput(rawInputTimeMs: 1_100))
         let visualShiftedSample = try XCTUnwrap(visualShiftedModel.recordInput(rawInputTimeMs: 1_100))
 
