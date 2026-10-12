@@ -10,7 +10,7 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
         XCTAssertEqual(model.starDifficulty, 4.0)
         XCTAssertEqual(model.scrollSpeed, 25.0)
-        XCTAssertEqual(model.audioOffsetMilliseconds, -20)
+        XCTAssertEqual(model.audioOffsetMilliseconds, -15)
         XCTAssertEqual(model.visualOffsetMilliseconds, -15)
         XCTAssertEqual(model.judgeDifficulty, .c)
         XCTAssertEqual(model.keyBindings, .default)

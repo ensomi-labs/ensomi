@@ -58,9 +58,10 @@ These shaped the clock and are easy to get wrong again:
 The default audio offset was -215 ms, a preset named for Sony WH-1000XM4
 headphones on a MacBook Air M5. With `AVAudioPlayer.currentTime`, which does not
 see the output device, almost all of it was Bluetooth latency. The engine clock
-subtracts the latency the device reports, so the default is the residual: -20 ms,
-which is what the built-in speakers needed (unreported stream latency and safety
-offset, about 13 ms, and keyboard latency). The visual default stays at -15 ms.
+subtracts the latency the device reports, so the default is the residual: -15 ms,
+tuned by ear on the same WH-1000XM4 headphones with this clock (the built-in
+speakers measured about -20 ms: unreported stream latency and safety offset, about
+13 ms, and keyboard latency). The visual default stays at -15 ms.
 
 What the clock does not see stays in the audio offset: latency a device leaves out
 of `presentationLatency`, keyboard and input-handling delay, and the time from
