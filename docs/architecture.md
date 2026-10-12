@@ -143,6 +143,13 @@ renderChartTimeMs   = gameplayChartTimeMs + visualOffsetMilliseconds
 scrollTimeMs        = 11485 / scrollSpeed
 ```
 
+The audio time is the audio heard at a host time, not how far the decoder has
+got. The local-file clock plays through `AVAudioEngine`: it takes the player
+node's sample time at its last render, carries it to the asked host time at rate
+1, and subtracts the output's presentation latency, so it is smooth between
+render callbacks and monotonic. Audio offset therefore corrects only what the
+device does not report. Ambient play projects from a host-time anchor instead.
+
 Audio offset affects judgement and hit errors. Visual offset and scroll speed
 affect rendering and lookahead only. Input uses gameplay time, filters repeated
 presses, and preserves press/release order across asynchronous clock reads.

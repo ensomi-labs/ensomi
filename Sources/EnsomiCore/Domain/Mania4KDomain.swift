@@ -3,10 +3,12 @@ import Foundation
 
 public enum Mania4KDefaultPlaySettings {
     public static let scrollSpeed = 25.0
-    public static let audioOffsetMilliseconds = -215
+    /// What the engine clock leaves uncorrected: output latency the device does not report (the built-in speakers'
+    /// stream latency and safety offset, about 13 ms) and keyboard latency.
+    public static let audioOffsetMilliseconds = -20
     public static let visualOffsetMilliseconds = -15
     public static let offsetPresetID = UUID(uuidString: "D46D55AF-109E-48DC-A9F9-CE83F108EBF5")!
-    public static let offsetPresetName = "wh1000xm4-mbaM5"
+    public static let offsetPresetName = "default"
 }
 
 public enum Mania4KJudgeDifficulty: String, CaseIterable, Identifiable, Equatable, Sendable {
@@ -653,51 +655,6 @@ public struct Mania4KAudioMetadata: Equatable, Sendable {
     public init(durationMs: Double? = nil, title: String? = nil) {
         self.durationMs = durationMs
         self.title = title
-    }
-}
-
-public actor AVFoundationMania4KAudioClock: Mania4KAudioClock {
-    private var player: AVAudioPlayer?
-
-    public init() {}
-
-    public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
-        let player = try AVAudioPlayer(contentsOf: audioFileURL)
-        player.prepareToPlay()
-        self.player = player
-        return Mania4KAudioMetadata(
-            durationMs: player.duration.isFinite ? player.duration * 1000 : nil,
-            title: audioFileURL.deletingPathExtension().lastPathComponent
-        )
-    }
-
-    public func play() async throws {
-        guard let player else {
-            throw Mania4KPlayFailure.audioPrepareFailed("Audio player is not prepared.")
-        }
-
-        player.play()
-    }
-
-    public func pause() async {
-        player?.pause()
-    }
-
-    public func stop() async {
-        player?.stop()
-        player?.currentTime = 0
-    }
-
-    public func currentAudioTimeMs() async -> Double {
-        guard let player else {
-            return 0
-        }
-
-        return player.currentTime * 1000
-    }
-
-    public func isRunning() async -> Bool {
-        player?.isPlaying ?? false
     }
 }
 
