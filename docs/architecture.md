@@ -144,11 +144,15 @@ The generation model maps what it already has to the runtime's types and back: `
 to the protocol `ModelCapabilities` (so the same statuses decide the section kinds), the sections to
 `ChartControls` (long notes stay unspecified), the runtime's phases to `GenerationPhase`, and
 the runtime's `Chart` to `Mania4KGeneratedChart`. A refusal arrives as `GeneratorError` and
-is shown as the core's message. The seed is a new random one unless given. Stop cancels the
-generation task, which throws `GeneratorError.Cancelled` at the core's next graph run or phase,
-and the state returns to idle. The model is the published Ensomi R2 download in Application Support or
-a folder the person chose; `ChartModelLibrary` owns that choice, opens the generator and keeps
-folder access across launches with a bookmark.
+is shown as the core's message. The seed comes from the seed field, or is a new random one when
+the field is blank. Stop cancels the generation task, which throws `GeneratorError.Cancelled` at
+the core's next graph run or phase, and the state becomes stopped. Either engine's chart ends as a
+`Mania4KChartGenerationResult`: the chart, the seed and star the engine reports in its receipt,
+the receipt JSON and, on this device, the `.osu`. Saving the `.osz` passes that `.osu`, the song
+file's bytes and the receipt to the runtime's `exportOsz`, so every client writes the same archive.
+The model is the published Ensomi R2 download in Application Support or a folder the person chose;
+`ChartModelLibrary` owns that choice, opens the generator and keeps folder access across launches
+with a bookmark. A download that stops keeps its files and resumes with HTTP Range requests.
 
 The `.osu` stream reads the file with the gameplay core's loader, which accepts only
 four-key mania. It rejects unsupported objects, invalid times, and same-lane overlaps

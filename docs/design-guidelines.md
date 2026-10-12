@@ -50,15 +50,27 @@ exception here with its user benefit and affected surface.
 
 Generate a Chart opens with a segmented choice between generating on this device and
 at the chart server, and while this device has no model it shows the model controls
-(download with progress and cancel, or choose a folder) before anything else; the same
-controls sit in a Chart model section of Settings. The engine's name heads the panel that
-shows the phase. Generate a Chart places a Sections list below the song's star target. Each section
-uses start and end fields in `mm:ss`, a capability-backed kind picker, and either
-a strength slider from 0 to 1 or a star target with the song's range. Experimental
-kinds are labelled; controls marked not working are hidden. Show validation by
-the list before enabling generation. During generation, the Session and Backend
-panels show the current phase; failures retain the service's message. Playback
-actions stay on one line and move below the statistics at narrow widths.
+(download with progress and cancel, resume after a stopped download, or choose a folder)
+before anything else; the same controls sit in a Chart model section of Settings. Below the
+song's star target come an optional Seed field (blank is a new chart each time) and a
+Sections list. Each section uses start and end fields in `mm:ss`, a capability-backed kind
+picker, and either a strength slider from 0 to 1 or a star target with the song's range.
+Experimental kinds are labelled; controls marked not working are hidden. Show validation by
+the field or list before enabling generation. Generate is the primary action. During
+generation the panel lists the five phases (done, under way, to come) with Stop, and the
+Session panel shows the current phase under the engine's name. A stop says no chart was
+made; a failure says the chart could not be made above the service's or core's message.
+A finished chart shows its notes and the seed that makes it again (Use Seed puts it in the
+field), then Play as the primary action and Save .osu…, Save .osz… and Generate Again; the
+Session panel shows song, stars, seed, sections, notes and model. The chart and the chosen
+mode stay when play ends. Playback actions stay on one line and move below the statistics
+at narrow widths.
+
+The setup screens use the brand's plum theme as the web app names it: `--bg` and `--bg-2`
+divided on the diagonal, `--surface` panels, `--surface-2` controls, `--line` borders,
+lavender for icons and secondary actions, `--ok`, `--warn` and `--no` for status, and the
+coral action gradient only for the primary button. There is no grid, and the lane preview
+colours notes by kind as the play screen does.
 
 ## Layout and accessibility
 

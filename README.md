@@ -61,11 +61,12 @@ startup, checkpoint identity, local audio preparation and troubleshooting.
 
 
 **Generate a Chart** builds a complete chart from a local audio file. Pick the file,
-set the stars (the model's range) and optional sections, and the chart is made on this
-device by the Rust core's generator with ONNX Runtime, from the Ensomi R2 model that
-Settings downloads from [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) (about 120 MB) or
-reads from a folder you choose. Nothing is sent to a server. The complete chart plays
-from the start. See [solo device mode](docs/solo-device.md).
+set the stars (the model's range), an optional seed and optional sections, and the chart is
+made on this device by the Rust core's generator with ONNX Runtime, from the Ensomi R2 model
+that Settings downloads from [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) (about
+120 MB, resumed after a dropped connection) or reads from a folder you choose. Nothing is sent
+to a server. The finished chart shows the seed that makes it again, plays from the start, and
+saves as `.osu` or as `.osz` with the song. See [solo device mode](docs/solo-device.md).
 
 The chart server stays selectable on the same screen: it runs the local Ensomi R2 model service
 (`python -m ensomi_model.service --model-dir <dir>` from
