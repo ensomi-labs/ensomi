@@ -84,8 +84,28 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         }
     }
 
+    /// The music volume scales the main mixer, not the player, so the clock keeps to the host clock at any level and
+    /// when the level changes while playing. The file is silent, so nothing is heard whatever the level.
+    func testMusicVolumeLeavesTheClockFollowingTheHostClock() async throws {
+        let url = try writeToneFile(sampleRate: 44_100, seconds: 4, amplitude: 0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let clock = AVFoundationMania4KAudioClock()
+        await clock.setMusicVolume(0.5)
+        _ = try await clock.prepare(audioFileURL: url)
+        try await play(clock)
+
+        var samples = try await sample(clock, forMs: 1_000)
+        await clock.setMusicVolume(0)
+        samples += try await sample(clock, forMs: 1_000)
+
+        let offsets = samples.map { $0.audio - $0.host }
+        XCTAssertLessThan(try XCTUnwrap(offsets.max()) - XCTUnwrap(offsets.min()), 0.5)
+        XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $1.audio > $0.audio })
+        await clock.stop()
+    }
+
     /// A device change stops the engine. The clock builds it again and plays on from the position that was being
-    /// heard, so the audio time continues from there instead of jumping, and only the gap delays the song.
+    /// heard. How long the new device takes to start depends on the device and is not checked.
     func testRouteChangeResumesFromTheHeardPositionAndKeepsAdvancing() async throws {
         let url = try writeToneFile(sampleRate: 44_100, seconds: 6)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -108,6 +128,7 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         clock.volume = 0
         _ = try await clock.prepare(audioFileURL: url)
         try await play(clock)
+        let startLeadMs = lead(of: clock, from: 0)
         try await Task.sleep(nanoseconds: 300_000_000)
         await clock.pause()
         let pausedAudioMs = clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS())
@@ -118,52 +139,62 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         XCTAssertFalse(stillRunning)
         XCTAssertEqual(clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()), pausedAudioMs, accuracy: 0.001)
 
-        let resumeHostMs = EnsomiHostClock.currentTimeMS()
         try await clock.play()
-        try await Task.sleep(nanoseconds: 300_000_000)
-        let laterHostMs = EnsomiHostClock.currentTimeMS()
-        // The song starts again from the paused position after the new engine has started, a little after play() is called.
-        let lostMs = (laterHostMs - resumeHostMs) - (clock.audioTimeMs(atHostTimeMs: laterHostMs) - pausedAudioMs)
-        XCTAssertGreaterThan(lostMs, 0)
-        XCTAssertLessThan(lostMs, 150)
+        try await checkResumed(clock, from: pausedAudioMs, startLeadMs: startLeadMs)
         await clock.stop()
     }
 
     private func checkRouteChange(of clock: AVFoundationMania4KAudioClock) async throws {
         try await play(clock)
+        let startLeadMs = lead(of: clock, from: 0)
         try await Task.sleep(nanoseconds: 300_000_000)
-        let beforeHostMs = EnsomiHostClock.currentTimeMS()
-        let beforeAudioMs = clock.audioTimeMs(atHostTimeMs: beforeHostMs)
+        let heardAudioMs = clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS())
 
         clock.restartAfterConfigurationChange()
         // The new engine is not rendering yet: the clock holds the position it had reached.
-        XCTAssertEqual(clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()), beforeAudioMs, accuracy: 3)
+        XCTAssertEqual(clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()), heardAudioMs, accuracy: 3)
 
+        let deadlineHostMs = EnsomiHostClock.currentTimeMS() + 5_000
         var running = false
-        for _ in 0..<500 where !running {
+        while !running, EnsomiHostClock.currentTimeMS() < deadlineHostMs {
+            try await Task.sleep(nanoseconds: 2_000_000)
             running = await clock.isRunning()
-            try await Task.sleep(nanoseconds: 5_000_000)
         }
         XCTAssertTrue(running)
-        let runningHostMs = EnsomiHostClock.currentTimeMS()
+        try await checkResumed(clock, from: heardAudioMs, startLeadMs: startLeadMs)
+        await clock.stop()
+    }
 
-        // From there the audio time follows the host time again.
+    /// The clock's reading plus the output latency it subtracts, less `positionMs`, the position it has just started
+    /// playing from: minus the lead of the first buffer's render time, which depends on the device.
+    private func lead(of clock: AVFoundationMania4KAudioClock, from positionMs: Double) -> Double {
+        clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()) + clock.outputLatencyMs - positionMs
+    }
+
+    /// Once the restarted engine renders, the clock plays on from `heardAudioMs` as a clock started there would: its
+    /// first reading lies from that position as the first reading after the clock's start lay from 0 (`startLeadMs`),
+    /// within the render cycle the reading falls in, neither ahead nor further behind. Then it follows the host clock.
+    private func checkResumed(_ clock: AVFoundationMania4KAudioClock, from heardAudioMs: Double, startLeadMs: Double) async throws {
+        let resumeLeadMs = lead(of: clock, from: heardAudioMs)
+        print("TIMING route change: reading + latency - position after start \(startLeadMs) ms, after restart \(resumeLeadMs) ms; latency \(clock.outputLatencyMs) ms")
+        XCTAssertEqual(resumeLeadMs, startLeadMs, accuracy: 25)
+
+        let samples = try await sample(clock, forMs: 500)
+
+        let offsets = samples.map { $0.audio - $0.host }
+        XCTAssertLessThan(try XCTUnwrap(offsets.max()) - XCTUnwrap(offsets.min()), 0.5)
+        XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $1.audio > $0.audio })
+    }
+
+    private func sample(_ clock: AVFoundationMania4KAudioClock, forMs durationMs: Double) async throws -> [(host: Double, audio: Double)] {
         var samples: [(host: Double, audio: Double)] = []
-        let endHostMs = EnsomiHostClock.currentTimeMS() + 500
+        let endHostMs = EnsomiHostClock.currentTimeMS() + durationMs
         while EnsomiHostClock.currentTimeMS() < endHostMs {
             let hostMs = EnsomiHostClock.currentTimeMS()
             samples.append((hostMs, clock.audioTimeMs(atHostTimeMs: hostMs)))
             try await Task.sleep(nanoseconds: 3_000_000)
         }
-        let offsets = samples.map { $0.audio - $0.host }
-        XCTAssertLessThan(try XCTUnwrap(offsets.max()) - XCTUnwrap(offsets.min()), 0.5)
-        XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $1.audio > $0.audio })
-        // The song waited for the new engine and for its first render, which leads the call by 13 to 22 ms.
-        let last = try XCTUnwrap(samples.last)
-        let lostMs = (beforeAudioMs - beforeHostMs) - (last.audio - last.host)
-        XCTAssertGreaterThan(lostMs, 0)
-        XCTAssertLessThan(lostMs, runningHostMs - beforeHostMs + 40)
-        await clock.stop()
+        return samples
     }
 
     private func play(_ clock: AVFoundationMania4KAudioClock) async throws {
@@ -207,7 +238,7 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         return rendered
     }
 
-    private func writeToneFile(sampleRate: Double, seconds: Double) throws -> URL {
+    private func writeToneFile(sampleRate: Double, seconds: Double, amplitude: Float = 0.1) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
@@ -217,7 +248,7 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         buffer.frameLength = frameCount
         let samples = try XCTUnwrap(buffer.floatChannelData)[0]
         for frame in 0..<Int(frameCount) {
-            samples[frame] = 0.1 * sinf(Float(frame) * 2 * .pi * 440 / Float(sampleRate))
+            samples[frame] = amplitude * sinf(Float(frame) * 2 * .pi * 440 / Float(sampleRate))
         }
         try AVAudioFile(forWriting: url, settings: format.settings).write(from: buffer)
         return url

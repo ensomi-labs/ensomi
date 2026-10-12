@@ -1,3 +1,4 @@
+import EnsomiRuntime
 import Foundation
 import Observation
 
@@ -11,22 +12,28 @@ public struct Mania4KOffsetCalibrationOffsets: Equatable, Sendable {
     }
 }
 
+/// Offsets saved under a name, or an output device's audio offset in a preset named for the device.
 public struct Mania4KOffsetPreset: Identifiable, Equatable, Codable, Sendable {
     public let id: UUID
     public var name: String
     public var audioOffsetMilliseconds: Int
-    public var visualOffsetMilliseconds: Int
+    /// Nil in a device's preset: the visual offset belongs to the display and is the same for every device.
+    public var visualOffsetMilliseconds: Int?
+    /// The UID of the output device whose audio offset this is; nil in a preset saved by name.
+    public var outputDeviceID: String?
 
     public init(
         id: UUID = UUID(),
         name: String,
         audioOffsetMilliseconds: Int,
-        visualOffsetMilliseconds: Int
+        visualOffsetMilliseconds: Int? = nil,
+        outputDeviceID: String? = nil
     ) {
         self.id = id
         self.name = name
         self.audioOffsetMilliseconds = audioOffsetMilliseconds
         self.visualOffsetMilliseconds = visualOffsetMilliseconds
+        self.outputDeviceID = outputDeviceID
     }
 }
 
@@ -70,14 +77,37 @@ public struct Mania4KOffsetCalibrationStoredState: Equatable, Codable, Sendable 
     }
 }
 
+/// The applied audio offset is the current output device's. Each device whose audio offset has been set has a preset
+/// with its UID, and that preset is active while the device is the output. A device without one, including every
+/// device in a state stored before devices had presets, starts from the default audio offset.
 public extension Mania4KOffsetCalibrationStoredState {
-    static var defaultPlayState: Mania4KOffsetCalibrationStoredState {
-        Mania4KOffsetCalibrationStoredState(
-            appliedAudioOffsetMilliseconds: Mania4KDefaultPlaySettings.audioOffsetMilliseconds,
-            appliedVisualOffsetMilliseconds: Mania4KDefaultPlaySettings.visualOffsetMilliseconds,
-            presets: [defaultPlayPreset],
-            activePresetID: Mania4KDefaultPlaySettings.offsetPresetID
-        )
+    func preset(for device: Mania4KAudioOutputDevice) -> Mania4KOffsetPreset? {
+        presets.first { $0.outputDeviceID == device.id }
+    }
+
+    /// Makes `device`'s audio offset the applied one. The visual offset stays.
+    mutating func activate(_ device: Mania4KAudioOutputDevice) {
+        let preset = preset(for: device)
+        activePresetID = preset?.id
+        appliedAudioOffsetMilliseconds = preset?.audioOffsetMilliseconds ?? Mania4KDefaultPlaySettings.audioOffsetMilliseconds
+    }
+
+    /// Applies `audioOffsetMilliseconds` and saves it as `device`'s.
+    mutating func setAudioOffset(_ audioOffsetMilliseconds: Int, for device: Mania4KAudioOutputDevice?) {
+        appliedAudioOffsetMilliseconds = audioOffsetMilliseconds
+        guard let device else {
+            return
+        }
+
+        if let index = presets.firstIndex(where: { $0.outputDeviceID == device.id }) {
+            presets[index].name = device.name
+            presets[index].audioOffsetMilliseconds = audioOffsetMilliseconds
+            activePresetID = presets[index].id
+        } else {
+            let preset = Mania4KOffsetPreset(name: device.name, audioOffsetMilliseconds: audioOffsetMilliseconds, outputDeviceID: device.id)
+            presets.append(preset)
+            activePresetID = preset.id
+        }
     }
 
     static var defaultPlayPreset: Mania4KOffsetPreset {
@@ -121,9 +151,9 @@ public struct Mania4KOffsetCalibrationHitSample: Identifiable, Equatable, Sendab
     }
 }
 
-/// Judges keys against a click track that sounds on play's audio clock, with play's semantics: the chart time of a
-/// tick is its audio time `initialLeadInMs + k * tickIntervalMs`, and the chart time of a key is its audio time plus
-/// the rendered audio offset. The raw clock and the raw input times are audio times read from that clock.
+/// Judges keys against a click track that sounds on `audioClock`, with play's semantics: the chart time of a tick is
+/// its audio time `initialLeadInMs + k * tickIntervalMs`, and the chart time of a key is its audio time plus the
+/// rendered audio offset. The raw clock and the raw input times are audio times.
 @MainActor
 @Observable
 public final class Mania4KOffsetCalibrationModel {
@@ -138,13 +168,20 @@ public final class Mania4KOffsetCalibrationModel {
 
     public let originalAudioOffsetMilliseconds: Int
     public let originalVisualOffsetMilliseconds: Int
+    /// The output device the audio offset is saved for.
+    public let outputDevice: Mania4KAudioOutputDevice?
     public private(set) var pendingAudioOffsetMilliseconds: Int
     public private(set) var pendingVisualOffsetMilliseconds: Int
     public private(set) var renderedAudioOffsetMilliseconds: Int
     public private(set) var renderedVisualOffsetMilliseconds: Int
     public private(set) var rawClockTimeMs: Int
+    /// The audio time at the host time the display shows the frame, which is when `rawClockTimeMs` is the frame's own.
+    public private(set) var presentationClockTimeMs: Int
     public private(set) var hitSamples: [Mania4KOffsetCalibrationHitSample]
     public private(set) var storedState: Mania4KOffsetCalibrationStoredState
+
+    @ObservationIgnored
+    private let audioClock: any Mania4KAudioClock
 
     @ObservationIgnored
     private var resolvedBeatIndices: Set<Int>
@@ -157,7 +194,9 @@ public final class Mania4KOffsetCalibrationModel {
         originalVisualOffsetMilliseconds: Int,
         storedState: Mania4KOffsetCalibrationStoredState? = nil,
         fallbackAppliedAudioOffsetMilliseconds: Int = 0,
-        fallbackAppliedVisualOffsetMilliseconds: Int = 0
+        fallbackAppliedVisualOffsetMilliseconds: Int = 0,
+        outputDevice: Mania4KAudioOutputDevice? = nil,
+        audioClock: any Mania4KAudioClock = AVFoundationMania4KAudioClock()
     ) {
         let clampedOriginalAudioOffset = Self.clampedOffset(originalAudioOffsetMilliseconds)
         let clampedOriginalVisualOffset = Self.clampedOffset(originalVisualOffsetMilliseconds)
@@ -174,13 +213,16 @@ public final class Mania4KOffsetCalibrationModel {
 
         self.originalAudioOffsetMilliseconds = clampedOriginalAudioOffset
         self.originalVisualOffsetMilliseconds = clampedOriginalVisualOffset
+        self.outputDevice = outputDevice
         self.pendingAudioOffsetMilliseconds = initialAudioOffset
         self.pendingVisualOffsetMilliseconds = initialVisualOffset
         self.renderedAudioOffsetMilliseconds = initialAudioOffset
         self.renderedVisualOffsetMilliseconds = initialVisualOffset
         self.rawClockTimeMs = 0
+        self.presentationClockTimeMs = 0
         self.hitSamples = []
         self.storedState = normalizedState
+        self.audioClock = audioClock
         self.resolvedBeatIndices = []
         self.lastRenderedOffsetPublishRawTimeMs = nil
     }
@@ -190,7 +232,7 @@ public final class Mania4KOffsetCalibrationModel {
     }
 
     public var renderedChartTimeMs: Int {
-        gameplayChartTimeMs + renderedVisualOffsetMilliseconds
+        presentationClockTimeMs + renderedAudioOffsetMilliseconds + renderedVisualOffsetMilliseconds
     }
 
     public var presets: [Mania4KOffsetPreset] {
@@ -234,8 +276,18 @@ public final class Mania4KOffsetCalibrationModel {
         Double(Self.initialLeadInMs + beatIndex * Self.tickIntervalMs)
     }
 
-    public func advanceClock(rawClockTimeMs: Int) {
+    /// Reads the audio clock for a frame judged at `hostTimeMs` and shown by the display at `presentationHostTimeMs`
+    /// (`EnsomiHostClock` milliseconds), as play reads it.
+    public func advanceClock(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) {
+        advanceClock(
+            rawClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: hostTimeMs).rounded()),
+            presentationClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: presentationHostTimeMs).rounded())
+        )
+    }
+
+    public func advanceClock(rawClockTimeMs: Int, presentationClockTimeMs: Int? = nil) {
         self.rawClockTimeMs = rawClockTimeMs
+        self.presentationClockTimeMs = presentationClockTimeMs ?? rawClockTimeMs
         publishPendingOffsetsIfAllowed()
         pruneResolvedBeatIndices(referenceGameplayChartTimeMs: Double(gameplayChartTimeMs))
     }
@@ -245,7 +297,7 @@ public final class Mania4KOffsetCalibrationModel {
         postLineVisibleMs: Double,
         lookaheadPaddingMs: Double,
         lane: Mania4KLane = .innerRight
-    ) -> [Mania4KVisibleObject] {
+    ) -> [VisibleObject] {
         let renderChartTimeMs = Double(renderedChartTimeMs)
         let gameplayChartTimeMs = Double(gameplayChartTimeMs)
         let lowerBound = renderChartTimeMs - max(0, postLineVisibleMs)
@@ -268,7 +320,7 @@ public final class Mania4KOffsetCalibrationModel {
 
         return (startBeatIndex...endBeatIndex).map { beatIndex in
             let noteTimeMs = noteTimeMs(forBeatIndex: beatIndex)
-            let state: Mania4KVisibleObjectState
+            let state: VisibleState
             if resolvedBeatIndices.contains(beatIndex) {
                 state = .resolved
             } else if gameplayChartTimeMs > noteTimeMs + Double(Self.hitWindowMs) {
@@ -277,14 +329,21 @@ public final class Mania4KOffsetCalibrationModel {
                 state = .waiting
             }
 
-            return Mania4KVisibleObject(
-                id: Mania4KObjectOrdinal(rawValue: beatIndex),
-                lane: lane,
+            return VisibleObject(
+                id: UInt32(beatIndex),
+                lane: lane.index,
                 startTimeMs: noteTimeMs,
                 endTimeMs: nil,
                 state: state
             )
         }
+    }
+
+    /// Records a key stamped at `hostTimeMs` (`NSEvent.timestamp`, in `EnsomiHostClock` milliseconds), converted to
+    /// audio time through the clock as play does.
+    @discardableResult
+    public func recordInput(atHostTimeMs hostTimeMs: Double) -> Mania4KOffsetCalibrationHitSample? {
+        recordInput(rawInputTimeMs: audioClock.audioTimeMs(atHostTimeMs: hostTimeMs))
     }
 
     @discardableResult
@@ -391,7 +450,7 @@ public final class Mania4KOffsetCalibrationModel {
         storedState.activePresetID = id
         updatePendingOffsets(
             audioOffsetMilliseconds: preset.audioOffsetMilliseconds,
-            visualOffsetMilliseconds: preset.visualOffsetMilliseconds,
+            visualOffsetMilliseconds: preset.visualOffsetMilliseconds ?? pendingVisualOffsetMilliseconds,
             detachesActivePresetOnDivergence: false
         )
         return true
@@ -414,9 +473,10 @@ public final class Mania4KOffsetCalibrationModel {
         storedState.activePresetID = nil
     }
 
+    /// Applies the pending offsets, saving the audio offset as the output device's.
     @discardableResult
     public func apply() -> Mania4KOffsetCalibrationOffsets {
-        storedState.appliedAudioOffsetMilliseconds = pendingAudioOffsetMilliseconds
+        storedState.setAudioOffset(pendingAudioOffsetMilliseconds, for: outputDevice)
         storedState.appliedVisualOffsetMilliseconds = pendingVisualOffsetMilliseconds
         return Mania4KOffsetCalibrationOffsets(
             audioOffsetMilliseconds: pendingAudioOffsetMilliseconds,
@@ -443,7 +503,7 @@ public final class Mania4KOffsetCalibrationModel {
         if detachesActivePresetOnDivergence,
            let activePreset,
            (clampedAudioOffsetMilliseconds != activePreset.audioOffsetMilliseconds
-               || clampedVisualOffsetMilliseconds != activePreset.visualOffsetMilliseconds) {
+               || activePreset.visualOffsetMilliseconds.map { $0 != clampedVisualOffsetMilliseconds } ?? false) {
             storedState.activePresetID = nil
         }
 
@@ -528,7 +588,8 @@ public final class Mania4KOffsetCalibrationModel {
                 id: preset.id,
                 name: preset.name,
                 audioOffsetMilliseconds: clampedOffset(preset.audioOffsetMilliseconds),
-                visualOffsetMilliseconds: clampedOffset(preset.visualOffsetMilliseconds)
+                visualOffsetMilliseconds: preset.visualOffsetMilliseconds.map(clampedOffset),
+                outputDeviceID: preset.outputDeviceID
             )
         }
 

@@ -249,10 +249,15 @@ final class ChartGenerationClientTests: XCTestCase {
             default:
                 var result = Ensomi_Protocol_V1_ChartResult()
                 result.chart = makeChart(duration: 4_000, [(0, 100, 600)])
+                result.receipt.modelName = "Ensomi R2"
+                result.receipt.modelVersion = "r2-1.0"
+                result.receipt.seed = 1_234_567
+                result.receipt.star = 3
+                result.receipt.oszPath = "/charts/song.osz"
                 return [progress(.loading), .chartResult(result)]
             }
         }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient { ScriptedChartTransport(script: script) })
+        let model = serverModel(ChartGenerationClient { ScriptedChartTransport(script: script) })
 
         await model.loadCapabilities()
         let range = model.starRange
@@ -262,10 +267,15 @@ final class ChartGenerationClientTests: XCTestCase {
 
         let audioURL = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audioURL) }
-        let chart = await model.generate(audioURL: audioURL, star: 3)
-        XCTAssertEqual(chart?.objects.map(\.kind), [.holdStart, .holdEnd])
-        let state = model.state
-        XCTAssertEqual(state, .ready)
+        let generated = await model.generate(audioURL: audioURL, star: 3, artist: "Band")
+        let result = try XCTUnwrap(generated)
+        XCTAssertEqual(result.chart.objects.map(\.kind), [.holdStart, .holdEnd])
+        XCTAssertEqual(model.state, .finished(result))
+        XCTAssertEqual(result.seed, 1_234_567, "the seed the server used, though none was asked for")
+        XCTAssertEqual(result.model, "Ensomi R2 r2-1.0")
+        XCTAssertNil(result.osu)
+        XCTAssertEqual(result.serverOszPath, "/charts/song.osz")
+        XCTAssertEqual(result.exportName, "Band - \(audioURL.deletingPathExtension().lastPathComponent) (ensomi R2 s1234567)")
         XCTAssertEqual(try XCTUnwrap(model.audioDurationMS), 4_000, accuracy: 1)
     }
 
@@ -283,7 +293,7 @@ final class ChartGenerationClientTests: XCTestCase {
             }
             return [.modelCapabilities(capabilities)]
         }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient { transport })
+        let model = serverModel(ChartGenerationClient { transport })
         await model.loadCapabilities()
         XCTAssertEqual(model.sectionOptions.map(\.kind), [.jumpstream, .chordstream, .stream, .jack, .star])
         XCTAssertEqual(model.sectionOptions.map(\.isExperimental), [false, false, true, true, true])
@@ -294,7 +304,7 @@ final class ChartGenerationClientTests: XCTestCase {
     @MainActor
     func testInvalidSectionsNeverSendGenerationRequest() async throws {
         let transport = ScriptedChartTransport { _ in [.modelCapabilities(testCapabilities())] }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient { transport })
+        let model = serverModel(ChartGenerationClient { transport })
         let audioURL = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audioURL) }
         await model.loadCapabilities()
@@ -302,8 +312,8 @@ final class ChartGenerationClientTests: XCTestCase {
         model.sections = [section("00:00", "00:08")]
         XCTAssertFalse(model.canGenerate(star: 3))
         XCTAssertTrue(try XCTUnwrap(model.sectionValidationMessage).contains("inside the song"))
-        let chart = await model.generate(audioURL: audioURL, star: 3)
-        XCTAssertNil(chart)
+        let result = await model.generate(audioURL: audioURL, star: 3)
+        XCTAssertNil(result)
         XCTAssertEqual(transport.sent.count, 1)
     }
 
@@ -311,7 +321,7 @@ final class ChartGenerationClientTests: XCTestCase {
     func testGenerationModelForwardsValidatedSections() async throws {
         let capabilitiesTransport = ScriptedChartTransport { _ in [.modelCapabilities(testCapabilities())] }
         let generationTransport = ScriptedChartTransport { _ in [.chartResult(.init())] }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient {
+        let model = serverModel(ChartGenerationClient {
             capabilitiesTransport.sent.isEmpty ? capabilitiesTransport : generationTransport
         })
         let audioURL = try makeAudioFile(durationSeconds: 8)
@@ -330,7 +340,7 @@ final class ChartGenerationClientTests: XCTestCase {
 
     @MainActor
     func testGenerationModelDisplaysServiceRejectionMessage() async throws {
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient {
+        let model = serverModel(ChartGenerationClient {
             ScriptedChartTransport { request in
                 if case .capabilitiesRequest? = request.payload { return [.modelCapabilities(testCapabilities())] }
                 return [progress(.timing), error("unsupported_control", "These sections cannot be generated.")]
@@ -339,10 +349,64 @@ final class ChartGenerationClientTests: XCTestCase {
         let audioURL = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audioURL) }
         await model.loadCapabilities()
-        let chart = await model.generate(audioURL: audioURL, star: 3)
-        XCTAssertNil(chart)
+        let result = await model.generate(audioURL: audioURL, star: 3)
+        XCTAssertNil(result)
         XCTAssertEqual(model.state, .failed("These sections cannot be generated."))
         XCTAssertFalse(model.isGenerating)
+    }
+
+    @MainActor
+    func testTheSeedFieldIsSentAndMustBeASeed() async throws {
+        let capabilitiesTransport = ScriptedChartTransport { _ in [.modelCapabilities(testCapabilities())] }
+        let generationTransport = ScriptedChartTransport { _ in [.chartResult(.init())] }
+        let model = serverModel(ChartGenerationClient {
+            capabilitiesTransport.sent.isEmpty ? capabilitiesTransport : generationTransport
+        })
+        let audioURL = try makeAudioFile()
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        await model.loadCapabilities()
+        model.loadAudioDuration(for: audioURL)
+
+        model.seedText = "-1"
+        XCTAssertNil(model.seed)
+        XCTAssertNotNil(model.seedValidationMessage)
+        XCTAssertFalse(model.canGenerate(star: 3))
+        model.seedText = " 18446744073709551615 "
+        XCTAssertNil(model.seedValidationMessage)
+        _ = await model.generate(audioURL: audioURL, star: 3, seed: model.seed)
+
+        guard case .generateChart(let request)? = generationTransport.sent.first?.payload else { return XCTFail("Expected generation request") }
+        XCTAssertEqual(request.seed, .max)
+    }
+
+    @MainActor
+    func testStoppingEndsInTheStoppedState() async throws {
+        let model = serverModel(ChartGenerationClient {
+            ScriptedChartTransport { request in
+                switch request.payload {
+                case .capabilitiesRequest?:
+                    return [.modelCapabilities(testCapabilities())]
+                case .stopSession?:
+                    var status = Ensomi_Protocol_V1_StatusEvent()
+                    status.status = .stopped
+                    return [.status(status)]
+                default:
+                    return [progress(.timing)]
+                }
+            }
+        })
+        let audioURL = try makeAudioFile()
+        defer { try? FileManager.default.removeItem(at: audioURL) }
+        await model.loadCapabilities()
+
+        let generation = Task { await model.generate(audioURL: audioURL, star: 3) }
+        let deadline = Date().addingTimeInterval(10)
+        while model.state != .generating(phase: .timing), Date() < deadline { await Task.yield() }
+        await model.stop()
+
+        let result = await generation.value
+        XCTAssertNil(result)
+        XCTAssertEqual(model.state, .stopped)
     }
 
     private func makeAudioFile(durationSeconds: UInt32 = 4) throws -> URL {

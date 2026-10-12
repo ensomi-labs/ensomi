@@ -15,7 +15,9 @@ struct EnsomiMacApp: App {
     #endif
 
     init() {
-        _model = State(initialValue: Mania4KPlaySessionModel())
+        let model = Mania4KPlaySessionModel(settings: .standard)
+        model.followSystemOutputDevice()
+        _model = State(initialValue: model)
         #if DEBUG
         _recognitionModel = State(initialValue: .liveDebug())
         #endif

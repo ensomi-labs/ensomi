@@ -6,7 +6,6 @@ public struct EnsomiWorkbenchView: View {
     @Environment(\.openWindow) private var openWindow
     #endif
 
-    @AppStorage("mania4k.offsetCalibrationState") private var storedOffsetCalibrationState = ""
     @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
     @State private var selection: WorkbenchTab?
     @State private var maniaModel: Mania4KPlaySessionModel
@@ -142,11 +141,6 @@ public struct EnsomiWorkbenchView: View {
 
         didRestoreStoredManiaSettings = true
 
-        if let storedState = calibrationStoredState {
-            maniaModel.audioOffsetMilliseconds = Double(storedState.appliedAudioOffsetMilliseconds)
-            maniaModel.visualOffsetMilliseconds = Double(storedState.appliedVisualOffsetMilliseconds)
-        }
-
         guard let keyBindings = Mania4KKeyBindingSet(storageValue: storedKeyBindings) else {
             storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
             maniaModel.applyKeyBindings(.default)
@@ -154,22 +148,6 @@ public struct EnsomiWorkbenchView: View {
         }
 
         maniaModel.applyKeyBindings(keyBindings)
-    }
-
-    private var calibrationStoredState: Mania4KOffsetCalibrationStoredState? {
-        guard !storedOffsetCalibrationState.isEmpty else {
-            return Mania4KOffsetCalibrationStoredState.defaultPlayState
-        }
-
-        guard let storedState = Mania4KOffsetCalibrationStoredState(storageValue: storedOffsetCalibrationState) else {
-            return nil
-        }
-
-        return Mania4KOffsetCalibrationModel.normalizedStoredState(
-            storedState,
-            fallbackAppliedAudioOffsetMilliseconds: 0,
-            fallbackAppliedVisualOffsetMilliseconds: 0
-        )
     }
 }
 

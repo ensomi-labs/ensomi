@@ -18,16 +18,30 @@ final class Mania4KGeneratedChartTests: XCTestCase {
         XCTAssertEqual(chart.objects.map(\.lane.rawValue), [0, 1, 2, 1, 1, 3, 3])
     }
 
-    func testRejectsInvalidCharts() {
-        assertRejects([(4, 100, nil)], .invalidLane(4))
-        assertRejects([(0, 100, 100)], .invalidTime(streamIndex: 0))
-        assertRejects([(0, 100, 50)], .invalidTime(streamIndex: 0))
-        assertRejects([(0, 100, 6_000)], .invalidTime(streamIndex: 0))
-        assertRejects([(0, 6_000, nil)], .invalidTime(streamIndex: 0))
-        assertRejects([(0, 200, nil), (1, 100, nil)], .nonMonotonicObjectOrder(previousStreamIndex: 0, nextStreamIndex: 1))
-        assertRejects([(0, 100, 900), (0, 500, nil)], .sameLaneOverlap(previousStreamIndex: 0, nextStreamIndex: 1))
-        assertRejects([(0, 100, 900), (0, 900, nil)], .sameLaneOverlap(previousStreamIndex: 0, nextStreamIndex: 1))
-        assertRejects([(2, 100, nil), (2, 100, nil)], .sameLaneOverlap(previousStreamIndex: 0, nextStreamIndex: 1))
+    func testRejectsInvalidChartsWithTheCoresErrors() {
+        assertRejects([(4, 100, nil)], .InvalidLane(object: 0))
+        assertRejects([(0, 100, 50)], .InvalidHold(object: 0))
+        assertRejects([(0, 100, 6_000)], .OutsideDuration(object: 0))
+        assertRejects([(0, 6_000, nil)], .OutsideDuration(object: 0))
+        assertRejects([(0, 200, nil), (1, 100, nil)], .NotSorted(object: 1))
+        assertRejects([(0, 100, 900), (0, 500, nil)], .SameLaneOverlap(object: 1))
+        assertRejects([(2, 100, nil), (2, 100, nil)], .SameLaneOverlap(object: 1))
+    }
+
+    func testRejectionReadsAsText() {
+        XCTAssertThrowsError(try Mania4KGeneratedChart(makeChart(duration: 5_000, [(4, 100, nil)]))) {
+            XCTAssertEqual($0.localizedDescription, "Object 0 is not in one of the four lanes.")
+        }
+    }
+
+    /// The core accepts a zero-length hold and a hold that ends where the next note of its lane starts; the Swift
+    /// generated-chart check rejected both.
+    func testAcceptsAZeroLengthHoldAndAHoldEndingWhereTheNextNoteStarts() throws {
+        let chart = try Mania4KGeneratedChart(makeChart(duration: 5_000, [(0, 100, 100), (1, 100, 900), (1, 900, nil)]))
+
+        XCTAssertEqual(chart.objectCount, 3)
+        XCTAssertEqual(chart.objects.map(\.kind), [.holdStart, .holdEnd, .holdStart, .holdEnd, .tap])
+        XCTAssertEqual(chart.objects.map(\.timeMs), [100, 100, 100, 900, 900])
     }
 
     @MainActor
@@ -51,11 +65,11 @@ final class Mania4KGeneratedChartTests: XCTestCase {
     }
 
     private func assertRejects(
-        _ objects: [(UInt32, UInt32, UInt32?)], _ expected: Mania4KChartValidationError,
+        _ objects: [(UInt32, UInt32, UInt32?)], _ expected: ChartError,
         file: StaticString = #filePath, line: UInt = #line
     ) {
         XCTAssertThrowsError(try Mania4KGeneratedChart(makeChart(duration: 5_000, objects)), file: file, line: line) {
-            XCTAssertEqual($0 as? Mania4KChartValidationError, expected, file: file, line: line)
+            XCTAssertEqual($0 as? Mania4KChartValidationError, .chart(expected), file: file, line: line)
         }
     }
 }

@@ -110,7 +110,13 @@ serializes reads, rejects watermark violations, and fails if the judgement clock
 outpaces complete data. Initial inference readiness requires a clean hold boundary
 and sufficient future coverage; it cannot begin halfway through an existing hold.
 
-Local-audio generation uses a complete-chart exchange instead of a stream.
+Local-audio generation uses a complete-chart exchange instead of a stream, made by
+one of two engines that answer the same questions: capabilities, a complete chart,
+progress by phase and a stop. `Mania4KChartGenerationModel` picks one: the on-device
+engine when a model is installed and the person has not chosen otherwise, else the
+chart server. Controls, validation, the play path and `Mania4KGeneratedChart` are the
+same for both. The on-device engine is described after the server contract.
+
 [`ChartGenerationClient`](../Sources/EnsomiCore/Services/Beatmap/ChartGenerationClient.swift)
 opens a binary websocket (`ENSOMI_SERVICE_URL`, default `ws://localhost:8765`), sends
 `capabilities_request` with an empty session ID (reply: model name and version, star
@@ -125,13 +131,33 @@ phases, then one `chart_result`, or an `ErrorEvent` whose string `code` names th
 failure; `stop_session` is answered by a stopped status. Generation state owns the
 setup panels' phase, readiness and error message independently of live inference
 session state. There is no `ready` or node hello. Chart times are whole-millisecond
-audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` rejects
-out-of-range lanes or times, unsorted objects and same-lane overlaps, then plays the chart
-with its audio from time 0 as an in-memory chart, with every note.
+audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` has the
+gameplay core validate the chart (it rejects out-of-range lanes or times, unsorted objects and
+same-lane overlaps), then plays it with its audio from time 0 as an in-memory chart, with every
+note.
 
-The `.osu` adapter accepts only four-key mania. It rejects unsupported objects,
-invalid times, and same-lane overlaps before playback. Finite hold ends earlier
-than their starts are clamped to the start; malformed hold ends are rejected.
+The on-device engine ([`OnDeviceChartGenerator`](../Sources/EnsomiCore/Services/Beatmap/OnDeviceChartGenerator.swift),
+details in [solo device mode](solo-device.md)) decodes the chosen file with `AVAudioFile` to
+mono Float PCM at the file's own rate (channels averaged in Double) and gives it to the runtime's
+`ChartGenerator`, which opens once on a model directory and keeps ONNX Runtime's CPU sessions.
+The generation model maps what it already has to the runtime's types and back: `ModelCapabilities`
+to the protocol `ModelCapabilities` (so the same statuses decide the section kinds), the sections to
+`ChartControls` (long notes stay unspecified), the runtime's phases to `GenerationPhase`, and
+the runtime's `Chart` to `Mania4KGeneratedChart`. A refusal arrives as `GeneratorError` and
+is shown as the core's message. The seed comes from the seed field, or is a new random one when
+the field is blank. Stop cancels the generation task, which throws `GeneratorError.Cancelled` at
+the core's next graph run or phase, and the state becomes stopped. Either engine's chart ends as a
+`Mania4KChartGenerationResult`: the chart, the seed and star the engine reports in its receipt,
+the receipt JSON and, on this device, the `.osu`. Saving the `.osz` passes that `.osu`, the song
+file's bytes and the receipt to the runtime's `exportOsz`, so every client writes the same archive.
+The model is the published Ensomi R2 download in Application Support or a folder the person chose;
+`ChartModelLibrary` owns that choice, opens the generator and keeps folder access across launches
+with a bookmark. A download that stops keeps its files and resumes with HTTP Range requests.
+
+The `.osu` stream reads the file with the gameplay core's loader, which accepts only
+four-key mania. It rejects unsupported objects, invalid times, and same-lane overlaps
+before playback. A hold whose end is missing or earlier than its start becomes a
+zero-length hold. The title falls back to the file name.
 
 ## Gameplay and scoring
 
@@ -147,21 +173,68 @@ The audio time is the audio heard at a host time, not how far the decoder has
 got. The local-file clock plays through `AVAudioEngine`: it takes the player
 node's sample time at its last render, carries it to the asked host time at rate
 1, and subtracts the output's presentation latency, so it is smooth between
-render callbacks and monotonic while the output stays the same. Audio offset therefore corrects only what the
-device does not report. When the output device changes, the clock rebuilds the
-engine for the new device and resumes from the position being heard; until the
-resumed audio is heard, it reads earlier by the new device's latency plus the
-render lead (up to about 22 ms), and play's chart time steps back with it. Ambient
-play projects from a host-time anchor instead. [Gameplay audio timing](gameplay-timing.md)
+render callbacks and monotonic while the output stays the same. Audio offset
+therefore corrects only what the device does not report. When the output device
+changes, the clock rebuilds the engine for the new device and resumes from the
+position being heard; until the resumed audio is heard, it reads earlier by the
+new device's latency plus the render lead (13 to 22 ms on the built-in speakers,
+about 45 ms on Bluetooth headphones), and the gameplay
+core, which never moves its clock back, waits for it to catch up. Ambient play
+projects from a host-time anchor instead. [Gameplay timing](gameplay-timing.md)
 records the engine behavior behind this and what the audio offset still corrects.
 
-Audio offset affects judgement and hit errors. Visual offset and scroll speed
-affect rendering and lookahead only. Input uses gameplay time, filters repeated
-presses, and preserves press/release order across asynchronous clock reads.
-Paused sessions do not judge input or advance misses. The renderer consumes
-snapshots and never infers judgements.
+The play model owns the music volume and the offsets and stores them in the app's
+defaults (`mania4k.musicVolume`, `mania4k.offsetCalibrationState`). The music
+volume is a fraction from 0 to 1 of the song's own level, so it only scales down;
+the local-file clock applies it at the main mixer, as it applies silence, because
+a lowered player volume makes the player's time drift against the device clock.
+The audio offset belongs to the output device: macOS's default output device or
+iOS's current route output, identified by its UID. A device's offset is a preset
+with that UID, named for the device and without a visual offset, made the first
+time the offset is set on it by Settings or calibration; a device without one,
+including every device in state stored before device presets, uses
+`Mania4KDefaultPlaySettings.audioOffsetMilliseconds`. Presets saved by name keep
+both offsets and load into the calibration as before. The visual offset belongs
+to the display and is one value for every device. While a game is in progress
+(loading, playing or paused) the volume and offsets do not change, and a change of
+output device applies its offset when the game ends; the clock still re-reads the
+new device's latency at once.
 
-[`Mania4KJudgementEngine`](../Sources/EnsomiCore/Domain/Mania4KDomain.swift) owns
+Audio offset affects judgement and hit errors. Visual offset and scroll speed
+affect rendering and lookahead only. A key event is stamped with its own
+timestamp (`NSEvent.timestamp`, system uptime), converted to gameplay time
+through the audio clock's host-time mapping, so judgement uses when the key was
+pressed rather than when it was handled. Repeated presses are filtered. Each
+frame delivers the inputs stamped up to its chart time in timestamp order, then
+advances the session to that time; an input stamped later waits for the next
+frame. The play view's display link makes the frames, one per display refresh,
+and nothing else ticks the session: each frame judges at the current chart time
+and is drawn for the time the display shows it (`targetTimestamp`). The stream
+is read ahead in the background, and a frame the stream has not covered fails the
+session. Paused sessions do not judge input or advance misses. The renderer
+consumes snapshots and never infers judgements.
+
+The playfield (lanes, notes, hold bodies, the key tray, the judgement line, the
+lane-press lights, the hit feedback at the line and the song progress) is drawn
+with Metal by the view that owns the display link. A pure function,
+`Mania4KPlayfieldLayout`, turns the published play frame, the lane brightness and
+the feedback's recent judgement event batches into a flat list of
+rounded-rectangle primitives (`Mania4KQuad`: five float vectors, 80 bytes), which
+the renderer draws in order as one instanced call. Hit feedback is drawn only for
+the events the core reported, aged from the chart time each batch was recorded at;
+note states (hit, missed, held) come from the core's visible objects. The shader is
+compiled from source at run time, so building needs no Metal toolchain. The HUD
+(accuracy), the judgement text and combo, and the key labels stay in SwiftUI over
+the Metal view and observe `hud`, `judgementPresentation` and the live lane states,
+which change only when their value does, not the per-frame `playFrame`. The look
+is described in [gameplay look](gameplay-look.md).
+
+Every play mode judges with the Rust gameplay core (`EnsomiRuntime`, rules in the
+runtime repository's `crates/gameplay/README.md`), driven through
+[`Mania4KGameplay`](../Sources/EnsomiCore/Features/Mania4K/Mania4KGameplay.swift): stream
+pages go in as tokens with their coverage, inputs with their chart time, and each frame
+advances the session. A frame whose session has not decided through the gameplay time
+because the stream lags fails the play. The core applies
 per-lane note lock: earlier unresolved objects cannot remain hittable past the
 next object's start. A tap or hold head pressed too early is ignored; an unresolved
 head misses after its successful window. A hold resolves once, using the worse

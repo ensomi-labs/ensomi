@@ -1,8 +1,23 @@
+import EnsomiRuntime
 import Foundation
 import Observation
 
 public typealias Mania4KHitObjectStreamFactory = @Sendable (URL) -> any Mania4KHitObjectStreaming
 public typealias InferenceEndpointClientFactory = @Sendable (InferenceEndpointConfiguration) -> any InferenceEndpointClient
+
+public struct Mania4KPlayHUD: Equatable, Sendable {
+    public let title: String?
+    public let accuracy: Double
+    public let combo: Int
+    public let latestJudgement: Judgement?
+
+    public init(title: String? = nil, accuracy: Double = 1, combo: Int = 0, latestJudgement: Judgement? = nil) {
+        self.title = title
+        self.accuracy = accuracy
+        self.combo = combo
+        self.latestJudgement = latestJudgement
+    }
+}
 
 private struct Mania4KFrameTiming {
     let gameplayChartTimeMs: Double
@@ -16,23 +31,41 @@ private struct Mania4KFrameTiming {
 @MainActor
 @Observable
 public final class Mania4KPlaySessionModel {
+    /// How long after its timestamp a key event may reach the session and still be judged at that timestamp. A
+    /// frame declares inputs delivered only up to its chart time minus this (the core never moves its clock back),
+    /// because key events stamped before the frame can still wait in the main thread's queue. Hits are judged as
+    /// soon as their key is handled; a miss shows up to this much later.
+    static let inputDeliveryAllowanceMs = 100.0
+    static let offsetStateKey = "mania4k.offsetCalibrationState"
+    static let musicVolumeKey = "mania4k.musicVolume"
+
     public var beatmapFileURL: URL?
     public var audioFileURL: URL?
     public var starDifficulty: Double
     public var scrollSpeed: Double
-    public var audioOffsetMilliseconds: Double
-    public var visualOffsetMilliseconds: Double
     public var judgeDifficulty: Mania4KJudgeDifficulty
     public var keyBindings: Mania4KKeyBindingSet
+    /// The offsets and presets, with each output device's audio offset. They change only while no game is in progress.
+    public private(set) var offsetState: Mania4KOffsetCalibrationStoredState
+    /// The song's level in play, from 0 to 1 of its own level. It changes only while no game is in progress.
+    public private(set) var musicVolume: Double
+    /// The output device whose audio offset is applied. A change of device during a game applies when the game ends.
+    public private(set) var outputDevice: Mania4KAudioOutputDevice?
 
     public private(set) var beatmapSelectionErrorMessage: String?
     public private(set) var audioSelectionErrorMessage: String?
     public private(set) var keyBindingErrorMessage: String?
     public private(set) var activeConfiguration: Mania4KPlayConfiguration?
-    public private(set) var phase: Mania4KPlayPhase
+    public private(set) var phase: Mania4KPlayPhase {
+        didSet { applyReportedOutputDevice() }
+    }
     public private(set) var playFrame: Mania4KPlayFrame?
-    public private(set) var gameplayFeedback: Mania4KGameplayFeedbackState
-    public private(set) var liveInputLaneStates: [Mania4KLaneState]
+    public private(set) var hud: Mania4KPlayHUD
+    public private(set) var judgementPresentation: JudgementPresentation?
+    /// A reference type: its state changes without notifying observers. The playfield pulls it every frame, and
+    /// `judgementPresentation` carries what SwiftUI shows.
+    public private(set) var gameplayFeedback: GameplayFeedback
+    public private(set) var liveInputLaneStates: [LaneState]
     public private(set) var backendSessionID: String?
     public private(set) var backendSessionStatus: String
     public private(set) var backendReceivedTokenCount: Int
@@ -41,6 +74,8 @@ public final class Mania4KPlaySessionModel {
     public private(set) var backendIsMock: Bool
     public private(set) var backendReferenceTimeMS: Double?
 
+    @ObservationIgnored private let settings: UserDefaults?
+    @ObservationIgnored private var reportedOutputDevice: Mania4KAudioOutputDevice?
     private let streamFactory: Mania4KHitObjectStreamFactory
     private let inferenceEndpointClientFactory: InferenceEndpointClientFactory
     private let defaultAudioClock: any Mania4KAudioClock
@@ -48,19 +83,19 @@ public final class Mania4KPlaySessionModel {
     @ObservationIgnored private var activeStream: (any Mania4KHitObjectStreaming)?
     @ObservationIgnored private var backendClient: (any InferenceEndpointClient)?
     @ObservationIgnored private var backendReceiveTask: Task<Void, Never>?
-    @ObservationIgnored private var engine: Mania4KJudgementEngine?
+    @ObservationIgnored private var gameplay: Mania4KGameplay?
     @ObservationIgnored private var metadata: Mania4KChartMetadata?
     @ObservationIgnored private var audioMetadata: Mania4KAudioMetadata?
     @ObservationIgnored private var streamCursor: Mania4KHitObjectStreamCursor?
-    @ObservationIgnored private var streamCompleteThroughChartTimeMs: Double
     @ObservationIgnored private var streamEnded: Bool
     private let streamReadGate: AsyncGate
     @ObservationIgnored private var inputSequenceNumber: UInt64
     @ObservationIgnored private var keyboardRouter: Mania4KKeyboardInputRouter
-    @ObservationIgnored private var frameLoopTask: Task<Void, Never>?
+    @ObservationIgnored private var streamRefillTask: Task<Void, Never>?
+    @ObservationIgnored private var isCheckingForFinish: Bool
+    @ObservationIgnored private var gameplayIsResolved: Bool
     @ObservationIgnored private var playStateGeneration: UInt64
-    @ObservationIgnored private var queuedGameplayInputs: [QueuedMania4KInput]
-    @ObservationIgnored private var isDrainingGameplayInputQueue: Bool
+    @ObservationIgnored private var pendingInputs: [Mania4KInputEvent]
 
     public init(
         beatmapFileURL: URL? = nil,
@@ -71,6 +106,7 @@ public final class Mania4KPlaySessionModel {
         visualOffsetMilliseconds: Double = Double(Mania4KDefaultPlaySettings.visualOffsetMilliseconds),
         judgeDifficulty: Mania4KJudgeDifficulty = .c,
         keyBindings: Mania4KKeyBindingSet = .default,
+        settings: UserDefaults? = nil,
         audioClock: any Mania4KAudioClock = AVFoundationMania4KAudioClock(),
         streamFactory: @escaping Mania4KHitObjectStreamFactory = { OsuMania4KBeatmapStream(beatmapFileURL: $0) },
         inferenceEndpointClientFactory: @escaping InferenceEndpointClientFactory = {
@@ -81,16 +117,31 @@ public final class Mania4KPlaySessionModel {
         self.audioFileURL = audioFileURL
         self.starDifficulty = starDifficulty
         self.scrollSpeed = scrollSpeed
-        self.audioOffsetMilliseconds = audioOffsetMilliseconds
-        self.visualOffsetMilliseconds = visualOffsetMilliseconds
         self.judgeDifficulty = judgeDifficulty
         self.keyBindings = keyBindings
+        // Offsets and volume stored in `settings` take the place of the given ones.
+        let storedOffsetState = settings?.string(forKey: Self.offsetStateKey)
+            .flatMap(Mania4KOffsetCalibrationStoredState.init(storageValue:))
+        self.offsetState = storedOffsetState.map {
+            Mania4KOffsetCalibrationModel.normalizedStoredState(
+                $0,
+                fallbackAppliedAudioOffsetMilliseconds: 0,
+                fallbackAppliedVisualOffsetMilliseconds: 0
+            )
+        } ?? Mania4KOffsetCalibrationStoredState(
+            appliedAudioOffsetMilliseconds: Int(audioOffsetMilliseconds.rounded()),
+            appliedVisualOffsetMilliseconds: Int(visualOffsetMilliseconds.rounded()),
+            presets: [Mania4KOffsetCalibrationStoredState.defaultPlayPreset]
+        )
+        self.musicVolume = settings?.object(forKey: Self.musicVolumeKey) as? Double ?? Mania4KDefaultPlaySettings.musicVolume
+        self.settings = settings
         self.defaultAudioClock = audioClock
         self.activeAudioClock = audioClock
         self.streamFactory = streamFactory
         self.inferenceEndpointClientFactory = inferenceEndpointClientFactory
         self.phase = .setup
-        self.gameplayFeedback = Mania4KGameplayFeedbackState()
+        self.hud = Mania4KPlayHUD()
+        self.gameplayFeedback = GameplayFeedback()
         self.liveInputLaneStates = Self.makeLaneStates(pressedLanes: [])
         self.backendSessionID = nil
         self.backendSessionStatus = "Idle"
@@ -99,18 +150,104 @@ public final class Mania4KPlaySessionModel {
         self.backendLastTokenDescription = nil
         self.backendIsMock = false
         self.backendReferenceTimeMS = nil
-        self.streamCompleteThroughChartTimeMs = 0
         self.streamEnded = false
         self.streamReadGate = AsyncGate()
         self.inputSequenceNumber = 0
         self.keyboardRouter = Mania4KKeyboardInputRouter(keyBindings: keyBindings)
         self.playStateGeneration = 0
-        self.queuedGameplayInputs = []
-        self.isDrainingGameplayInputQueue = false
+        self.pendingInputs = []
+        self.isCheckingForFinish = false
+        self.gameplayIsResolved = false
     }
 
     public var isReadyToStart: Bool {
         beatmapFileURL != nil && audioFileURL != nil && phase != .loading
+    }
+
+    /// A game has started and not ended. Volume, offsets and the output device's offset wait until it ends.
+    public var isGameInProgress: Bool {
+        switch phase {
+        case .loading, .ready, .playing, .paused: true
+        case .setup, .finished, .failed: false
+        }
+    }
+
+    /// The current output device's audio offset.
+    public var audioOffsetMilliseconds: Double {
+        Double(offsetState.appliedAudioOffsetMilliseconds)
+    }
+
+    /// The display's visual offset, the same for every output device.
+    public var visualOffsetMilliseconds: Double {
+        Double(offsetState.appliedVisualOffsetMilliseconds)
+    }
+
+    /// Sets the audio offset and saves it as the current output device's.
+    @discardableResult
+    public func setAudioOffset(_ milliseconds: Int) -> Bool {
+        var state = offsetState
+        state.setAudioOffset(milliseconds, for: outputDevice)
+        return updateOffsetState(state)
+    }
+
+    @discardableResult
+    public func setVisualOffset(_ milliseconds: Int) -> Bool {
+        var state = offsetState
+        state.appliedVisualOffsetMilliseconds = milliseconds
+        return updateOffsetState(state)
+    }
+
+    /// Takes offsets and presets as the offset calibration leaves them. The current output device's audio offset
+    /// stays the applied one.
+    @discardableResult
+    public func updateOffsetState(_ state: Mania4KOffsetCalibrationStoredState) -> Bool {
+        guard !isGameInProgress else {
+            return false
+        }
+
+        var state = state
+        if let outputDevice {
+            state.activate(outputDevice)
+        }
+        offsetState = state
+        settings?.set(state.storageValue, forKey: Self.offsetStateKey)
+        return true
+    }
+
+    /// Sets the song's level, which only scales it down: values outside 0 to 1 take the nearer end.
+    @discardableResult
+    public func setMusicVolume(_ volume: Double) -> Bool {
+        guard !isGameInProgress else {
+            return false
+        }
+
+        musicVolume = min(max(volume, 0), 1)
+        settings?.set(musicVolume, forKey: Self.musicVolumeKey)
+        return true
+    }
+
+    /// The output device is now `device`. Its audio offset, or the default for a device without one, applies at
+    /// once, or when the game in progress ends.
+    public func outputDeviceChanged(to device: Mania4KAudioOutputDevice?) {
+        reportedOutputDevice = device
+        applyReportedOutputDevice()
+    }
+
+    /// Follows the system's output device for the life of the app.
+    public func followSystemOutputDevice() {
+        Mania4KAudioOutputDevice.observeChanges { [weak self] in
+            self?.outputDeviceChanged(to: Mania4KAudioOutputDevice.current())
+        }
+        outputDeviceChanged(to: Mania4KAudioOutputDevice.current())
+    }
+
+    private func applyReportedOutputDevice() {
+        guard !isGameInProgress, reportedOutputDevice != outputDevice else {
+            return
+        }
+
+        outputDevice = reportedOutputDevice
+        updateOffsetState(offsetState)
     }
 
     public var beatmapFileName: String {
@@ -265,18 +402,10 @@ public final class Mania4KPlaySessionModel {
             visualOffsetMilliseconds: visualOffsetMilliseconds, judgeDifficulty: judgeDifficulty,
             keyBindings: keyBindings)
         let metadata = Mania4KChartMetadata(
-            title: title, artist: artist, sourceDescription: "Ensomi chart service",
+            title: title, artist: artist, sourceDescription: "Ensomi R2 generator",
             objectCount: chart.objectCount, durationMs: chart.durationMs)
-        do {
-            let stream = try InMemoryMania4KHitObjectStream(objects: chart.objects, metadata: metadata)
-            return await startPreparedPlay(configuration: configuration, stream: stream, startGeneration: generation)
-        } catch let error as Mania4KChartValidationError {
-            await fail(.chartPrepareFailed(error))
-            return false
-        } catch {
-            await fail(.streamFailed(error.localizedDescription))
-            return false
-        }
+        let stream = InMemoryMania4KHitObjectStream(objects: chart.objects, metadata: metadata)
+        return await startPreparedPlay(configuration: configuration, stream: stream, startGeneration: generation)
     }
 
     /// Start at the recognized reference clock; the local reference is never played aloud.
@@ -418,8 +547,8 @@ public final class Mania4KPlaySessionModel {
         activeAudioClock = playbackClock ?? defaultAudioClock
 
         activeStream = stream
-        var preparedEngine = Mania4KJudgementEngine(judgeDifficulty: judgeDifficulty)
-        engine = preparedEngine
+        let gameplay = Mania4KGameplay.streaming(judge: judgeDifficulty.judge, feedback: gameplayFeedback)
+        self.gameplay = gameplay
 
         let preparedMetadata: Mania4KChartMetadata
         do {
@@ -449,6 +578,8 @@ public final class Mania4KPlaySessionModel {
 
         let preparedAudioMetadata: Mania4KAudioMetadata
         do {
+            // The game keeps this level: the volume does not change while it is in progress.
+            await activeAudioClock.setMusicVolume(musicVolume)
             preparedAudioMetadata = try await activeAudioClock.prepare(audioFileURL: configuration.audioFileURL)
             if await abandonStaleStartIfNeeded(startGeneration) {
                 return false
@@ -470,7 +601,6 @@ public final class Mania4KPlaySessionModel {
         do {
             metadata = preparedMetadata
             audioMetadata = preparedAudioMetadata
-            streamCompleteThroughChartTimeMs = -.infinity
             streamCursor = nil
             streamEnded = false
             keyboardRouter.reset()
@@ -481,15 +611,10 @@ public final class Mania4KPlaySessionModel {
                 return false
             }
 
-            if let currentEngine = engine {
-                preparedEngine = currentEngine
-            }
-            let initialUpdate = preparedEngine.advance(to: initialTiming.gameplayChartTimeMs)
-            recordJudgementEvents(
-                initialUpdate.judgementEvents,
-                atChartTimeMs: initialTiming.gameplayChartTimeMs
+            gameplay.advance(
+                to: initialTiming.gameplayChartTimeMs - Self.inputDeliveryAllowanceMs,
+                frameTimeMs: initialTiming.gameplayChartTimeMs
             )
-            engine = preparedEngine
             publishFrame(timing: initialTiming)
 
             try await activeAudioClock.play()
@@ -497,7 +622,6 @@ public final class Mania4KPlaySessionModel {
                 return false
             }
             phase = .playing
-            startFrameLoop()
             return true
         } catch let validationError as Mania4KChartValidationError {
             guard isCurrentStart(startGeneration) else {
@@ -539,7 +663,7 @@ public final class Mania4KPlaySessionModel {
             try validatePlayStateGeneration(expectedGeneration)
         }
 
-        guard streamEnded || timing.gameplayChartTimeMs <= streamCompleteThroughChartTimeMs else {
+        guard timing.gameplayChartTimeMs <= streamCoverageMs else {
             throw Mania4KPlayFailure.streamFailed("The chart stream is not safe through the initial chart time.")
         }
 
@@ -552,8 +676,7 @@ public final class Mania4KPlaySessionModel {
         }
 
         phase = .paused
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
+        pendingInputs.removeAll()
         await activeAudioClock.pause()
     }
 
@@ -577,98 +700,104 @@ public final class Mania4KPlaySessionModel {
         }
 
         phase = .playing
-        startFrameLoop()
     }
 
     public func quitToSetup() async {
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         let previousClock = activeAudioClock
         resetPreparedPlayState()
         await previousClock.stop()
     }
 
+    /// One game frame that waits for the stream to cover it: reads ahead, delivers the inputs stamped up to this
+    /// frame in timestamp order, then advances judgement to the chart time of `hostTimeMs`. The frame is drawn for
+    /// `presentationHostTimeMs`, when the display shows it.
     @discardableResult
-    public func tick() async -> Bool {
+    public func tick(
+        atHostTimeMs hostTimeMs: Double = EnsomiHostClock.currentTimeMS(),
+        presentationHostTimeMs: Double? = nil
+    ) async -> Bool {
         guard phase == .playing else {
             return false
         }
 
-        let audioTimeMs = await activeAudioClock.currentAudioTimeMs()
-        let timing = frameTiming(audioTimeMs: audioTimeMs)
-        let streamReadThrough = timing.streamReadThroughChartTimeMs(scrollTimeMs: scrollTimeMs)
+        let presentationHostTimeMs = presentationHostTimeMs ?? hostTimeMs
+        let timing = frameTiming(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
+        let streamReadThrough = max(
+            timing.streamReadThroughChartTimeMs(scrollTimeMs: scrollTimeMs),
+            pendingInputs.map(\.chartTimeMs).max() ?? -.infinity
+        )
 
         do {
             try await readStream(throughChartTimeMs: streamReadThrough)
-            guard streamEnded || timing.gameplayChartTimeMs <= streamCompleteThroughChartTimeMs else {
-                await fail(.streamFailed("The chart stream fell behind the judgement clock."))
+            guard phase == .playing else {
                 return false
             }
 
-            if var engine {
-                let update = engine.advance(to: timing.gameplayChartTimeMs)
-                recordJudgementEvents(
-                    update.judgementEvents,
-                    atChartTimeMs: timing.gameplayChartTimeMs
-                )
-                self.engine = engine
-            }
-
-            publishFrame(timing: timing)
-            await finishIfNeeded(chartTimeMs: timing.gameplayChartTimeMs)
+            let judgedTiming = try judgeFrame(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
+            await finishIfNeeded(chartTimeMs: judgedTiming.gameplayChartTimeMs)
             return true
-        } catch let validationError as Mania4KChartValidationError {
-            await fail(.engineRejectedObjects(validationError))
-            return false
-        } catch let failure as Mania4KPlayFailure {
-            await fail(failure)
-            return false
         } catch {
-            await fail(.streamFailed(error.localizedDescription))
+            await fail(Self.playFailure(for: error))
             return false
         }
     }
 
+    /// One game frame for the display link, without suspending between delivering inputs and advancing the session.
+    /// The stream is read ahead in the background, so a stream that has not covered the frame fails the session.
     @discardableResult
-    public func handleKeyboardInput(key: String, isPressed: Bool, isRepeat: Bool) async -> Bool {
+    public func advanceFrame(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) -> Bool {
         guard phase == .playing else {
             return false
         }
 
-        let chartTimeMs = currentRoutedInputChartTimeMs()
+        do {
+            let timing = try judgeFrame(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
+            refillStreamIfNeeded(for: timing)
+            finishIfResolved(atChartTimeMs: timing.gameplayChartTimeMs)
+            return true
+        } catch {
+            phase = .failed(Self.playFailure(for: error))
+            Task { await releaseAfterFailure() }
+            return false
+        }
+    }
+
+    /// Queues a key event for the next frame, converting its timestamp (`NSEvent.timestamp`, in
+    /// `EnsomiHostClock` milliseconds) to chart time through the audio clock. Returns whether the key was accepted.
+    @discardableResult
+    public func handleKeyboardInput(
+        key: String,
+        isPressed: Bool,
+        isRepeat: Bool,
+        hostTimeMs: Double = EnsomiHostClock.currentTimeMS()
+    ) -> Bool {
+        guard phase == .playing else {
+            return false
+        }
+
         inputSequenceNumber += 1
         guard let input = keyboardRouter.route(
             key: key,
             isPressed: isPressed,
             isRepeat: isRepeat,
-            chartTimeMs: chartTimeMs,
+            chartTimeMs: gameplayChartTimeMs(atHostTimeMs: hostTimeMs),
             sequenceNumber: inputSequenceNumber
         ) else {
             return false
         }
 
-        gameplayFeedback.recordInput(input, atUITimeMs: EnsomiHostClock.currentTimeMS())
-        commitLiveInputState(input)
-        let handled = await enqueueGameplayInput(input, usesLiveChartTime: true)
-        if !handled {
-            syncLiveInputLaneStatesFromFrame()
-        }
-        return handled
+        accept(input, atUITimeMs: hostTimeMs)
+        return true
     }
 
     @discardableResult
-    public func handleInput(_ input: Mania4KInputEvent) async -> Bool {
+    public func handleInput(_ input: Mania4KInputEvent) -> Bool {
         guard phase == .playing else {
             return false
         }
 
-        gameplayFeedback.recordInput(input, atUITimeMs: EnsomiHostClock.currentTimeMS())
-        commitLiveInputState(input)
-        let handled = await enqueueGameplayInput(input)
-        if !handled {
-            syncLiveInputLaneStatesFromFrame()
-        }
-        return handled
+        accept(input, atUITimeMs: EnsomiHostClock.currentTimeMS())
+        return true
     }
 
     @discardableResult
@@ -704,106 +833,120 @@ public final class Mania4KPlaySessionModel {
         applyKeyBindings(.default)
     }
 
-    private func enqueueGameplayInput(_ input: Mania4KInputEvent, usesLiveChartTime: Bool = false) async -> Bool {
-        await withCheckedContinuation { continuation in
-            queuedGameplayInputs.append(
-                QueuedMania4KInput(
-                    input: input,
-                    usesLiveChartTime: usesLiveChartTime,
-                    generation: playStateGeneration,
-                    continuation: continuation
-                )
-            )
-            startGameplayInputQueueDrainIfNeeded()
-        }
+    private func accept(_ input: Mania4KInputEvent, atUITimeMs uiTimeMs: Double) {
+        gameplayFeedback.recordInput(
+            lane: input.lane.index,
+            phase: input.phase,
+            sequenceNumber: input.sequenceNumber,
+            uiTimeMs: uiTimeMs
+        )
+        commitLiveInputState(input)
+        pendingInputs.append(input)
     }
 
-    private func startGameplayInputQueueDrainIfNeeded() {
-        guard !isDrainingGameplayInputQueue else {
+    @discardableResult
+    private func judgeFrame(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) throws -> Mania4KFrameTiming {
+        let timing = frameTiming(atHostTimeMs: hostTimeMs, presentationHostTimeMs: presentationHostTimeMs)
+        guard let gameplay else {
+            return timing
+        }
+
+        let due = pendingInputs
+            .filter { $0.chartTimeMs <= timing.gameplayChartTimeMs }
+            .sorted { ($0.chartTimeMs, $0.sequenceNumber) < ($1.chartTimeMs, $1.sequenceNumber) }
+        pendingInputs.removeAll { $0.chartTimeMs <= timing.gameplayChartTimeMs }
+        for input in due {
+            gameplay.input(InputEvent(lane: input.lane.index, phase: input.phase, timeMs: input.chartTimeMs))
+        }
+
+        let watermarkMs = timing.gameplayChartTimeMs - Self.inputDeliveryAllowanceMs
+        gameplay.advance(to: watermarkMs, frameTimeMs: timing.gameplayChartTimeMs)
+        guard gameplay.session.decidedThroughMs() >= watermarkMs else {
+            throw Mania4KPlayFailure.streamFailed("The chart stream fell behind the judgement clock.")
+        }
+
+        publishFrame(timing: timing)
+        return timing
+    }
+
+    private func refillStreamIfNeeded(for timing: Mania4KFrameTiming) {
+        let through = timing.streamReadThroughChartTimeMs(scrollTimeMs: scrollTimeMs)
+        guard streamRefillTask == nil, !streamEnded, through > streamCoverageMs + 250 else {
             return
         }
 
-        isDrainingGameplayInputQueue = true
-        Task { [weak self] in
-            await self?.drainQueuedGameplayInputs()
+        let generation = playStateGeneration
+        streamRefillTask = Task { [weak self] in
+            do {
+                try await self?.readStream(throughChartTimeMs: through, expectedGeneration: generation)
+            } catch is StaleMania4KPlayStateError {
+            } catch {
+                await self?.failIfCurrent(generation, Self.playFailure(for: error))
+            }
+            if self?.playStateGeneration == generation {
+                self?.streamRefillTask = nil
+            }
         }
     }
 
-    private func drainQueuedGameplayInputs() async {
-        while !queuedGameplayInputs.isEmpty {
-            let queuedInput = queuedGameplayInputs.removeFirst()
-            let handled = await processQueuedGameplayInput(queuedInput)
-            queuedInput.continuation.resume(returning: handled)
+    private func finishIfResolved(atChartTimeMs chartTimeMs: Double) {
+        guard streamEnded, gameplayIsResolved, !isCheckingForFinish else {
+            return
         }
 
-        isDrainingGameplayInputQueue = false
-        if !queuedGameplayInputs.isEmpty {
-            startGameplayInputQueueDrainIfNeeded()
+        isCheckingForFinish = true
+        let generation = playStateGeneration
+        Task {
+            await finishIfNeeded(chartTimeMs: chartTimeMs)
+            if playStateGeneration == generation {
+                isCheckingForFinish = false
+            }
         }
     }
 
-    private func processQueuedGameplayInput(_ queuedInput: QueuedMania4KInput) async -> Bool {
-        guard playStateGeneration == queuedInput.generation, phase == .playing else {
-            return false
+    private func failIfCurrent(_ generation: UInt64, _ failure: Mania4KPlayFailure) async {
+        guard playStateGeneration == generation, phase == .playing else {
+            return
         }
 
-        let input: Mania4KInputEvent
-        if queuedInput.usesLiveChartTime {
-            input = await inputWithCurrentChartTime(queuedInput.input)
-        } else {
-            input = queuedInput.input
-        }
-
-        guard playStateGeneration == queuedInput.generation, phase == .playing else {
-            return false
-        }
-
-        guard await ensureStreamIsSafeForJudgement(at: input.chartTimeMs, generation: queuedInput.generation) else {
-            return false
-        }
-
-        guard playStateGeneration == queuedInput.generation, phase == .playing else {
-            return false
-        }
-
-        return applyInput(input)
+        await fail(failure)
     }
 
-    private func applyInput(_ input: Mania4KInputEvent) -> Bool {
-        guard var engine else {
-            return false
+    private static func playFailure(for error: Error) -> Mania4KPlayFailure {
+        switch error {
+        case let validationError as Mania4KChartValidationError:
+            return .engineRejectedObjects(validationError)
+        case let failure as Mania4KPlayFailure:
+            return failure
+        default:
+            return .streamFailed(error.localizedDescription)
         }
-        let update = engine.handle(input)
-        recordJudgementEvents(
-            update.judgementEvents,
-            atChartTimeMs: input.chartTimeMs
-        )
-        self.engine = engine
-        publishFrame(timing: frameTiming(gameplayChartTimeMs: input.chartTimeMs))
-        return true
     }
 
     private func resetPreparedPlayState() {
         playStateGeneration &+= 1
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
+        streamRefillTask?.cancel()
+        streamRefillTask = nil
+        isCheckingForFinish = false
+        gameplayIsResolved = false
         stopBackendSession(markStopped: false)
         activeConfiguration = nil
         if let previousStream = activeStream { Task { await previousStream.cancel() } }
         activeStream = nil
-        engine = nil
+        gameplay = nil
         metadata = nil
         audioMetadata = nil
         playFrame = nil
-        gameplayFeedback = Mania4KGameplayFeedbackState()
+        hud = Mania4KPlayHUD()
+        judgementPresentation = nil
+        gameplayFeedback = GameplayFeedback()
         phase = .setup
         streamCursor = nil
-        streamCompleteThroughChartTimeMs = -.infinity
         streamEnded = false
         inputSequenceNumber = 0
         keyboardRouter.reset()
         resetLiveInputLaneStates()
-        finishQueuedGameplayInputs(returning: false)
+        pendingInputs.removeAll()
     }
 
     private func startBackendReceiveTask(
@@ -910,35 +1053,16 @@ public final class Mania4KPlaySessionModel {
         backendSessionStatus = markStopped ? "Stopped" : "Idle"
     }
 
-    private func startFrameLoop() {
-        frameLoopTask?.cancel()
-        frameLoopTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: 16_666_667)
-                } catch {
-                    break
-                }
-
-                guard !Task.isCancelled else {
-                    break
-                }
-
-                await self?.tick()
-            }
-        }
-    }
-
     private func readStream(throughChartTimeMs: Double, expectedGeneration: UInt64? = nil) async throws {
         try validatePlayStateGeneration(expectedGeneration)
-        guard !streamEnded, throughChartTimeMs > streamCompleteThroughChartTimeMs else {
+        guard !streamEnded, throughChartTimeMs > streamCoverageMs else {
             return
         }
 
         while !streamReadGate.tryEnter() {
             try await streamReadGate.wait()
             try validatePlayStateGeneration(expectedGeneration)
-            guard !streamEnded, throughChartTimeMs > streamCompleteThroughChartTimeMs else {
+            guard !streamEnded, throughChartTimeMs > streamCoverageMs else {
                 return
             }
         }
@@ -966,95 +1090,71 @@ public final class Mania4KPlaySessionModel {
                 limit: 512
             )
             try validatePlayStateGeneration(expectedGeneration)
-            let previousWatermark = streamCompleteThroughChartTimeMs
-
-            if previousWatermark.isFinite,
-               let invalidObject = batch.objects.first(where: { $0.timeMs <= previousWatermark }) {
-                throw Mania4KPlayFailure.streamFailed(
-                    "The chart stream violated its watermark by emitting an object at \(invalidObject.timeMs) ms after declaring completion through \(previousWatermark) ms."
-                )
+            guard let gameplay else {
+                return
             }
 
-            if !batch.objects.isEmpty {
-                guard var engine else {
-                    throw Mania4KPlayFailure.streamFailed("Judgement engine is not prepared.")
-                }
-                try engine.ingest(batch.objects)
-                self.engine = engine
-            }
-
+            try gameplay.append(
+                tokens: batch.objects.map(\.token),
+                coverageMs: batch.completeThroughChartTimeMs,
+                endOfStream: batch.isEndOfStream
+            )
             streamCursor = batch.nextCursor
-            streamCompleteThroughChartTimeMs = max(streamCompleteThroughChartTimeMs, batch.completeThroughChartTimeMs)
             streamEnded = batch.isEndOfStream
-            if streamEnded, let engine {
-                try engine.validateEndOfStream()
-            }
 
             didReachLimit = batch.objects.count >= 512
         }
     }
 
-    private func recordJudgementEvents(_ events: [Mania4KJudgementEvent], atChartTimeMs chartTimeMs: Double) {
-        var updatedFeedback = gameplayFeedback
-        updatedFeedback.recordJudgementEvents(events, atChartTimeMs: chartTimeMs)
-        if updatedFeedback != gameplayFeedback {
-            gameplayFeedback = updatedFeedback
-        }
+    /// How far the chart stream is complete; nothing before the first page, infinite after the last.
+    private var streamCoverageMs: Double {
+        gameplay?.session.coverageMs() ?? -.infinity
     }
 
     private func publishFrame(timing: Mania4KFrameTiming) {
-        guard let metadata, let engine else {
+        guard let metadata, let gameplay else {
             return
         }
 
-        let snapshot = engine.snapshot(
-            visibleRange: (timing.renderChartTimeMs - 700)...(timing.renderChartTimeMs + scrollTimeMs + 250)
-        )
+        let session = gameplay.session
+        let score = session.score()
+        gameplayIsResolved = session.isResolved()
         playFrame = Mania4KPlayFrame(
             gameplayChartTimeMs: timing.gameplayChartTimeMs,
             renderChartTimeMs: timing.renderChartTimeMs,
             scrollTimeMs: scrollTimeMs,
             metadata: metadata,
-            visibleObjects: snapshot.visibleObjects,
-            score: snapshot.score,
-            laneStates: snapshot.laneStates,
-            latestJudgement: snapshot.latestJudgement
+            visibleObjects: session.visibleObjects(
+                lowerMs: timing.renderChartTimeMs - 700,
+                upperMs: timing.renderChartTimeMs + scrollTimeMs + 250
+            ),
+            score: score,
+            laneStates: session.laneStates(),
+            latestJudgement: gameplay.latestJudgement
         )
-    }
 
-    private func ensureStreamIsSafeForJudgement(at chartTimeMs: Double, generation: UInt64? = nil) async -> Bool {
-        do {
-            try validatePlayStateGeneration(generation)
-            try await readStream(throughChartTimeMs: chartTimeMs, expectedGeneration: generation)
-            try validatePlayStateGeneration(generation)
-            guard streamEnded || chartTimeMs <= streamCompleteThroughChartTimeMs else {
-                await fail(.streamFailed("The chart stream fell behind the judgement clock."))
-                return false
-            }
-            return true
-        } catch is StaleMania4KPlayStateError {
-            return false
-        } catch let validationError as Mania4KChartValidationError {
-            await fail(.engineRejectedObjects(validationError))
-            return false
-        } catch let failure as Mania4KPlayFailure {
-            await fail(failure)
-            return false
-        } catch {
-            await fail(.streamFailed(error.localizedDescription))
-            return false
+        // Views observe these two instead of `playFrame`, which changes every frame, so they redraw only when needed.
+        let hud = Mania4KPlayHUD(
+            title: metadata.title,
+            accuracy: score.accuracy,
+            combo: Int(score.combo),
+            latestJudgement: gameplay.latestJudgement?.judgement
+        )
+        if hud != self.hud {
+            self.hud = hud
+        }
+        let presentation = gameplayFeedback.judgementPresentation(chartTimeMs: timing.gameplayChartTimeMs)
+        if presentation != judgementPresentation {
+            judgementPresentation = presentation
         }
     }
 
     private func finishIfNeeded(chartTimeMs: Double) async {
-        guard streamEnded, let metadata, let engine else {
+        guard streamEnded, let metadata, let gameplay, gameplay.session.isResolved() else {
             return
         }
 
-        let snapshot = engine.snapshot(visibleRange: chartTimeMs...chartTimeMs)
-        guard snapshot.isResolved else {
-            return
-        }
+        let score = gameplay.session.score()
 
         let audioTimeMs = await activeAudioClock.currentAudioTimeMs()
         let running = await activeAudioClock.isRunning()
@@ -1065,31 +1165,31 @@ public final class Mania4KPlaySessionModel {
             return
         }
 
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         await activeAudioClock.stop()
         resetLiveInputLaneStates()
         if let activeStream { Task { await activeStream.cancel() } }
         phase = .finished(
             Mania4KPlayResult(
                 metadata: metadata,
-                score: snapshot.score,
+                score: score,
                 finishedChartTimeMs: chartTimeMs
             )
         )
     }
 
     private func fail(_ failure: Mania4KPlayFailure) async {
+        phase = .failed(failure)
+        await releaseAfterFailure()
+    }
+
+    private func releaseAfterFailure() async {
         let failureGeneration = playStateGeneration
-        frameLoopTask?.cancel()
-        frameLoopTask = nil
         await activeAudioClock.stop()
         guard playStateGeneration == failureGeneration else {
             return
         }
         resetLiveInputLaneStates()
         if let activeStream { Task { await activeStream.cancel() } }
-        phase = .failed(failure)
     }
 
     private func currentFrameTiming() async -> Mania4KFrameTiming {
@@ -1102,24 +1202,21 @@ public final class Mania4KPlaySessionModel {
         return frameTiming(gameplayChartTimeMs: gameplayChartTimeMs)
     }
 
+    private func frameTiming(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) -> Mania4KFrameTiming {
+        Mania4KFrameTiming(
+            gameplayChartTimeMs: gameplayChartTimeMs(atHostTimeMs: hostTimeMs),
+            renderChartTimeMs: gameplayChartTimeMs(atHostTimeMs: presentationHostTimeMs) + visualOffsetMilliseconds
+        )
+    }
+
+    private func gameplayChartTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
+        activeAudioClock.audioTimeMs(atHostTimeMs: hostTimeMs) + audioOffsetMilliseconds
+    }
+
     private func frameTiming(gameplayChartTimeMs: Double) -> Mania4KFrameTiming {
         Mania4KFrameTiming(
             gameplayChartTimeMs: gameplayChartTimeMs,
             renderChartTimeMs: gameplayChartTimeMs + visualOffsetMilliseconds
-        )
-    }
-
-    private func currentRoutedInputChartTimeMs() -> Double {
-        playFrame?.gameplayChartTimeMs ?? activeConfiguration?.audioOffsetMilliseconds ?? audioOffsetMilliseconds
-    }
-
-    private func inputWithCurrentChartTime(_ input: Mania4KInputEvent) async -> Mania4KInputEvent {
-        Mania4KInputEvent(
-            lane: input.lane,
-            phase: input.phase,
-            chartTimeMs: (await currentFrameTiming()).gameplayChartTimeMs,
-            sequenceNumber: input.sequenceNumber,
-            source: input.source
         )
     }
 
@@ -1148,22 +1245,15 @@ public final class Mania4KPlaySessionModel {
         }
     }
 
-    private func finishQueuedGameplayInputs(returning result: Bool) {
-        let queuedInputs = queuedGameplayInputs
-        queuedGameplayInputs.removeAll()
-        for queuedInput in queuedInputs {
-            queuedInput.continuation.resume(returning: result)
-        }
-    }
-
     private func commitLiveInputState(_ input: Mania4KInputEvent) {
         var pressedLanes = Set(liveInputLaneStates.filter(\.isPressed).map(\.lane))
+        let lane = input.lane.index
 
         switch input.phase {
         case .press:
-            pressedLanes.insert(input.lane)
+            pressedLanes.insert(lane)
         case .release:
-            pressedLanes.remove(input.lane)
+            pressedLanes.remove(lane)
         }
 
         liveInputLaneStates = Self.makeLaneStates(pressedLanes: pressedLanes)
@@ -1173,23 +1263,11 @@ public final class Mania4KPlaySessionModel {
         liveInputLaneStates = Self.makeLaneStates(pressedLanes: [])
     }
 
-    private func syncLiveInputLaneStatesFromFrame() {
-        let pressedLanes = Set(playFrame?.laneStates.filter(\.isPressed).map(\.lane) ?? [])
-        liveInputLaneStates = Self.makeLaneStates(pressedLanes: pressedLanes)
-    }
-
-    private static func makeLaneStates(pressedLanes: Set<Mania4KLane>) -> [Mania4KLaneState] {
+    private static func makeLaneStates(pressedLanes: Set<UInt32>) -> [LaneState] {
         Mania4KLane.allCases.map { lane in
-            Mania4KLaneState(lane: lane, isPressed: pressedLanes.contains(lane))
+            LaneState(lane: lane.index, isPressed: pressedLanes.contains(lane.index), holdingObject: nil)
         }
     }
-}
-
-private struct QueuedMania4KInput {
-    let input: Mania4KInputEvent
-    let usesLiveChartTime: Bool
-    let generation: UInt64
-    let continuation: CheckedContinuation<Bool, Never>
 }
 
 private actor FixedInferenceReferenceTimeProvider {

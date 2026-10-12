@@ -15,7 +15,23 @@ for the timing, streaming, and scoring contracts.
 ## Build and test
 
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
-macOS 14 and iOS 17. Generate the project from `project.yml`:
+macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Rust core in
+[ensomi-runtime](https://github.com/ensomi-labs/runtime): SwiftPM resolves its `EnsomiRuntime`
+package at the version pinned in `project.yml` (`0.1.0`) and downloads the xcframework from
+that release. The package carries the generator's resampler tables; the apps bundle none. The
+gameplay conformance test reads its fixtures from a runtime checkout beside this repository
+(`../ensomi-runtime/conformance/gameplay`) and is skipped without one.
+
+To develop against a local runtime, change `EnsomiRuntime` in `project.yml` to
+`path: ../ensomi-runtime` (do not commit it), build the xcframework with
+`../ensomi-runtime/scripts/build-apple.sh` (Rust with the `aarch64-apple-darwin`,
+`aarch64-apple-ios` and `aarch64-apple-ios-sim` targets) and set
+`ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework`, a path relative to the
+runtime package. SwiftPM reads the variable whenever it loads that package, also the released
+one: `xcodebuild` takes it from the shell, Xcode from `launchctl setenv`. Unset it in both to
+build with the release.
+
+Then generate the project from `project.yml`:
 
 ```sh
 xcodegen generate
@@ -29,8 +45,8 @@ follow the [canonical macOS installation guidance](AGENTS.md#macos-installation)
 
 SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
 [Sonalign](https://github.com/ensomi-labs/sonalign), pinned in `project.yml`
-(EnsomiProtocol `0.2.0`, Sonalign `0.1.0`). App builds need neither sibling package
-checkouts nor Rust. The optional synthetic alignment comparison uses the released Rust CLI:
+(EnsomiProtocol `0.2.0`, Sonalign `0.1.0`). The optional synthetic alignment comparison
+uses the released Rust CLI:
 
 ```sh
 cargo install sonalign --version 0.1.0 --locked --root .build/sonalign
@@ -47,11 +63,17 @@ startup, checkpoint identity, local audio preparation and troubleshooting.
 
 
 **Generate a Chart** builds a complete chart from a local audio file. Pick the file,
-set the stars (the model's range) and optional sections, and the app sends it to the
-local Ensomi R2 model service (`python -m ensomi_model.service --model-dir <dir>` from
+set the stars (the model's range), an optional seed and optional sections, and the chart is
+made on this device by the Rust core's generator with ONNX Runtime, from the Ensomi R2 model
+that Settings downloads from [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) (about
+120 MB, resumed after a dropped connection) or reads from a folder you choose. Nothing is sent
+to a server. The finished chart shows the seed that makes it again, plays from the start, and
+saves as `.osu` or as `.osz` with the song. See [solo device mode](docs/solo-device.md).
+
+The chart server stays selectable on the same screen: it runs the local Ensomi R2 model service
+(`python -m ensomi_model.service --model-dir <dir>` from
 [ensomi-model](https://github.com/ensomi-labs/ensomi-model), `ws://localhost:8765` by
-default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default). The
-complete chart plays from the start.
+default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default).
 
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
 Sync Flow** recognizes microphone or system audio, resolves a local reference,
@@ -74,7 +96,7 @@ Filescan debugging additionally requires the `acrcloud` executable and
 with `xcodebuild -project Ensomi.xcodeproj -scheme EnsomiACRCloudDebugCLI -configuration Debug -destination 'platform=macOS' build`
 and use its `--help` for options.
 
-Generation requires the companion [ensomi-model](https://github.com/ensomi-labs/ensomi-model)
+Generating on the chart server requires the companion [ensomi-model](https://github.com/ensomi-labs/ensomi-model)
 service, listening at `ws://localhost:8765` by default. It must be able to read the
 selected audio path; the client sends a path, not audio bytes. The websocket uses
 binary protobuf envelopes from EnsomiProtocol.

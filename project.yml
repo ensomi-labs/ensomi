@@ -13,6 +13,8 @@ settings:
     SWIFT_VERSION: 6.0
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: YES
+    # Apple Silicon only, the architecture of the Rust core's xcframework (macOS 27 dropped Intel).
+    EXCLUDED_ARCHS: x86_64
 
 fileGroups:
   - README.md
@@ -30,6 +32,9 @@ packages:
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf.git
     from: "1.38.0"
+  EnsomiRuntime:
+    url: https://github.com/ensomi-labs/runtime
+    exactVersion: "0.1.0"
 
 targets:
   EnsomiIOS:
@@ -89,6 +94,7 @@ targets:
       - package: EnsomiProtocol
       - package: SwiftProtobuf
       - package: Sonalign
+      - package: EnsomiRuntime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.ensomi.core
