@@ -17,10 +17,11 @@ struct ChartModelManagementView: View {
                 EmptyView()
             case .downloading(let fraction):
                 ProgressView(value: fraction) {
-                    Text("Downloading the model")
+                    EmptyView()
                 } currentValueLabel: {
                     Text(fraction, format: .percent.precision(.fractionLength(0)))
                 }
+                .accessibilityLabel("Model download")
             case .failed(let message):
                 Label(message, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -56,6 +57,9 @@ struct ChartModelManagementView: View {
     }
 
     private var status: String {
+        if case .downloading = library.download {
+            return "Downloading the Ensomi R2 model."
+        }
         if let folder = library.chosenFolder {
             return "Using the model in the folder “\(folder.lastPathComponent)”."
         }

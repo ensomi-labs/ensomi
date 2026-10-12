@@ -131,6 +131,12 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
   the play session in process with the engine's output volume at 0, so nothing is heard
   and no window opens.
 
+- `SetupScreenScreenshotTests` (`TEST_RUNNER_ENSOMI_SCREENSHOT_DIR`): renders Settings offscreen
+  with the Chart model section with no model, a download starting, a refused folder and a
+  chosen folder. Generate a Chart shows the same view while this device has no model;
+  that screen was not rendered, because its mode is private state a test cannot reach
+  without a window that takes events.
+
 ## Limits
 
 - CPU only, on macOS and iOS. The footprint is about 2 GiB on the Mac.
