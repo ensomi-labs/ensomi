@@ -20,8 +20,9 @@ enum OnDeviceFixtures {
         try existing("ensomi-model/artifacts/release-r2/bulk/hf/ensomi-r2/onnx", environment: "ENSOMI_R2_ONNX")
     }
 
+    /// The runtime's resampler tables, which the runtime package carries; the command line generator reads them here.
     static func resampler() throws -> URL {
-        try existing("ensomi-runtime/build/apple/resampler", environment: "ENSOMI_RESAMPLER")
+        try existing("ensomi-runtime/assets/resampler", environment: "ENSOMI_RESAMPLER")
     }
 
     static func song() throws -> URL {
@@ -45,14 +46,12 @@ func temporaryDirectory() throws -> URL {
 func isolatedLibrary(
     defaults: UserDefaults = UserDefaults(suiteName: UUID().uuidString)!,
     modelsDirectory: URL? = nil,
-    downloader: ChartModelDownloader = ChartModelDownloader(),
-    resamplerDirectory: URL? = nil
+    downloader: ChartModelDownloader = ChartModelDownloader()
 ) -> ChartModelLibrary {
     ChartModelLibrary(
         defaults: defaults,
         modelsDirectory: modelsDirectory ?? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
-        downloader: downloader,
-        resamplerDirectory: resamplerDirectory
+        downloader: downloader
     )
 }
 

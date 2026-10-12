@@ -117,9 +117,7 @@
 		DDFFCCDA6C2FC62646DD983F /* GameplayConformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABEE214BD915111344485803 /* GameplayConformanceTests.swift */; };
 		E0145F054DBD5E3E4F78D0A5 /* InferenceEndpointWebSocketClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9043271E8AAB34E4FF7F41F /* InferenceEndpointWebSocketClientTests.swift */; };
 		E1441CE0F24B4C62C19D9C10 /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
-		E44AF22859ED4C61E4F8C9D6 /* resampler in Resources */ = {isa = PBXBuildFile; fileRef = DE59321BD699705F2C0808BE /* resampler */; };
 		E4A175CFEC54E44978A94E85 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
-		E52A4BA3A2E306486D5605C2 /* resampler in Resources */ = {isa = PBXBuildFile; fileRef = DE59321BD699705F2C0808BE /* resampler */; };
 		EBCC5401ADF74160DA5E9A5E /* EnsomiRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 0B20B7668397204050BDB438 /* EnsomiRuntime */; };
 		EC29E01837B8385F9A18D6FF /* Mania4KChartGenerationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C88277801C6D92330BC7A0C /* Mania4KChartGenerationModel.swift */; };
 		EDB8513ECCADD936D0827B0B /* AmbientSyncEngineConfidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */; };
@@ -254,6 +252,7 @@
 		1CA123E827CD2F98FFE2B8FD /* EnsomiIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EnsomiIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KDomain.swift; sourceTree = "<group>"; };
 		2105014102FB61FA6A614AA9 /* 3-hold.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "3-hold.png"; sourceTree = "<group>"; };
+		219E4AFDCF561C7C81B0A596 /* ensomi-runtime */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "ensomi-runtime"; path = "../ensomi-runtime"; sourceTree = SOURCE_ROOT; };
 		256BE921A0938041801BDA07 /* CanonicalTrackDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalTrackDomain.swift; sourceTree = "<group>"; };
 		25D8E898D90830223780282D /* GameplayTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameplayTimingTests.swift; sourceTree = "<group>"; };
 		274685086015DCD5D91873C2 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
@@ -306,7 +305,6 @@
 		71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlledGenerationClientTests.swift; sourceTree = "<group>"; };
 		745E56D4599AE08524EC2304 /* 2-chord-passage.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "2-chord-passage.png"; sourceTree = "<group>"; };
 		750DCD21FCA11D25899D9F3A /* Mania4KGeneratedChartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KGeneratedChartTests.swift; sourceTree = "<group>"; };
-		755356C3BDB1F71A5EFBF29C /* swift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = swift; path = "../ensomi-runtime/swift"; sourceTree = SOURCE_ROOT; };
 		75886F64415807453FE396A6 /* Mania4KAudioOutputDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KAudioOutputDevice.swift; sourceTree = "<group>"; };
 		76CAF87E8285006A4D695988 /* gameplay-look.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "gameplay-look.md"; sourceTree = "<group>"; };
 		7A10203836A336DFD9DD46B1 /* OnDeviceTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnDeviceTestSupport.swift; sourceTree = "<group>"; };
@@ -367,7 +365,6 @@
 		DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncSessionEngineTests.swift; sourceTree = "<group>"; };
 		DC883B62F578815D5059958F /* AmbientMicCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientMicCaptureTests.swift; sourceTree = "<group>"; };
 		DD20768A9B51BB8BFDA096DE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		DE59321BD699705F2C0808BE /* resampler */ = {isa = PBXFileReference; lastKnownFileType = folder; name = resampler; path = "../ensomi-runtime/build/apple/resampler"; sourceTree = SOURCE_ROOT; };
 		E624D5281CEFB59F016F2B21 /* 5-paused.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "5-paused.png"; sourceTree = "<group>"; };
 		E673654237B46B5E826EFBF5 /* solo-device.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "solo-device.md"; sourceTree = "<group>"; };
 		E6F1AC6E7432F2565CD460B9 /* LocalTrackResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTrackResolver.swift; sourceTree = "<group>"; };
@@ -592,23 +589,6 @@
 			path = EnsomiMac;
 			sourceTree = "<group>";
 		};
-		64F4DDAB48B8E5564B0EDEB7 /* build */ = {
-			isa = PBXGroup;
-			children = (
-				8A213A02F2928A11EFC34ECB /* apple */,
-			);
-			path = build;
-			sourceTree = "<group>";
-		};
-		655842CABC6130189F3FA6F7 /* ensomi */ = {
-			isa = PBXGroup;
-			children = (
-				C9A725C0BC834961BC22BA00 /* ensomi-runtime */,
-			);
-			name = ensomi;
-			path = ..;
-			sourceTree = "<group>";
-		};
 		693CF73240A1C63C555AE02C /* Audio */ = {
 			isa = PBXGroup;
 			children = (
@@ -642,7 +622,6 @@
 				97EB5E0DC2F0F85617EF3F1F /* README.md */,
 				2D7492E817727A6241F5D128 /* Apps */,
 				90CC7293C2933FB8D7B8C2D4 /* docs */,
-				655842CABC6130189F3FA6F7 /* ensomi */,
 				F3DD720B265888831F5DC525 /* Packages */,
 				E36DE21B8BFC0A3FC2A5AED0 /* Sources */,
 				E1DEB0BA81EC9A159F66D028 /* Tests */,
@@ -712,14 +691,6 @@
 				BBE632F5A61553AA6F2DFD92 /* SystemAudioFeatureStreamService.swift */,
 			);
 			path = AmbientSync;
-			sourceTree = "<group>";
-		};
-		8A213A02F2928A11EFC34ECB /* apple */ = {
-			isa = PBXGroup;
-			children = (
-				DE59321BD699705F2C0808BE /* resampler */,
-			);
-			path = apple;
 			sourceTree = "<group>";
 		};
 		90CC7293C2933FB8D7B8C2D4 /* docs */ = {
@@ -799,14 +770,6 @@
 				C475CD76B745234E25E28F8C /* MicrophonePermissionService.swift */,
 			);
 			path = Permissions;
-			sourceTree = "<group>";
-		};
-		C9A725C0BC834961BC22BA00 /* ensomi-runtime */ = {
-			isa = PBXGroup;
-			children = (
-				64F4DDAB48B8E5564B0EDEB7 /* build */,
-			);
-			path = "ensomi-runtime";
 			sourceTree = "<group>";
 		};
 		CD1F1B34AE3284D17B102424 /* Domain */ = {
@@ -915,7 +878,7 @@
 		F3DD720B265888831F5DC525 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				755356C3BDB1F71A5EFBF29C /* swift */,
+				219E4AFDCF561C7C81B0A596 /* ensomi-runtime */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -978,7 +941,6 @@
 			buildConfigurationList = 147984DB15A622EABEA3B150 /* Build configuration list for PBXNativeTarget "EnsomiIOS" */;
 			buildPhases = (
 				A887355F8652DD376AD67FCD /* Sources */,
-				CC13414753D39E3B2752E35C /* Resources */,
 				415FACE650F31EFA610DEB5C /* Frameworks */,
 				185213D7784F51899281F1A2 /* Embed Frameworks */,
 			);
@@ -1101,7 +1063,7 @@
 				08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */,
 				67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */,
 				CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
-				BD676EAD3E9958E84DCC345D /* XCLocalSwiftPackageReference "../ensomi-runtime/swift" */,
+				8B34A5ADE4B7773A48E53FAA /* XCLocalSwiftPackageReference "../ensomi-runtime" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A0B326C1B9FCAD1270220348 /* Products */;
@@ -1124,7 +1086,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				2BEAE5263C556CB8D8239465 /* Assets.xcassets in Resources */,
-				E44AF22859ED4C61E4F8C9D6 /* resampler in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1133,14 +1094,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				36209F90B7F1607AB6FF214A /* calibration_tick.wav in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		CC13414753D39E3B2752E35C /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				E52A4BA3A2E306486D5605C2 /* resampler in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1787,9 +1740,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		BD676EAD3E9958E84DCC345D /* XCLocalSwiftPackageReference "../ensomi-runtime/swift" */ = {
+		8B34A5ADE4B7773A48E53FAA /* XCLocalSwiftPackageReference "../ensomi-runtime" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../ensomi-runtime/swift";
+			relativePath = "../ensomi-runtime";
 		};
 /* End XCLocalSwiftPackageReference section */
 

@@ -15,19 +15,29 @@ for the timing, streaming, and scoring contracts.
 ## Build and test
 
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
-macOS 14 and iOS 17. The gameplay rules come from the Rust core in
+macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Rust core in
 [ensomi-runtime](https://github.com/ensomi-labs/runtime), checked out beside this
-repository (`../ensomi-runtime`) and linked as the local Swift package
-`../ensomi-runtime/swift`. Build its xcframework first, which needs Rust (`rustup`
-with the `aarch64-apple-darwin`, `aarch64-apple-ios` and `aarch64-apple-ios-sim`
-targets), and again after the core changes:
+repository (`../ensomi-runtime`) and linked as the local Swift package at its root. That
+package takes its xcframework from a runtime release unless `ENSOMI_RUNTIME_XCFRAMEWORK`
+names a local one, so local builds build it, which needs Rust (`rustup` with the
+`aarch64-apple-darwin`, `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets), and again
+after the core changes:
 
 ```sh
 ../ensomi-runtime/scripts/build-apple.sh
 ```
 
-The script also puts the generator's resampler tables in `../ensomi-runtime/build/apple/resampler`,
-which `project.yml` bundles into both apps as a folder resource.
+SwiftPM reads the variable when it loads the package, for every build. A relative path is
+relative to `../ensomi-runtime`. `xcodebuild` takes it from the shell:
+
+```sh
+export ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework
+```
+
+Xcode takes it from launchd: run `launchctl setenv ENSOMI_RUNTIME_XCFRAMEWORK
+build/apple/EnsomiRuntimeFFI.xcframework` once per login, then start Xcode; if it keeps the
+xcframework it resolved before, use File > Packages > Reset Package Caches. The runtime package
+carries the generator's resampler tables; the apps bundle none.
 
 Then generate the project from `project.yml`:
 

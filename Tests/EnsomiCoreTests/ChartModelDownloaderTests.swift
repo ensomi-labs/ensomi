@@ -33,8 +33,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         let source = try publishedCopy(of: model, in: scratch.appendingPathComponent("source"))
         let library = isolatedLibrary(
             modelsDirectory: scratch.appendingPathComponent("models"),
-            downloader: ChartModelDownloader(source: source),
-            resamplerDirectory: try OnDeviceFixtures.resampler()
+            downloader: ChartModelDownloader(source: source)
         )
         XCTAssertFalse(library.hasModel)
 
@@ -192,7 +191,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["ENSOMI_MODEL_DOWNLOAD_LIVE"] != nil else {
             throw XCTSkip("Set TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1 to download the model from Hugging Face.")
         }
-        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), resamplerDirectory: try OnDeviceFixtures.resampler())
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"))
         var fractions: [Double] = []
         let started = Date()
         library.startDownload()

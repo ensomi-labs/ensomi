@@ -41,8 +41,9 @@ public actor OnDeviceChartGenerator {
     public nonisolated let capabilities: ChartGenerationCapabilities
     private let generator: ChartGenerator
 
-    /// Reads the model and its files (a fraction of a second), so call it off the main actor.
-    public init(modelDirectory: URL, resamplerDirectory: URL?) throws {
+    /// Reads the model and its files (a fraction of a second), so call it off the main actor. Without
+    /// `resamplerDirectory`, PCM at a rate other than 22050 Hz is resampled with the tables the runtime package carries.
+    public init(modelDirectory: URL, resamplerDirectory: URL? = nil) throws {
         let opened = try ChartGenerator.open(
             modelDirectory: modelDirectory.path,
             options: GeneratorOptions(provider: .cpu, resamplerDirectory: resamplerDirectory?.path)

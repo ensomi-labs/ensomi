@@ -29,7 +29,6 @@ public final class ChartModelLibrary {
 
     private let defaults: UserDefaults
     private let downloader: ChartModelDownloader
-    private let resamplerDirectory: URL?
     private let installDirectory: URL
     @ObservationIgnored private var downloadTask: Task<Void, Never>?
     @ObservationIgnored private var scopedFolder: URL?
@@ -50,16 +49,13 @@ public final class ChartModelLibrary {
         URL.applicationSupportDirectory.appendingPathComponent("Ensomi/Models", isDirectory: true)
     }
 
-    /// `resamplerDirectory` holds the resampler tables the app bundles (see `docs/solo-device.md`).
     public init(
         defaults: UserDefaults = .standard,
         modelsDirectory: URL = ChartModelLibrary.defaultModelsDirectory,
-        downloader: ChartModelDownloader = ChartModelDownloader(),
-        resamplerDirectory: URL? = Bundle.main.url(forResource: "resampler", withExtension: nil)
+        downloader: ChartModelDownloader = ChartModelDownloader()
     ) {
         self.defaults = defaults
         self.downloader = downloader
-        self.resamplerDirectory = resamplerDirectory
         installDirectory = modelsDirectory.appendingPathComponent("ensomi-r2", isDirectory: true)
         isDownloaded = FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent("runtime.json").path)
         hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
@@ -94,10 +90,9 @@ public final class ChartModelLibrary {
         downloadTask = Task {
             defer { downloadTask = nil }
             do {
-                let resamplerDirectory = resamplerDirectory
                 try await downloader.install(
                     into: installDirectory,
-                    validate: { _ = try OnDeviceChartGenerator(modelDirectory: $0, resamplerDirectory: resamplerDirectory) },
+                    validate: { _ = try OnDeviceChartGenerator(modelDirectory: $0) },
                     progress: { fraction in Task { @MainActor in self.report(fraction) } }
                 )
                 isDownloaded = true
@@ -159,9 +154,8 @@ public final class ChartModelLibrary {
     }
 
     private func openGenerator(_ directory: URL) async throws -> OnDeviceChartGenerator {
-        let resamplerDirectory = resamplerDirectory
-        return try await Task.detached {
-            try OnDeviceChartGenerator(modelDirectory: directory, resamplerDirectory: resamplerDirectory)
+        try await Task.detached {
+            try OnDeviceChartGenerator(modelDirectory: directory)
         }.value
     }
 

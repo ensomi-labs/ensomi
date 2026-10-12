@@ -66,18 +66,16 @@ selectable and the choice is remembered. The engine picker is disabled during a 
 
 The core resamples any PCM not at 22050 Hz with the runtime's soxr tables. Those 27 files
 (`resample-<rate>.json`, `.bin` and `-boundary.bin` for 11025, 16000, 24000, 32000, 44100, 48000,
-88200, 96000 and 192000 Hz, 14 MB) are not in the runtime repository. The runtime's
-`scripts/build-apple.sh` copies them from the TypeScript runtime's
-`ensomi-web/packages/runtime/assets` into `../ensomi-runtime/build/apple/resampler`, and
-`project.yml` bundles that directory into `EnsomiMac` and `EnsomiIOS` as a folder resource
-(`resampler` in the bundle's resources). The app passes the bundled directory as
-`resamplerDirectory`. A song at 22050 Hz needs none of them.
+88200, 96000 and 192000 Hz, 14 MB) are in the runtime repository (`assets/resampler`), and its
+Swift package carries them as a resource, which `ChartGenerator.open` reads when no
+`resamplerDirectory` is given. The app bundles none of them. A song at 22050 Hz needs none of them.
 
 Generate lists the core's five phases (loading, timing, rows, arrangement, export) as they
 pass. Stop cancels the task; the core stops at its next graph run or phase and the screen says
 no chart was made. A refusal (`star_out_of_range`, `unsupported_control`, `generation_failed`) or
-an unreadable model shows the core's message under "The chart could not be made." The generator
-is opened once and kept.
+an unreadable model shows the core's message under "The chart could not be made." So does a panic
+in the core, which ends only its own generation (`generation_failed`, "internal error: ..."). The
+generator is opened once and kept.
 
 ## Seed and export
 
@@ -168,7 +166,7 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
     -destination 'platform=macOS' -derivedDataPath .build/solo test \
     -only-testing:EnsomiCoreTests/OnDeviceParityAndRunTests/testChartMatchesTheNativeGeneratorOnTheSamePCM
   ../ensomi-runtime/target/apple/release/generate --model-dir ../ensomi-model/artifacts/release-r2/bulk/hf/ensomi-r2/onnx \
-    --assets ../ensomi-runtime/build/apple/resampler --pcm .build/parity/saigetsu.f32 --sample-rate 44100 \
+    --assets ../ensomi-runtime/assets/resampler --pcm .build/parity/saigetsu.f32 --sample-rate 44100 \
     --star 3.5 --seed 0 --title Saigetsu --artist Parity --audio-name audio.mp3 --out .build/parity/by-hand.osu
   cmp .build/parity/app.osu .build/parity/by-hand.osu
   ```
@@ -182,7 +180,12 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
   1152 objects with seed 1520549647 in 8.8 s, a 2,138,366-byte `.osz`.
 - The runtime's checks for the exporter: `cargo test -p ensomi-osz` reads the archive back with
   the `zip` crate (names, order, stored and deflated entries, contents, same bytes twice), and
-  `swift test` in `ensomi-runtime/swift` opens `exportOsz`'s archive with `/usr/bin/unzip`.
+  `swift test` at `ensomi-runtime`'s root opens `exportOsz`'s archive with `/usr/bin/unzip`.
+- `OnDeviceParityAndRunTests.testAFailedGenerationLeavesTheGeneratorWorking`: a 48 kHz song with a
+  resampler table cut short fails with the core's message, and the next song (22050 Hz) gets a
+  chart from the same generator. That a panic in the core ends only its own generation is shown by
+  the runtime's `crates/ffi/tests/generator.rs`, whose listener panics: the app has no way to make
+  the core panic on purpose.
 - `OnDeviceParityAndRunTests.testGenerateOnThisDeviceThenAutoplaySilently`
   (`TEST_RUNNER_ENSOMI_E2E_RUN=1`): the numbers above. It drives the generation model and
   the play session in process with the engine's output volume at 0, so nothing is heard

@@ -27,7 +27,7 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         let pcm = output.appendingPathComponent("saigetsu.f32")
         try audio.samples.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: pcm)
 
-        let generator = try OnDeviceChartGenerator(modelDirectory: model, resamplerDirectory: resampler)
+        let generator = try OnDeviceChartGenerator(modelDirectory: model)
         let result = try await generator.generate(
             audioURL: song, star: 3.5, seed: 0, title: Self.title, artist: Self.artist)
         let app = output.appendingPathComponent("app.osu")
@@ -51,13 +51,54 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         XCTAssertEqual(result.receipt.star, 3.5)
     }
 
+    /// A failed generation reaches the app as the core's error, and the generator still works. A resampler table cut
+    /// short used to make the core panic and leave the generator failing every later generation; the core now refuses
+    /// it, and a panic elsewhere ends only its own generation (`ensomi-runtime/crates/ffi/tests/generator.rs`).
+    func testAFailedGenerationLeavesTheGeneratorWorking() async throws {
+        let model = try OnDeviceFixtures.model()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tables = directory.appendingPathComponent("resampler")
+        try FileManager.default.createDirectory(at: tables, withIntermediateDirectories: true)
+        for name in ["resample-48000.json", "resample-48000.bin", "resample-48000-boundary.bin"] {
+            let data = try Data(contentsOf: try OnDeviceFixtures.resampler().appendingPathComponent(name))
+            try (name == "resample-48000.bin" ? data.prefix(data.count / 2) : data).write(to: tables.appendingPathComponent(name))
+        }
+        let generator = try OnDeviceChartGenerator(modelDirectory: model, resamplerDirectory: tables)
+
+        do {
+            _ = try await generator.generate(audioURL: try noise(sampleRate: 48_000, in: directory), star: 3, seed: 0)
+            XCTFail("the generation with a broken table finished")
+        } catch {
+            XCTAssertTrue(OnDeviceChartGenerator.message(for: error).contains("resampler table"), "\(error)")
+        }
+        let result = try await generator.generate(audioURL: try noise(sampleRate: 22_050, in: directory), star: 3, seed: 0)
+        XCTAssertFalse(result.chart.objects.isEmpty)
+    }
+
+    /// Twenty seconds of reproducible noise in a WAV file at `sampleRate`.
+    private func noise(sampleRate: Double, in directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("noise-\(Int(sampleRate)).wav")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1))
+        let frames = AVAudioFrameCount(sampleRate * 20)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+        buffer.frameLength = frames
+        var state: UInt32 = 1
+        for frame in 0..<Int(frames) {
+            state = state &* 1_664_525 &+ 1_013_904_223
+            buffer.floatChannelData![0][frame] = Float(state >> 8) / Float(1 << 24) - 0.5
+        }
+        try AVAudioFile(forWriting: url, settings: format.settings).write(from: buffer)
+        return url
+    }
+
     /// Generates saigetsu on this device through the generation model with a random seed, then makes both exports:
     /// the `.osu` is the chart that was generated, and the `.osz` opens with the system's unzip and holds it, the song
     /// and the receipt with the seed. Nothing is played.
     func testGenerateOnThisDeviceThenExport() async throws {
         let song = try OnDeviceFixtures.song()
         let library = isolatedLibrary(
-            defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), resamplerDirectory: try OnDeviceFixtures.resampler())
+            defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
         await library.choose(folder: try OnDeviceFixtures.model())
         let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
         await generation.loadCapabilities()
@@ -98,7 +139,7 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         }
         let song = try OnDeviceFixtures.song()
         let library = isolatedLibrary(
-            defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), resamplerDirectory: try OnDeviceFixtures.resampler())
+            defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
         let started = Date()
         await library.choose(folder: try OnDeviceFixtures.model())
         let openSeconds = Date().timeIntervalSince(started)
