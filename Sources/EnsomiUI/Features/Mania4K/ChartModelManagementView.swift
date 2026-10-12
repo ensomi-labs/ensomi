@@ -34,16 +34,16 @@ struct ChartModelManagementView: View {
             }
 
             HStack {
-                if case .downloading = library.download {
+                if isDownloading {
                     Button("Cancel Download", action: library.cancelDownload)
                 } else {
-                    Button(library.isDownloaded ? "Download Again" : "Download Model", systemImage: "arrow.down.circle", action: library.startDownload)
+                    Button(downloadTitle, systemImage: "arrow.down.circle", action: library.startDownload)
                 }
                 Button("Choose Folder…", systemImage: "folder") { isChoosingFolder = true }
                 if library.chosenFolder != nil {
                     Button("Use Downloaded Model", action: library.forgetChosenFolder)
                         .disabled(!library.isDownloaded)
-                } else if library.isDownloaded {
+                } else if (library.isDownloaded || library.hasPartialDownload) && !isDownloading {
                     Button("Remove Download", role: .destructive, action: library.removeDownload)
                 }
             }
@@ -56,8 +56,18 @@ struct ChartModelManagementView: View {
         }
     }
 
+    private var isDownloading: Bool {
+        if case .downloading = library.download { return true }
+        return false
+    }
+
+    private var downloadTitle: String {
+        if library.hasPartialDownload { return "Resume Download" }
+        return library.isDownloaded ? "Download Again" : "Download Model"
+    }
+
     private var status: String {
-        if case .downloading = library.download {
+        if isDownloading {
             return "Downloading the Ensomi R2 model."
         }
         if let folder = library.chosenFolder {
@@ -65,6 +75,9 @@ struct ChartModelManagementView: View {
         }
         if library.isDownloaded {
             return "The Ensomi R2 model is downloaded."
+        }
+        if library.hasPartialDownload {
+            return "The download of Ensomi R2 stopped before it finished. Resume Download continues from the files already here."
         }
         return "No model is installed. Download Ensomi R2 (about 120 MB) or choose a folder that holds its onnx files."
     }

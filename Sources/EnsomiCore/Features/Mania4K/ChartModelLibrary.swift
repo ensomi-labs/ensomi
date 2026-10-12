@@ -22,6 +22,8 @@ public final class ChartModelLibrary {
     public private(set) var download = Download.idle
     public private(set) var chosenFolder: URL?
     public private(set) var isDownloaded = false
+    /// A download stopped before it finished; the next one continues from its files.
+    public private(set) var hasPartialDownload = false
     /// Why the last chosen folder was refused.
     public private(set) var folderError: String?
 
@@ -60,7 +62,12 @@ public final class ChartModelLibrary {
         self.resamplerDirectory = resamplerDirectory
         installDirectory = modelsDirectory.appendingPathComponent("ensomi-r2", isDirectory: true)
         isDownloaded = FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent("runtime.json").path)
+        hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         restoreChosenFolder()
+    }
+
+    private var stagingDirectory: URL {
+        ChartModelDownloader.stagingDirectory(for: installDirectory)
     }
 
     /// The directory of the model in use, if any.
@@ -103,6 +110,7 @@ public final class ChartModelLibrary {
             } catch {
                 download = .failed(OnDeviceChartGenerator.message(for: error))
             }
+            hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         }
     }
 
@@ -110,9 +118,12 @@ public final class ChartModelLibrary {
         downloadTask?.cancel()
     }
 
+    /// Deletes the downloaded model and the files of a download that stopped.
     public func removeDownload() {
         try? FileManager.default.removeItem(at: installDirectory)
+        try? FileManager.default.removeItem(at: stagingDirectory)
         isDownloaded = false
+        hasPartialDownload = false
         download = .idle
         opened = nil
     }

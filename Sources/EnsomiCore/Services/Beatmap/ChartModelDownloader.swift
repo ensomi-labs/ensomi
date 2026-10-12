@@ -31,8 +31,10 @@ public enum ChartModelDownloadError: Error, Equatable, LocalizedError {
     }
 }
 
-/// Downloads the model's files into a temporary directory next to the install directory and moves the directory
-/// into place only when every file has its listed size and checksum and the directory validates.
+/// Downloads the model's files into a directory beside the install directory and moves it into place only when every
+/// file has its listed size and checksum and the directory validates. A download that fails or is cancelled leaves that
+/// directory with the files finished so far and the one in progress (`<name>.part`), and the next install continues
+/// from there: finished files are checked again and the partial one is resumed with an HTTP Range request.
 public struct ChartModelDownloader: Sendable {
     public var source: ChartModelSource
     public var session: URLSession
@@ -50,8 +52,14 @@ public struct ChartModelDownloader: Sendable {
         let lfs: LFS?
     }
 
-    /// `progress` hears the fraction of the model's bytes written, a whole percent at a time.
-    /// Cancelling the task removes everything it wrote.
+    /// Where the download of `installDirectory` collects its files: `.download-<name>` beside it.
+    public static func stagingDirectory(for installDirectory: URL) -> URL {
+        installDirectory.deletingLastPathComponent()
+            .appendingPathComponent(".download-\(installDirectory.lastPathComponent)", isDirectory: true)
+    }
+
+    /// `progress` hears the fraction of the model's bytes on disk, a whole percent at a time. Cancelling the task
+    /// stops the download and keeps what it wrote for the next install.
     public func install(
         into installDirectory: URL,
         validate: @Sendable (URL) throws -> Void,
@@ -65,15 +73,8 @@ public struct ChartModelDownloader: Sendable {
         }
 
         let fileManager = FileManager.default
-        let parent = installDirectory.deletingLastPathComponent()
-        try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        for stale in try fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil)
-        where stale.lastPathComponent.hasPrefix(".download-") {
-            try fileManager.removeItem(at: stale)
-        }
-        let staging = parent.appendingPathComponent(".download-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: staging, withIntermediateDirectories: false)
-        defer { try? fileManager.removeItem(at: staging) }
+        let staging = Self.stagingDirectory(for: installDirectory)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
 
         let tracker = ProgressTracker(report: progress)
         try await fetch("runtime.json", entries: entries, into: staging, tracker: tracker)
@@ -97,20 +98,51 @@ public struct ChartModelDownloader: Sendable {
         progress(1)
     }
 
+    /// Brings `name` into `staging` and checks its size and checksum. A copy finished at an earlier start is kept if
+    /// it still passes. A partial one is continued, and started again if the whole then fails, as it does when the
+    /// published file changed in between.
     private func fetch(_ name: String, entries: [String: Entry], into staging: URL, tracker: ProgressTracker) async throws {
         let entry = try Self.entry(named: name, in: entries)
-        let (temporary, response) = try await session.download(
-            from: source.files.appendingPathComponent(name), delegate: ProgressDelegate(tracker: tracker))
-        try Self.checkStatus(response, name: name)
+        let fileManager = FileManager.default
         let file = staging.appendingPathComponent(name)
-        try FileManager.default.moveItem(at: temporary, to: file)
-
-        let size = try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? UInt64 ?? 0
-        guard size == entry.size else { throw ChartModelDownloadError.size(name: name, expected: entry.size, actual: size) }
-        if let checksum = entry.lfs?.oid, try Self.sha256Hex(of: file) != checksum {
-            throw ChartModelDownloadError.checksum(name)
+        if fileManager.fileExists(atPath: file.path) {
+            if (try? Self.check(file, against: entry, name: name)) != nil {
+                tracker.finished += entry.size
+                return
+            }
+            try fileManager.removeItem(at: file)
         }
-        tracker.finished += size
+
+        let partial = staging.appendingPathComponent(name + ".part")
+        let resuming = Self.size(of: partial) > 0
+        try await download(name, size: entry.size, to: partial, tracker: tracker)
+        do {
+            try Self.check(partial, against: entry, name: name)
+        } catch {
+            try fileManager.removeItem(at: partial)
+            guard resuming else { throw error }
+            try await download(name, size: entry.size, to: partial, tracker: tracker)
+            try Self.check(partial, against: entry, name: name)
+        }
+        try fileManager.moveItem(at: partial, to: file)
+        tracker.finished += entry.size
+    }
+
+    /// Brings `partial` up to `size` bytes: continues it with a Range request, or writes it from the start when the
+    /// server sends the whole file (as a `file:` URL does).
+    private func download(_ name: String, size: UInt64, to partial: URL, tracker: ProgressTracker) async throws {
+        let fileManager = FileManager.default
+        if Self.size(of: partial) > size { try fileManager.removeItem(at: partial) }
+        if !fileManager.fileExists(atPath: partial.path) { fileManager.createFile(atPath: partial.path, contents: nil) }
+        let handle = try FileHandle(forWritingTo: partial)
+        defer { try? handle.close() }
+        let offset = try handle.seekToEnd()
+        guard offset < size else { return }
+
+        var request = URLRequest(url: source.files.appendingPathComponent(name))
+        if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
+        try await BodyWriter(name: name, handle: handle, offset: offset, tracker: tracker)
+            .receive(session.dataTask(with: request))
     }
 
     private static func entry(named name: String, in entries: [String: Entry]) throws -> Entry {
@@ -122,6 +154,18 @@ public struct ChartModelDownloader: Sendable {
     private static func checkStatus(_ response: URLResponse, name: String) throws {
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             throw ChartModelDownloadError.http(status: http.statusCode, name: name)
+        }
+    }
+
+    private static func size(of file: URL) -> UInt64 {
+        (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? UInt64) ?? 0
+    }
+
+    private static func check(_ file: URL, against entry: Entry, name: String) throws {
+        let actual = Self.size(of: file)
+        guard actual == entry.size else { throw ChartModelDownloadError.size(name: name, expected: entry.size, actual: actual) }
+        if let checksum = entry.lfs?.oid, try sha256Hex(of: file) != checksum {
+            throw ChartModelDownloadError.checksum(name)
         }
     }
 
@@ -138,7 +182,7 @@ public struct ChartModelDownloader: Sendable {
 }
 
 /// Bytes of the files that are complete plus those of the one downloading. Files download one at a time, so the
-/// delegate and the loop never write together.
+/// writer and the loop never write together.
 private final class ProgressTracker: @unchecked Sendable {
     var total: UInt64 = 0
     var finished: UInt64 = 0
@@ -149,9 +193,9 @@ private final class ProgressTracker: @unchecked Sendable {
         self.report = report
     }
 
-    func update(written: Int64) {
+    func update(written: UInt64) {
         guard total > 0 else { return }
-        let fraction = min(Double(finished + UInt64(written)) / Double(total), 1)
+        let fraction = min(Double(finished + written) / Double(total), 1)
         let percent = Int(fraction * 100)
         guard percent != lastPercent else { return }
         lastPercent = percent
@@ -159,18 +203,74 @@ private final class ProgressTracker: @unchecked Sendable {
     }
 }
 
-/// Reports the bytes received so far from the task the download creates.
-private final class ProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    let tracker: ProgressTracker
-    private var observation: NSKeyValueObservation?
+/// Writes one response's body into an open file as it arrives: after the bytes already there when the server sends
+/// the requested range (206), over them when it sends the whole file.
+private final class BodyWriter: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let name: String
+    private let handle: FileHandle
+    private let tracker: ProgressTracker
+    private var written: UInt64
+    private var failure: Error?
+    private var continuation: CheckedContinuation<Void, Error>?
 
-    init(tracker: ProgressTracker) {
+    init(name: String, handle: FileHandle, offset: UInt64, tracker: ProgressTracker) {
+        self.name = name
+        self.handle = handle
         self.tracker = tracker
+        written = offset
     }
 
-    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
-        observation = task.observe(\.countOfBytesReceived) { [tracker] task, _ in
-            tracker.update(written: task.countOfBytesReceived)
+    func receive(_ task: URLSessionDataTask) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                task.delegate = self
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
         }
+    }
+
+    func urlSession(
+        _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+        do {
+            switch status {
+            case 206:
+                break
+            case 200:
+                try handle.truncate(atOffset: 0)
+                written = 0
+            default:
+                throw ChartModelDownloadError.http(status: status, name: name)
+            }
+            completionHandler(.allow)
+        } catch {
+            failure = error
+            completionHandler(.cancel)
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        do {
+            try handle.write(contentsOf: data)
+            written += UInt64(data.count)
+            tracker.update(written: written)
+        } catch {
+            failure = error
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = failure ?? error {
+            continuation?.resume(throwing: error)
+        } else {
+            continuation?.resume()
+        }
+        continuation = nil
     }
 }
