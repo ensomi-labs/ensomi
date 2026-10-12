@@ -59,14 +59,17 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         let song = try OnDeviceFixtures.song()
         let library = isolatedLibrary(
             defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), resamplerDirectory: try OnDeviceFixtures.resampler())
+        let started = Date()
         await library.choose(folder: try OnDeviceFixtures.model())
+        let openSeconds = Date().timeIntervalSince(started)
         XCTAssertNotNil(library.chosenFolder)
         let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
         XCTAssertEqual(generation.engine, .device)
-        let started = Date()
 
+        let decodeStart = Date()
+        let decoded = try OnDeviceAudioDecoder.decode(song)
+        let decodeSeconds = Date().timeIntervalSince(decodeStart)
         await generation.loadCapabilities()
-        let openedAfter = Date().timeIntervalSince(started)
         generation.loadAudioDuration(for: song)
         let generationStart = Date()
         let generated = await generation.generate(audioURL: song, star: 3.5, seed: 0, title: Self.title, artist: Self.artist)
@@ -120,8 +123,9 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         guard case .finished(let result) = play.phase else { return XCTFail("The play ended as \(play.phase).") }
         let counts = result.score.tierCounts
         print(String(
-            format: "E2E opened the model in %.2f s; decode and generation %.2f s (%d objects, %.1f s of chart); play start %.2f s; total %.1f s",
-            openedAfter, generationSeconds, chart.objectCount, chart.durationMs / 1_000, prepareSeconds, totalSeconds))
+            format: "E2E opened the model in %.2f s; decoding %.0f s of audio alone %.2f s; decode and generation %.2f s (%d objects, %.1f s of chart); play start %.2f s; total %.1f s",
+            openSeconds, Double(decoded.samples.count) / decoded.sampleRate, decodeSeconds, generationSeconds, chart.objectCount,
+            chart.durationMs / 1_000, prepareSeconds, totalSeconds))
         print(String(
             format: "E2E peak physical footprint of the test process (ri_lifetime_max_phys_footprint) %.2f GiB; autoplay perfect %d, good %d, miss %d",
             Double(usage.ri_lifetime_max_phys_footprint) / Double(1 << 30), counts.perfectCount, counts.goodCount, counts.missCount))
