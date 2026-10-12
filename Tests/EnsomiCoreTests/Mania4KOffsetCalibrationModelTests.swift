@@ -19,25 +19,20 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         ])
     }
 
-    func testPairedOffsetsSeedAudioTimingVisualTimingAndRawTickCadence() {
-        let tickPlayer = FakeCalibrationTickPlayer()
+    // Beat 0 is at chart time 1_000: a tick's chart time is its audio time, whatever offset the screen starts from.
+    func testPairedOffsetsSeedAudioTimingAndVisualTiming() {
         let model = Mania4KOffsetCalibrationModel(
             originalAudioOffsetMilliseconds: 75,
-            originalVisualOffsetMilliseconds: -20,
-            tickPlayer: tickPlayer
+            originalVisualOffsetMilliseconds: -20
         )
 
         XCTAssertEqual(model.appliedAudioOffsetMilliseconds, 0)
         XCTAssertEqual(model.appliedVisualOffsetMilliseconds, 0)
-        XCTAssertEqual(model.noteTimeMs(forBeatIndex: 0), 1_075, accuracy: 0.001)
+        XCTAssertEqual(model.noteTimeMs(forBeatIndex: 0), 1_000, accuracy: 0.001)
         XCTAssertEqual(model.gameplayChartTimeMs, 75)
         XCTAssertEqual(model.renderedChartTimeMs, 55)
 
-        model.advanceClock(rawClockTimeMs: 999)
-        XCTAssertEqual(tickPlayer.playCount, 0)
-
         model.advanceClock(rawClockTimeMs: 1_000)
-        XCTAssertEqual(tickPlayer.playCount, 1)
 
         model.stepPendingAudioOffset(by: 100)
         XCTAssertEqual(model.renderedAudioOffsetMilliseconds, 175)
@@ -48,7 +43,6 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         XCTAssertEqual(model.renderedVisualOffsetMilliseconds, -20)
 
         model.advanceClock(rawClockTimeMs: 1_500)
-        XCTAssertEqual(tickPlayer.playCount, 2)
         XCTAssertEqual(model.renderedVisualOffsetMilliseconds, -30)
     }
 
@@ -87,8 +81,9 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
             originalVisualOffsetMilliseconds: 120
         )
 
-        let audioOnlySample = try XCTUnwrap(audioOnlyModel.recordInput(rawInputTimeMs: 1_120))
-        let visualShiftedSample = try XCTUnwrap(visualShiftedModel.recordInput(rawInputTimeMs: 1_120))
+        // The note is at chart time 1_000, so a 120 ms hit error under the 20 ms offset is a key at audio time 1_100.
+        let audioOnlySample = try XCTUnwrap(audioOnlyModel.recordInput(rawInputTimeMs: 1_100))
+        let visualShiftedSample = try XCTUnwrap(visualShiftedModel.recordInput(rawInputTimeMs: 1_100))
 
         XCTAssertEqual(audioOnlySample.hitErrorMs, 120, accuracy: 0.001)
         XCTAssertEqual(visualShiftedSample.hitErrorMs, 120, accuracy: 0.001)
@@ -119,6 +114,36 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         XCTAssertEqual(suggestionModel.suggestedAudioOffsetMilliseconds, -15)
         XCTAssertEqual(suggestionModel.suggestedAudioAdjustmentMilliseconds, -55)
         XCTAssertEqual(suggestionModel.pendingAudioOffsetMilliseconds, 40)
+    }
+
+    /// A key `d` ms after the tick suggests -d whatever offset the screen started from, so calibrating again from the
+    /// result measures no error instead of drifting by another -d.
+    func testSuggestionDoesNotDependOnTheStartingOffset() throws {
+        let delaysMs = [30.0, 10, 50]
+
+        for startingOffset in [-60, 0, 60] {
+            let model = Mania4KOffsetCalibrationModel(
+                originalAudioOffsetMilliseconds: startingOffset,
+                originalVisualOffsetMilliseconds: 0
+            )
+
+            for (beatIndex, delayMs) in delaysMs.enumerated() {
+                let sample = try XCTUnwrap(
+                    model.recordInput(rawInputTimeMs: model.noteTimeMs(forBeatIndex: beatIndex) + delayMs)
+                )
+                XCTAssertEqual(sample.hitErrorMs, delayMs + Double(startingOffset), accuracy: 0.001)
+                XCTAssertEqual(sample.sampleSuggestedAudioOffsetMilliseconds, -Int(delayMs))
+            }
+            XCTAssertEqual(model.suggestedAudioOffsetMilliseconds, -30)
+
+            XCTAssertTrue(model.useSuggestedAudioOffset())
+            XCTAssertEqual(model.renderedAudioOffsetMilliseconds, -30)
+            let again = try XCTUnwrap(
+                model.recordInput(rawInputTimeMs: model.noteTimeMs(forBeatIndex: 4) + 30)
+            )
+            XCTAssertEqual(again.hitErrorMs, 0, accuracy: 0.001)
+            XCTAssertEqual(again.sampleSuggestedAudioOffsetMilliseconds, -30)
+        }
     }
 
     func testAcceptedHitSamplesRemainBoundedAndResolvedStatePrunes() throws {
@@ -246,7 +271,6 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
 
     func testApplyAndCancelReturnBothOffsetsAndOnlyApplyMutatesAppliedState() {
         let presetID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
-        let tickPlayer = FakeCalibrationTickPlayer()
         let storedState = Mania4KOffsetCalibrationStoredState(
             appliedAudioOffsetMilliseconds: 12,
             appliedVisualOffsetMilliseconds: -8,
@@ -263,8 +287,7 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         let model = Mania4KOffsetCalibrationModel(
             originalAudioOffsetMilliseconds: 12,
             originalVisualOffsetMilliseconds: -8,
-            storedState: storedState,
-            tickPlayer: tickPlayer
+            storedState: storedState
         )
 
         XCTAssertEqual(model.activePresetID, presetID)
@@ -279,7 +302,6 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         )
         XCTAssertEqual(model.appliedAudioOffsetMilliseconds, 12)
         XCTAssertEqual(model.appliedVisualOffsetMilliseconds, -8)
-        XCTAssertEqual(tickPlayer.stopCount, 1)
 
         XCTAssertEqual(
             model.apply(),
@@ -287,20 +309,5 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         )
         XCTAssertEqual(model.appliedAudioOffsetMilliseconds, 44)
         XCTAssertEqual(model.appliedVisualOffsetMilliseconds, -30)
-        XCTAssertEqual(tickPlayer.stopCount, 2)
-    }
-}
-
-@MainActor
-private final class FakeCalibrationTickPlayer: Mania4KOffsetCalibrationTickPlaying {
-    private(set) var playCount = 0
-    private(set) var stopCount = 0
-
-    func playCalibrationTick() {
-        playCount += 1
-    }
-
-    func stopCalibrationTicks() {
-        stopCount += 1
     }
 }
