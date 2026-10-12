@@ -18,6 +18,9 @@ final class GameplayConformanceTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let directory = appRoot.deletingLastPathComponent()
             .appendingPathComponent("ensomi-runtime/conformance/gameplay")
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            throw XCTSkip("No gameplay fixtures at \(directory.path): the runtime repository checked out beside the app provides them.")
+        }
         return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "json" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }

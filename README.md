@@ -20,7 +20,7 @@ macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Ru
 package at the version pinned in `project.yml` (`0.1.0`) and downloads the xcframework from
 that release. The package carries the generator's resampler tables; the apps bundle none. The
 gameplay conformance test reads its fixtures from a runtime checkout beside this repository
-(`../ensomi-runtime/conformance/gameplay`).
+(`../ensomi-runtime/conformance/gameplay`) and is skipped without one.
 
 To develop against a local runtime, change `EnsomiRuntime` in `project.yml` to
 `path: ../ensomi-runtime` (do not commit it), build the xcframework with
