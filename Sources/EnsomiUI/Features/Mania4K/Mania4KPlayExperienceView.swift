@@ -15,13 +15,28 @@ public enum Mania4KPlaySessionWindow {
 public struct Mania4KPlayExperienceView: View {
     @Bindable public var model: Mania4KPlaySessionModel
     private let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
+    // Kept here rather than in the setup view, so the chosen mode and a generated chart outlive its play.
+    @State private var generation: Mania4KChartGenerationModel
+    @State private var selectedMode: Mania4KSetupGameMode?
 
     public init(
         model: Mania4KPlaySessionModel,
         onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)? = nil
     ) {
+        self.init(model: model, onAmbientRecognitionRequested: onAmbientRecognitionRequested, generation: Mania4KChartGenerationModel())
+    }
+
+    /// Opens on `selectedMode` with `generation`, as the screenshot tests render it.
+    init(
+        model: Mania4KPlaySessionModel,
+        onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)? = nil,
+        generation: Mania4KChartGenerationModel,
+        selectedMode: Mania4KSetupGameMode? = nil
+    ) {
         self.model = model
         self.onAmbientRecognitionRequested = onAmbientRecognitionRequested
+        _generation = State(initialValue: generation)
+        _selectedMode = State(initialValue: selectedMode)
     }
 
     public var body: some View {
@@ -31,6 +46,8 @@ public struct Mania4KPlayExperienceView: View {
             if model.phase == .setup {
                 Mania4KSetupView(
                     model: model,
+                    generation: generation,
+                    selectedMode: $selectedMode,
                     onAmbientRecognitionRequested: onAmbientRecognitionRequested
                 )
             } else {
@@ -42,7 +59,7 @@ public struct Mania4KPlayExperienceView: View {
     }
 }
 
-private enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
+enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
     case localBeatmap = "1"
     case generatedSong = "2"
     case ambient = "3"
@@ -78,11 +95,41 @@ private enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
         case .localBeatmap:
             return "doc.text"
         case .generatedSong:
-            return "antenna.radiowaves.left.and.right"
+            return "wand.and.sparkles"
         case .ambient:
             return "waveform.badge.magnifyingglass"
         }
     }
+}
+
+/// A generated chart's file waiting for the save panel.
+private struct ChartExport {
+    let file: ExportedFile
+    let type: UTType
+    let name: String
+}
+
+private struct ExportedFile: FileDocument {
+    static let readableContentTypes: [UTType] = [.data]
+
+    let data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        throw CocoaError(.featureUnsupported)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private extension UTType {
+    static let osuBeatmap = UTType(filenameExtension: "osu", conformingTo: .plainText) ?? .plainText
+    static let osuArchive = UTType(filenameExtension: "osz", conformingTo: .zip) ?? .zip
 }
 
 private struct SessionSummaryRow: Identifiable {
@@ -100,12 +147,14 @@ private struct Mania4KSetupView: View {
     @Environment(\.openWindow) private var openWindow
     #endif
     @Bindable var model: Mania4KPlaySessionModel
+    @Bindable var generation: Mania4KChartGenerationModel
+    @Binding var selectedMode: Mania4KSetupGameMode?
     @State private var fileImportTarget: Mania4KFileImportTarget?
     @State private var isChoosingFile = false
-    @State private var selectedMode: Mania4KSetupGameMode?
     @State private var backendIsMock = false
-    @State private var generation = Mania4KChartGenerationModel()
     @State private var ambientModeStatus = "Idle"
+    @State private var export: ChartExport?
+    @State private var exportMessage: (text: String, isError: Bool)?
     let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
 
     var body: some View {
@@ -176,7 +225,7 @@ private struct Mania4KSetupView: View {
             .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelectedModeReady ? Mania4KStyle.accentGreen : Mania4KStyle.border, lineWidth: 1)
+                    .stroke(isSelectedModeReady ? Mania4KStyle.ok : Mania4KStyle.border, lineWidth: 1)
             )
         }
     }
@@ -316,13 +365,10 @@ private struct Mania4KSetupView: View {
                 generationError(message)
             }
 
-            if let description = generation.modelDescription {
-                Text(description)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(Mania4KStyle.textSecondary)
-            }
             if let range = generation.starRange {
                 starDifficultyField(range: range)
+                    .disabled(generation.isGenerating)
+                seedField
                     .disabled(generation.isGenerating)
                 generationSections(range: range)
                     .disabled(generation.isGenerating)
@@ -337,36 +383,43 @@ private struct Mania4KSetupView: View {
             }
 
             switch generation.state {
-            case .idle, .ready:
+            case .idle:
                 EmptyView()
-            case .generating(let phase):
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(phase)
-                        .font(.callout)
-                        .foregroundStyle(Mania4KStyle.textSecondary)
-                }
+            case .generating:
+                generationPhases(current: generation.phaseIndex ?? -1)
+            case .finished(let result):
+                generationResult(result)
+            case .stopped:
+                Label("Stopped. No chart was made.", systemImage: "stop.circle")
+                    .font(.callout)
+                    .foregroundStyle(Mania4KStyle.textSecondary)
             case .failed(let message):
-                generationError(message)
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("The chart could not be made.", systemImage: "exclamationmark.triangle")
+                        .font(.callout.weight(.semibold))
+                    Text(message)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                }
+                .foregroundStyle(Mania4KStyle.error)
             }
 
-            Button {
-                if generation.isGenerating {
-                    Task { await generation.stop() }
-                } else {
-                    startGeneratedSongMode()
-                }
-            } label: {
-                Label(
-                    generation.isGenerating ? "Stop" : "Generate & Play",
-                    systemImage: generation.isGenerating ? "stop.fill" : "play.rectangle.on.rectangle"
-                )
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
+            generationActions
+        }
+        .fileExporter(
+            isPresented: Binding(get: { export != nil }, set: { if !$0 { export = nil } }),
+            document: export?.file,
+            contentType: export?.type ?? .data,
+            defaultFilename: export?.name
+        ) { result in
+            switch result {
+            case .success(let url):
+                exportMessage = ("Saved “\(url.lastPathComponent)”.", false)
+            case .failure(let error) where !error.isUserCancellation:
+                exportMessage = ("Could not save the chart: \(error.localizedDescription)", true)
+            case .failure:
+                break
             }
-            .buttonStyle(Mania4KPrimaryButtonStyle())
-            .controlSize(.large)
-            .disabled(!generation.isGenerating && !generation.canGenerate(star: model.starDifficulty))
         }
         .task { await loadGenerationCapabilities() }
         .onChange(of: generation.engine) { Task { await loadGenerationCapabilities() } }
@@ -424,6 +477,7 @@ private struct Mania4KSetupView: View {
                         } maximumValueLabel: {
                             Text("1")
                         }
+                        .labelsHidden()
                     }
                 }
                 .padding(12)
@@ -441,20 +495,176 @@ private struct Mania4KSetupView: View {
         }
     }
 
+    private var seedField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Seed")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Mania4KStyle.textPrimary)
+
+            TextField("Seed", text: $generation.seedText, prompt: Text("Random"))
+                .labelsHidden()
+                .fieldStyle()
+                .frame(maxWidth: 240)
+
+            Text("Blank makes a new chart each time. The same song, stars, sections and seed make the same chart again.")
+                .font(.caption)
+                .foregroundStyle(Mania4KStyle.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let message = generation.seedValidationMessage {
+                generationError(message)
+            }
+        }
+    }
+
+    /// The generation's phases: done, under way (`currentIndex`, -1 while connecting), still to come.
+    private func generationPhases(current currentIndex: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if currentIndex < 0 {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Connecting to the chart server")
+                }
+            }
+            ForEach(Array(Mania4KChartGenerationModel.phaseTitles.enumerated()), id: \.offset) { index, title in
+                HStack(spacing: 8) {
+                    Group {
+                        if index < currentIndex {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(Mania4KStyle.ok)
+                        } else if index == currentIndex {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "circle")
+                                .foregroundStyle(Mania4KStyle.textMuted)
+                        }
+                    }
+                    .frame(width: 18)
+
+                    Text(title)
+                        .foregroundStyle(index <= currentIndex ? Mania4KStyle.textPrimary : Mania4KStyle.textMuted)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityValue(index < currentIndex ? "Done" : index == currentIndex ? "In progress" : "Waiting")
+            }
+        }
+        .font(.callout)
+        .foregroundStyle(Mania4KStyle.textSecondary)
+    }
+
+    /// What was made and the seed that makes it again; the Session panel shows the song, stars and model.
+    private func generationResult(_ result: Mania4KChartGenerationResult) -> some View {
+        let holds = result.chart.objects.filter { $0.kind == .holdStart }.count
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Chart ready", systemImage: "checkmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Mania4KStyle.textPrimary)
+
+            Text("\(result.chart.objectCount.formatted()) notes: \((result.chart.objectCount - holds).formatted()) taps, \(holds.formatted()) long notes")
+                .font(.callout)
+                .foregroundStyle(Mania4KStyle.textPrimary)
+
+            HStack(spacing: 10) {
+                Text("Seed \(String(result.seed))")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(Mania4KStyle.textPrimary)
+                    .textSelection(.enabled)
+                Button("Use Seed") { generation.seedText = String(result.seed) }
+                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Mania4KStyle.accent)
+                    .disabled(generation.seed == result.seed)
+                    .help("Put this seed in the Seed field to make this chart again")
+            }
+
+            if let path = result.serverOszPath {
+                Text("The chart server saved its .osz at \(path).")
+                    .font(.caption)
+                    .foregroundStyle(Mania4KStyle.textSecondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Mania4KStyle.border, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var generationActions: some View {
+        if generation.isGenerating {
+            Button {
+                Task { await generation.stop() }
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.textSecondary))
+            .controlSize(.large)
+        } else if let result = generation.result {
+            Button {
+                play(result)
+            } label: {
+                Label("Play", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(Mania4KPrimaryButtonStyle())
+            .controlSize(.large)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { resultActions(result) }
+                VStack(alignment: .leading, spacing: 10) { resultActions(result) }
+            }
+            .buttonStyle(Mania4KSecondaryButtonStyle())
+
+            if let exportMessage {
+                Label(exportMessage.text, systemImage: exportMessage.isError ? "exclamationmark.triangle" : "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(exportMessage.isError ? Mania4KStyle.error : Mania4KStyle.textSecondary)
+                    .textSelection(.enabled)
+            }
+        } else {
+            Button {
+                startGeneration()
+            } label: {
+                Label("Generate", systemImage: "wand.and.sparkles")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(Mania4KPrimaryButtonStyle())
+            .controlSize(.large)
+            .disabled(!generation.canGenerate(star: model.starDifficulty))
+        }
+    }
+
+    @ViewBuilder
+    private func resultActions(_ result: Mania4KChartGenerationResult) -> some View {
+        if result.osu != nil {
+            Button("Save .osu…", systemImage: "doc") { save(result, archive: false) }
+                .help("Save the chart as an osu!mania beatmap")
+            Button("Save .osz…", systemImage: "archivebox") { save(result, archive: true) }
+                .help("Save the chart with the song as an osu! beatmap archive")
+        }
+        Button("Generate Again", systemImage: "arrow.clockwise", action: startGeneration)
+            .disabled(!generation.canGenerate(star: model.starDifficulty))
+    }
+
     private func sectionTimeField(_ title: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption)
             TextField(title, text: text)
                 .labelsHidden()
-                .textFieldStyle(.roundedBorder)
-                .monospacedDigit()
+                .fieldStyle()
         }
     }
 
     private func generationError(_ message: String) -> some View {
         Label(message, systemImage: "exclamationmark.triangle")
             .font(.caption)
-            .foregroundStyle(Mania4KStyle.accentRed)
+            .foregroundStyle(Mania4KStyle.error)
             .textSelection(.enabled)
     }
 
@@ -471,8 +681,8 @@ private struct Mania4KSetupView: View {
                 Image(systemName: "waveform.badge.magnifyingglass")
                     .font(.headline)
                     .frame(width: 32, height: 32)
-                    .foregroundStyle(Mania4KStyle.accentAmber)
-                    .background(Mania4KStyle.accentAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+                    .foregroundStyle(Mania4KStyle.warn)
+                    .background(Mania4KStyle.warn.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Ambient Recognition")
@@ -520,7 +730,7 @@ private struct Mania4KSetupView: View {
             }
         }
         .toggleStyle(.switch)
-        .tint(Mania4KStyle.accentGreen)
+        .tint(Mania4KStyle.ok)
     }
 
     private func modeButton(_ mode: Mania4KSetupGameMode) -> some View {
@@ -531,9 +741,9 @@ private struct Mania4KSetupView: View {
                 Image(systemName: mode.systemImage)
                     .font(.headline)
                     .frame(width: 34, height: 34)
-                    .foregroundStyle(selectedMode == mode ? Mania4KStyle.accentGreen : Mania4KStyle.accentBlue)
+                    .foregroundStyle(selectedMode == mode ? Mania4KStyle.ok : Mania4KStyle.accent)
                     .background(
-                        (selectedMode == mode ? Mania4KStyle.accentGreen : Mania4KStyle.accentBlue).opacity(0.14),
+                        (selectedMode == mode ? Mania4KStyle.ok : Mania4KStyle.accent).opacity(0.14),
                         in: RoundedRectangle(cornerRadius: 7)
                     )
 
@@ -558,7 +768,7 @@ private struct Mania4KSetupView: View {
             .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(selectedMode == mode ? Mania4KStyle.accentGreen : Mania4KStyle.border, lineWidth: 1)
+                    .stroke(selectedMode == mode ? Mania4KStyle.ok : Mania4KStyle.border, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -569,8 +779,8 @@ private struct Mania4KSetupView: View {
             Image(systemName: mode.systemImage)
                 .font(.headline)
                 .frame(width: 34, height: 34)
-                .foregroundStyle(Mania4KStyle.accentGreen)
-                .background(Mania4KStyle.accentGreen.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+                .foregroundStyle(Mania4KStyle.ok)
+                .background(Mania4KStyle.ok.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(mode.title)
@@ -593,7 +803,7 @@ private struct Mania4KSetupView: View {
         .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Mania4KStyle.accentGreen, lineWidth: 1)
+                .stroke(Mania4KStyle.ok, lineWidth: 1)
         )
     }
 
@@ -639,8 +849,11 @@ private struct Mania4KSetupView: View {
         case .localBeatmap:
             return model.isReadyToStart
         case .generatedSong:
-            if case .failed = generation.state { return false }
-            return generation.canGenerate(star: model.starDifficulty)
+            switch generation.state {
+            case .finished: return true
+            case .failed: return false
+            default: return generation.canGenerate(star: model.starDifficulty)
+            }
         case .ambient:
             return true
         }
@@ -661,19 +874,41 @@ private struct Mania4KSetupView: View {
         fileImportTarget = nil
         model.clearSetupSelections()
         generation.sections = []
+        generation.seedText = ""
+        exportMessage = nil
         generation.loadAudioDuration(for: nil)
     }
 
-    private func startGeneratedSongMode() {
+    private func startGeneration() {
         guard let audioFileURL = model.audioFileURL else {
             return
         }
 
+        exportMessage = nil
         Task {
-            guard let chart = await generation.generate(audioURL: audioFileURL, star: model.starDifficulty) else {
-                return
-            }
-            await model.startGeneratedChartPlay(audioFileURL: audioFileURL, chart: chart)
+            await generation.generate(audioURL: audioFileURL, star: model.starDifficulty, seed: generation.seed)
+        }
+    }
+
+    private func play(_ result: Mania4KChartGenerationResult) {
+        Task {
+            await model.startGeneratedChartPlay(
+                audioFileURL: result.audioURL, chart: result.chart, title: result.title, artist: result.artist)
+        }
+    }
+
+    /// Opens the save panel for the chart's `.osu`, or its `.osz` made by the Rust core with the song file.
+    private func save(_ result: Mania4KChartGenerationResult, archive: Bool) {
+        do {
+            guard let data = archive ? try result.osz() : result.osu.map({ Data($0.utf8) }) else { return }
+            export = ChartExport(
+                file: ExportedFile(data: data),
+                type: archive ? .osuArchive : .osuBeatmap,
+                name: result.exportName + (archive ? ".osz" : ".osu")
+            )
+            exportMessage = nil
+        } catch {
+            exportMessage = ("Could not read the song for the .osz: \(error.localizedDescription)", true)
         }
     }
 
@@ -744,17 +979,17 @@ private struct Mania4KSetupView: View {
                     .font(.caption.monospaced().weight(.bold))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .foregroundStyle(isSelectedModeReady ? Mania4KStyle.accentGreen : Mania4KStyle.textMuted)
+                    .foregroundStyle(isSelectedModeReady ? Mania4KStyle.ok : Mania4KStyle.textMuted)
                     .background(
-                        (isSelectedModeReady ? Mania4KStyle.accentGreen : Mania4KStyle.textMuted).opacity(0.12),
+                        (isSelectedModeReady ? Mania4KStyle.ok : Mania4KStyle.textMuted).opacity(0.12),
                         in: RoundedRectangle(cornerRadius: 6)
                     )
             }
 
-            if selectedMode == .generatedSong, case .generating(let phase) = generation.state {
+            if selectedMode == .generatedSong, let index = generation.phaseIndex {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(phase).font(.callout)
+                    Text(phaseTitle(index)).font(.callout)
                 }
             }
 
@@ -824,8 +1059,8 @@ private struct Mania4KSetupView: View {
             switch generation.state {
             case .generating: return "GENERATING"
             case .failed: return "ERROR"
-            case .ready: return "READY"
-            case .idle: return generation.canGenerate(star: model.starDifficulty) ? "READY" : "WAITING"
+            case .finished: return "READY"
+            case .idle, .stopped: return generation.canGenerate(star: model.starDifficulty) ? "READY" : "WAITING"
             }
         case .ambient:
             return "SYNC"
@@ -834,20 +1069,38 @@ private struct Mania4KSetupView: View {
 
     private var generationStatusText: String {
         switch generation.state {
-        case .generating(let phase): return "Generating: \(phase)"
+        case .generating: return "Generating: \(phaseTitle(generation.phaseIndex ?? -1))"
         case .failed(let message): return message
-        case .ready: return "Chart ready"
+        case .finished(let result): return "Chart ready: \(result.chart.objectCount.formatted()) notes, seed \(result.seed)"
+        case .stopped: return "Stopped"
         case .idle:
             if generation.engine == .device, !generation.models.hasModel {
                 return "Install the on-device model to generate on this device"
             }
             return generation.capabilitiesError ?? generation.audioDurationError ?? generation.sectionValidationMessage
+                ?? generation.seedValidationMessage
                 ?? (generation.canGenerate(star: model.starDifficulty) ? "Ready to generate" : "Choose audio and a supported star target")
         }
     }
 
+    private func phaseTitle(_ index: Int) -> String {
+        index >= 0 ? Mania4KChartGenerationModel.phaseTitles[index] : "Connecting"
+    }
+
     private var sessionSummaryRows: [SessionSummaryRow] {
-        [
+        if selectedMode == .generatedSong {
+            let result = generation.result
+            let sectionCount = generation.sections.count
+            return [
+                SessionSummaryRow(title: "Song", value: model.audioFileURL?.lastPathComponent ?? "--"),
+                SessionSummaryRow(title: "Stars", value: (result?.star ?? model.starDifficulty).formatted(.number.precision(.fractionLength(1)))),
+                SessionSummaryRow(title: "Seed", value: result.map { String($0.seed) } ?? generation.seed.map(String.init) ?? "Random"),
+                SessionSummaryRow(title: "Sections", value: sectionCount == 0 ? "None" : String(sectionCount)),
+                SessionSummaryRow(title: "Notes", value: result.map { $0.chart.objectCount.formatted() } ?? "--"),
+                SessionSummaryRow(title: "Model", value: result?.model ?? generation.modelDescription ?? "--")
+            ]
+        }
+        return [
             SessionSummaryRow(title: "Mode", value: selectedMode?.rawValue ?? "--"),
             SessionSummaryRow(title: "Song", value: model.audioFileURL?.lastPathComponent ?? "--"),
             SessionSummaryRow(title: "Beatmap", value: beatmapSummaryText),
@@ -898,8 +1151,8 @@ private struct Mania4KSetupView: View {
                 Image(systemName: systemImage)
                     .font(.headline)
                     .frame(width: 32, height: 32)
-                    .foregroundStyle(Mania4KStyle.accentBlue)
-                    .background(Mania4KStyle.accentBlue.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
+                    .foregroundStyle(Mania4KStyle.accent)
+                    .background(Mania4KStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
 
                 Text(value)
                     .font(.callout.monospaced())
@@ -926,7 +1179,7 @@ private struct Mania4KSetupView: View {
             if let message {
                 Text(message)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Mania4KStyle.accentRed)
+                    .foregroundStyle(Mania4KStyle.error)
             }
         }
     }
@@ -1364,7 +1617,7 @@ private struct Mania4KOffsetCalibrationView: View {
                 if let audioFailure {
                     Text(audioFailure)
                         .font(.caption)
-                        .foregroundStyle(Mania4KStyle.accentRed)
+                        .foregroundStyle(Mania4KStyle.error)
                 }
             }
 
@@ -1386,7 +1639,7 @@ private struct Mania4KOffsetCalibrationView: View {
             } label: {
                 Label("Cancel", systemImage: "xmark")
             }
-            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentRed))
+            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.error))
 
             Button {
                 onApply(model)
@@ -1415,7 +1668,7 @@ private struct Mania4KOffsetCalibrationView: View {
                     lane: calibrationLane,
                     frame: calibrationFrame,
                     brightness: LaneBrightness(receptor: 0, lane: 0),
-                    noteColor: Mania4KStyle.accentGreen,
+                    noteColor: Mania4KStyle.ok,
                     keyLabel: Mania4KOffsetCalibrationModel.calibrationKey.uppercased()
                 )
                 .frame(width: min(max(proxy.size.width * 0.22, 112), 150))
@@ -1489,7 +1742,7 @@ private struct Mania4KOffsetCalibrationView: View {
                 Label("Use Suggestion", systemImage: "scope")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentAmber))
+            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.warn))
             .disabled(model.suggestedAudioOffsetMilliseconds == nil)
 
             Divider()
@@ -1590,7 +1843,7 @@ private struct Mania4KOffsetCalibrationView: View {
                 Label("Delete", systemImage: "trash")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.accentRed))
+            .buttonStyle(Mania4KSecondaryButtonStyle(tint: Mania4KStyle.error))
             .disabled(!canDeleteSelectedPreset)
         }
         .panelStyle()
@@ -1925,59 +2178,56 @@ private struct Mania4KOffsetCalibrationKeyboardCaptureView: NSViewRepresentable 
 }
 #endif
 
+/// A still of the playfield beside the setup: rose taps, a hold with lavender ends and a purple body, and the coral
+/// judgement line, as the play screen draws them.
 private struct SetupLanePreview: View {
+    /// Points above the judgement line: each lane's taps, and the start and end of lane 1's hold.
+    private static let taps: [[CGFloat]] = [[40, 200], [], [0, 240], [120, 300]]
+    private static let hold: (lane: Int, start: CGFloat, end: CGFloat) = (1, 70, 250)
+    private static let line: CGFloat = 36
+
     var body: some View {
         GeometryReader { proxy in
-            let laneWidth = max(0, proxy.size.width - 30) / 4
-
-            ZStack(alignment: .bottom) {
-                Mania4KGridOverlay(spacing: 34, opacity: 0.18)
-
-                HStack(alignment: .bottom, spacing: 10) {
-                    ForEach(0..<4, id: \.self) { lane in
-                        VStack(spacing: 0) {
-                            Spacer()
-
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(noteColor(for: lane).opacity(0.86))
-                                .frame(height: 46 + CGFloat(lane * 22))
-                                .shadow(color: noteColor(for: lane).opacity(0.45), radius: 10, x: 0, y: 0)
-
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Mania4KStyle.textPrimary.opacity(0.84))
-                                .frame(height: 10)
-                                .padding(.top, 16)
+            HStack(spacing: 0) {
+                ForEach(0..<4, id: \.self) { lane in
+                    ZStack(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color(lane.isMultiple(of: 2) ? Mania4KPlayPalette.laneA : Mania4KPlayPalette.laneB))
+                        if lane == Self.hold.lane {
+                            note(Color(Mania4KPlayPalette.holdBody, opacity: 0.6), height: Self.hold.end - Self.hold.start, at: Self.hold.start)
+                            note(Color(Mania4KPlayPalette.hold), at: Self.hold.start)
+                            note(Color(Mania4KPlayPalette.hold), at: Self.hold.end)
                         }
-                        .frame(width: laneWidth)
-                        .frame(maxHeight: .infinity)
-                        .background(Mania4KStyle.laneFill, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(noteColor(for: lane).opacity(0.34), lineWidth: 1)
-                        )
+                        ForEach(Self.taps[lane], id: \.self) { height in
+                            note(Color(Mania4KPlayPalette.tap), at: height)
+                        }
                     }
+                    .frame(width: proxy.size.width / 4)
                 }
             }
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color(Mania4KPlayPalette.action))
+                    .frame(height: 3)
+                    .padding(.bottom, Self.line)
+            }
         }
-        .padding(16)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .background(Mania4KStyle.stageFill, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Mania4KStyle.borderStrong, lineWidth: 1)
+                .stroke(Mania4KStyle.border, lineWidth: 1)
         )
+        .accessibilityHidden(true)
     }
 
-    private func noteColor(for lane: Int) -> Color {
-        switch lane {
-        case 0:
-            return Color(red: 0.96, green: 0.67, blue: 0.21)
-        case 1:
-            return Color(red: 0.26, green: 0.70, blue: 0.64)
-        case 2:
-            return Color(red: 0.89, green: 0.35, blue: 0.37)
-        default:
-            return Color(red: 0.56, green: 0.63, blue: 0.94)
-        }
+    /// A note inset 5 points in its lane, 20 points tall, its bottom `height` above the line.
+    private func note(_ color: Color, height: CGFloat = 20, at position: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 7)
+            .fill(color)
+            .frame(height: height)
+            .padding(.horizontal, 5)
+            .offset(y: -Self.line - position)
     }
 }
 
@@ -2633,41 +2883,40 @@ private struct Mania4KKeyBindingCaptureView: NSViewRepresentable {
 }
 #endif
 
-// Placeholder visual theme for the first playable mock. Replace with shared tokens once Ensomi has a settled design system.
+/// The setup screens' colours: the brand's dark plum theme with the web app's names for them (`--bg`, `--surface`,
+/// `--line`, `--ok`, ...), and the play screen's text and lavender from `Mania4KPlayPalette`.
 private enum Mania4KStyle {
-    static let backgroundTop = Color(red: 0.025, green: 0.035, blue: 0.055)
-    static let backgroundBottom = Color(red: 0.085, green: 0.045, blue: 0.070)
-    static let panelFill = Color(red: 0.075, green: 0.085, blue: 0.115)
-    static let controlFill = Color(red: 0.105, green: 0.120, blue: 0.160)
-    static let stageFill = Color(red: 0.030, green: 0.035, blue: 0.050)
-    static let laneFill = Color(red: 0.070, green: 0.080, blue: 0.110).opacity(0.86)
-    static let receptorFill = Color(red: 0.150, green: 0.165, blue: 0.205)
-    static let border = Color.white.opacity(0.12)
-    static let borderStrong = Color.white.opacity(0.20)
-    static let textPrimary = Color(red: 0.965, green: 0.980, blue: 1.000)
-    static let textSecondary = Color(red: 0.700, green: 0.760, blue: 0.840)
-    static let textMuted = Color(red: 0.500, green: 0.565, blue: 0.660)
-    static let accentBlue = Color(red: 0.290, green: 0.670, blue: 1.000)
-    static let accentGreen = Color(red: 0.260, green: 0.880, blue: 0.620)
-    static let accentAmber = Color(red: 1.000, green: 0.700, blue: 0.230)
-    static let accentRed = Color(red: 1.000, green: 0.330, blue: 0.390)
+    static let backgroundTop = Color(.sRGB, red: 0x1C / 255, green: 0x15 / 255, blue: 0x25 / 255)
+    static let backgroundBottom = Color(.sRGB, red: 0x23 / 255, green: 0x1A / 255, blue: 0x2E / 255)
+    static let panelFill = Color(Mania4KPlayPalette.surface)
+    static let controlFill = Color(.sRGB, red: 0x34 / 255, green: 0x29 / 255, blue: 0x44 / 255)
+    static let stageFill = Color(Mania4KPlayPalette.ground)
+    static let laneFill = Color(Mania4KPlayPalette.laneA)
+    static let receptorFill = Color(Mania4KPlayPalette.surface)
+    static let border = Color(Mania4KPlayPalette.border)
+    static let borderStrong = Color(.sRGB, red: 0x5C / 255, green: 0x4A / 255, blue: 0x73 / 255)
+    static let textPrimary = Color(Mania4KPlayPalette.text)
+    static let textSecondary = Color(Mania4KPlayPalette.mutedText)
+    /// 4.5:1 or more against `controlFill`.
+    static let textMuted = Color(.sRGB, red: 0xA5 / 255, green: 0x97 / 255, blue: 0xBA / 255)
+    /// Lavender, for icons and secondary actions.
+    static let accent = Color(Mania4KPlayPalette.hold)
+    static let ok = Color(.sRGB, red: 0x8F / 255, green: 0xDC / 255, blue: 0xB2 / 255)
+    static let warn = Color(.sRGB, red: 0xF3 / 255, green: 0xC4 / 255, blue: 0x7E / 255)
+    static let error = Color(.sRGB, red: 0xFF / 255, green: 0x9A / 255, blue: 0xA5 / 255)
 }
 
+/// The setup ground: the brand's two plum halves divided on the diagonal, as behind the stage.
 private struct Mania4KBackdrop: View {
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Mania4KStyle.backgroundTop,
-                    Mania4KStyle.backgroundBottom,
-                    Color(red: 0.025, green: 0.028, blue: 0.040)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Mania4KGridOverlay(spacing: 44, opacity: 0.08)
-        }
+        LinearGradient(
+            stops: [
+                .init(color: Mania4KStyle.backgroundTop, location: 0.58),
+                .init(color: Mania4KStyle.backgroundBottom, location: 0.58)
+            ],
+            startPoint: UnitPoint(x: 0.27, y: 0.06),
+            endPoint: UnitPoint(x: 0.73, y: 0.94)
+        )
         .ignoresSafeArea()
     }
 }
@@ -2696,37 +2945,41 @@ private struct Mania4KGridOverlay: View {
     }
 }
 
+/// The setup screens' primary action, in the play screen's action gradient with dark ink.
 private struct Mania4KPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline.weight(.bold))
-            .foregroundStyle(isEnabled ? Mania4KStyle.textPrimary : Mania4KStyle.textMuted)
+            .font(.system(.headline, design: .rounded, weight: .bold))
+            .foregroundStyle(isEnabled ? Color(Mania4KPlayPalette.actionInk) : Mania4KStyle.textMuted)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                LinearGradient(
-                    colors: isEnabled ? [Mania4KStyle.accentBlue, Mania4KStyle.accentGreen] : [Mania4KStyle.controlFill, Mania4KStyle.controlFill],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ),
-                in: RoundedRectangle(cornerRadius: 8)
+                Capsule().fill(
+                    isEnabled
+                        ? AnyShapeStyle(LinearGradient(
+                            colors: [
+                                Color(Mania4KPlayPalette.actionStart),
+                                Color(Mania4KPlayPalette.action),
+                                Color(Mania4KPlayPalette.actionEnd)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                        : AnyShapeStyle(Mania4KStyle.controlFill)
+                )
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
-            )
-            .shadow(color: Mania4KStyle.accentBlue.opacity(isEnabled ? (configuration.isPressed ? 0.18 : 0.34) : 0), radius: configuration.isPressed ? 5 : 14, x: 0, y: 0)
+            .overlay(Capsule().stroke(isEnabled ? Color.clear : Mania4KStyle.border, lineWidth: 1))
+            .contentShape(Capsule())
             .opacity(configuration.isPressed ? 0.82 : 1)
-            .scaleEffect(configuration.isPressed ? 0.99 : 1)
     }
 }
 
 private struct Mania4KSecondaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
-    var tint = Mania4KStyle.accentBlue
+    var tint = Mania4KStyle.accent
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -2751,6 +3004,20 @@ private extension Error {
 }
 
 private extension View {
+    /// A text field on the setup screens' controls ground.
+    func fieldStyle() -> some View {
+        textFieldStyle(.plain)
+            .monospacedDigit()
+            .foregroundStyle(Mania4KStyle.textPrimary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(Mania4KStyle.border, lineWidth: 1)
+            )
+    }
+
     func panelStyle() -> some View {
         padding(18)
             .background(Mania4KStyle.panelFill.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))

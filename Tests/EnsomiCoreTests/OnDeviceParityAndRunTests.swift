@@ -1,5 +1,6 @@
 import AVFoundation
 import Darwin
+import EnsomiRuntime
 import XCTest
 @testable import EnsomiCore
 
@@ -50,6 +51,45 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         XCTAssertEqual(result.receipt.star, 3.5)
     }
 
+    /// Generates saigetsu on this device through the generation model with a random seed, then makes both exports:
+    /// the `.osu` is the chart that was generated, and the `.osz` opens with the system's unzip and holds it, the song
+    /// and the receipt with the seed. Nothing is played.
+    func testGenerateOnThisDeviceThenExport() async throws {
+        let song = try OnDeviceFixtures.song()
+        let library = isolatedLibrary(
+            defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)), resamplerDirectory: try OnDeviceFixtures.resampler())
+        await library.choose(folder: try OnDeviceFixtures.model())
+        let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
+        await generation.loadCapabilities()
+        generation.loadAudioDuration(for: song)
+
+        let started = Date()
+        let generated = await generation.generate(audioURL: song, star: 3.5)
+        let result = try XCTUnwrap(generated, "\(generation.state)")
+        let generationSeconds = Date().timeIntervalSince(started)
+
+        let osu = try XCTUnwrap(result.osu)
+        XCTAssertEqual(try parseOsu(text: osu).chart.objects.count, result.chart.objectCount)
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = directory.appendingPathComponent("\(result.exportName).osz")
+        try XCTUnwrap(try result.osz()).write(to: archive)
+        let unpacked = directory.appendingPathComponent("unpacked")
+        let unzip = Process()
+        unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        unzip.arguments = ["-q", archive.path, "-d", unpacked.path]
+        try unzip.run()
+        unzip.waitUntilExit()
+
+        XCTAssertEqual(unzip.terminationStatus, 0)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: unpacked.path).sorted(), ["audio.mp3", "generated.osu", "receipt.json"])
+        XCTAssertEqual(try String(contentsOf: unpacked.appendingPathComponent("generated.osu"), encoding: .utf8), osu)
+        XCTAssertEqual(try Data(contentsOf: unpacked.appendingPathComponent("audio.mp3")), try Data(contentsOf: song))
+        let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: unpacked.appendingPathComponent("receipt.json"))) as? [String: Any]
+        XCTAssertEqual((receipt?["seed"] as? NSNumber)?.uint64Value, result.seed)
+        print("EXPORT generated \(result.chart.objectCount) objects with seed \(result.seed) in \(String(format: "%.2f", generationSeconds)) s; \(archive.lastPathComponent), \(try Data(contentsOf: archive).count) bytes")
+    }
+
     /// Generates saigetsu through the generation model, then autoplays the chart through the play session with the
     /// engine's output volume at 0. It takes the song's length, so it needs `TEST_RUNNER_ENSOMI_E2E_RUN=1`.
     func testGenerateOnThisDeviceThenAutoplaySilently() async throws {
@@ -74,8 +114,8 @@ final class OnDeviceParityAndRunTests: XCTestCase {
         let generationStart = Date()
         let generated = await generation.generate(audioURL: song, star: 3.5, seed: 0, title: Self.title, artist: Self.artist)
         let generationSeconds = Date().timeIntervalSince(generationStart)
-        let chart = try XCTUnwrap(generated, "\(generation.state)")
-        XCTAssertEqual(generation.state, .ready)
+        let chart = try XCTUnwrap(generated, "\(generation.state)").chart
+        XCTAssertEqual(generation.state, generated.map { .finished($0) })
 
         let clock = AVFoundationMania4KAudioClock()
         clock.volume = 0
