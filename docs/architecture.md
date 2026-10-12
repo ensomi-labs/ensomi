@@ -152,7 +152,8 @@ device does not report. When the output device changes, the clock rebuilds the
 engine for the new device and resumes from the position being heard; until the
 resumed audio is heard, it reads earlier by the new device's latency plus the
 render lead (up to about 22 ms), and play's chart time steps back with it. Ambient
-play projects from a host-time anchor instead.
+play projects from a host-time anchor instead. [Gameplay audio timing](gameplay-timing.md)
+records the engine behavior behind this and what the audio offset still corrects.
 
 Audio offset affects judgement and hit errors. Visual offset and scroll speed
 affect rendering and lookahead only. Input uses gameplay time, filters repeated
