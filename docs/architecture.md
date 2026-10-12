@@ -1,5 +1,5 @@
 ---
-commit: 8e3de3b
+commit: 353ad2d
 ---
 
 # Ensomi architecture
@@ -154,11 +154,6 @@ The model is the published Ensomi R2 download in Application Support or a folder
 `ChartModelLibrary` owns that choice, opens the generator and keeps folder access across launches
 with a bookmark. A download that stops keeps its files and resumes with HTTP Range requests.
 
-The `.osu` stream reads the file with the gameplay core's loader, which accepts only
-four-key mania. It rejects unsupported objects, invalid times, and same-lane overlaps
-before playback. A hold whose end is missing or earlier than its start becomes a
-zero-length hold. The title falls back to the file name.
-
 ## Gameplay and scoring
 
 The session applies offsets exactly once:
@@ -258,6 +253,51 @@ a miss resets it. Successful tap and hold-head errors contribute to the suggeste
 audio-offset adjustment, which is the negative mean error; misses and release
 errors do not. A session finishes only after the stream ends, all objects resolve,
 and the audio clock reaches the end.
+
+## Chart inspection
+
+The app does not play existing charts. The macOS Chart Inspector draws one against its
+song without judging it.
+[`Mania4KChartInspectionModel`](../Sources/EnsomiCore/Features/Mania4K/Mania4KChartInspectionModel.swift)
+validates what it opens, and nothing after it does: one `.osz`, or one `.osu` with one
+other file taken as its audio. An `.osz` is read through its zip central directory
+([`OszArchive`](../Sources/EnsomiCore/Services/Beatmap/OszArchive.swift)). Stored and
+deflated entries are supported, every offset and stored size is checked against the
+file's length, and anything else makes the archive unreadable. The gameplay core's
+loader (`parseOsu`) reads each `.osu`: it accepts only four-key mania and rejects
+unsupported objects, invalid times and same-lane overlaps, and a hold whose end is
+missing or earlier than its start becomes a zero-length hold. The loader does not
+report the difficulty name or the audio file, so they come from the `.osu`'s `Version`
+and `AudioFilename` lines; the audio is found in the archive without regard to case
+and written to a temporary file for the audio engine. An `.osz` with one `.osu` opens
+it; with several, they are listed, each refused one with the core's reason. The title
+falls back to the file name.
+
+The chart goes into a core session that is never advanced and gets no input, so every
+object stays waiting, `visibleObjects` answers for any chart time, earlier or later,
+and there is no score. The playfield's display link makes the frames as in play, and
+`Mania4KFrameTiming` times them for both: each frame reads the play model's audio
+offset for the current output device, its visual offset and its scroll speed, so the
+drawn chart time is the heard audio time plus the offsets exactly as in play. The song
+plays at the play model's music volume on an `AVFoundationMania4KAudioClock` of its own.
+
+A seek builds that clock's engine again, paused at the new position with the file
+scheduled from there, so reads return the position until playback resumes from it.
+Pause holds the player at the position being heard, so playback resumes from what is
+drawn. A rate other than 1 puts an `AVAudioUnitVarispeed` between the player and its
+mixer. The player's time then counts source time, the clock carries it to the asked
+host time at that rate, and the unit's reported latency is added to the output's:
+
+```text
+audioTimeMs = renderedAudioTimeMs
+            + rate × (hostTimeMs − renderHostTimeMs − presentationLatencyMs − varispeedLatencyMs)
+```
+
+The varispeed resamples, so the pitch follows the rate; the delay it adds to a sound is
+the latency it reports. The time-pitch unit, which keeps the pitch, reports a latency
+that does not match its output and is not used. Play runs at rate 1, without the unit.
+The inspected song lasts until the audio or the chart's last note ends, whichever is
+later, and playback pauses there.
 
 Focused regression coverage lives in
 [`Tests/EnsomiCoreTests`](../Tests/EnsomiCoreTests), including stream watermark,

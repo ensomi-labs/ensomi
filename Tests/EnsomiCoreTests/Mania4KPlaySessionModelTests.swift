@@ -12,7 +12,6 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.keyBindings, .default)
         XCTAssertEqual(model.liveInputLaneStates.filter(\.isPressed), [])
         XCTAssertEqual(model.phase, .setup)
-        XCTAssertFalse(model.isReadyToStart)
         XCTAssertNil(model.activeConfiguration)
         XCTAssertNil(model.playFrame)
     }
@@ -145,77 +144,30 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(customRelease?.phase, .release)
     }
 
-    func testStartRequiresBeatmapAndAudioSelections() async throws {
-        let model = modelWithInMemoryChart(objects: [tap(.left, 1_000)])
-        let beatmapURL = URL(fileURLWithPath: "/tmp/mock.osu")
-        let audioURL = URL(fileURLWithPath: "/tmp/mock.mp3")
-
-        var started = await model.startPlay()
-        XCTAssertFalse(started)
-        XCTAssertNil(model.activeConfiguration)
-
-        model.selectBeatmapFile(beatmapURL)
-        started = await model.startPlay()
-        XCTAssertFalse(started)
-        XCTAssertNil(model.activeConfiguration)
-
-        model.selectAudioFile(audioURL)
-        started = await model.startPlay()
-        XCTAssertTrue(started)
-        XCTAssertEqual(model.activeConfiguration?.beatmapFileURL, beatmapURL)
-        XCTAssertEqual(model.activeConfiguration?.audioFileURL, audioURL)
-        XCTAssertEqual(model.phase, .playing)
-    }
-
-    func testBeatmapSelectionOnlyAcceptsOsuExtension() {
-        let model = Mania4KPlaySessionModel()
-        let nonBeatmapURL = URL(fileURLWithPath: "/tmp/song.mp3")
-        let beatmapURL = URL(fileURLWithPath: "/tmp/chart.OSU")
-
-        model.selectBeatmapFile(nonBeatmapURL)
-
-        XCTAssertNil(model.beatmapFileURL)
-        XCTAssertFalse(model.isReadyToStart)
-        XCTAssertEqual(model.beatmapSelectionErrorMessage, "Choose a .osu beatmap file.")
-
-        model.selectBeatmapFile(beatmapURL)
-
-        XCTAssertEqual(model.beatmapFileURL, beatmapURL)
-        XCTAssertNil(model.beatmapSelectionErrorMessage)
-    }
-
     func testClearSetupSelectionsClearsFilesAndImportErrors() {
         let model = Mania4KPlaySessionModel()
 
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/song.mp3"))
         model.selectAudioFile(URL(fileURLWithPath: "/tmp/song.mp3"))
+        model.recordAudioImportFailure(CocoaError(.fileReadNoPermission))
         model.clearSetupSelections()
 
-        XCTAssertNil(model.beatmapFileURL)
         XCTAssertNil(model.audioFileURL)
-        XCTAssertNil(model.beatmapSelectionErrorMessage)
         XCTAssertNil(model.audioSelectionErrorMessage)
-        XCTAssertFalse(model.isReadyToStart)
         XCTAssertEqual(model.phase, .setup)
     }
 
-    func testQuitReturnsToSetupWithoutClearingSelections() async throws {
-        let model = modelWithInMemoryChart(objects: [tap(.left, 1_000)])
-        let beatmapURL = URL(fileURLWithPath: "/tmp/mock.osu")
-        let audioURL = URL(fileURLWithPath: "/tmp/mock.mp3")
+    func testQuitReturnsToSetupWithoutClearingTheSong() async throws {
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 1_000)])
 
-        model.selectBeatmapFile(beatmapURL)
-        model.selectAudioFile(audioURL)
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
+        XCTAssertEqual(model.activeConfiguration?.audioFileURL, testAudioURL)
 
         await model.quitToSetup()
 
         XCTAssertEqual(model.phase, .setup)
         XCTAssertNil(model.activeConfiguration)
-        XCTAssertEqual(model.beatmapFileURL, beatmapURL)
-        XCTAssertEqual(model.audioFileURL, audioURL)
-        XCTAssertTrue(model.isReadyToStart)
+        XCTAssertEqual(model.audioFileURL, testAudioURL)
     }
 
     func testStartPlayIgnoresStalePreparationAfterQuit() async throws {
@@ -224,14 +176,10 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/mock.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/mock.mp3"))
-
         let startTask = Task {
-            await model.startPlay()
+            await start(model, stream)
         }
         await stream.waitForPrepareToStart()
 
@@ -246,114 +194,16 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertFalse(isRunning)
     }
 
-    func testBeatmapStreamPreparesMetadataFromTheCoreLoaderAndReadsTokens() async throws {
-        let url = try writeOsuFile(
-            """
-            [General]
-            Mode: 3
-
-            [Metadata]
-            Artist: Test Artist
-
-            [Difficulty]
-            CircleSize: 4
-
-            [HitObjects]
-            0,192,1000,1,0,0:0:0:0:
-            511,192,1400,128,0,1800:0:0:0:0:
-            """
-        )
-        let stream = OsuMania4KBeatmapStream(beatmapFileURL: url)
-
-        let metadata = try await stream.prepare()
-        let batch = try await stream.read(after: nil, throughChartTimeMs: 5_000, limit: 512)
-
-        XCTAssertEqual(metadata.title, url.deletingPathExtension().lastPathComponent)
-        XCTAssertEqual(metadata.artist, "Test Artist")
-        XCTAssertEqual(metadata.sourceDescription, url.lastPathComponent)
-        XCTAssertEqual(metadata.objectCount, 2)
-        XCTAssertEqual(metadata.durationMs, 1_800)
-        XCTAssertEqual(batch.objects, [tap(.left, 1_000), holdStart(.right, 1_400), holdEnd(.right, 1_800)])
-        XCTAssertTrue(batch.isEndOfStream)
-    }
-
-    func testBeatmapStreamReportsWhatTheCoreLoaderRejectsAsReadableErrors() async throws {
-        let rejected: [(url: URL, error: Mania4KChartValidationError, message: String)] = [
-            (try writeOsuFile(mode: 0), .osu(.UnsupportedMode), "Only osu!mania mode is supported."),
-            (
-                try writeOsuFile(circleSize: 5),
-                .osu(.UnsupportedKeyCount(keys: 5)),
-                "Only 4-key osu!mania charts are supported; this chart has 5 keys."
-            ),
-            (
-                try writeOsuFile(hitObjects: "0,192,1000,1,0,0:0:0:0:\n10,192,1000,1,0,0:0:0:0:"),
-                .osu(.InvalidChart(error: .SameLaneOverlap(object: 1))),
-                "Object 1 overlaps the previous object in its lane."
-            )
-        ]
-
-        for (url, expected, message) in rejected {
-            do {
-                _ = try await OsuMania4KBeatmapStream(beatmapFileURL: url).prepare()
-                XCTFail("Expected \(expected)")
-            } catch let error as Mania4KChartValidationError {
-                XCTAssertEqual(error, expected)
-                XCTAssertEqual(error.errorDescription, message)
-            }
-        }
-    }
-
-    func testLocalBeatmapPlaysThroughTheCore() async throws {
-        let clock = FakeMania4KAudioClock()
-        let model = Mania4KPlaySessionModel(
-            scrollSpeed: 10, audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock
-        )
-        model.selectBeatmapFile(try writeOsuFile())
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-
-        let started = await model.startPlay()
-
-        XCTAssertTrue(started)
-        XCTAssertEqual(model.hud.title, "Test")
-        XCTAssertEqual(model.playFrame?.visibleObjects.map(\.startTimeMs), [1_000])
-
-        model.handleInput(input(.left, .press, 1_000, 0))
-        await clock.setAudioTimeMs(1_000)
-        await model.tick()
-
-        XCTAssertEqual(model.playFrame?.latestJudgement?.judgement, .perfect)
-        await model.quitToSetup()
-    }
-
-    func testStartFailsWithAReadableMessageForAnUnsupportedBeatmap() async throws {
-        let model = Mania4KPlaySessionModel(audioClock: FakeMania4KAudioClock())
-        model.selectBeatmapFile(try writeOsuFile(circleSize: 5))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-
-        let started = await model.startPlay()
-
-        XCTAssertFalse(started)
-        guard case .failed(let failure) = model.phase else {
-            return XCTFail("Expected failed phase, got \(model.phase)")
-        }
-        XCTAssertEqual(
-            failure.errorDescription,
-            "Chart could not be prepared: Only 4-key osu!mania charts are supported; this chart has 5 keys."
-        )
-    }
-
     func testSessionPublishesFramesWithAudioAndVisualOffsetsAndFinishesOnGameplayTime() async throws {
         let clock = FakeMania4KAudioClock(metadata: Mania4KAudioMetadata(durationMs: 1_000, title: "Fake"))
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [tap(.left, 100)],
             clock: clock,
             audioOffset: 25,
             visualOffset: -10
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
 
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
         XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 25)
         XCTAssertEqual(model.playFrame?.renderChartTimeMs, 15)
@@ -384,13 +234,10 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
 
-        let started = await model.startPlay()
+        let started = await start(model, stream)
 
         XCTAssertTrue(started)
         XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 72_000)
@@ -400,14 +247,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testAudioOffsetChangesKeyboardJudgementChartTimeAndHitResult() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [tap(.left, 180)],
             clock: clock,
             audioOffset: 80
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(100)
@@ -424,14 +269,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testKeyboardInputAfterRenderedFrameUsesGameplayTimeNotVisualRenderTime() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [tap(.left, 100)],
             clock: clock,
             visualOffset: 300
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(100)
@@ -452,14 +295,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testPositiveVisualOffsetReadsFarEnoughAheadToRenderUpcomingNotes() async throws {
         let objectTimeMs = 1_200.0
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [tap(.left, objectTimeMs)],
             visualOffset: 500
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
 
-        let started = await model.startPlay()
+        let started = await start(model, stream)
 
         XCTAssertTrue(started)
         XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 0)
@@ -473,12 +314,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         // The press waits for coverage; the play fails once the frame's watermark (its time less the input allowance) passes it.
@@ -500,12 +338,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         XCTAssertTrue(model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false))
@@ -530,14 +365,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testKeyEventsAreJudgedAtTheirTimestampsNotWhenTheFrameRuns() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [tap(.left, 1_000)],
             clock: clock,
             audioOffset: -215
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         // Pressed when the offset-adjusted chart time was exactly 1000, handled 100 ms later.
@@ -551,13 +384,11 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testInputsAreDeliveredInTimestampOrderBeforeTheFrameAdvances() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [tap(.right, 900), tap(.left, 1_000)],
             clock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false, hostTimeMs: origin + 1_000)
@@ -571,13 +402,11 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testPressAndReleaseWithinOneFrameBothReachTheEngineInOrder() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [holdStart(.left, 100), holdEnd(.left, 200)],
             clock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false, hostTimeMs: origin + 100)
@@ -591,10 +420,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testInputStampedAfterTheFrameWaitsForTheNextFrame() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let model = modelWithInMemoryChart(objects: [tap(.left, 1_000)], clock: clock)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 1_000)], clock: clock)
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false, hostTimeMs: origin + 1_000)
@@ -607,10 +434,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testFramesAdvanceOnlyWhenDrivenAndDrawForThePresentationTime() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock, visualOffset: -10)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock, visualOffset: -10)
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(500)
@@ -626,10 +451,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testRenderTimeFollowsThePresentationHostTime() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let model = modelWithInMemoryChart(objects: [tap(.left, 5_000)], clock: clock, visualOffset: -10)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 5_000)], clock: clock, visualOffset: -10)
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await model.tick(atHostTimeMs: origin + 1_000, presentationHostTimeMs: origin + 1_017)
@@ -644,12 +467,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         // Frames declare inputs delivered up to the input allowance before their time; that watermark passes the coverage.
@@ -671,12 +491,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(2_000)
@@ -699,12 +516,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(29_820)
@@ -725,10 +539,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     }
 
     func testSessionIgnoresGameplayInputWhilePaused() async throws {
-        let model = modelWithInMemoryChart(objects: [tap(.left, 100)])
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)])
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await model.pause()
@@ -741,10 +553,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionDoesNotTickJudgementWhilePaused() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         await model.pause()
@@ -758,13 +568,11 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionFeedbackKeepsNoteLockMissWhileLatestJudgementIsPerfect() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(objects: [
+        let (model, stream) = modelWithInMemoryChart(objects: [
             tap(.left, 1_000),
             tap(.left, 1_100)
         ], clock: clock)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         let handled = model.handleInput(input(.left, .press, 1_100, 0))
@@ -781,10 +589,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionFeedbackRecordsAutoAdvancedMissWithoutInput() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         // The miss is due at 300 and decided once the frame's watermark, its time less the input allowance, passes it.
@@ -803,10 +609,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     /// frame refreshes, and the playfield pulls the feedback itself.
     func testSessionFeedbackExpiresWithoutInputAndTheFramePublishesIt() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         let handled = model.handleInput(input(.left, .press, 100, 0))
@@ -842,10 +646,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     }
 
     func testSessionKeyboardRepeatAndDuplicatePressDoNotUpdateLaneInputFeedbackTransition() async throws {
-        let model = modelWithInMemoryChart(objects: [tap(.right, 10_000)])
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.right, 10_000)])
+        let started = await start(model, stream)
         XCTAssertTrue(started)
 
         let pressed = model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false)
@@ -867,11 +669,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionAudioLifecycleAwaitsClockTransitions() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(objects: [tap(.left, 1_000)], clock: clock)
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
+        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 1_000)], clock: clock)
 
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
         var isRunning = await clock.isRunning()
         XCTAssertTrue(isRunning)
@@ -893,23 +693,21 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     }
 
     func testSessionUsesScrollSpeedForScrollTime() throws {
-        let model = modelWithInMemoryChart(objects: [tap(.left, 1_000)], scrollSpeed: 10)
+        let (model, _) = modelWithInMemoryChart(objects: [tap(.left, 1_000)], scrollSpeed: 10)
 
         XCTAssertEqual(model.scrollTimeMs, 1_148.5, accuracy: 0.001)
     }
 
     func testOpenEndedLongNoteRemainsVisibleAfterHeadLeavesSnapshotLowerBound() async throws {
         let clock = FakeMania4KAudioClock()
-        let model = modelWithInMemoryChart(
+        let (model, stream) = modelWithInMemoryChart(
             objects: [
                 holdStart(.left, 1_000),
                 holdEnd(.left, 10_000)
             ],
             clock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/chart.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/audio.mp3"))
-        let started = await model.startPlay()
+        let started = await start(model, stream)
         XCTAssertTrue(started)
         let handledPress = model.handleInput(input(.left, .press, 1_000, 0))
         XCTAssertTrue(handledPress)
@@ -944,45 +742,23 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         scrollSpeed: Double = 16,
         audioOffset: Double = 0,
         visualOffset: Double = 0
-    ) -> Mania4KPlaySessionModel {
-        let stream = InMemoryMania4KHitObjectStream(objects: objects)
-        return Mania4KPlaySessionModel(
+    ) -> (Mania4KPlaySessionModel, InMemoryMania4KHitObjectStream) {
+        let model = Mania4KPlaySessionModel(
             scrollSpeed: scrollSpeed,
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: visualOffset,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
+        return (model, InMemoryMania4KHitObjectStream(objects: objects))
     }
 
-    private func writeOsuFile(
-        mode: Int = 3,
-        circleSize: Int = 4,
-        hitObjects: String = "0,192,1000,1,0,0:0:0:0:"
-    ) throws -> URL {
-        try writeOsuFile(
-            """
-            [General]
-            Mode: \(mode)
-
-            [Metadata]
-            Title: Test
-
-            [Difficulty]
-            CircleSize: \(circleSize)
-
-            [HitObjects]
-            \(hitObjects)
-            """
-        )
+    private var testAudioURL: URL {
+        URL(fileURLWithPath: "/tmp/audio.mp3")
     }
 
-    private func writeOsuFile(_ contents: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("osu")
-        try contents.write(to: url, atomically: true, encoding: .utf8)
-        return url
+    /// Plays `stream` with a stand-in audio file, as a generated chart is played.
+    private func start(_ model: Mania4KPlaySessionModel, _ stream: any Mania4KHitObjectStreaming) async -> Bool {
+        await model.startPlay(stream: stream, audioFileURL: testAudioURL, chartSource: .generated(displayName: "Test chart"))
     }
 }
 

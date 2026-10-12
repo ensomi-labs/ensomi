@@ -1,3 +1,4 @@
+import AppKit
 import ImageIO
 import Metal
 import SwiftUI
@@ -18,7 +19,7 @@ final class PlayScreenScreenshotTests: XCTestCase {
 
     /// Taps and holds, in ms and lanes 0 to 3: a lead-in, a passage of 16th-note chords at 150 BPM, a hold under
     /// taps, then a chord whose right note is never pressed.
-    private static let chart: [(lanes: [Int], timeMs: Double, endMs: Double?)] = [
+    static let chart: [(lanes: [Int], timeMs: Double, endMs: Double?)] = [
         ([0, 3], 2_000, nil), ([1], 2_100, nil), ([2], 2_200, nil), ([0, 2], 2_300, nil), ([1, 3], 2_400, nil),
         ([0, 1, 2], 2_500, nil), ([3], 2_600, nil), ([1, 2], 2_700, nil), ([0], 2_800, nil), ([2, 3], 2_900, nil),
         ([0, 1, 3], 3_000, nil), ([2], 3_100, nil), ([1, 3], 3_200, nil), ([0, 2], 3_300, nil), ([1], 3_400, nil),
@@ -59,12 +60,12 @@ final class PlayScreenScreenshotTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/screenshot.osu"))
-        model.selectAudioFile(URL(fileURLWithPath: "/tmp/screenshot.wav"))
-        let started = await model.startPlay()
+        let started = await model.startPlay(
+            stream: stream, audioFileURL: URL(fileURLWithPath: "/tmp/screenshot.wav"),
+            chartSource: .generated(displayName: "Screenshot chart")
+        )
         XCTAssertTrue(started)
 
         let inputs = Self.inputLog()
@@ -167,6 +168,124 @@ final class PlayScreenScreenshotTests: XCTestCase {
     }
 }
 
+/// Renders the chart inspector offscreen into PNGs: empty, an `.osz`'s difficulty list with a refused one, a chart at a
+/// chord passage and a hold, a refused chart, and a chart in the smallest window. The playfield is drawn by the Metal
+/// renderer, the rest by AppKit in a window that is never shown. Runs only with `TEST_RUNNER_ENSOMI_SCREENSHOT_DIR` set
+/// to the directory to write into.
+@MainActor
+final class ChartInspectorScreenshotTests: XCTestCase {
+    private static let size = CGSize(width: 1_120, height: 780)
+
+    func testChartInspectorScreenshots() async throws {
+        guard let path = ProcessInfo.processInfo.environment["ENSOMI_SCREENSHOT_DIR"] else {
+            throw XCTSkip("Set TEST_RUNNER_ENSOMI_SCREENSHOT_DIR to the directory for the PNGs.")
+        }
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("No Metal device")
+        }
+
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let snapshotter = try PlayfieldSnapshotter(device: device, scale: 2)
+        let model = Mania4KChartInspectionModel(
+            settings: Mania4KPlaySessionModel(),
+            audioClock: FakeMania4KAudioClock(metadata: Mania4KAudioMetadata(durationMs: 12_000, title: "Fake"))
+        )
+        let audio = scratch.appendingPathComponent("song.mp3")
+        try Data("audio".utf8).write(to: audio)
+
+        try render(model, snapshotter: snapshotter, to: directory, name: "inspector-1-empty")
+
+        let set = scratch.appendingPathComponent("set.osz")
+        let files = [
+            ("normal.osu", Self.osu(version: "Normal", keys: 4)),
+            ("hard.osu", Self.osu(version: "Hard", keys: 4)),
+            ("seven.osu", Self.osu(version: "7K Insane", keys: 7))
+        ]
+        for (name, text) in files {
+            try Data(text.utf8).write(to: scratch.appendingPathComponent(name))
+        }
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        zip.currentDirectoryURL = scratch
+        zip.arguments = ["-q", set.path, "song.mp3"] + files.map(\.0)
+        try zip.run()
+        zip.waitUntilExit()
+        await model.open([set])
+        try render(model, snapshotter: snapshotter, to: directory, name: "inspector-2-difficulties")
+
+        await model.choose(model.difficulties[1])
+        await model.seek(toMs: 3_060)
+        try render(model, snapshotter: snapshotter, to: directory, name: "inspector-3-chord-passage")
+        await model.seek(toMs: 4_460)
+        try render(model, snapshotter: snapshotter, to: directory, name: "inspector-4-hold")
+        try render(model, snapshotter: snapshotter, to: directory, name: "inspector-5-smallest", size: CGSize(width: 640, height: 480))
+
+        let seven = scratch.appendingPathComponent("seven.osu")
+        await model.open([seven, audio])
+        try render(model, snapshotter: snapshotter, to: directory, name: "inspector-6-refused")
+        print("SCREENSHOT \(directory.path): inspector")
+    }
+
+    private func render(
+        _ model: Mania4KChartInspectionModel,
+        snapshotter: PlayfieldSnapshotter,
+        to directory: URL,
+        name: String,
+        size: CGSize = ChartInspectorScreenshotTests.size
+    ) throws {
+        model.advanceFrame(atHostTimeMs: 0, presentationHostTimeMs: 0)
+        let snapshot = Mania4KPlayfieldSnapshot { size in
+            snapshotter.image(model: model, uiTimeMs: 0, size: size)
+        }
+        let hosting = NSHostingView(rootView: Mania4KChartInspectorView(model: model)
+            .environment(\.mania4kPlayfieldSnapshot, snapshot))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        let representation = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: representation)
+        let url = directory.appendingPathComponent(name).appendingPathExtension("png")
+        try XCTUnwrap(representation.representation(using: .png, properties: [:])).write(to: url)
+        window.close()
+    }
+
+    /// The play screen's screenshot chart as an `.osu` with `keys` columns.
+    private static func osu(version: String, keys: Int) -> String {
+        let objects = PlayScreenScreenshotTests.chart.flatMap { row in
+            row.lanes.map { lane in
+                let x = lane * 128 + 64
+                let time = Int(row.timeMs)
+                return row.endMs.map { "\(x),192,\(time),128,0,\(Int($0)):0:0:0:0:" } ?? "\(x),192,\(time),1,0,0:0:0:0:"
+            }
+        }
+        return """
+        osu file format v14
+
+        [General]
+        AudioFilename: song.mp3
+        Mode: 3
+
+        [Metadata]
+        Title:Screenshot chart
+        Artist:Ensomi
+        Version:\(version)
+
+        [Difficulty]
+        CircleSize:\(keys)
+
+        [HitObjects]
+        \(objects.joined(separator: "\n"))
+        """
+    }
+}
+
 /// Draws the playfield's quads with the app's Metal renderer into a texture and reads it back as an image.
 @MainActor
 private final class PlayfieldSnapshotter {
@@ -180,7 +299,7 @@ private final class PlayfieldSnapshotter {
         self.scale = scale
     }
 
-    func image(model: Mania4KPlaySessionModel, uiTimeMs: Double, size: CGSize) -> CGImage? {
+    func image(model: any Mania4KPlayfieldSource, uiTimeMs: Double, size: CGSize) -> CGImage? {
         let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
         guard width > 0, height > 0 else {
             return nil

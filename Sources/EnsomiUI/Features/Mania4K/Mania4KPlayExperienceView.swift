@@ -60,9 +60,8 @@ public struct Mania4KPlayExperienceView: View {
 }
 
 enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
-    case localBeatmap = "1"
-    case generatedSong = "2"
-    case ambient = "3"
+    case generatedSong = "1"
+    case ambient = "2"
 
     var id: String {
         rawValue
@@ -70,8 +69,6 @@ enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .localBeatmap:
-            return "Imported Chart"
         case .generatedSong:
             return "Generate a Chart"
         case .ambient:
@@ -81,8 +78,6 @@ enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .localBeatmap:
-            return "Play a song with an .osu beatmap"
         case .generatedSong:
             return "Create a chart from a local song"
         case .ambient:
@@ -92,8 +87,6 @@ enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .localBeatmap:
-            return "doc.text"
         case .generatedSong:
             return "wand.and.sparkles"
         case .ambient:
@@ -149,8 +142,7 @@ private struct Mania4KSetupView: View {
     @Bindable var model: Mania4KPlaySessionModel
     @Bindable var generation: Mania4KChartGenerationModel
     @Binding var selectedMode: Mania4KSetupGameMode?
-    @State private var fileImportTarget: Mania4KFileImportTarget?
-    @State private var isChoosingFile = false
+    @State private var isChoosingAudio = false
     @State private var backendIsMock = false
     @State private var ambientModeStatus = "Idle"
     @State private var export: ChartExport?
@@ -170,12 +162,12 @@ private struct Mania4KSetupView: View {
         }
         .scrollContentBackground(.hidden)
         .fileImporter(
-            isPresented: $isChoosingFile,
-            // .osu is normally a dynamic UTType; using public.data avoids picker-side rejection and leaves role checks to the model.
+            isPresented: $isChoosingAudio,
+            // Any file: the audio engine decides what it can read.
             allowedContentTypes: [.data],
             allowsMultipleSelection: false
         ) { result in
-            handleFileImportResult(result)
+            handleAudioImportResult(result)
         }
     }
 
@@ -272,17 +264,11 @@ private struct Mania4KSetupView: View {
         switch selectedMode {
         case nil:
             EmptyView()
-        case .localBeatmap:
-            localBeatmapSetup
         case .generatedSong:
             generatedSongSetup
         case .ambient:
             ambientSetup
         }
-    }
-
-    private var starDifficultyField: some View {
-        starDifficultyField(range: 0.1...12.0)
     }
 
     private func starDifficultyField(range: ClosedRange<Double>) -> some View {
@@ -293,40 +279,6 @@ private struct Mania4KSetupView: View {
             step: 0.1,
             suffix: "stars"
         )
-    }
-
-    private var localBeatmapSetup: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            filePickerRow(
-                title: "Beatmap",
-                value: model.beatmapFileName,
-                message: model.beatmapSelectionErrorMessage,
-                systemImage: "doc.text",
-                action: { presentFileImporter(for: .beatmap) }
-            )
-
-            filePickerRow(
-                title: "Audio",
-                value: model.audioFileName,
-                message: model.audioSelectionErrorMessage,
-                systemImage: "waveform",
-                action: { presentFileImporter(for: .audio) }
-            )
-
-            starDifficultyField
-
-            Button {
-                Task {
-                    await model.startPlay()
-                }
-            } label: {
-                Label("Start Play", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(Mania4KPrimaryButtonStyle())
-            .controlSize(.large)
-            .disabled(!model.isReadyToStart || model.phase == .loading)
-        }
     }
 
     private var generatedSongSetup: some View {
@@ -352,7 +304,7 @@ private struct Mania4KSetupView: View {
                 value: model.audioFileName,
                 message: model.audioSelectionErrorMessage,
                 systemImage: "waveform",
-                action: { presentFileImporter(for: .audio) }
+                action: { isChoosingAudio = true }
             )
             .disabled(generation.isGenerating)
 
@@ -833,8 +785,6 @@ private struct Mania4KSetupView: View {
         switch selectedMode {
         case nil:
             return "MODE"
-        case .localBeatmap:
-            return model.isReadyToStart ? "READY" : "SETUP"
         case .generatedSong:
             return sessionBadgeText
         case .ambient:
@@ -846,8 +796,6 @@ private struct Mania4KSetupView: View {
         switch selectedMode {
         case nil:
             return false
-        case .localBeatmap:
-            return model.isReadyToStart
         case .generatedSong:
             switch generation.state {
             case .finished: return true
@@ -861,7 +809,6 @@ private struct Mania4KSetupView: View {
 
     private var hasSetupStateToClear: Bool {
         selectedMode != nil
-            || model.beatmapFileURL != nil
             || model.audioFileURL != nil
             || backendIsMock
             || ambientModeStatus != "Idle"
@@ -871,7 +818,6 @@ private struct Mania4KSetupView: View {
         selectedMode = nil
         backendIsMock = false
         ambientModeStatus = "Idle"
-        fileImportTarget = nil
         model.clearSetupSelections()
         generation.sections = []
         generation.seedText = ""
@@ -925,42 +871,14 @@ private struct Mania4KSetupView: View {
         #endif
     }
 
-    private func presentFileImporter(for target: Mania4KFileImportTarget) {
-        fileImportTarget = target
-        isChoosingFile = true
-    }
-
-    private func handleFileImportResult(_ result: Result<[URL], Error>) {
-        guard let fileImportTarget else {
-            return
-        }
-
-        defer {
-            self.fileImportTarget = nil
-        }
-
+    private func handleAudioImportResult(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            guard let url = urls.first else {
-                return
-            }
-
-            switch fileImportTarget {
-            case .beatmap:
-                model.selectBeatmapFile(url)
-            case .audio:
+            if let url = urls.first {
                 model.selectAudioFile(url)
             }
-
         case .failure(let error):
-            guard !error.isUserCancellation else {
-                return
-            }
-
-            switch fileImportTarget {
-            case .beatmap:
-                model.recordBeatmapImportFailure(error)
-            case .audio:
+            if !error.isUserCancellation {
                 model.recordAudioImportFailure(error)
             }
         }
@@ -1053,8 +971,6 @@ private struct Mania4KSetupView: View {
         switch selectedMode {
         case nil:
             return "WAITING"
-        case .localBeatmap:
-            return model.isReadyToStart ? "READY" : "WAITING"
         case .generatedSong:
             switch generation.state {
             case .generating: return "GENERATING"
@@ -1114,8 +1030,6 @@ private struct Mania4KSetupView: View {
         switch selectedMode {
         case nil:
             return "--"
-        case .localBeatmap:
-            return model.beatmapFileURL?.lastPathComponent ?? "--"
         case .generatedSong:
             return model.activeConfiguration?.chartSource.displayName ?? "Backend generated"
         case .ambient:
@@ -1246,6 +1160,7 @@ public struct EnsomiSettingsView: View {
     private let chartModels: ChartModelLibrary
     @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
     #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
     @State private var offsetCalibrationModel: Mania4KOffsetCalibrationModel?
     @State private var offsetCalibrationClock: AVFoundationMania4KAudioClock?
     @State private var capturingKeyBindingLane: Mania4KLane?
@@ -1262,7 +1177,7 @@ public struct EnsomiSettingsView: View {
                 numericField(
                     title: "Scroll speed",
                     value: $model.scrollSpeed,
-                    range: 1...40,
+                    range: Mania4KDefaultPlaySettings.scrollSpeedRange,
                     step: 0.1,
                     suffix: "×"
                 )
@@ -1308,6 +1223,16 @@ public struct EnsomiSettingsView: View {
             #if os(macOS)
             Section("Keyboard") {
                 keyBindingSettings
+            }
+
+            Section {
+                Button("Open Chart Inspector…", systemImage: "rectangle.split.3x1") {
+                    openWindow(id: Mania4KChartInspectorWindow.windowID)
+                }
+            } header: {
+                Text("Developer")
+            } footer: {
+                Text("Draws an .osz, or an .osu with its audio, against the song with these offsets, scroll speed and volume. Nothing is judged.")
             }
             #endif
         }
@@ -1534,11 +1459,6 @@ public struct EnsomiSettingsView: View {
         }
     }
     #endif
-}
-
-private enum Mania4KFileImportTarget {
-    case beatmap
-    case audio
 }
 
 #if os(macOS)
@@ -2581,7 +2501,7 @@ private struct Mania4KJudgementTextView: View {
 }
 
 /// The stage ground with the brand's diagonal division behind the playfield.
-private struct Mania4KStageBackground: View {
+struct Mania4KStageBackground: View {
     var body: some View {
         LinearGradient(
             stops: [
@@ -2596,7 +2516,7 @@ private struct Mania4KStageBackground: View {
 }
 
 /// A panel in the brand's card shape: soft corners with a tighter bottom-left one.
-private struct Mania4KStatePanel<Accessory: View, Actions: View>: View {
+struct Mania4KStatePanel<Accessory: View, Actions: View>: View {
     let title: String
     let detail: String
     @ViewBuilder let accessory: Accessory
@@ -2635,7 +2555,7 @@ private struct Mania4KStatePanel<Accessory: View, Actions: View>: View {
 }
 
 /// The brand's primary action: a pill in the action gradient with dark ink.
-private struct Mania4KActionButtonStyle: ButtonStyle {
+struct Mania4KActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.body, design: .rounded, weight: .bold))
@@ -2661,7 +2581,7 @@ private struct Mania4KActionButtonStyle: ButtonStyle {
 }
 
 /// An outlined pill for secondary play actions.
-private struct Mania4KPillButtonStyle: ButtonStyle {
+struct Mania4KPillButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     let tint: Color

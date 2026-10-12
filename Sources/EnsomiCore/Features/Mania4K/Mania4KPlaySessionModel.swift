@@ -2,7 +2,6 @@ import EnsomiRuntime
 import Foundation
 import Observation
 
-public typealias Mania4KHitObjectStreamFactory = @Sendable (URL) -> any Mania4KHitObjectStreaming
 public typealias InferenceEndpointClientFactory = @Sendable (InferenceEndpointConfiguration) -> any InferenceEndpointClient
 
 public struct Mania4KPlayHUD: Equatable, Sendable {
@@ -19,12 +18,37 @@ public struct Mania4KPlayHUD: Equatable, Sendable {
     }
 }
 
-private struct Mania4KFrameTiming {
+/// The chart times of one frame. Judgement is at the audio time heard at the frame's host time plus the audio offset;
+/// drawing is at the audio time heard when the display shows the frame, plus both offsets. Play and chart inspection
+/// both time their frames with it, so the offsets apply once and the same way.
+struct Mania4KFrameTiming {
     let gameplayChartTimeMs: Double
     let renderChartTimeMs: Double
 
+    init(gameplayChartTimeMs: Double, renderChartTimeMs: Double) {
+        self.gameplayChartTimeMs = gameplayChartTimeMs
+        self.renderChartTimeMs = renderChartTimeMs
+    }
+
+    init(
+        clock: any Mania4KAudioClock,
+        audioOffsetMilliseconds: Double,
+        visualOffsetMilliseconds: Double,
+        atHostTimeMs hostTimeMs: Double,
+        presentationHostTimeMs: Double
+    ) {
+        gameplayChartTimeMs = clock.audioTimeMs(atHostTimeMs: hostTimeMs) + audioOffsetMilliseconds
+        renderChartTimeMs = clock.audioTimeMs(atHostTimeMs: presentationHostTimeMs) + audioOffsetMilliseconds
+            + visualOffsetMilliseconds
+    }
+
     func streamReadThroughChartTimeMs(scrollTimeMs: Double) -> Double {
         max(gameplayChartTimeMs, renderChartTimeMs) + scrollTimeMs + 250
+    }
+
+    /// What the frame draws: objects from 700 ms before the render time to 250 ms beyond the top of the playfield.
+    func visibleObjects(of session: GameplaySession, scrollTimeMs: Double) -> [VisibleObject] {
+        session.visibleObjects(lowerMs: renderChartTimeMs - 700, upperMs: renderChartTimeMs + scrollTimeMs + 250)
     }
 }
 
@@ -39,7 +63,6 @@ public final class Mania4KPlaySessionModel {
     static let offsetStateKey = "mania4k.offsetCalibrationState"
     static let musicVolumeKey = "mania4k.musicVolume"
 
-    public var beatmapFileURL: URL?
     public var audioFileURL: URL?
     public var starDifficulty: Double
     public var scrollSpeed: Double
@@ -52,7 +75,6 @@ public final class Mania4KPlaySessionModel {
     /// The output device whose audio offset is applied. A change of device during a game applies when the game ends.
     public private(set) var outputDevice: Mania4KAudioOutputDevice?
 
-    public private(set) var beatmapSelectionErrorMessage: String?
     public private(set) var audioSelectionErrorMessage: String?
     public private(set) var keyBindingErrorMessage: String?
     public private(set) var activeConfiguration: Mania4KPlayConfiguration?
@@ -76,7 +98,6 @@ public final class Mania4KPlaySessionModel {
 
     @ObservationIgnored private let settings: UserDefaults?
     @ObservationIgnored private var reportedOutputDevice: Mania4KAudioOutputDevice?
-    private let streamFactory: Mania4KHitObjectStreamFactory
     private let inferenceEndpointClientFactory: InferenceEndpointClientFactory
     private let defaultAudioClock: any Mania4KAudioClock
     @ObservationIgnored private var activeAudioClock: any Mania4KAudioClock
@@ -98,7 +119,6 @@ public final class Mania4KPlaySessionModel {
     @ObservationIgnored private var pendingInputs: [Mania4KInputEvent]
 
     public init(
-        beatmapFileURL: URL? = nil,
         audioFileURL: URL? = nil,
         starDifficulty: Double = 4.0,
         scrollSpeed: Double = Mania4KDefaultPlaySettings.scrollSpeed,
@@ -108,12 +128,10 @@ public final class Mania4KPlaySessionModel {
         keyBindings: Mania4KKeyBindingSet = .default,
         settings: UserDefaults? = nil,
         audioClock: any Mania4KAudioClock = AVFoundationMania4KAudioClock(),
-        streamFactory: @escaping Mania4KHitObjectStreamFactory = { OsuMania4KBeatmapStream(beatmapFileURL: $0) },
         inferenceEndpointClientFactory: @escaping InferenceEndpointClientFactory = {
             InferenceEndpointWebSocketClient(configuration: $0)
         }
     ) {
-        self.beatmapFileURL = beatmapFileURL
         self.audioFileURL = audioFileURL
         self.starDifficulty = starDifficulty
         self.scrollSpeed = scrollSpeed
@@ -137,7 +155,6 @@ public final class Mania4KPlaySessionModel {
         self.settings = settings
         self.defaultAudioClock = audioClock
         self.activeAudioClock = audioClock
-        self.streamFactory = streamFactory
         self.inferenceEndpointClientFactory = inferenceEndpointClientFactory
         self.phase = .setup
         self.hud = Mania4KPlayHUD()
@@ -158,10 +175,6 @@ public final class Mania4KPlaySessionModel {
         self.pendingInputs = []
         self.isCheckingForFinish = false
         self.gameplayIsResolved = false
-    }
-
-    public var isReadyToStart: Bool {
-        beatmapFileURL != nil && audioFileURL != nil && phase != .loading
     }
 
     /// A game has started and not ended. Volume, offsets and the output device's offset wait until it ends.
@@ -250,27 +263,13 @@ public final class Mania4KPlaySessionModel {
         updateOffsetState(offsetState)
     }
 
-    public var beatmapFileName: String {
-        beatmapFileURL?.lastPathComponent ?? "No .osu file selected"
-    }
-
     public var audioFileName: String {
         audioFileURL?.lastPathComponent ?? "No audio file selected"
     }
 
     public var scrollTimeMs: Double {
-        11_485 / min(max(scrollSpeed, 1), 40)
-    }
-
-    public func selectBeatmapFile(_ url: URL) {
-        guard url.hasOsuBeatmapExtension else {
-            beatmapSelectionErrorMessage = "Choose a .osu beatmap file."
-            return
-        }
-
-        beatmapFileURL = url
-        beatmapSelectionErrorMessage = nil
-        resetPreparedPlayState()
+        let range = Mania4KDefaultPlaySettings.scrollSpeedRange
+        return 11_485 / min(max(scrollSpeed, range.lowerBound), range.upperBound)
     }
 
     public func selectAudioFile(_ url: URL) {
@@ -285,43 +284,12 @@ public final class Mania4KPlaySessionModel {
         }
 
         resetPreparedPlayState()
-        beatmapFileURL = nil
         audioFileURL = nil
-        beatmapSelectionErrorMessage = nil
         audioSelectionErrorMessage = nil
-    }
-
-    public func recordBeatmapImportFailure(_ error: Error) {
-        beatmapSelectionErrorMessage = "Could not choose beatmap: \(error.localizedDescription)"
     }
 
     public func recordAudioImportFailure(_ error: Error) {
         audioSelectionErrorMessage = "Could not choose audio: \(error.localizedDescription)"
-    }
-
-    @discardableResult
-    public func startPlay() async -> Bool {
-        guard let beatmapFileURL, let audioFileURL else {
-            return false
-        }
-
-        resetPreparedPlayState()
-        let startGeneration = playStateGeneration
-        let configuration = Mania4KPlayConfiguration(
-            beatmapFileURL: beatmapFileURL,
-            audioFileURL: audioFileURL,
-            starDifficulty: starDifficulty,
-            scrollSpeed: scrollSpeed,
-            audioOffsetMilliseconds: audioOffsetMilliseconds,
-            visualOffsetMilliseconds: visualOffsetMilliseconds,
-            judgeDifficulty: judgeDifficulty,
-            keyBindings: keyBindings
-        )
-        return await startPreparedPlay(
-            configuration: configuration,
-            stream: streamFactory(beatmapFileURL),
-            startGeneration: startGeneration
-        )
     }
 
     @discardableResult
@@ -383,7 +351,7 @@ public final class Mania4KPlaySessionModel {
         )
     }
 
-    /// Play a complete generated chart with its audio from time 0, like an imported beatmap.
+    /// Play a complete generated chart with its audio from time 0.
     @discardableResult
     public func startGeneratedChartPlay(
         audioFileURL: URL,
@@ -391,20 +359,33 @@ public final class Mania4KPlaySessionModel {
         title: String? = nil,
         artist: String? = nil
     ) async -> Bool {
+        let title = title?.trimmedNilIfEmpty ?? audioFileURL.deletingPathExtension().lastPathComponent
+        let metadata = Mania4KChartMetadata(
+            title: title, artist: artist, sourceDescription: "Ensomi R2 generator",
+            objectCount: chart.objectCount, durationMs: chart.durationMs)
+        return await startPlay(
+            stream: InMemoryMania4KHitObjectStream(objects: chart.objects, metadata: metadata),
+            audioFileURL: audioFileURL,
+            chartSource: .generated(displayName: "Generated: \(title)")
+        )
+    }
+
+    /// Plays `stream` with its audio from time 0 on the local-file clock.
+    @discardableResult
+    func startPlay(
+        stream: any Mania4KHitObjectStreaming,
+        audioFileURL: URL,
+        chartSource: Mania4KChartSource
+    ) async -> Bool {
         resetPreparedPlayState()
         self.audioFileURL = audioFileURL
         let generation = playStateGeneration
-        let title = title?.trimmedNilIfEmpty ?? audioFileURL.deletingPathExtension().lastPathComponent
         let configuration = Mania4KPlayConfiguration(
-            chartSource: .generated(displayName: "Generated: \(title)"),
+            chartSource: chartSource,
             audioFileURL: audioFileURL, starDifficulty: starDifficulty,
             scrollSpeed: scrollSpeed, audioOffsetMilliseconds: audioOffsetMilliseconds,
             visualOffsetMilliseconds: visualOffsetMilliseconds, judgeDifficulty: judgeDifficulty,
             keyBindings: keyBindings)
-        let metadata = Mania4KChartMetadata(
-            title: title, artist: artist, sourceDescription: "Ensomi R2 generator",
-            objectCount: chart.objectCount, durationMs: chart.durationMs)
-        let stream = InMemoryMania4KHitObjectStream(objects: chart.objects, metadata: metadata)
         return await startPreparedPlay(configuration: configuration, stream: stream, startGeneration: generation)
     }
 
@@ -1124,10 +1105,7 @@ public final class Mania4KPlaySessionModel {
             renderChartTimeMs: timing.renderChartTimeMs,
             scrollTimeMs: scrollTimeMs,
             metadata: metadata,
-            visibleObjects: session.visibleObjects(
-                lowerMs: timing.renderChartTimeMs - 700,
-                upperMs: timing.renderChartTimeMs + scrollTimeMs + 250
-            ),
+            visibleObjects: timing.visibleObjects(of: session, scrollTimeMs: scrollTimeMs),
             score: score,
             laneStates: session.laneStates(),
             latestJudgement: gameplay.latestJudgement
@@ -1204,8 +1182,11 @@ public final class Mania4KPlaySessionModel {
 
     private func frameTiming(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) -> Mania4KFrameTiming {
         Mania4KFrameTiming(
-            gameplayChartTimeMs: gameplayChartTimeMs(atHostTimeMs: hostTimeMs),
-            renderChartTimeMs: gameplayChartTimeMs(atHostTimeMs: presentationHostTimeMs) + visualOffsetMilliseconds
+            clock: activeAudioClock,
+            audioOffsetMilliseconds: audioOffsetMilliseconds,
+            visualOffsetMilliseconds: visualOffsetMilliseconds,
+            atHostTimeMs: hostTimeMs,
+            presentationHostTimeMs: presentationHostTimeMs
         )
     }
 
@@ -1317,12 +1298,6 @@ private final class AsyncGate {
 }
 
 private struct StaleMania4KPlayStateError: Error {}
-
-private extension URL {
-    var hasOsuBeatmapExtension: Bool {
-        pathExtension.localizedCaseInsensitiveCompare("osu") == .orderedSame
-    }
-}
 
 private extension String {
     var trimmedNilIfEmpty: String? {

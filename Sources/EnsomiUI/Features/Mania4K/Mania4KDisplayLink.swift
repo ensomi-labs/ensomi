@@ -63,8 +63,8 @@ final class Mania4KWindowVisibilityObserver {
 }
 #endif
 
-extension Mania4KPlaySessionModel {
-    /// The display link's frame: judge at the current time, draw for the time the display shows the frame.
+extension Mania4KPlayfieldSource {
+    /// The display link's frame: made at the current time, drawn for the time the display shows the frame.
     func advanceFrame(for link: CADisplayLink) {
         advanceFrame(
             atHostTimeMs: EnsomiHostClock.currentTimeMS(),

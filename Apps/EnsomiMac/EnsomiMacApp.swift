@@ -10,6 +10,7 @@ struct EnsomiMacApp: App {
 
     @State private var demo = LiveGenerationDemoModel()
     @State private var model: Mania4KPlaySessionModel
+    @State private var inspection: Mania4KChartInspectionModel
     #if DEBUG
     @State private var recognitionModel: LiveRecognitionSyncModel
     #endif
@@ -18,6 +19,7 @@ struct EnsomiMacApp: App {
         let model = Mania4KPlaySessionModel(settings: .standard)
         model.followSystemOutputDevice()
         _model = State(initialValue: model)
+        _inspection = State(initialValue: Mania4KChartInspectionModel(settings: model))
         #if DEBUG
         _recognitionModel = State(initialValue: .liveDebug())
         #endif
@@ -27,8 +29,7 @@ struct EnsomiMacApp: App {
         WindowGroup {
             EnsomiWorkbenchView(
                 maniaModel: model,
-                initialSelection: model.isReadyToStart ? .play : .localLibrary,
-                onAmbientRecognitionRequested: openRecognitionSyncFromMode3(isMock:)
+                onAmbientRecognitionRequested: openRecognitionSyncFromSetup(isMock:)
             )
             .frame(minWidth: 640, minHeight: 480)
         }
@@ -67,14 +68,20 @@ struct EnsomiMacApp: App {
         Window(Mania4KPlaySessionWindow.windowTitle, id: Mania4KPlaySessionWindow.windowID) {
             Mania4KPlayExperienceView(
                 model: model,
-                onAmbientRecognitionRequested: openRecognitionSyncFromMode3(isMock:)
+                onAmbientRecognitionRequested: openRecognitionSyncFromSetup(isMock:)
             )
+        }
+        .defaultSize(width: 1120, height: 780)
+
+        Window(Mania4KChartInspectorWindow.windowTitle, id: Mania4KChartInspectorWindow.windowID) {
+            Mania4KChartInspectorView(model: inspection)
+                .frame(minWidth: 640, minHeight: 480)
         }
         .defaultSize(width: 1120, height: 780)
     }
 
     #if DEBUG
-    private func openRecognitionSyncFromMode3(isMock: Bool) {
+    private func openRecognitionSyncFromSetup(isMock: Bool) {
         recognitionModel.inferenceIsMock = isMock
         openRecognitionSync()
     }
@@ -99,7 +106,7 @@ struct EnsomiMacApp: App {
         }
     }
     #else
-    private func openRecognitionSyncFromMode3(isMock: Bool) {}
+    private func openRecognitionSyncFromSetup(isMock: Bool) {}
     #endif
 
 }
