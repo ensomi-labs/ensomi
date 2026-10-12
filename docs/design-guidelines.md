@@ -16,7 +16,7 @@ audit. Service, timing, and scoring contracts belong in [architecture](architect
 | --- | --- |
 | Navigation | The macOS workbench uses a sidebar for Library and Play. iOS uses tabs with navigation titles. Preserve destination identity and access when content is empty. |
 | Settings | macOS uses the SwiftUI `Settings` scene, the standard app-menu command and Command-comma; toolbar access uses `SettingsLink`. iOS presents a navigation-based sheet with Done. |
-| Preferences | Use grouped forms, system labels, pickers, text fields, and steppers. Keep units and valid ranges clear. Settings share the existing play model. |
+| Preferences | Use grouped forms, system labels, pickers, text fields, and steppers. Keep units and valid ranges clear. Settings share the existing play model. Sound and timing settings (music volume, audio and visual offset, calibration) are disabled while a game is in progress, with a footer saying they can change when it ends. The audio offset and the calibration screen name the output device the offset is saved for. |
 | Library | Music folders and scan status are primary. Empty content offers Add Music Folder. Manual resolution and recording controls remain available in Library Tools. Removing a library folder does not delete its audio files. |
 | Feedback | Describe failures in text with a symbol. Do not use color alone to distinguish error, selection, readiness, or key-capture state. Treat picker cancellation as cancellation, not failure. |
 

@@ -47,6 +47,11 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         var pausedAudioTimeMs = 0.0
         var outputLatencyMs = 0.0
         var volume: Float = 1
+        var musicVolume: Float = 1
+
+        var mainMixerVolume: Float {
+            volume * musicVolume
+        }
     }
 
     private let state = OSAllocatedUnfairLock(uncheckedState: State())
@@ -59,15 +64,24 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         }
     }
 
-    /// The engine's output volume. It is applied at the main mixer: a zero volume on the player itself changes how
-    /// the mixer pulls the player, and its node time then drifts against the device clock.
+    /// The engine's output volume, which silent runs set to 0. It is applied at the main mixer: a zero volume on the
+    /// player itself changes how the mixer pulls the player, and its node time then drifts against the device clock.
     public var volume: Float {
         get { state.withLockUnchecked { $0.volume } }
         set {
             state.withLockUnchecked {
                 $0.volume = newValue
-                $0.engine?.mainMixerNode.outputVolume = newValue
+                $0.engine?.mainMixerNode.outputVolume = $0.mainMixerVolume
             }
+        }
+    }
+
+    /// The song's level, from 0 to 1 of its own. It scales the main mixer's output together with `volume`, for the
+    /// same reason, so a silent run stays silent whatever the music volume.
+    public func setMusicVolume(_ musicVolume: Double) async {
+        state.withLockUnchecked {
+            $0.musicVolume = Float(musicVolume)
+            $0.engine?.mainMixerNode.outputVolume = $0.mainMixerVolume
         }
     }
 
@@ -139,7 +153,7 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
             $0.wantsRunning = $0.wantsRunning && resumesPlaying
             $0.isRunning = false
             $0.pausedAudioTimeMs = positionMs
-            engine.mainMixerNode.outputVolume = $0.volume
+            engine.mainMixerNode.outputVolume = $0.mainMixerVolume
         }
     }
 

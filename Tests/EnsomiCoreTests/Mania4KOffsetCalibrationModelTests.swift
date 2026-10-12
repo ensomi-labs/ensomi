@@ -3,12 +3,12 @@ import XCTest
 
 @MainActor
 final class Mania4KOffsetCalibrationModelTests: XCTestCase {
-    func testDefaultPlayPresetSeedsStoredCalibrationState() {
-        let state = Mania4KOffsetCalibrationStoredState.defaultPlayState
+    func testNewSessionSeedsTheDefaultPresetAndAppliesTheDefaults() {
+        let state = Mania4KPlaySessionModel().offsetState
 
         XCTAssertEqual(state.appliedAudioOffsetMilliseconds, Mania4KDefaultPlaySettings.audioOffsetMilliseconds)
         XCTAssertEqual(state.appliedVisualOffsetMilliseconds, Mania4KDefaultPlaySettings.visualOffsetMilliseconds)
-        XCTAssertEqual(state.activePresetID, Mania4KDefaultPlaySettings.offsetPresetID)
+        XCTAssertNil(state.activePresetID)
         XCTAssertEqual(state.presets, [
             Mania4KOffsetPreset(
                 id: Mania4KDefaultPlaySettings.offsetPresetID,
@@ -332,5 +332,40 @@ final class Mania4KOffsetCalibrationModelTests: XCTestCase {
         )
         XCTAssertEqual(model.appliedAudioOffsetMilliseconds, 44)
         XCTAssertEqual(model.appliedVisualOffsetMilliseconds, -30)
+    }
+
+    func testApplySavesTheAudioOffsetForTheOutputDeviceAndTheVisualOffsetForAll() throws {
+        let headphones = Mania4KAudioOutputDevice(id: "headphones-uid", name: "Headphones")
+        let model = Mania4KOffsetCalibrationModel(
+            originalAudioOffsetMilliseconds: 12,
+            originalVisualOffsetMilliseconds: -8,
+            storedState: Mania4KOffsetCalibrationStoredState(appliedAudioOffsetMilliseconds: 12, appliedVisualOffsetMilliseconds: -8),
+            outputDevice: headphones,
+            audioClock: FakeMania4KAudioClock()
+        )
+        model.setPendingAudioOffsetMilliseconds(30)
+        model.setPendingVisualOffsetMilliseconds(-20)
+        model.apply()
+
+        let preset = try XCTUnwrap(model.storedState.preset(for: headphones))
+        XCTAssertEqual(preset.name, headphones.name)
+        XCTAssertEqual(preset.audioOffsetMilliseconds, 30)
+        XCTAssertNil(preset.visualOffsetMilliseconds)
+        XCTAssertEqual(model.activePresetID, preset.id)
+        XCTAssertEqual(model.appliedAudioOffsetMilliseconds, 30)
+        XCTAssertEqual(model.appliedVisualOffsetMilliseconds, -20)
+
+        // Opened again on the same device, the screen starts from its offsets; a visual change keeps its preset active.
+        let reopened = Mania4KOffsetCalibrationModel(
+            originalAudioOffsetMilliseconds: 30,
+            originalVisualOffsetMilliseconds: -20,
+            storedState: model.storedState,
+            outputDevice: headphones,
+            audioClock: FakeMania4KAudioClock()
+        )
+        XCTAssertEqual(reopened.pendingAudioOffsetMilliseconds, 30)
+        XCTAssertEqual(reopened.pendingVisualOffsetMilliseconds, -20)
+        reopened.setPendingVisualOffsetMilliseconds(-25)
+        XCTAssertEqual(reopened.activePresetID, preset.id)
     }
 }

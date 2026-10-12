@@ -1244,7 +1244,6 @@ private struct Mania4KSetupView: View {
 public struct EnsomiSettingsView: View {
     @Bindable private var model: Mania4KPlaySessionModel
     private let chartModels: ChartModelLibrary
-    @AppStorage("mania4k.offsetCalibrationState") private var storedOffsetCalibrationState = ""
     @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
     #if os(macOS)
     @State private var offsetCalibrationModel: Mania4KOffsetCalibrationModel?
@@ -1274,21 +1273,29 @@ public struct EnsomiSettingsView: View {
                 }
             }
 
-            Section("Timing") {
+            Section {
+                musicVolumeSetting
                 offsetSetting(
                     title: "Audio offset",
-                    description: "Moves song timing and judgement timing. Use when hits sound early or late.",
+                    description: audioOffsetDescription,
                     binding: audioOffsetBinding
                 )
                 offsetSetting(
                     title: "Visual offset",
-                    description: "Moves note display only. Use when notes look early or late while the sound feels correct.",
+                    description: "Moves note display only. Use when notes look early or late while the sound feels correct. The same for every output device.",
                     binding: visualOffsetBinding
                 )
                 #if os(macOS)
                 Button("Calibrate Timing…", systemImage: "slider.horizontal.3", action: openOffsetCalibration)
                 #endif
+            } header: {
+                Text("Sound and timing")
+            } footer: {
+                if model.isGameInProgress {
+                    Label("Volume and offsets can be changed when the game ends.", systemImage: "lock")
+                }
             }
+            .disabled(model.isGameInProgress)
 
             Section {
                 ChartModelManagementView(library: chartModels)
@@ -1318,7 +1325,7 @@ public struct EnsomiSettingsView: View {
                         model: calibration,
                         audioClock: clock,
                         scrollTimeMs: model.scrollTimeMs,
-                        onStateChanged: { persistCalibrationState($0) },
+                        onStateChanged: { model.updateOffsetState($0) },
                         onApply: applyOffsetCalibration,
                         onCancel: cancelOffsetCalibration
                     )
@@ -1332,6 +1339,45 @@ public struct EnsomiSettingsView: View {
         }
         .onDisappear { capturingKeyBindingLane = nil }
         #endif
+    }
+
+    private var musicVolumeSetting: some View {
+        let percent = model.musicVolume.formatted(.percent.precision(.fractionLength(0)))
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Music volume")
+                Spacer()
+                Text(percent)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            Slider(value: musicVolumeBinding, in: 0...1) {
+                Text("Music volume")
+            }
+            .labelsHidden()
+            .accessibilityValue(percent)
+            Text("The song's level in play, up to its own level.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var musicVolumeBinding: Binding<Double> {
+        Binding(
+            get: { model.musicVolume },
+            set: { model.setMusicVolume($0) }
+        )
+    }
+
+    private var audioOffsetDescription: String {
+        let use = "Moves song timing and judgement timing. Use when hits sound early or late."
+        guard let device = model.outputDevice else {
+            return use
+        }
+
+        return "For \(device.name), the current output. \(use) Each output device keeps its own."
     }
 
     private func offsetSetting(title: String, description: String, binding: Binding<Double>) -> some View {
@@ -1376,53 +1422,16 @@ public struct EnsomiSettingsView: View {
 
     private var audioOffsetBinding: Binding<Double> {
         Binding(
-            get: {
-                model.audioOffsetMilliseconds
-            },
-            set: { value in
-                let offsetMilliseconds = clampedOffsetMilliseconds(value)
-                model.audioOffsetMilliseconds = Double(offsetMilliseconds)
-            }
+            get: { model.audioOffsetMilliseconds },
+            set: { model.setAudioOffset(clampedOffsetMilliseconds($0)) }
         )
     }
 
     private var visualOffsetBinding: Binding<Double> {
         Binding(
-            get: {
-                model.visualOffsetMilliseconds
-            },
-            set: { value in
-                let offsetMilliseconds = clampedOffsetMilliseconds(value)
-                model.visualOffsetMilliseconds = Double(offsetMilliseconds)
-            }
+            get: { model.visualOffsetMilliseconds },
+            set: { model.setVisualOffset(clampedOffsetMilliseconds($0)) }
         )
-    }
-
-    private var calibrationStoredState: Mania4KOffsetCalibrationStoredState? {
-        guard !storedOffsetCalibrationState.isEmpty else {
-            return Mania4KOffsetCalibrationStoredState.defaultPlayState
-        }
-
-        guard let storedState = Mania4KOffsetCalibrationStoredState(storageValue: storedOffsetCalibrationState) else {
-            return nil
-        }
-
-        return Mania4KOffsetCalibrationModel.normalizedStoredState(
-            storedState,
-            fallbackAppliedAudioOffsetMilliseconds: 0,
-            fallbackAppliedVisualOffsetMilliseconds: 0
-        )
-    }
-
-    private func persistCalibrationState(
-        _ state: Mania4KOffsetCalibrationStoredState,
-        createsStateIfNeeded: Bool = false
-    ) {
-        guard createsStateIfNeeded || calibrationStoredState != nil || !state.presets.isEmpty || state.activePresetID != nil else {
-            return
-        }
-
-        storedOffsetCalibrationState = state.storageValue
     }
 
     private func clampedOffsetMilliseconds(_ value: Double) -> Int {
@@ -1436,24 +1445,21 @@ public struct EnsomiSettingsView: View {
         offsetCalibrationModel = Mania4KOffsetCalibrationModel(
             originalAudioOffsetMilliseconds: clampedOffsetMilliseconds(model.audioOffsetMilliseconds),
             originalVisualOffsetMilliseconds: clampedOffsetMilliseconds(model.visualOffsetMilliseconds),
-            storedState: calibrationStoredState,
+            storedState: model.offsetState,
+            outputDevice: model.outputDevice,
             audioClock: clock
         )
     }
 
     private func applyOffsetCalibration(_ calibrationModel: Mania4KOffsetCalibrationModel) {
-        let appliedOffsets = calibrationModel.apply()
-        model.audioOffsetMilliseconds = Double(appliedOffsets.audioOffsetMilliseconds)
-        model.visualOffsetMilliseconds = Double(appliedOffsets.visualOffsetMilliseconds)
-        persistCalibrationState(calibrationModel.storedState, createsStateIfNeeded: true)
+        calibrationModel.apply()
+        model.updateOffsetState(calibrationModel.storedState)
         offsetCalibrationModel = nil
         offsetCalibrationClock = nil
     }
 
+    /// The model's offsets never changed while calibrating; presets added or deleted stay.
     private func cancelOffsetCalibration(_ calibrationModel: Mania4KOffsetCalibrationModel) {
-        let originalOffsets = calibrationModel.cancel()
-        model.audioOffsetMilliseconds = Double(originalOffsets.audioOffsetMilliseconds)
-        model.visualOffsetMilliseconds = Double(originalOffsets.visualOffsetMilliseconds)
         offsetCalibrationModel = nil
         offsetCalibrationClock = nil
     }
@@ -1607,6 +1613,12 @@ private struct Mania4KOffsetCalibrationView: View {
                 Text("Offset Calibration")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(Mania4KStyle.textPrimary)
+
+                if let device = model.outputDevice {
+                    Text("Audio offset for \(device.name)")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(Mania4KStyle.textSecondary)
+                }
 
                 Text("A \(model.pendingAudioOffsetMilliseconds) ms pending / \(model.renderedAudioOffsetMilliseconds) ms rendered  V \(model.pendingVisualOffsetMilliseconds) ms pending / \(model.renderedVisualOffsetMilliseconds) ms rendered")
                     .font(.caption.monospaced())
@@ -1963,7 +1975,8 @@ private struct Mania4KOffsetCalibrationView: View {
     }
 
     private func presetLabel(for preset: Mania4KOffsetPreset) -> String {
-        "\(preset.name)  A \(signedMilliseconds(preset.audioOffsetMilliseconds))  V \(signedMilliseconds(preset.visualOffsetMilliseconds))"
+        let audio = "\(preset.name)  A \(signedMilliseconds(preset.audioOffsetMilliseconds))"
+        return preset.visualOffsetMilliseconds.map { "\(audio)  V \(signedMilliseconds($0))" } ?? audio
     }
 
     private func signedMilliseconds(_ milliseconds: Int) -> String {

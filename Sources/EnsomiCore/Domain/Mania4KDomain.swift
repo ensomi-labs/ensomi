@@ -9,6 +9,8 @@ public enum Mania4KDefaultPlaySettings {
     /// Tuned by ear on Sony WH-1000XM4 headphones with this clock.
     public static let audioOffsetMilliseconds = -15
     public static let visualOffsetMilliseconds = -15
+    /// The song's level in play, as a fraction of its own level.
+    public static let musicVolume = 0.8
     public static let offsetPresetID = UUID(uuidString: "D46D55AF-109E-48DC-A9F9-CE83F108EBF5")!
     public static let offsetPresetName = "default"
 }
@@ -471,6 +473,13 @@ public protocol Mania4KAudioClock: Sendable {
     /// Never suspends, so a key event's timestamp converts where the event is handled.
     func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double
     func isRunning() async -> Bool
+    /// Sets the song's level, from 0 to 1 of its own.
+    func setMusicVolume(_ musicVolume: Double) async
+}
+
+public extension Mania4KAudioClock {
+    /// A clock that plays nothing has no level to set.
+    func setMusicVolume(_ musicVolume: Double) async {}
 }
 
 public struct Mania4KAudioMetadata: Equatable, Sendable {
@@ -488,6 +497,7 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
     private let storedAudioTimeMs: OSAllocatedUnfairLock<Double>
     private var running: Bool
     private let prepareError: Error?
+    public private(set) var musicVolume = 1.0
 
     public init(
         metadata: Mania4KAudioMetadata = Mania4KAudioMetadata(durationMs: 10_000, title: "Fake Audio"),
@@ -546,6 +556,10 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
 
     public func setRunning(_ running: Bool) {
         self.running = running
+    }
+
+    public func setMusicVolume(_ musicVolume: Double) async {
+        self.musicVolume = musicVolume
     }
 }
 

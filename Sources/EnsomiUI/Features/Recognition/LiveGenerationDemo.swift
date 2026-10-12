@@ -129,8 +129,7 @@ public struct LiveGenerationDemoView: View {
         .onAppear {
             if let keys = Mania4KKeyBindingSet(storageValue: storedKeyBindings) { model.gameplay.applyKeyBindings(keys) }
             if let calibration = Mania4KOffsetCalibrationStoredState(storageValue: storedCalibration) {
-                model.gameplay.audioOffsetMilliseconds = Double(calibration.appliedAudioOffsetMilliseconds)
-                model.gameplay.visualOffsetMilliseconds = Double(calibration.appliedVisualOffsetMilliseconds)
+                model.gameplay.updateOffsetState(calibration)
             }
             model.enter()
         }

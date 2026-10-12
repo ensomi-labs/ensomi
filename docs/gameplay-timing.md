@@ -54,8 +54,10 @@ These shaped the clock and are easy to get wrong again:
   at the output rate in between, the drift is 7 ppm, the same as a 48 kHz file.
 - Silencing must not use the player's own volume. At volume 0 the node time drifts
   the same 1.3 ms per second even with the mixer in place. The clock's `volume` sets
-  the main mixer's output volume instead. `AVAudioPlayer` at volume 0 drifts the same
-  way, so a silent comparison against it plays a file of zeros at full volume.
+  the main mixer's output volume instead, multiplied by the music volume, which play
+  sets from Settings, so silent runs stay silent at any music volume. `AVAudioPlayer`
+  at volume 0 drifts the same way, so a silent comparison against it plays a file of
+  zeros at full volume.
 - The render timestamp's host time leads the moment of the call by 13 to 22 ms,
   depending on where in the 10.7 ms I/O cycle (512 frames at 48 kHz) the call falls.
   On WH-1000XM4 headphones over Bluetooth the first render after a start leads by
@@ -148,10 +150,11 @@ display time instead of the last tick, so it may need a different value.
 
 What the clock does not see stays in the audio offset: latency a device leaves out
 of `presentationLatency`, keyboard and input-handling delay, and the time from
-speaker to ear. Applied offsets and presets stored before this clock
-(`mania4k.offsetCalibrationState`) are kept as they are. They were tuned against
-`AVAudioPlayer.currentTime` and include the device latency the clock now removes,
-so they are too negative by about that latency.
+speaker to ear. Presets stored before this clock (`mania4k.offsetCalibrationState`)
+are kept as they are. They were tuned against `AVAudioPlayer.currentTime` and include
+the device latency the clock now removes, so they are too negative by about that
+latency. The audio offset applied before output devices had their own is not carried
+over: each device starts from the default until its offset is set.
 
 The offset calibration screen judges as play does, on the same clock. Its click, the
 bundled `calibration_tick.wav`, is laid in a click track that
@@ -200,12 +203,13 @@ under the derived data path if a default test disagrees with the source.
 
 `-only-testing:EnsomiCoreTests/AVFoundationMania4KAudioClockTests` runs the clock's
 own checks, silently: it follows the host clock within 0.5 ms and only forward while
-playing, holds while paused, renders the click track's ticks at their audio times,
-and resumes from the heard position after a simulated device change. The restart's
-checks hold on any output: the first reading after the restart, plus the latency the
-clock subtracts, lies from the held position as the first reading after the clock's own
-start lay from 0, within 25 ms (`TIMING route change` lines), and the time the device
-takes to start is not bounded. Those that play skip when there is no audio output.
+playing, at any music volume, holds while paused, renders the click track's ticks at
+their audio times, and resumes from the heard position after a simulated device change.
+The restart's checks hold on any output: the first reading after the restart, plus the
+latency the clock subtracts, lies from the held position as the first reading after the
+clock's own start lay from 0, within 25 ms (`TIMING route change` lines), and the time
+the device takes to start is not bounded. Those that play skip when there is no audio
+output.
 
 ## Not covered
 

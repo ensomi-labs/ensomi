@@ -183,6 +183,23 @@ core, which never moves its clock back, waits for it to catch up. Ambient play
 projects from a host-time anchor instead. [Gameplay timing](gameplay-timing.md)
 records the engine behavior behind this and what the audio offset still corrects.
 
+The play model owns the music volume and the offsets and stores them in the app's
+defaults (`mania4k.musicVolume`, `mania4k.offsetCalibrationState`). The music
+volume is a fraction from 0 to 1 of the song's own level, so it only scales down;
+the local-file clock applies it at the main mixer, as it applies silence, because
+a lowered player volume makes the player's time drift against the device clock.
+The audio offset belongs to the output device: macOS's default output device or
+iOS's current route output, identified by its UID. A device's offset is a preset
+with that UID, named for the device and without a visual offset, made the first
+time the offset is set on it by Settings or calibration; a device without one,
+including every device in state stored before device presets, uses
+`Mania4KDefaultPlaySettings.audioOffsetMilliseconds`. Presets saved by name keep
+both offsets and load into the calibration as before. The visual offset belongs
+to the display and is one value for every device. While a game is in progress
+(loading, playing or paused) the volume and offsets do not change, and a change of
+output device applies its offset when the game ends; the clock still re-reads the
+new device's latency at once.
+
 Audio offset affects judgement and hit errors. Visual offset and scroll speed
 affect rendering and lookahead only. A key event is stamped with its own
 timestamp (`NSEvent.timestamp`, system uptime), converted to gameplay time

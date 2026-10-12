@@ -84,6 +84,26 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         }
     }
 
+    /// The music volume scales the main mixer, not the player, so the clock keeps to the host clock at any level and
+    /// when the level changes while playing. The file is silent, so nothing is heard whatever the level.
+    func testMusicVolumeLeavesTheClockFollowingTheHostClock() async throws {
+        let url = try writeToneFile(sampleRate: 44_100, seconds: 4, amplitude: 0)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let clock = AVFoundationMania4KAudioClock()
+        await clock.setMusicVolume(0.5)
+        _ = try await clock.prepare(audioFileURL: url)
+        try await play(clock)
+
+        var samples = try await sample(clock, forMs: 1_000)
+        await clock.setMusicVolume(0)
+        samples += try await sample(clock, forMs: 1_000)
+
+        let offsets = samples.map { $0.audio - $0.host }
+        XCTAssertLessThan(try XCTUnwrap(offsets.max()) - XCTUnwrap(offsets.min()), 0.5)
+        XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $1.audio > $0.audio })
+        await clock.stop()
+    }
+
     /// A device change stops the engine. The clock builds it again and plays on from the position that was being
     /// heard. How long the new device takes to start depends on the device and is not checked.
     func testRouteChangeResumesFromTheHeardPositionAndKeepsAdvancing() async throws {
@@ -218,7 +238,7 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         return rendered
     }
 
-    private func writeToneFile(sampleRate: Double, seconds: Double) throws -> URL {
+    private func writeToneFile(sampleRate: Double, seconds: Double, amplitude: Float = 0.1) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
@@ -228,7 +248,7 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         buffer.frameLength = frameCount
         let samples = try XCTUnwrap(buffer.floatChannelData)[0]
         for frame in 0..<Int(frameCount) {
-            samples[frame] = 0.1 * sinf(Float(frame) * 2 * .pi * 440 / Float(sampleRate))
+            samples[frame] = amplitude * sinf(Float(frame) * 2 * .pi * 440 / Float(sampleRate))
         }
         try AVAudioFile(forWriting: url, settings: format.settings).write(from: buffer)
         return url

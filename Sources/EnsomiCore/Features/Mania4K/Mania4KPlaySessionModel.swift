@@ -36,21 +36,29 @@ public final class Mania4KPlaySessionModel {
     /// because key events stamped before the frame can still wait in the main thread's queue. Hits are judged as
     /// soon as their key is handled; a miss shows up to this much later.
     static let inputDeliveryAllowanceMs = 100.0
+    static let offsetStateKey = "mania4k.offsetCalibrationState"
+    static let musicVolumeKey = "mania4k.musicVolume"
 
     public var beatmapFileURL: URL?
     public var audioFileURL: URL?
     public var starDifficulty: Double
     public var scrollSpeed: Double
-    public var audioOffsetMilliseconds: Double
-    public var visualOffsetMilliseconds: Double
     public var judgeDifficulty: Mania4KJudgeDifficulty
     public var keyBindings: Mania4KKeyBindingSet
+    /// The offsets and presets, with each output device's audio offset. They change only while no game is in progress.
+    public private(set) var offsetState: Mania4KOffsetCalibrationStoredState
+    /// The song's level in play, from 0 to 1 of its own level. It changes only while no game is in progress.
+    public private(set) var musicVolume: Double
+    /// The output device whose audio offset is applied. A change of device during a game applies when the game ends.
+    public private(set) var outputDevice: Mania4KAudioOutputDevice?
 
     public private(set) var beatmapSelectionErrorMessage: String?
     public private(set) var audioSelectionErrorMessage: String?
     public private(set) var keyBindingErrorMessage: String?
     public private(set) var activeConfiguration: Mania4KPlayConfiguration?
-    public private(set) var phase: Mania4KPlayPhase
+    public private(set) var phase: Mania4KPlayPhase {
+        didSet { applyReportedOutputDevice() }
+    }
     public private(set) var playFrame: Mania4KPlayFrame?
     public private(set) var hud: Mania4KPlayHUD
     public private(set) var judgementPresentation: JudgementPresentation?
@@ -66,6 +74,8 @@ public final class Mania4KPlaySessionModel {
     public private(set) var backendIsMock: Bool
     public private(set) var backendReferenceTimeMS: Double?
 
+    @ObservationIgnored private let settings: UserDefaults?
+    @ObservationIgnored private var reportedOutputDevice: Mania4KAudioOutputDevice?
     private let streamFactory: Mania4KHitObjectStreamFactory
     private let inferenceEndpointClientFactory: InferenceEndpointClientFactory
     private let defaultAudioClock: any Mania4KAudioClock
@@ -96,6 +106,7 @@ public final class Mania4KPlaySessionModel {
         visualOffsetMilliseconds: Double = Double(Mania4KDefaultPlaySettings.visualOffsetMilliseconds),
         judgeDifficulty: Mania4KJudgeDifficulty = .c,
         keyBindings: Mania4KKeyBindingSet = .default,
+        settings: UserDefaults? = nil,
         audioClock: any Mania4KAudioClock = AVFoundationMania4KAudioClock(),
         streamFactory: @escaping Mania4KHitObjectStreamFactory = { OsuMania4KBeatmapStream(beatmapFileURL: $0) },
         inferenceEndpointClientFactory: @escaping InferenceEndpointClientFactory = {
@@ -106,10 +117,24 @@ public final class Mania4KPlaySessionModel {
         self.audioFileURL = audioFileURL
         self.starDifficulty = starDifficulty
         self.scrollSpeed = scrollSpeed
-        self.audioOffsetMilliseconds = audioOffsetMilliseconds
-        self.visualOffsetMilliseconds = visualOffsetMilliseconds
         self.judgeDifficulty = judgeDifficulty
         self.keyBindings = keyBindings
+        // Offsets and volume stored in `settings` take the place of the given ones.
+        let storedOffsetState = settings?.string(forKey: Self.offsetStateKey)
+            .flatMap(Mania4KOffsetCalibrationStoredState.init(storageValue:))
+        self.offsetState = storedOffsetState.map {
+            Mania4KOffsetCalibrationModel.normalizedStoredState(
+                $0,
+                fallbackAppliedAudioOffsetMilliseconds: 0,
+                fallbackAppliedVisualOffsetMilliseconds: 0
+            )
+        } ?? Mania4KOffsetCalibrationStoredState(
+            appliedAudioOffsetMilliseconds: Int(audioOffsetMilliseconds.rounded()),
+            appliedVisualOffsetMilliseconds: Int(visualOffsetMilliseconds.rounded()),
+            presets: [Mania4KOffsetCalibrationStoredState.defaultPlayPreset]
+        )
+        self.musicVolume = settings?.object(forKey: Self.musicVolumeKey) as? Double ?? Mania4KDefaultPlaySettings.musicVolume
+        self.settings = settings
         self.defaultAudioClock = audioClock
         self.activeAudioClock = audioClock
         self.streamFactory = streamFactory
@@ -137,6 +162,92 @@ public final class Mania4KPlaySessionModel {
 
     public var isReadyToStart: Bool {
         beatmapFileURL != nil && audioFileURL != nil && phase != .loading
+    }
+
+    /// A game has started and not ended. Volume, offsets and the output device's offset wait until it ends.
+    public var isGameInProgress: Bool {
+        switch phase {
+        case .loading, .ready, .playing, .paused: true
+        case .setup, .finished, .failed: false
+        }
+    }
+
+    /// The current output device's audio offset.
+    public var audioOffsetMilliseconds: Double {
+        Double(offsetState.appliedAudioOffsetMilliseconds)
+    }
+
+    /// The display's visual offset, the same for every output device.
+    public var visualOffsetMilliseconds: Double {
+        Double(offsetState.appliedVisualOffsetMilliseconds)
+    }
+
+    /// Sets the audio offset and saves it as the current output device's.
+    @discardableResult
+    public func setAudioOffset(_ milliseconds: Int) -> Bool {
+        var state = offsetState
+        state.setAudioOffset(milliseconds, for: outputDevice)
+        return updateOffsetState(state)
+    }
+
+    @discardableResult
+    public func setVisualOffset(_ milliseconds: Int) -> Bool {
+        var state = offsetState
+        state.appliedVisualOffsetMilliseconds = milliseconds
+        return updateOffsetState(state)
+    }
+
+    /// Takes offsets and presets as the offset calibration leaves them. The current output device's audio offset
+    /// stays the applied one.
+    @discardableResult
+    public func updateOffsetState(_ state: Mania4KOffsetCalibrationStoredState) -> Bool {
+        guard !isGameInProgress else {
+            return false
+        }
+
+        var state = state
+        if let outputDevice {
+            state.activate(outputDevice)
+        }
+        offsetState = state
+        settings?.set(state.storageValue, forKey: Self.offsetStateKey)
+        return true
+    }
+
+    /// Sets the song's level, which only scales it down: values outside 0 to 1 take the nearer end.
+    @discardableResult
+    public func setMusicVolume(_ volume: Double) -> Bool {
+        guard !isGameInProgress else {
+            return false
+        }
+
+        musicVolume = min(max(volume, 0), 1)
+        settings?.set(musicVolume, forKey: Self.musicVolumeKey)
+        return true
+    }
+
+    /// The output device is now `device`. Its audio offset, or the default for a device without one, applies at
+    /// once, or when the game in progress ends.
+    public func outputDeviceChanged(to device: Mania4KAudioOutputDevice?) {
+        reportedOutputDevice = device
+        applyReportedOutputDevice()
+    }
+
+    /// Follows the system's output device for the life of the app.
+    public func followSystemOutputDevice() {
+        Mania4KAudioOutputDevice.observeChanges { [weak self] in
+            self?.outputDeviceChanged(to: Mania4KAudioOutputDevice.current())
+        }
+        outputDeviceChanged(to: Mania4KAudioOutputDevice.current())
+    }
+
+    private func applyReportedOutputDevice() {
+        guard !isGameInProgress, reportedOutputDevice != outputDevice else {
+            return
+        }
+
+        outputDevice = reportedOutputDevice
+        updateOffsetState(offsetState)
     }
 
     public var beatmapFileName: String {
@@ -467,6 +578,8 @@ public final class Mania4KPlaySessionModel {
 
         let preparedAudioMetadata: Mania4KAudioMetadata
         do {
+            // The game keeps this level: the volume does not change while it is in progress.
+            await activeAudioClock.setMusicVolume(musicVolume)
             preparedAudioMetadata = try await activeAudioClock.prepare(audioFileURL: configuration.audioFileURL)
             if await abandonStaleStartIfNeeded(startGeneration) {
                 return false
