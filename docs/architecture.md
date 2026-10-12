@@ -110,7 +110,13 @@ serializes reads, rejects watermark violations, and fails if the judgement clock
 outpaces complete data. Initial inference readiness requires a clean hold boundary
 and sufficient future coverage; it cannot begin halfway through an existing hold.
 
-Local-audio generation uses a complete-chart exchange instead of a stream.
+Local-audio generation uses a complete-chart exchange instead of a stream, made by
+one of two engines that answer the same questions: capabilities, a complete chart,
+progress by phase and a stop. `Mania4KChartGenerationModel` picks one: the on-device
+engine when a model is installed and the person has not chosen otherwise, else the
+chart server. Controls, validation, the play path and `Mania4KGeneratedChart` are the
+same for both. The on-device engine is described after the server contract.
+
 [`ChartGenerationClient`](../Sources/EnsomiCore/Services/Beatmap/ChartGenerationClient.swift)
 opens a binary websocket (`ENSOMI_SERVICE_URL`, default `ws://localhost:8765`), sends
 `capabilities_request` with an empty session ID (reply: model name and version, star
@@ -129,6 +135,20 @@ audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedCh
 gameplay core validate the chart (it rejects out-of-range lanes or times, unsorted objects and
 same-lane overlaps), then plays it with its audio from time 0 as an in-memory chart, with every
 note.
+
+The on-device engine ([`OnDeviceChartGenerator`](../Sources/EnsomiCore/Services/Beatmap/OnDeviceChartGenerator.swift),
+details in [solo device mode](solo-device.md)) decodes the chosen file with `AVAudioFile` to
+mono Float PCM at the file's own rate (channels averaged in Double) and gives it to the runtime's
+`ChartGenerator`, which opens once on a model directory and keeps ONNX Runtime's CPU sessions.
+The generation model maps what it already has to the runtime's types and back: `ModelCapabilities`
+to the protocol `ModelCapabilities` (so the same statuses decide the section kinds), the sections to
+`ChartControls` (long notes stay unspecified), the runtime's phases to `GenerationPhase`, and
+the runtime's `Chart` to `Mania4KGeneratedChart`. A refusal arrives as `GeneratorError` and
+is shown as the core's message. The seed is a new random one unless given. Stop cancels the
+generation task, which throws `GeneratorError.Cancelled` at the core's next graph run or phase,
+and the state returns to idle. The model is the published Ensomi R2 download in Application Support or
+a folder the person chose; `ChartModelLibrary` owns that choice, opens the generator and keeps
+folder access across launches with a bookmark.
 
 The `.osu` stream reads the file with the gameplay core's loader, which accepts only
 four-key mania. It rejects unsupported objects, invalid times, and same-lane overlaps

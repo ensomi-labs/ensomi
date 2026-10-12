@@ -48,7 +48,11 @@ When a custom interaction is necessary, preserve keyboard focus, accessible
 names and values, and an explicit way to cancel or leave it. Record a new lasting
 exception here with its user benefit and affected surface.
 
-Generate a Chart places a Sections list below the song's star target. Each section
+Generate a Chart opens with a segmented choice between generating on this device and
+at the chart server, and while this device has no model it shows the model controls
+(download with progress and cancel, or choose a folder) before anything else; the same
+controls sit in a Chart model section of Settings. The engine's name heads the panel that
+shows the phase. Generate a Chart places a Sections list below the song's star target. Each section
 uses start and end fields in `mm:ss`, a capability-backed kind picker, and either
 a strength slider from 0 to 1 or a star target with the song's range. Experimental
 kinds are labelled; controls marked not working are hidden. Show validation by

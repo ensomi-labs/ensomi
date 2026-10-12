@@ -26,6 +26,9 @@ targets), and again after the core changes:
 ../ensomi-runtime/scripts/build-apple.sh
 ```
 
+The script also puts the generator's resampler tables in `../ensomi-runtime/build/apple/resampler`,
+which `project.yml` bundles into both apps as a folder resource.
+
 Then generate the project from `project.yml`:
 
 ```sh
@@ -58,11 +61,16 @@ startup, checkpoint identity, local audio preparation and troubleshooting.
 
 
 **Generate a Chart** builds a complete chart from a local audio file. Pick the file,
-set the stars (the model's range) and optional sections, and the app sends it to the
-local Ensomi R2 model service (`python -m ensomi_model.service --model-dir <dir>` from
+set the stars (the model's range) and optional sections, and the chart is made on this
+device by the Rust core's generator with ONNX Runtime, from the Ensomi R2 model that
+Settings downloads from [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) (about 120 MB) or
+reads from a folder you choose. Nothing is sent to a server. The complete chart plays
+from the start. See [solo device mode](docs/solo-device.md).
+
+The chart server stays selectable on the same screen: it runs the local Ensomi R2 model service
+(`python -m ensomi_model.service --model-dir <dir>` from
 [ensomi-model](https://github.com/ensomi-labs/ensomi-model), `ws://localhost:8765` by
-default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default). The
-complete chart plays from the start.
+default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default).
 
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
 Sync Flow** recognizes microphone or system audio, resolves a local reference,
@@ -85,7 +93,7 @@ Filescan debugging additionally requires the `acrcloud` executable and
 with `xcodebuild -project Ensomi.xcodeproj -scheme EnsomiACRCloudDebugCLI -configuration Debug -destination 'platform=macOS' build`
 and use its `--help` for options.
 
-Generation requires the companion [ensomi-model](https://github.com/ensomi-labs/ensomi-model)
+Generating on the chart server requires the companion [ensomi-model](https://github.com/ensomi-labs/ensomi-model)
 service, listening at `ws://localhost:8765` by default. It must be able to read the
 selected audio path; the client sends a path, not audio bytes. The websocket uses
 binary protobuf envelopes from EnsomiProtocol.
