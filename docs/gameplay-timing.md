@@ -1,5 +1,5 @@
 ---
-commit: 20bf67d
+commit: 353ad2d
 ---
 
 # Gameplay timing
@@ -81,6 +81,15 @@ These shaped the clock and are easy to get wrong again:
 - `playerTime(forNodeTime:)` is nil while the player is paused, and the player
   timeline continues across pause and resume. The clock holds the paused time and
   waits for the first buffer after `play()` before it extrapolates again.
+- For the chart inspector's playback rate, an `AVAudioUnitVarispeed` between the
+  player and the mixer keeps the player's render times smooth: readings at 0.5x and
+  1.5x lay within 0.06 ms of a line of that slope over 1.5 s on the built-in speakers.
+  Its `latency` read 2.0 ms at 0.5x and 0.68 ms at 1.5x at 48 kHz, and an impulse
+  rendered offline left it that much after the source time divided by the rate, to
+  within one frame. `AVAudioUnitTimePitch` reported 0 ms
+  offline and 77 to 139 ms on the device, and the impulse left it up to 14 ms away
+  from the source time divided by the rate, so the clock cannot follow it. These
+  numbers come from a standalone release probe on the same machine.
 
 ## Measurements
 

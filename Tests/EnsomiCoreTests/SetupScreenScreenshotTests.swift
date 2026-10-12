@@ -4,9 +4,9 @@ import XCTest
 @testable import EnsomiCore
 @testable import EnsomiUI
 
-/// Renders the Settings form and Generate a Chart offscreen into PNGs, for judging them in their states: the Chart
-/// model section with no model, a download starting, a refused folder and a chosen folder; Generate a Chart with no
-/// model, ready, generating, stopped, finished and failed. No window is shown. Runs only with
+/// Renders the Play setup's mode chooser, the Settings form and Generate a Chart offscreen into PNGs, for judging them
+/// in their states: the Chart model section with no model, a download starting, a refused folder and a chosen folder;
+/// Generate a Chart with no model, ready, generating, stopped, finished and failed. No window is shown. Runs only with
 /// `TEST_RUNNER_ENSOMI_SCREENSHOT_DIR` set to the directory to write into; Generate a Chart also needs the model and
 /// the song (`OnDeviceFixtures`).
 @MainActor
@@ -37,6 +37,11 @@ final class SetupScreenScreenshotTests: XCTestCase {
         try render(EnsomiSettingsView(model: play, chartModels: library), size: CGSize(width: 560, height: 760), name: "settings-3-folder-refused")
         await library.choose(folder: try OnDeviceFixtures.model())
         try render(EnsomiSettingsView(model: play, chartModels: library), size: CGSize(width: 560, height: 760), name: "settings-4-folder")
+    }
+
+    /// The mode chooser the Play setup opens on.
+    func testModeChooser() async throws {
+        try await capture(Mania4KPlayExperienceView(model: Mania4KPlaySessionModel()), size: CGSize(width: 1_120, height: 780), name: "setup-0-modes")
     }
 
     /// The play window's default width, tall enough to show the whole Generate a Chart panel.

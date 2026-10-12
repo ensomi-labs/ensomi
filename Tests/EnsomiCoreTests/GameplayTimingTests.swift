@@ -37,12 +37,9 @@ final class GameplayTimingTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/timing.osu"))
-        model.selectAudioFile(url)
-        guard await model.startPlay() else {
+        guard await model.startPlay(stream: stream, audioFileURL: url, chartSource: .generated(displayName: "Timing")) else {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
 
@@ -198,11 +195,8 @@ final class GameplayTimingTests: XCTestCase {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: 0,
-            audioClock: clock,
-            streamFactory: { _ in stream }
+            audioClock: clock
         )
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/timing.osu"))
-        model.selectAudioFile(url)
 
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 360, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -210,7 +204,7 @@ final class GameplayTimingTests: XCTestCase {
         window.contentView = playfield
         window.orderFrontRegardless()
         print("TIMING window: screens \(NSScreen.screens.count), visible \(window.isVisible), occluded \(!window.occlusionState.contains(.visible)), display asleep \(CGDisplayIsAsleep(CGMainDisplayID())), session \(String(describing: CGSessionCopyCurrentDictionary()))")
-        guard await model.startPlay() else {
+        guard await model.startPlay(stream: stream, audioFileURL: url, chartSource: .generated(displayName: "Timing")) else {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
         oldClockPlayer.play()
@@ -280,15 +274,13 @@ final class GameplayTimingTests: XCTestCase {
         clock.volume = 0
         let noteTimes = [2_000.0, 2_600, 3_200, 3_800, 4_400, 5_000]
         let stream = InMemoryMania4KHitObjectStream(objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) })
-        let model = Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock, streamFactory: { _ in stream })
-        model.selectBeatmapFile(URL(fileURLWithPath: "/tmp/timing.osu"))
-        model.selectAudioFile(url)
+        let model = Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock)
 
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: Mania4KPlayExperienceView(model: model).frame(width: 900, height: 800))
         window.makeKeyAndOrderFront(nil)
-        guard await model.startPlay() else {
+        guard await model.startPlay(stream: stream, audioFileURL: url, chartSource: .generated(displayName: "Timing")) else {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
 

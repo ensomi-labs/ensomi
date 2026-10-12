@@ -3,11 +3,26 @@ import Metal
 import MetalKit
 import SwiftUI
 
+/// What the playfield draws: a frame made for each display refresh, and the feedback that lights it. The play model
+/// judges in its frames; chart inspection only draws.
+@MainActor
+protocol Mania4KPlayfieldSource: AnyObject, Sendable {
+    var playFrame: Mania4KPlayFrame? { get }
+    var gameplayFeedback: GameplayFeedback { get }
+    @discardableResult
+    func advanceFrame(atHostTimeMs hostTimeMs: Double, presentationHostTimeMs: Double) -> Bool
+    /// The window is no longer visible and its display link has stopped.
+    func pause() async
+}
+
+extension Mania4KPlaySessionModel: Mania4KPlayfieldSource {}
+extension Mania4KChartInspectionModel: Mania4KPlayfieldSource {}
+
 /// The playfield: lanes, notes, hold bodies, the key tray, the judgement line, the lane-press lights, the hit
-/// feedback and the song progress, drawn with Metal. Its display link is the session's only source of game frames;
-/// each one advances the session, then draws it.
+/// feedback and the song progress, drawn with Metal. Its display link is the source's only source of frames; each
+/// one advances the source, then draws it.
 struct Mania4KPlayfieldMetalView {
-    let model: Mania4KPlaySessionModel
+    let model: any Mania4KPlayfieldSource
     let reduceMotion: Bool
 }
 
@@ -23,7 +38,7 @@ extension EnvironmentValues {
 
 @MainActor
 final class Mania4KPlayfieldView: MTKView {
-    var model: Mania4KPlaySessionModel
+    var model: any Mania4KPlayfieldSource
     var reduceMotion = false
     private var renderer: Mania4KMetalRenderer?
     private var displayLink: Mania4KDisplayLink?
@@ -31,7 +46,7 @@ final class Mania4KPlayfieldView: MTKView {
     private var visibilityObserver: Mania4KWindowVisibilityObserver?
     #endif
 
-    init(model: Mania4KPlaySessionModel) {
+    init(model: any Mania4KPlayfieldSource) {
         self.model = model
         super.init(frame: .zero, device: MTLCreateSystemDefaultDevice())
         colorPixelFormat = .bgra8Unorm
@@ -80,7 +95,7 @@ final class Mania4KPlayfieldView: MTKView {
 
     /// The quads of the model's current frame, with the lane lights at `uiTimeMs`.
     static func quads(
-        model: Mania4KPlaySessionModel,
+        model: any Mania4KPlayfieldSource,
         uiTimeMs: Double,
         size: CGSize,
         reduceMotion: Bool = false

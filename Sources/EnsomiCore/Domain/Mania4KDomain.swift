@@ -5,6 +5,8 @@ import os
 
 public enum Mania4KDefaultPlaySettings {
     public static let scrollSpeed = 25.0
+    /// The scroll speeds a player can set; a note takes 11485 ms divided by the speed to fall to the line.
+    public static let scrollSpeedRange = 1.0...40.0
     /// What the engine clock leaves uncorrected: output latency the device does not report and keyboard latency.
     /// Tuned by ear on Sony WH-1000XM4 headphones with this clock.
     public static let audioOffsetMilliseconds = -15
@@ -38,22 +40,10 @@ public enum Mania4KJudgeDifficulty: String, CaseIterable, Identifiable, Equatabl
 }
 
 public enum Mania4KChartSource: Equatable, Sendable {
-    case localBeatmap(URL)
     case generated(displayName: String)
-
-    public var beatmapFileURL: URL? {
-        switch self {
-        case .localBeatmap(let url):
-            return url
-        case .generated:
-            return nil
-        }
-    }
 
     public var displayName: String {
         switch self {
-        case .localBeatmap(let url):
-            return url.deletingPathExtension().lastPathComponent
         case .generated(let displayName):
             return displayName
         }
@@ -69,26 +59,6 @@ public struct Mania4KPlayConfiguration: Equatable, Sendable {
     public let visualOffsetMilliseconds: Double
     public let judgeDifficulty: Mania4KJudgeDifficulty
     public let keyBindings: Mania4KKeyBindingSet
-
-    public init(
-        beatmapFileURL: URL,
-        audioFileURL: URL,
-        starDifficulty: Double,
-        scrollSpeed: Double,
-        audioOffsetMilliseconds: Double,
-        visualOffsetMilliseconds: Double,
-        judgeDifficulty: Mania4KJudgeDifficulty,
-        keyBindings: Mania4KKeyBindingSet = .default
-    ) {
-        self.chartSource = .localBeatmap(beatmapFileURL)
-        self.audioFileURL = audioFileURL
-        self.starDifficulty = starDifficulty
-        self.scrollSpeed = scrollSpeed
-        self.audioOffsetMilliseconds = audioOffsetMilliseconds
-        self.visualOffsetMilliseconds = visualOffsetMilliseconds
-        self.judgeDifficulty = judgeDifficulty
-        self.keyBindings = keyBindings
-    }
 
     public init(
         chartSource: Mania4KChartSource,
@@ -108,10 +78,6 @@ public struct Mania4KPlayConfiguration: Equatable, Sendable {
         self.visualOffsetMilliseconds = visualOffsetMilliseconds
         self.judgeDifficulty = judgeDifficulty
         self.keyBindings = keyBindings
-    }
-
-    public var beatmapFileURL: URL? {
-        chartSource.beatmapFileURL
     }
 }
 
@@ -482,6 +448,13 @@ public extension Mania4KAudioClock {
     func setMusicVolume(_ musicVolume: Double) async {}
 }
 
+/// A clock that moves to any position of its source and plays it at another rate, as chart inspection does.
+public protocol Mania4KSeekableAudioClock: Mania4KAudioClock {
+    /// Stops at `positionMs` of the prepared source, to play on from there at `rate` times its speed at the next
+    /// `play()`. Reads return `positionMs` until then.
+    func seek(toMs positionMs: Double, rate: Double) throws
+}
+
 public struct Mania4KAudioMetadata: Equatable, Sendable {
     public let durationMs: Double?
     public let title: String?
@@ -492,9 +465,10 @@ public struct Mania4KAudioMetadata: Equatable, Sendable {
     }
 }
 
-public actor FakeMania4KAudioClock: Mania4KAudioClock {
+public actor FakeMania4KAudioClock: Mania4KSeekableAudioClock {
     private let metadata: Mania4KAudioMetadata
     private let storedAudioTimeMs: OSAllocatedUnfairLock<Double>
+    private let storedRate = OSAllocatedUnfairLock(initialState: 1.0)
     private var running: Bool
     private let prepareError: Error?
     public private(set) var musicVolume = 1.0
@@ -560,6 +534,17 @@ public actor FakeMania4KAudioClock: Mania4KAudioClock {
 
     public func setMusicVolume(_ musicVolume: Double) async {
         self.musicVolume = musicVolume
+    }
+
+    /// Sets the time to `positionMs` and keeps `rate`; the fake still stands still.
+    public nonisolated func seek(toMs positionMs: Double, rate: Double) {
+        storedAudioTimeMs.withLock { $0 = positionMs }
+        storedRate.withLock { $0 = rate }
+    }
+
+    /// The rate of the last seek.
+    public nonisolated var rate: Double {
+        storedRate.withLock { $0 }
     }
 }
 
@@ -709,55 +694,6 @@ public actor InMemoryMania4KHitObjectStream: Mania4KHitObjectStreaming {
         limit: Int
     ) async throws -> Mania4KHitObjectBatch {
         readFromArray(objects, cursor: cursor, throughChartTimeMs: throughChartTimeMs, limit: limit, finalDurationMs: metadata.durationMs)
-    }
-}
-
-public actor OsuMania4KBeatmapStream: Mania4KHitObjectStreaming {
-    private let beatmapFileURL: URL
-    private var parsedObjects: [Mania4KHitObject]?
-    private var parsedMetadata: Mania4KChartMetadata?
-
-    public init(beatmapFileURL: URL) {
-        self.beatmapFileURL = beatmapFileURL
-    }
-
-    public func prepare() async throws -> Mania4KChartMetadata {
-        let text = try String(contentsOf: beatmapFileURL, encoding: .utf8)
-        let beatmap: OsuBeatmap
-        do {
-            beatmap = try parseOsu(text: text)
-        } catch let error as OsuError {
-            throw Mania4KChartValidationError.osu(error)
-        }
-
-        let metadata = Mania4KChartMetadata(
-            title: beatmap.title ?? beatmapFileURL.deletingPathExtension().lastPathComponent,
-            artist: beatmap.artist,
-            sourceDescription: beatmapFileURL.lastPathComponent,
-            objectCount: beatmap.chart.objects.count,
-            durationMs: Double(beatmap.chart.durationMs)
-        )
-        parsedObjects = Mania4KHitObject.objects(of: beatmap.chart)
-        parsedMetadata = metadata
-        return metadata
-    }
-
-    public func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        guard let parsedObjects, let parsedMetadata else {
-            throw Mania4KPlayFailure.streamFailed("Beatmap stream has not been prepared.")
-        }
-
-        return readFromArray(
-            parsedObjects,
-            cursor: cursor,
-            throughChartTimeMs: throughChartTimeMs,
-            limit: limit,
-            finalDurationMs: parsedMetadata.durationMs
-        )
     }
 }
 

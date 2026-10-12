@@ -1,12 +1,14 @@
 ---
-commit: 4f39e8f3675dbb8b722b89e3c352f9d4902cf46f
+commit: 353ad2d
 ---
 
 # Ensomi
 
 Ensomi is a SwiftUI rhythm-game prototype for macOS and iOS. It recognizes music,
 matches it to user-supplied local audio, synchronizes with the playing track, and
-plays a generated four-lane mania chart. Imported `.osu` charts are also supported.
+plays a generated four-lane mania chart. It does not play existing charts; on macOS,
+**Settings → Developer → Open Chart Inspector…** draws an `.osz`, or an `.osu` with its
+audio, against the song for checking it.
 
 `EnsomiCore` owns recognition, local indexing, synchronization, inference transport,
 and gameplay; `EnsomiUI` owns the shared interface. See [architecture](docs/architecture.md)
@@ -72,8 +74,8 @@ default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default).
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
 Sync Flow** recognizes microphone or system audio, resolves a local reference,
 and opens generated gameplay after a final sync lock. The Play interface also
-supports local-audio generation and imported charts. Live ambient recognition is
-a macOS debug workflow; ShazamKit has no implemented provider.
+supports local-audio generation. Live ambient recognition is a macOS debug
+workflow; ShazamKit has no implemented provider.
 
 The recognition window reads process environment values, then the first readable
 `.env` in the working directory or source project root. Values in that file

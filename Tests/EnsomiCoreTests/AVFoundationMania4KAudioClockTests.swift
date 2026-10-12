@@ -4,11 +4,92 @@ import XCTest
 
 final class AVFoundationMania4KAudioClockTests: XCTestCase {
     func testRenderAnchorCarriesRenderedTimeToAnyHostTimeShiftedByOutputLatency() {
-        let anchor = Mania4KRenderAnchor(renderedAudioTimeMs: 1_000, renderHostTimeMs: 5_000, outputLatencyMs: 20)
+        let anchor = Mania4KRenderAnchor(renderedAudioTimeMs: 1_000, renderHostTimeMs: 5_000, outputLatencyMs: 20, rate: 1)
 
         XCTAssertEqual(anchor.audioTimeMs(atHostTimeMs: 5_000), 980)
         XCTAssertEqual(anchor.audioTimeMs(atHostTimeMs: 5_100), 1_080)
         XCTAssertEqual(anchor.audioTimeMs(atHostTimeMs: 4_900), 880)
+    }
+
+    func testRenderAnchorAtAnotherRateAdvancesAtThatRateAfterTheLatency() {
+        let anchor = Mania4KRenderAnchor(renderedAudioTimeMs: 1_000, renderHostTimeMs: 5_000, outputLatencyMs: 20, rate: 0.5)
+
+        XCTAssertEqual(anchor.audioTimeMs(atHostTimeMs: 5_020), 1_000)
+        XCTAssertEqual(anchor.audioTimeMs(atHostTimeMs: 5_220), 1_100)
+        XCTAssertEqual(anchor.audioTimeMs(atHostTimeMs: 5_000), 990)
+    }
+
+    /// A seek holds the clock at the new position until it plays; then the clock plays on from there at the rate
+    /// asked: its first reading lies from the position as the first reading after the start lay from 0, and it
+    /// follows the host clock at that rate.
+    func testSeekHoldsThePositionThenPlaysOnFromItAtTheRate() async throws {
+        let url = try writeToneFile(sampleRate: 44_100, seconds: 6)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let clock = AVFoundationMania4KAudioClock()
+        clock.volume = 0
+        _ = try await clock.prepare(audioFileURL: url)
+        try await play(clock)
+        let startLeadMs = lead(of: clock, from: 0)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        for (positionMs, rate) in [(3_000.0, 1.0), (1_000, 0.5), (2_000, 1.5)] {
+            try clock.seek(toMs: positionMs, rate: rate)
+            XCTAssertEqual(clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()), positionMs)
+            let isRunning = await clock.isRunning()
+            XCTAssertFalse(isRunning)
+            try await Task.sleep(nanoseconds: 100_000_000)
+            XCTAssertEqual(clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()), positionMs)
+
+            try await clock.play()
+            let readingMs = clock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS())
+            let leadMs = (readingMs - positionMs) / rate + clock.outputLatencyMs
+            print("TIMING seek to \(positionMs) ms at rate \(rate): lead \(leadMs) ms, at start \(startLeadMs) ms; latency \(clock.outputLatencyMs) ms")
+            XCTAssertEqual(leadMs, startLeadMs, accuracy: 25)
+
+            let samples = try await sample(clock, forMs: 500)
+            let offsets = samples.map { $0.audio - rate * $0.host }
+            XCTAssertLessThan(try XCTUnwrap(offsets.max()) - XCTUnwrap(offsets.min()), 0.5, "rate \(rate)")
+            XCTAssertTrue(zip(samples, samples.dropFirst()).allSatisfy { $1.audio > $0.audio })
+        }
+        await clock.stop()
+    }
+
+    /// At a rate other than 1 the clock adds the varispeed unit's reported latency to the output's, so a sound at
+    /// source time t must leave the unit at t / rate plus that latency. Rendered offline, with no device.
+    func testVarispeedDelaysTheSourceByItsReportedLatency() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
+        let source = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 96_000))
+        source.frameLength = 96_000
+        let sourceSamples = try XCTUnwrap(source.floatChannelData)[0]
+        for frame in 0..<96_000 {
+            sourceSamples[frame] = (48_000..<48_048).contains(frame) ? 1 : 0
+        }
+
+        for rate in [0.5, 1.5] {
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            let varispeed = AVAudioUnitVarispeed()
+            let mixer = AVAudioMixerNode()
+            varispeed.rate = Float(rate)
+            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4_096)
+            [player, varispeed, mixer].forEach(engine.attach)
+            engine.connect(player, to: varispeed, format: format)
+            engine.connect(varispeed, to: mixer, format: format)
+            engine.connect(mixer, to: engine.mainMixerNode, format: format)
+            player.scheduleBuffer(source, at: nil, options: [], completionHandler: nil)
+            try engine.start()
+            player.play()
+
+            let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
+            var rendered: [Float] = []
+            while rendered.count < 48_000 * 3 {
+                XCTAssertEqual(try engine.renderOffline(4_096, to: output), .success)
+                rendered += UnsafeBufferPointer(start: try XCTUnwrap(output.floatChannelData)[0], count: Int(output.frameLength))
+            }
+            let onset = try XCTUnwrap(rendered.firstIndex { abs($0) > 0.2 })
+            XCTAssertEqual(Double(onset) / 48, 1_000 / rate + varispeed.latency * 1_000, accuracy: 0.1, "rate \(rate)")
+            engine.stop()
+        }
     }
 
     func testEngineClockFollowsTheHostClockSmoothlyAndHoldsWhilePaused() async throws {

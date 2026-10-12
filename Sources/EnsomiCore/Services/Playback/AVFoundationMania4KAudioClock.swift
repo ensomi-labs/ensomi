@@ -2,15 +2,16 @@ import AVFoundation
 import Foundation
 import os
 
-/// A buffer the player node rendered: the audio time it starts at, the host time the device takes it, and the
-/// output latency after that. Audio time at any other host time follows at rate 1.
+/// A buffer the player node rendered: the audio time it starts at, the host time the device takes it, the latency
+/// after that and the playback rate. Audio time at any other host time follows at that rate.
 struct Mania4KRenderAnchor: Equatable, Sendable {
     let renderedAudioTimeMs: Double
     let renderHostTimeMs: Double
     let outputLatencyMs: Double
+    let rate: Double
 
     func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
-        renderedAudioTimeMs + hostTimeMs - renderHostTimeMs - outputLatencyMs
+        renderedAudioTimeMs + rate * (hostTimeMs - renderHostTimeMs - outputLatencyMs)
     }
 }
 
@@ -19,7 +20,11 @@ struct Mania4KRenderAnchor: Equatable, Sendable {
 ///
 /// When the output device changes, the engine stops and is built again for the new device. Playback resumes from
 /// the position that was being heard, so the audio time carries on from there and the gap only delays the song.
-public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked Sendable {
+///
+/// At a rate other than 1, a varispeed unit between the player and the mixer resamples the source, so the pitch
+/// follows the rate. The player's time then counts source time, which advances at the rate, and the unit's own
+/// latency adds to the output's.
+public final class AVFoundationMania4KAudioClock: Mania4KSeekableAudioClock, @unchecked Sendable {
     private enum Source {
         case file(AVAudioFile)
         case clickTrack(Mania4KCalibrationClickTrack)
@@ -35,6 +40,8 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
     private struct State {
         var engine: AVAudioEngine?
         var player: AVAudioPlayerNode?
+        /// Present while the rate is not 1.
+        var varispeed: AVAudioUnitVarispeed?
         var source: Source?
         var configurationObserver: NSObjectProtocol?
         /// The audio time of the player's first frame: 0, or the position playback resumed from.
@@ -46,6 +53,7 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         var isRunning = false
         var pausedAudioTimeMs = 0.0
         var outputLatencyMs = 0.0
+        var rate = 1.0
         var volume: Float = 1
         var musicVolume: Float = 1
 
@@ -85,14 +93,14 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         }
     }
 
-    /// The output latency the clock subtracts, read when it last started rendering.
+    /// The output and varispeed latency the clock subtracts, read when it last started rendering.
     var outputLatencyMs: Double {
         state.withLockUnchecked { $0.outputLatencyMs }
     }
 
     public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
         let file = try AVAudioFile(forReading: audioFileURL)
-        try prepareEngine(source: .file(file), atMs: 0, resumesPlaying: false)
+        try prepareEngine(source: .file(file), atMs: 0, rate: 1, resumesPlaying: false)
 
         return Mania4KAudioMetadata(
             durationMs: Double(file.length) / file.processingFormat.sampleRate * 1000,
@@ -102,11 +110,20 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
 
     /// Prepares a click track in place of a file. Audio time 0 is its first frame, as it is a file's first frame.
     public func prepare(clickTrack: Mania4KCalibrationClickTrack) throws {
-        try prepareEngine(source: .clickTrack(clickTrack), atMs: 0, resumesPlaying: false)
+        try prepareEngine(source: .clickTrack(clickTrack), atMs: 0, rate: 1, resumesPlaying: false)
     }
 
-    /// Replaces the engine with one for the current output device, ready to play `source` from `positionMs`.
-    private func prepareEngine(source: Source, atMs positionMs: Double, resumesPlaying: Bool) throws {
+    /// Builds the engine again, paused at `positionMs` of the prepared source and set to play it at `rate`.
+    public func seek(toMs positionMs: Double, rate: Double) throws {
+        guard let source = state.withLockUnchecked({ $0.source }) else {
+            throw Mania4KPlayFailure.audioPrepareFailed("Audio player is not prepared.")
+        }
+
+        try prepareEngine(source: source, atMs: positionMs, rate: rate, resumesPlaying: false)
+    }
+
+    /// Replaces the engine with one for the current output device, ready to play `source` from `positionMs` at `rate`.
+    private func prepareEngine(source: Source, atMs positionMs: Double, rate: Double, resumesPlaying: Bool) throws {
         let engine = AVAudioEngine()
         let player = AVAudioPlayerNode()
         // The mixer runs at the output's rate. Connected straight to the main mixer, a 44.1 kHz file's player
@@ -117,9 +134,17 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
             throw Mania4KPlayFailure.audioPrepareFailed("There is no audio output device.")
         }
 
+        let varispeed = rate == 1 ? nil : AVAudioUnitVarispeed()
         engine.attach(player)
         engine.attach(mixer)
-        engine.connect(player, to: mixer, format: source.format)
+        if let varispeed {
+            varispeed.rate = Float(rate)
+            engine.attach(varispeed)
+            engine.connect(player, to: varispeed, format: source.format)
+            engine.connect(varispeed, to: mixer, format: source.format)
+        } else {
+            engine.connect(player, to: mixer, format: source.format)
+        }
         engine.connect(mixer, to: engine.mainMixerNode, format: outputFormat)
         switch source {
         case .file(let file):
@@ -147,6 +172,8 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
             $0.configurationObserver = observer
             $0.engine = engine
             $0.player = player
+            $0.varispeed = varispeed
+            $0.rate = rate
             $0.source = source
             $0.startAudioTimeMs = positionMs
             $0.anchor = nil
@@ -161,13 +188,13 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
     /// sample rate, and resumes from the position that was being heard; a paused clock stays paused there.
     func restartAfterConfigurationChange() {
         let positionMs = max(0, audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()))
-        let (source, wasPlaying) = state.withLockUnchecked { ($0.source, $0.wantsRunning) }
+        let (source, rate, wasPlaying) = state.withLockUnchecked { ($0.source, $0.rate, $0.wantsRunning) }
         guard let source else {
             return
         }
 
         do {
-            try prepareEngine(source: source, atMs: positionMs, resumesPlaying: true)
+            try prepareEngine(source: source, atMs: positionMs, rate: rate, resumesPlaying: true)
         } catch {
             return
         }
@@ -189,16 +216,20 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         player.play()
         // Reads stay at the paused time until a buffer rendered after this call gives a node time to extrapolate from.
         for _ in 0..<500 {
+            // A device change or a seek during the start replaced the engine; whoever replaced it plays the new one.
+            guard state.withLockUnchecked({ $0.player === player }) else {
+                return
+            }
+
             if let nodeTime = player.lastRenderTime,
                nodeTime.sampleTime != previousRenderSample,
                player.playerTime(forNodeTime: nodeTime) != nil {
                 state.withLockUnchecked {
-                    // A device change during the start replaced the engine; the restart plays the new one.
                     guard $0.player === player else {
                         return
                     }
 
-                    $0.outputLatencyMs = engine.outputNode.presentationLatency * 1000
+                    $0.outputLatencyMs = (engine.outputNode.presentationLatency + ($0.varispeed?.latency ?? 0)) * 1000
                     $0.isRunning = true
                 }
                 return
@@ -237,8 +268,8 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
     }
 
     public func audioTimeMs(atHostTimeMs hostTimeMs: Double) -> Double {
-        let (player, isRunning, pausedAudioTimeMs, startAudioTimeMs, outputLatencyMs, lastAnchor) = state.withLockUnchecked {
-            ($0.player, $0.isRunning, $0.pausedAudioTimeMs, $0.startAudioTimeMs, $0.outputLatencyMs, $0.anchor)
+        let (player, isRunning, pausedAudioTimeMs, startAudioTimeMs, outputLatencyMs, rate, lastAnchor) = state.withLockUnchecked {
+            ($0.player, $0.isRunning, $0.pausedAudioTimeMs, $0.startAudioTimeMs, $0.outputLatencyMs, $0.rate, $0.anchor)
         }
         guard isRunning else {
             return pausedAudioTimeMs
@@ -255,7 +286,8 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         let anchor = Mania4KRenderAnchor(
             renderedAudioTimeMs: startAudioTimeMs + Double(playerTime.sampleTime) / playerTime.sampleRate * 1000,
             renderHostTimeMs: AVAudioTime.seconds(forHostTime: nodeTime.hostTime) * 1000,
-            outputLatencyMs: outputLatencyMs
+            outputLatencyMs: outputLatencyMs,
+            rate: rate
         )
         state.withLockUnchecked { $0.anchor = anchor }
         return anchor.audioTimeMs(atHostTimeMs: hostTimeMs)

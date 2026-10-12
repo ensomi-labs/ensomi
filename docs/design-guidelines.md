@@ -1,5 +1,5 @@
 ---
-commit: 8e3de3b
+commit: 353ad2d
 ---
 
 # Ensomi design guidelines
@@ -15,7 +15,7 @@ audit. Service, timing, and scoring contracts belong in [architecture](architect
 | Area | Ensomi convention |
 | --- | --- |
 | Navigation | The macOS workbench uses a sidebar for Library and Play. iOS uses tabs with navigation titles. Preserve destination identity and access when content is empty. |
-| Settings | macOS uses the SwiftUI `Settings` scene, the standard app-menu command and Command-comma; toolbar access uses `SettingsLink`. iOS presents a navigation-based sheet with Done. |
+| Settings | macOS uses the SwiftUI `Settings` scene, the standard app-menu command and Command-comma; toolbar access uses `SettingsLink`. iOS presents a navigation-based sheet with Done. On macOS the last section, Developer, opens the Chart Inspector in a window of its own. |
 | Preferences | Use grouped forms, system labels, pickers, text fields, and steppers. Keep units and valid ranges clear. Settings share the existing play model. Sound and timing settings (music volume, audio and visual offset, calibration) are disabled while a game is in progress, with a footer saying they can change when it ends. The audio offset and the calibration screen name the output device the offset is saved for. |
 | Library | Music folders and scan status are primary. Empty content offers Add Music Folder. Manual resolution and recording controls remain available in Library Tools. Removing a library folder does not delete its audio files. |
 | Feedback | Describe failures in text with a symbol. Do not use color alone to distinguish error, selection, readiness, or key-capture state. Treat picker cancellation as cancellation, not failure. |
@@ -27,8 +27,8 @@ Prefer system components to imitating their appearance with custom drawing.
 
 ## Gameplay and custom presentation
 
-The Play experience and timing calibration retain their dark game presentation,
-lane rendering, and timing-specific input. Custom styling is appropriate when it
+The Play experience, the Chart Inspector and timing calibration retain their dark game
+presentation, lane rendering, and timing-specific input. Custom styling is appropriate when it
 helps people read the chart or understand game feedback. It must not replace
 standard window controls, hide settings, or change scoring and capture behavior.
 Library and ordinary settings use system appearance and semantic colors.
@@ -41,6 +41,28 @@ judgement line, song progress and the primary action. Hit feedback follows the
 judgement events the core reports, and each tier is named in words as well as
 coloured. With Reduce Motion, feedback fades without growing, pulsing or drifting.
 The choices and their reasons are in [gameplay look](gameplay-look.md).
+
+The Play setup offers Generate a Chart and Listen & Play. Ensomi is not made for playing
+existing charts, so no mode loads a song with a chart to play it.
+
+The Chart Inspector (macOS, Settings → Developer) draws an existing chart against its
+song for checking it. It uses the play screen's stage, playfield and palette, without
+the HUD, key labels, judgement text or pause dimming, because nothing is judged: notes
+pass the judgement line and slip under the key caps. The header shows the title, artist,
+difficulty and note count, a difficulty picker when the `.osz` has several readable
+ones, and Open… (Command-O), which takes one `.osz` or an `.osu` together with its audio
+file. With nothing open, a panel says what to open. An `.osz` with several difficulties
+lists them; those the gameplay core refuses show its reason and cannot be chosen. A
+refused chart or an unreadable file is described in text with a symbol. The transport
+bar holds, in order, previous note (Option-Left Arrow), step back (Left Arrow), play and
+pause as the primary action (Space), step forward (Right Arrow) and next note
+(Option-Right Arrow); the position and the length in `m:ss.mmm` around a scrubber; a
+playback-rate menu from 0.5× to 1.5×, whose pitch follows the rate; and a scroll-speed
+stepper that changes the same setting play uses. A note step puts that note's start on
+the judgement line. A line names the audio offset with its output device, the visual
+offset and the volume taken from Settings; they change only there. Dragging the
+scrubber pauses playback and resumes it on release. Hiding or closing the window
+pauses.
 
 Use descriptive action and mode names. Keep backend implementation details in
 supporting explanations or tools unless people need them to make a decision.
