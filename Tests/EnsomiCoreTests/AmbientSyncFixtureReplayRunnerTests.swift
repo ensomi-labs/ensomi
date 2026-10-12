@@ -3,6 +3,33 @@ import XCTest
 @testable import EnsomiCore
 
 final class AmbientSyncFixtureReplayRunnerTests: XCTestCase {
+    func testFixtureRootSearchStopsAtFilesystemRoot() {
+        let start = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let finished = expectation(description: "search returns")
+        DispatchQueue.global().async {
+            XCTAssertNil(AmbientSyncFixtureRecorder.firstAncestorWithFixtureDirectory(from: start))
+            finished.fulfill()
+        }
+        wait(for: [finished], timeout: 5)
+    }
+
+    func testFixtureRootSearchFindsNearestAncestor() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("LocalFixtures/ambient-sync-voice-memos", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let nested = root.appendingPathComponent("Sources/EnsomiCore/File.swift")
+
+        XCTAssertEqual(
+            AmbientSyncFixtureRecorder.firstAncestorWithFixtureDirectory(from: nested)?.path,
+            root.standardizedFileURL.path
+        )
+    }
+
     func testReplayScoresDecodesLegacyJSONWithoutWeightedTopLevelFields() throws {
         let json = """
         {
