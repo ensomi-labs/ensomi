@@ -45,7 +45,7 @@ follow the [canonical macOS installation guidance](AGENTS.md#macos-installation)
 
 SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
 [Sonalign](https://github.com/ensomi-labs/sonalign), pinned in `project.yml`
-(EnsomiProtocol `0.2.0`, Sonalign `0.1.0`). The optional synthetic alignment comparison
+(EnsomiProtocol `0.2.0`, Sonalign `0.2.0`). The optional synthetic alignment comparison
 uses the released Rust CLI:
 
 ```sh
