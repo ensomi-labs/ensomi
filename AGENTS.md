@@ -35,7 +35,6 @@ names and bundle IDs.
 
 ```sh
 set -e
-export ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework  # README.md, Build and test
 xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -configuration Debug -destination 'platform=macOS' -derivedDataPath .build/EnsomiMacInstallDerivedData build
 test -d .build/EnsomiMacInstallDerivedData/Build/Products/Debug/EnsomiMac.app
 pkill -x EnsomiMac || true

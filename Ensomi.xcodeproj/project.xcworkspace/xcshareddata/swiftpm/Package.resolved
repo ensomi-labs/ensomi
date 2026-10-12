@@ -1,5 +1,5 @@
 {
-  "originHash" : "7047f0e9e2730eb90331ae01d808f28f0ee3cae0b2fad597b29c5e7e62f500af",
+  "originHash" : "d006de40aade297361871cd2aca1bc89e8c022281f9b854c5779702b74edcb5c",
   "pins" : [
     {
       "identity" : "protocol",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "c79ffbe5ac97ed3dbce92b92ef006325a4cddf3b",
         "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "runtime",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ensomi-labs/runtime",
+      "state" : {
+        "revision" : "727d29da68f29c0bc29b5e2aa749c6a6cfe43757",
+        "version" : "0.1.0"
       }
     },
     {

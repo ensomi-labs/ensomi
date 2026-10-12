@@ -252,7 +252,6 @@
 		1CA123E827CD2F98FFE2B8FD /* EnsomiIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = EnsomiIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KDomain.swift; sourceTree = "<group>"; };
 		2105014102FB61FA6A614AA9 /* 3-hold.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "3-hold.png"; sourceTree = "<group>"; };
-		219E4AFDCF561C7C81B0A596 /* ensomi-runtime */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "ensomi-runtime"; path = "../ensomi-runtime"; sourceTree = SOURCE_ROOT; };
 		256BE921A0938041801BDA07 /* CanonicalTrackDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanonicalTrackDomain.swift; sourceTree = "<group>"; };
 		25D8E898D90830223780282D /* GameplayTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameplayTimingTests.swift; sourceTree = "<group>"; };
 		274685086015DCD5D91873C2 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
@@ -622,7 +621,6 @@
 				97EB5E0DC2F0F85617EF3F1F /* README.md */,
 				2D7492E817727A6241F5D128 /* Apps */,
 				90CC7293C2933FB8D7B8C2D4 /* docs */,
-				F3DD720B265888831F5DC525 /* Packages */,
 				E36DE21B8BFC0A3FC2A5AED0 /* Sources */,
 				E1DEB0BA81EC9A159F66D028 /* Tests */,
 				FFEC6830D43A9E52ECF90018 /* Tools */,
@@ -875,14 +873,6 @@
 			path = EnsomiUI;
 			sourceTree = "<group>";
 		};
-		F3DD720B265888831F5DC525 /* Packages */ = {
-			isa = PBXGroup;
-			children = (
-				219E4AFDCF561C7C81B0A596 /* ensomi-runtime */,
-			);
-			name = Packages;
-			sourceTree = "<group>";
-		};
 		FFEC6830D43A9E52ECF90018 /* Tools */ = {
 			isa = PBXGroup;
 			children = (
@@ -1061,9 +1051,9 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */,
+				3C4ACDB3C40961195FD2CEBF /* XCRemoteSwiftPackageReference "runtime" */,
 				67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */,
 				CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
-				8B34A5ADE4B7773A48E53FAA /* XCLocalSwiftPackageReference "../ensomi-runtime" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A0B326C1B9FCAD1270220348 /* Products */;
@@ -1739,13 +1729,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		8B34A5ADE4B7773A48E53FAA /* XCLocalSwiftPackageReference "../ensomi-runtime" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../ensomi-runtime";
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		08B127419524BD75D3BD594F /* XCRemoteSwiftPackageReference "protocol" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -1753,6 +1736,14 @@
 			requirement = {
 				kind = exactVersion;
 				version = 0.2.0;
+			};
+		};
+		3C4ACDB3C40961195FD2CEBF /* XCRemoteSwiftPackageReference "runtime" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ensomi-labs/runtime";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.0;
 			};
 		};
 		67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */ = {
@@ -1776,6 +1767,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		0B20B7668397204050BDB438 /* EnsomiRuntime */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = 3C4ACDB3C40961195FD2CEBF /* XCRemoteSwiftPackageReference "runtime" */;
 			productName = EnsomiRuntime;
 		};
 		67690B86BDDCDCB94587505B /* SwiftProtobuf */ = {

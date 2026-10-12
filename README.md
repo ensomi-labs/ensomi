@@ -16,28 +16,20 @@ for the timing, streaming, and scoring contracts.
 
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
 macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Rust core in
-[ensomi-runtime](https://github.com/ensomi-labs/runtime), checked out beside this
-repository (`../ensomi-runtime`) and linked as the local Swift package at its root. That
-package takes its xcframework from a runtime release unless `ENSOMI_RUNTIME_XCFRAMEWORK`
-names a local one, so local builds build it, which needs Rust (`rustup` with the
-`aarch64-apple-darwin`, `aarch64-apple-ios` and `aarch64-apple-ios-sim` targets), and again
-after the core changes:
+[ensomi-runtime](https://github.com/ensomi-labs/runtime): SwiftPM resolves its `EnsomiRuntime`
+package at the version pinned in `project.yml` (`0.1.0`) and downloads the xcframework from
+that release. The package carries the generator's resampler tables; the apps bundle none. The
+gameplay conformance test reads its fixtures from a runtime checkout beside this repository
+(`../ensomi-runtime/conformance/gameplay`).
 
-```sh
-../ensomi-runtime/scripts/build-apple.sh
-```
-
-SwiftPM reads the variable when it loads the package, for every build. A relative path is
-relative to `../ensomi-runtime`. `xcodebuild` takes it from the shell:
-
-```sh
-export ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework
-```
-
-Xcode takes it from launchd: run `launchctl setenv ENSOMI_RUNTIME_XCFRAMEWORK
-build/apple/EnsomiRuntimeFFI.xcframework` once per login, then start Xcode; if it keeps the
-xcframework it resolved before, use File > Packages > Reset Package Caches. The runtime package
-carries the generator's resampler tables; the apps bundle none.
+To develop against a local runtime, change `EnsomiRuntime` in `project.yml` to
+`path: ../ensomi-runtime` (do not commit it), build the xcframework with
+`../ensomi-runtime/scripts/build-apple.sh` (Rust with the `aarch64-apple-darwin`,
+`aarch64-apple-ios` and `aarch64-apple-ios-sim` targets) and set
+`ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework`, a path relative to the
+runtime package. SwiftPM reads the variable whenever it loads that package, also the released
+one: `xcodebuild` takes it from the shell, Xcode from `launchctl setenv`. Unset it in both to
+build with the release.
 
 Then generate the project from `project.yml`:
 
