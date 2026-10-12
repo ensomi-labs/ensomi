@@ -26,6 +26,7 @@
 		2B1A8987783CC554489A758D /* EnsomiCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52EDE06C690FD0314E1D5C7E /* EnsomiCore.framework */; };
 		2BEAE5263C556CB8D8239465 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DD20768A9B51BB8BFDA096DE /* Assets.xcassets */; };
 		2DAAA5BC52C163DC7AE91D15 /* AmbientSyncEngineConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */; };
+		2E58C45C8D2642B23040CBE5 /* AVFoundationMania4KAudioClockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 314AEA4914990852CA3A90B6 /* AVFoundationMania4KAudioClockTests.swift */; };
 		2EE595A3A3468838319F69E3 /* Mania4KDomain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F74CB85FF3BF9D20C9634F7 /* Mania4KDomain.swift */; };
 		32B6ED47721CD5B5E7F6D4C1 /* EnsomiUI.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		36209F90B7F1607AB6FF214A /* calibration_tick.wav in Resources */ = {isa = PBXBuildFile; fileRef = ADE723E8EECBD38CBC3FE7D3 /* calibration_tick.wav */; };
@@ -86,6 +87,7 @@
 		B48EBEF1D0A26F3CF9CB0862 /* Mania4KGameplayFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACAF4F2B7F41DA3E05EB11FC /* Mania4KGameplayFeedback.swift */; };
 		B7903A59EFEEC52EEDA2E00B /* AmbientSyncOffsetTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFD565660C130A4D72033386 /* AmbientSyncOffsetTracker.swift */; };
 		BB4FE36F8F1FFD4378BD2165 /* ControlledGenerationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F60C8D56E793128B256B102F /* ControlledGenerationClient.swift */; };
+		C091F0E56A181BB26141F171 /* AVFoundationMania4KAudioClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06E3E9C2D5355E56A8B637FA /* AVFoundationMania4KAudioClock.swift */; };
 		C63D18FEA08D14A815F0E2EC /* MicFeatureStreamBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F90564319BD411D05FFE7 /* MicFeatureStreamBuffer.swift */; };
 		C646E2188A21BBC6E452B76A /* LocalAudioMetadataExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BCE8C2600A887C784F591A8 /* LocalAudioMetadataExtractor.swift */; };
 		C72F3E4EC1C8FD62EFBF367B /* MicFeaturePayloadExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD222D37A68D05890A6690F5 /* MicFeaturePayloadExtractor.swift */; };
@@ -215,6 +217,7 @@
 /* Begin PBXFileReference section */
 		0306E91E9DC618ECFA5D9C53 /* MicFeatureStreamBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicFeatureStreamBufferTests.swift; sourceTree = "<group>"; };
 		05A1D0E6A815C2E152620815 /* LocalLibraryDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryDashboardView.swift; sourceTree = "<group>"; };
+		06E3E9C2D5355E56A8B637FA /* AVFoundationMania4KAudioClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVFoundationMania4KAudioClock.swift; sourceTree = "<group>"; };
 		0805C6675C82D7C6A1F783AC /* AmbientSyncFixtureRecorderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncFixtureRecorderView.swift; sourceTree = "<group>"; };
 		083E6EFCF22A13EBBA73E87E /* Mania4KPlayExperienceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlayExperienceView.swift; sourceTree = "<group>"; };
 		0D9EEAFFD5280852633B24EF /* EnsomiACRCloudDebugCLI */ = {isa = PBXFileReference; includeInIndex = 0; path = EnsomiACRCloudDebugCLI; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -228,6 +231,7 @@
 		288309B776338FE3EC9E59D6 /* AmbientMicFeatureStreamService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientMicFeatureStreamService.swift; sourceTree = "<group>"; };
 		29B6C19CC5EBBDA0D32DDD0E /* RecognitionDomain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecognitionDomain.swift; sourceTree = "<group>"; };
 		2B0D4E833CE58191460184BF /* LocalLibraryDashboardModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalLibraryDashboardModelTests.swift; sourceTree = "<group>"; };
+		314AEA4914990852CA3A90B6 /* AVFoundationMania4KAudioClockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVFoundationMania4KAudioClockTests.swift; sourceTree = "<group>"; };
 		35B5187E9EEDCC1038E187C3 /* AmbientSyncReferenceIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilder.swift; sourceTree = "<group>"; };
 		365E2CC224D9C920B50B8FAE /* AmbientSyncEngineConfidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfidence.swift; sourceTree = "<group>"; };
 		3A6DED3EFA21AF678D2C9549 /* Mania4KPlaySessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mania4KPlaySessionModel.swift; sourceTree = "<group>"; };
@@ -382,6 +386,7 @@
 				A0BF6A99A1C90849A4899D48 /* Beatmap */,
 				8351F6CFBC32064F4FDFFCA5 /* LocalLibrary */,
 				C9901A4340F24874F6760795 /* Permissions */,
+				46F5BC6033FFDC9097C8E8F8 /* Playback */,
 				7D758435A0D440A9F72A3871 /* Recognition */,
 			);
 			path = Services;
@@ -431,6 +436,14 @@
 				2DB67753DE01F8B70FCB528C /* Workbench */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		46F5BC6033FFDC9097C8E8F8 /* Playback */ = {
+			isa = PBXGroup;
+			children = (
+				06E3E9C2D5355E56A8B637FA /* AVFoundationMania4KAudioClock.swift */,
+			);
+			path = Playback;
 			sourceTree = "<group>";
 		};
 		49AFBCDDA38E5BAADD811B80 /* EnsomiIOS */ = {
@@ -655,6 +668,7 @@
 				1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */,
 				DBC6471BEEB4658E38D3936F /* AmbientSyncSessionEngineTests.swift */,
 				D92D2C2A8A819055ABD59496 /* AmbientSyncSpectralEngineTests.swift */,
+				314AEA4914990852CA3A90B6 /* AVFoundationMania4KAudioClockTests.swift */,
 				3EA40AFA7CC90EE838C9DB31 /* ChartGenerationClientTests.swift */,
 				9A4F6FF715DC785824BE1455 /* ChartGenerationIntegrationTests.swift */,
 				71D0A09B35C8F2BB0CA49AE8 /* ControlledGenerationClientTests.swift */,
@@ -929,6 +943,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2E58C45C8D2642B23040CBE5 /* AVFoundationMania4KAudioClockTests.swift in Sources */,
 				27FBA03D712A9953DE509EF7 /* AmbientMicCaptureTests.swift in Sources */,
 				4966D581F4521D85BA867FDB /* AmbientSyncEngineTests.swift in Sources */,
 				59AAAAF108580B59EC576317 /* AmbientSyncFixtureReplayRunnerTests.swift in Sources */,
@@ -976,6 +991,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C091F0E56A181BB26141F171 /* AVFoundationMania4KAudioClock.swift in Sources */,
 				0E194E3C7E63D8B66A2E3E80 /* AmbientMicFeatureStreamService.swift in Sources */,
 				9ACFCC9419DD9540AFA139CF /* AmbientSyncDomain.swift in Sources */,
 				532BCBA85611682A8586911F /* AmbientSyncEngine.swift in Sources */,

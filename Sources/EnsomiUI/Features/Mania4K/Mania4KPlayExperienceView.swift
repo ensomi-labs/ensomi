@@ -973,6 +973,7 @@ public struct EnsomiSettingsView: View {
     @AppStorage("mania4k.keyBindings") private var storedKeyBindings = Mania4KKeyBindingSet.default.storageValue
     #if os(macOS)
     @State private var offsetCalibrationModel: Mania4KOffsetCalibrationModel?
+    @State private var offsetCalibrationClock: AVFoundationMania4KAudioClock?
     @State private var capturingKeyBindingLane: Mania4KLane?
     #endif
 
@@ -1027,10 +1028,11 @@ public struct EnsomiSettingsView: View {
             get: { offsetCalibrationModel != nil },
             set: { if !$0, let calibration = offsetCalibrationModel { cancelOffsetCalibration(calibration) } }
         )) {
-            if let calibration = offsetCalibrationModel {
+            if let calibration = offsetCalibrationModel, let clock = offsetCalibrationClock {
                 ScrollView {
                     Mania4KOffsetCalibrationView(
                         model: calibration,
+                        audioClock: clock,
                         scrollTimeMs: model.scrollTimeMs,
                         onStateChanged: { persistCalibrationState($0) },
                         onApply: applyOffsetCalibration,
@@ -1145,14 +1147,12 @@ public struct EnsomiSettingsView: View {
 
     #if os(macOS)
     private func openOffsetCalibration() {
-        let calibrationModel = Mania4KOffsetCalibrationModel(
+        offsetCalibrationClock = AVFoundationMania4KAudioClock()
+        offsetCalibrationModel = Mania4KOffsetCalibrationModel(
             originalAudioOffsetMilliseconds: clampedOffsetMilliseconds(model.audioOffsetMilliseconds),
             originalVisualOffsetMilliseconds: clampedOffsetMilliseconds(model.visualOffsetMilliseconds),
-            storedState: calibrationStoredState,
-            tickPlayer: Mania4KOffsetCalibrationResourceTickPlayer()
+            storedState: calibrationStoredState
         )
-        calibrationModel.prewarmCalibrationTicks()
-        offsetCalibrationModel = calibrationModel
     }
 
     private func applyOffsetCalibration(_ calibrationModel: Mania4KOffsetCalibrationModel) {
@@ -1161,6 +1161,7 @@ public struct EnsomiSettingsView: View {
         model.visualOffsetMilliseconds = Double(appliedOffsets.visualOffsetMilliseconds)
         persistCalibrationState(calibrationModel.storedState, createsStateIfNeeded: true)
         offsetCalibrationModel = nil
+        offsetCalibrationClock = nil
     }
 
     private func cancelOffsetCalibration(_ calibrationModel: Mania4KOffsetCalibrationModel) {
@@ -1168,6 +1169,7 @@ public struct EnsomiSettingsView: View {
         model.audioOffsetMilliseconds = Double(originalOffsets.audioOffsetMilliseconds)
         model.visualOffsetMilliseconds = Double(originalOffsets.visualOffsetMilliseconds)
         offsetCalibrationModel = nil
+        offsetCalibrationClock = nil
     }
 
     private var keyBindingSettings: some View {
@@ -1256,19 +1258,19 @@ private enum Mania4KOffsetCalibrationFocusedTextField: Hashable {
 
 private struct Mania4KOffsetCalibrationView: View {
     @Bindable var model: Mania4KOffsetCalibrationModel
+    let audioClock: AVFoundationMania4KAudioClock
     let scrollTimeMs: Double
     let onStateChanged: (Mania4KOffsetCalibrationStoredState) -> Void
     let onApply: (Mania4KOffsetCalibrationModel) -> Void
     let onCancel: (Mania4KOffsetCalibrationModel) -> Void
 
     @State private var frameLoopTask: Task<Void, Never>?
-    @State private var calibrationStartTimeSeconds: TimeInterval?
+    @State private var audioFailure: String?
     @State private var presetName = ""
     @State private var presetIDPendingDeletion: UUID?
     @FocusState private var focusedTextField: Mania4KOffsetCalibrationFocusedTextField?
 
     private let calibrationLane: Mania4KLane = .innerRight
-    private let calibrationPrewarmDelayMs = 120
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -1287,7 +1289,8 @@ private struct Mania4KOffsetCalibrationView: View {
                 calibrationKey: Mania4KOffsetCalibrationModel.calibrationKey,
                 isCaptureEnabled: focusedTextField == nil
             ) {
-                _ = model.recordInput(rawInputTimeMs: currentRawClockTimeMs())
+                // Read when the key is handled, as play reads it.
+                _ = model.recordInput(rawInputTimeMs: audioClock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()))
             }
         )
         .onAppear(perform: startFrameLoop)
@@ -1306,6 +1309,12 @@ private struct Mania4KOffsetCalibrationView: View {
                     .foregroundStyle(Mania4KStyle.textSecondary)
                     .lineLimit(2)
                     .minimumScaleFactor(0.78)
+
+                if let audioFailure {
+                    Text(audioFailure)
+                        .font(.caption)
+                        .foregroundStyle(Mania4KStyle.accentRed)
+                }
             }
 
             Spacer()
@@ -1696,140 +1705,54 @@ private struct Mania4KOffsetCalibrationView: View {
         onStateChanged(model.storedState)
     }
 
+    /// Plays the click track on the audio clock and draws each frame at the clock's audio time.
     private func startFrameLoop() {
         guard frameLoopTask == nil else {
             return
         }
 
-        let startTimeSeconds = ProcessInfo.processInfo.systemUptime
-        calibrationStartTimeSeconds = startTimeSeconds
-        model.advanceClock(rawClockTimeMs: 0)
         frameLoopTask = Task { @MainActor in
-            var didPrewarmTicks = false
-            while !Task.isCancelled {
-                let rawClockTimeMs = rawClockTimeMs(since: startTimeSeconds)
-                if !didPrewarmTicks, rawClockTimeMs >= calibrationPrewarmDelayMs {
-                    model.prewarmCalibrationTicks()
-                    didPrewarmTicks = true
-                }
-                model.advanceClock(rawClockTimeMs: rawClockTimeMs)
-                do {
-                    try await Task.sleep(nanoseconds: 16_666_667)
-                } catch {
-                    break
+            do {
+                try audioClock.prepare(clickTrack: clickTrack())
+                try await audioClock.play()
+            } catch {
+                if !Task.isCancelled {
+                    audioFailure = error.localizedDescription
                 }
             }
+
+            while !Task.isCancelled {
+                model.advanceClock(rawClockTimeMs: Int(audioClock.audioTimeMs(atHostTimeMs: EnsomiHostClock.currentTimeMS()).rounded()))
+                try? await Task.sleep(nanoseconds: 16_666_667)
+            }
+
+            await audioClock.stop()
         }
     }
 
     private func stopFrameLoop() {
         frameLoopTask?.cancel()
         frameLoopTask = nil
-        calibrationStartTimeSeconds = nil
-        model.stopCalibrationTicks()
     }
 
-    private func currentRawClockTimeMs() -> Int {
-        guard let calibrationStartTimeSeconds else {
-            return model.rawClockTimeMs
+    private func clickTrack() throws -> Mania4KCalibrationClickTrack {
+        let bundle = Bundle(for: Mania4KOffsetCalibrationResourceBundleToken.self)
+        guard let url = bundle.url(forResource: "calibration_tick", withExtension: "wav") else {
+            throw Mania4KPlayFailure.audioPrepareFailed("The bundled calibration_tick.wav is missing.")
         }
 
-        return rawClockTimeMs(since: calibrationStartTimeSeconds)
-    }
-
-    private func rawClockTimeMs(since startTimeSeconds: TimeInterval) -> Int {
-        max(0, Int((ProcessInfo.processInfo.systemUptime - startTimeSeconds) * 1_000))
+        let file = try AVAudioFile(forReading: url)
+        let tick = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
+        try file.read(into: tick)
+        return Mania4KCalibrationClickTrack(
+            tick: tick,
+            leadInMs: Mania4KOffsetCalibrationModel.initialLeadInMs,
+            intervalMs: Mania4KOffsetCalibrationModel.tickIntervalMs
+        )
     }
 }
 
 private final class Mania4KOffsetCalibrationResourceBundleToken: NSObject {}
-
-@MainActor
-private final class Mania4KOffsetCalibrationResourceTickPlayer: Mania4KOffsetCalibrationTickPlaying {
-    private let player: AVAudioPlayer?
-    private var didPrewarm = false
-    private var prewarmRestoreVolume: Float?
-    private var prewarmTask: Task<Void, Never>?
-
-    init() {
-        let bundle = Bundle(for: Mania4KOffsetCalibrationResourceBundleToken.self)
-        guard let url = bundle.url(forResource: "calibration_tick", withExtension: "wav") else {
-            assertionFailure("Missing bundled calibration_tick.wav resource.")
-            player = nil
-            return
-        }
-
-        do {
-            let player = try AVAudioPlayer(contentsOf: url)
-            player.prepareToPlay()
-            self.player = player
-        } catch {
-            assertionFailure("Could not prepare calibration_tick.wav: \(error.localizedDescription)")
-            player = nil
-        }
-    }
-
-    deinit {
-        prewarmTask?.cancel()
-    }
-
-    func prewarmCalibrationTicks() {
-        guard !didPrewarm, let player else {
-            return
-        }
-
-        didPrewarm = true
-        prewarmRestoreVolume = player.volume
-        player.volume = 0
-        player.currentTime = 0
-        player.play()
-
-        prewarmTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: 60_000_000)
-            } catch {
-                return
-            }
-
-            self?.finishPrewarm()
-        }
-    }
-
-    func playCalibrationTick() {
-        guard let player else {
-            return
-        }
-
-        if prewarmRestoreVolume != nil {
-            finishPrewarm()
-        }
-        player.currentTime = 0
-        player.play()
-    }
-
-    func stopCalibrationTicks() {
-        prewarmTask?.cancel()
-        prewarmTask = nil
-        if let prewarmRestoreVolume {
-            player?.volume = prewarmRestoreVolume
-            self.prewarmRestoreVolume = nil
-        }
-        player?.stop()
-        player?.currentTime = 0
-    }
-
-    private func finishPrewarm() {
-        prewarmTask = nil
-        if player?.isPlaying == true {
-            player?.stop()
-        }
-        player?.currentTime = 0
-        if let prewarmRestoreVolume {
-            player?.volume = prewarmRestoreVolume
-            self.prewarmRestoreVolume = nil
-        }
-    }
-}
 
 private struct Mania4KOffsetCalibrationKeyboardCaptureView: NSViewRepresentable {
     let calibrationKey: String
