@@ -71,6 +71,11 @@ public final class AVFoundationMania4KAudioClock: Mania4KAudioClock, @unchecked 
         }
     }
 
+    /// The output latency the clock subtracts, read when it last started rendering.
+    var outputLatencyMs: Double {
+        state.withLockUnchecked { $0.outputLatencyMs }
+    }
+
     public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
         let file = try AVAudioFile(forReading: audioFileURL)
         try prepareEngine(source: .file(file), atMs: 0, resumesPlaying: false)

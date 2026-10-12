@@ -58,6 +58,8 @@ These shaped the clock and are easy to get wrong again:
   way, so a silent comparison against it plays a file of zeros at full volume.
 - The render timestamp's host time leads the moment of the call by 13 to 22 ms,
   depending on where in the 10.7 ms I/O cycle (512 frames at 48 kHz) the call falls.
+  On WH-1000XM4 headphones over Bluetooth the first render after a start leads by
+  35 to 46 ms, and `presentationLatency` is 203 ms.
 - On the built-in speakers `presentationLatency` is 1.25 ms (60 frames, the device
   latency). CoreAudio also reports 556 frames (11.6 ms) of stream latency and a
   48-frame safety offset that `presentationLatency` leaves out; they stay in the
@@ -199,8 +201,11 @@ under the derived data path if a default test disagrees with the source.
 `-only-testing:EnsomiCoreTests/AVFoundationMania4KAudioClockTests` runs the clock's
 own checks, silently: it follows the host clock within 0.5 ms and only forward while
 playing, holds while paused, renders the click track's ticks at their audio times,
-and resumes from the heard position after a simulated device change. Those that play
-skip when there is no audio output.
+and resumes from the heard position after a simulated device change. The restart's
+checks hold on any output: the first reading after the restart, plus the latency the
+clock subtracts, lies from the held position as the first reading after the clock's own
+start lay from 0, within 25 ms (`TIMING route change` lines), and the time the device
+takes to start is not bounded. Those that play skip when there is no audio output.
 
 ## Not covered
 
