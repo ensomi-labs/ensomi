@@ -42,6 +42,8 @@ xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=ma
 xcodebuild -project Ensomi.xcodeproj -scheme EnsomiIOS -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
 ```
 
+The [CI workflow](.github/workflows/ci.yml) runs these tests and the iOS simulator build on pull requests and on pushes to `dev/swift`.
+
 Debug app builds disable code signing. For microphone or system-audio testing,
 follow the [canonical macOS installation guidance](AGENTS.md#macos-installation).
 

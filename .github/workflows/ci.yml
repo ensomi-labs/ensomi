@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [dev/swift]
+  pull_request:
+    branches: [dev/swift, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The Xcode the app is developed with. Ensomi.xcodeproj is tracked and generated from project.yml.
+env:
+  DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+
+jobs:
+  macos:
+    name: macOS tests
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: .build/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('Ensomi.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - name: Tests (those needing sibling checkouts or local data skip)
+        run: >
+          xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=macOS'
+          -clonedSourcePackagesDirPath .build/SourcePackages -onlyUsePackageVersionsFromResolvedFile
+          test CODE_SIGNING_ALLOWED=NO
+
+  ios:
+    name: iOS simulator build
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: .build/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('Ensomi.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+      - run: >
+          xcodebuild -project Ensomi.xcodeproj -scheme EnsomiIOS -destination 'generic/platform=iOS Simulator'
+          -clonedSourcePackagesDirPath .build/SourcePackages -onlyUsePackageVersionsFromResolvedFile
+          build CODE_SIGNING_ALLOWED=NO
