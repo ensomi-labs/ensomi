@@ -120,14 +120,16 @@ it opens in 10 s, runs BeatThis two to three times slower and needs 11.5 GiB (se
 runtime's Swift README). On iOS the core's `lowMemory` default is on (1.3 to 1.6 GiB on the Mac).
 
 In the iOS simulator (iPhone 17, iOS 27 simulator on bings-mac, the runtime's `GeneratorTests`
-through the Swift API on the recorded PCM of hesitation-snow), both generations gave the chart the
-native generator made on macOS (`conformance/generate/native-charts`), byte for byte:
+through the Swift API on the recorded PCM of hesitation-snow), every generation gave the chart the
+native generator made on macOS (`conformance/generate/native-charts`), byte for byte. Seconds per
+generation, with the same test under `swift test` on macOS beside it; other jobs loaded the Mac
+during the second and third runs, so the times are an upper bound:
 
-| Run | Low memory off | Low memory on |
-| --- | --- | --- |
-| iOS simulator | 11.1 s | 21.1 s |
-| iOS simulator, a second run while other jobs loaded the Mac (load average 35 to 67) | 29.7 s | 32.2 s |
-| macOS, `swift test`, same test, same load | 9.7 s | 13.6 s |
+| Run | Mac load average (1 min) | iOS, low memory off | iOS, low memory on | macOS, off | macOS, on |
+| --- | --- | --- | --- | --- | --- |
+| 1 | not recorded | 11.1 | 21.1 | 9.4 | 10.1 |
+| 2 | 35 to 67 | 29.7 | 32.2 | 9.7 | 13.6 |
+| 3 | 10 to 75 | 19.6 | 22.2 | 11.3 | 11.1 |
 
 The simulator runs the arm64 simulator slice on the Mac's cores; it says nothing about a phone's
 speed or memory limit.
