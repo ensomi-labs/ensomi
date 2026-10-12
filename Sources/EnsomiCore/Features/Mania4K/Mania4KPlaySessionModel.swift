@@ -291,7 +291,7 @@ public final class Mania4KPlaySessionModel {
             visualOffsetMilliseconds: visualOffsetMilliseconds, judgeDifficulty: judgeDifficulty,
             keyBindings: keyBindings)
         let metadata = Mania4KChartMetadata(
-            title: title, artist: artist, sourceDescription: "Ensomi chart service",
+            title: title, artist: artist, sourceDescription: "Ensomi R2 generator",
             objectCount: chart.objectCount, durationMs: chart.durationMs)
         let stream = InMemoryMania4KHitObjectStream(objects: chart.objects, metadata: metadata)
         return await startPreparedPlay(configuration: configuration, stream: stream, startGeneration: generation)

@@ -1,5 +1,6 @@
 import AVFoundation
 import EnsomiProtocol
+import EnsomiRuntime
 import Foundation
 import Observation
 
@@ -113,7 +114,18 @@ public struct ChartGenerationSectionOption: Identifiable, Equatable, Sendable {
     public var title: String { kind.title + (isExperimental ? " (Experimental)" : "") }
 }
 
-/// Setup-screen state of "Generate a Chart": what the service offers and the progress of one generation.
+/// Where "Generate a Chart" makes the chart: in the app with the Rust core, or at the chart service.
+public enum ChartGenerationEngine: String, CaseIterable, Identifiable, Sendable {
+    case device, server
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        self == .device ? "On this device" : "Chart server"
+    }
+}
+
+/// Setup-screen state of "Generate a Chart": what the engine offers and the progress of one generation.
 @MainActor
 @Observable
 public final class Mania4KChartGenerationModel {
@@ -134,11 +146,35 @@ public final class Mania4KChartGenerationModel {
     public private(set) var audioDurationMS: Double?
     public private(set) var audioDurationError: String?
 
-    @ObservationIgnored private let client: ChartGenerationClient
-    @ObservationIgnored private var durationAudioURL: URL?
+    /// The engine the person chose; nil until they do, when the device is used if it has a model.
+    private var chosenEngine: ChartGenerationEngine?
 
-    public init(client: ChartGenerationClient = ChartGenerationClient()) {
+    public let models: ChartModelLibrary
+    @ObservationIgnored private let client: ChartGenerationClient
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var durationAudioURL: URL?
+    @ObservationIgnored private var deviceTask: Task<ChartResult, Error>?
+
+    private static let engineKey = "mania4k.chartEngine"
+
+    public init(
+        client: ChartGenerationClient = ChartGenerationClient(),
+        models: ChartModelLibrary = .shared,
+        defaults: UserDefaults = .standard
+    ) {
         self.client = client
+        self.models = models
+        self.defaults = defaults
+        chosenEngine = defaults.string(forKey: Self.engineKey).flatMap(ChartGenerationEngine.init(rawValue:))
+    }
+
+    public var engine: ChartGenerationEngine {
+        chosenEngine ?? (models.hasModel ? .device : .server)
+    }
+
+    public func choose(engine: ChartGenerationEngine) {
+        chosenEngine = engine
+        defaults.set(engine.rawValue, forKey: Self.engineKey)
     }
 
     public var isGenerating: Bool {
@@ -185,7 +221,20 @@ public final class Mania4KChartGenerationModel {
 
     public func loadCapabilities() async {
         do {
-            let capabilities = try await client.capabilities()
+            let capabilities: ChartGenerationCapabilities
+            switch engine {
+            case .server:
+                capabilities = try await client.capabilities()
+            case .device:
+                guard models.hasModel else {
+                    starRange = nil
+                    sectionOptions = []
+                    modelDescription = nil
+                    capabilitiesError = nil
+                    return
+                }
+                capabilities = try await models.generator().capabilities
+            }
             modelDescription = "\(capabilities.modelName) \(capabilities.modelVersion)"
             starRange = capabilities.minStar...max(capabilities.minStar, capabilities.maxStarExclusive - 0.1)
             sectionOptions = capabilities.controls.compactMap { control in
@@ -197,42 +246,83 @@ public final class Mania4KChartGenerationModel {
         } catch {
             starRange = nil
             sectionOptions = []
-            capabilitiesError = "Chart service unavailable: \(error.localizedDescription)"
+            capabilitiesError = engine == .server
+                ? "Chart service unavailable: \(error.localizedDescription)"
+                : "The on-device model could not be opened: \(OnDeviceChartGenerator.message(for: error))"
         }
     }
 
-    /// The generated chart, or nil after a failure (in `state`) or a stop.
-    public func generate(audioURL: URL, star: Double, title: String? = nil, artist: String? = nil) async -> Mania4KGeneratedChart? {
+    /// The generated chart, or nil after a failure (in `state`) or a stop. Without a `seed` the chart is a new one.
+    public func generate(
+        audioURL: URL, star: Double, seed: UInt64? = nil, title: String? = nil, artist: String? = nil
+    ) async -> Mania4KGeneratedChart? {
         guard !isGenerating else { return nil }
         if durationAudioURL != audioURL { loadAudioDuration(for: audioURL) }
         guard canGenerate(star: star), let audioDurationMS, let starRange else {
             state = .failed(audioDurationError ?? sectionValidationMessage ?? capabilitiesError ?? "Choose audio and a star target within the supported range.")
             return nil
         }
-        state = .generating(phase: "Connecting")
+        let engine = engine
+        state = .generating(phase: engine == .server ? "Connecting" : Self.label(.loading))
         do {
             let controls = try ChartGenerationSection.controls(for: sections, durationMS: audioDurationMS, starRange: starRange)
-            for try await event in await client.generate(audioURL: audioURL, star: star, controls: controls, title: title, artist: artist) {
-                switch event {
-                case .progress(let phase):
-                    state = .generating(phase: Self.label(phase))
-                case .result(let result):
-                    let chart = try Mania4KGeneratedChart(result.chart)
-                    state = .ready
-                    return chart
-                }
+            let chart: Mania4KGeneratedChart
+            switch engine {
+            case .server:
+                chart = try await generateWithServer(audioURL: audioURL, star: star, seed: seed, controls: controls, title: title, artist: artist)
+            case .device:
+                chart = try await generateOnDevice(audioURL: audioURL, star: star, seed: seed, controls: controls, title: title, artist: artist)
             }
-            state = .failed("The service ended without a chart.")
-        } catch ChartGenerationError.stopped {
+            state = .ready
+            return chart
+        } catch ChartGenerationError.stopped, is CancellationError, GeneratorError.Cancelled {
             state = .idle
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(OnDeviceChartGenerator.message(for: error))
         }
         return nil
     }
 
     public func stop() async {
-        await client.stop()
+        if let deviceTask {
+            deviceTask.cancel()
+        } else {
+            await client.stop()
+        }
+    }
+
+    private func generateWithServer(
+        audioURL: URL, star: Double, seed: UInt64?, controls: ChartGenerationControls, title: String?, artist: String?
+    ) async throws -> Mania4KGeneratedChart {
+        for try await event in await client.generate(audioURL: audioURL, star: star, controls: controls, seed: seed, title: title, artist: artist) {
+            switch event {
+            case .progress(let phase):
+                state = .generating(phase: Self.label(phase))
+            case .result(let result):
+                return try Mania4KGeneratedChart(result.chart)
+            }
+        }
+        throw ChartGenerationError.service(code: "no_chart", message: "The service ended without a chart.")
+    }
+
+    private func generateOnDevice(
+        audioURL: URL, star: Double, seed: UInt64?, controls: ChartGenerationControls, title: String?, artist: String?
+    ) async throws -> Mania4KGeneratedChart {
+        let generator = try await models.generator()
+        // Small enough to read and retype.
+        let seed = seed ?? UInt64.random(in: 0..<1 << 32)
+        let task = Task {
+            try await generator.generate(
+                audioURL: audioURL, star: star, seed: seed, controls: controls, title: title, artist: artist
+            ) { phase in
+                Task { @MainActor in
+                    if case .generating = self.state { self.state = .generating(phase: Self.label(phase)) }
+                }
+            }
+        }
+        deviceTask = task
+        defer { deviceTask = nil }
+        return try Mania4KGeneratedChart(try await task.value.chart)
     }
 
     private static func label(_ phase: ChartGenerationPhase) -> String {

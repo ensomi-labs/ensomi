@@ -42,6 +42,8 @@ targets:
       - iOS
     sources:
       - path: Apps/EnsomiIOS
+      - path: ../ensomi-runtime/build/apple/resampler
+        type: folder
     dependencies:
       - target: EnsomiCore
       - target: EnsomiUI
@@ -62,6 +64,8 @@ targets:
       - macOS
     sources:
       - path: Apps/EnsomiMac
+      - path: ../ensomi-runtime/build/apple/resampler
+        type: folder
     info:
       path: Apps/EnsomiMac/Info.plist
       properties:

@@ -252,7 +252,7 @@ final class ChartGenerationClientTests: XCTestCase {
                 return [progress(.loading), .chartResult(result)]
             }
         }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient { ScriptedChartTransport(script: script) })
+        let model = serverModel(ChartGenerationClient { ScriptedChartTransport(script: script) })
 
         await model.loadCapabilities()
         let range = model.starRange
@@ -283,7 +283,7 @@ final class ChartGenerationClientTests: XCTestCase {
             }
             return [.modelCapabilities(capabilities)]
         }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient { transport })
+        let model = serverModel(ChartGenerationClient { transport })
         await model.loadCapabilities()
         XCTAssertEqual(model.sectionOptions.map(\.kind), [.jumpstream, .chordstream, .stream, .jack, .star])
         XCTAssertEqual(model.sectionOptions.map(\.isExperimental), [false, false, true, true, true])
@@ -294,7 +294,7 @@ final class ChartGenerationClientTests: XCTestCase {
     @MainActor
     func testInvalidSectionsNeverSendGenerationRequest() async throws {
         let transport = ScriptedChartTransport { _ in [.modelCapabilities(testCapabilities())] }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient { transport })
+        let model = serverModel(ChartGenerationClient { transport })
         let audioURL = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audioURL) }
         await model.loadCapabilities()
@@ -311,7 +311,7 @@ final class ChartGenerationClientTests: XCTestCase {
     func testGenerationModelForwardsValidatedSections() async throws {
         let capabilitiesTransport = ScriptedChartTransport { _ in [.modelCapabilities(testCapabilities())] }
         let generationTransport = ScriptedChartTransport { _ in [.chartResult(.init())] }
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient {
+        let model = serverModel(ChartGenerationClient {
             capabilitiesTransport.sent.isEmpty ? capabilitiesTransport : generationTransport
         })
         let audioURL = try makeAudioFile(durationSeconds: 8)
@@ -330,7 +330,7 @@ final class ChartGenerationClientTests: XCTestCase {
 
     @MainActor
     func testGenerationModelDisplaysServiceRejectionMessage() async throws {
-        let model = Mania4KChartGenerationModel(client: ChartGenerationClient {
+        let model = serverModel(ChartGenerationClient {
             ScriptedChartTransport { request in
                 if case .capabilitiesRequest? = request.payload { return [.modelCapabilities(testCapabilities())] }
                 return [progress(.timing), error("unsupported_control", "These sections cannot be generated.")]
