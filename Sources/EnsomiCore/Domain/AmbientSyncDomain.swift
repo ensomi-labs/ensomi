@@ -509,7 +509,7 @@ public struct AmbientSyncSpectralDiagnostics: Codable, Equatable, Sendable {
     public let globalSearch: Bool
     public let correlation: Double
     public let competingPeakMargin: Double?
-    /// Detailed correlations are unavailable from the Sonalign 0.1.0 API.
+    /// Detailed correlations are unavailable from the Sonalign API.
     public let firstHalfCorrelation: Double?
     public let secondHalfCorrelation: Double?
     public let recentCorrelation: Double?

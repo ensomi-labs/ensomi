@@ -1751,7 +1751,7 @@
 			repositoryURL = "https://github.com/ensomi-labs/sonalign";
 			requirement = {
 				kind = exactVersion;
-				version = 0.1.0;
+				version = 0.2.0;
 			};
 		};
 		CB73D838FD2307D55478D611 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {

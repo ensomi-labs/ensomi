@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ensomi-labs/sonalign",
       "state" : {
-        "revision" : "79a2a519f533624f74e4806e5156e93aa02eba0c",
-        "version" : "0.1.0"
+        "revision" : "04f3a14dc358c00e785600048597b2dfa5252175",
+        "version" : "0.2.0"
       }
     },
     {

@@ -90,7 +90,7 @@ public final class AmbientSyncSessionEngine {
             $0.energyDBFS >= configuration.minimumActiveFrameEnergyDBFS
         }.count
         // Landmark and Swift tracker diagnostics are unused for this backend.
-        // Sonalign 0.1.0 does not expose candidate or partial-window correlations.
+        // The Sonalign API does not expose candidate or partial-window correlations.
         let diagnostics = AmbientSyncDiagnostics(
             queryDurationMS: queryWindow.durationMS,
             activeFrameFraction: Double(activeCount) / Double(queryWindow.frames.count),

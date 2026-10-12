@@ -25,7 +25,7 @@ fileGroups:
 packages:
   Sonalign:
     url: https://github.com/ensomi-labs/sonalign
-    exactVersion: "0.1.0"
+    exactVersion: "0.2.0"
   EnsomiProtocol:
     url: https://github.com/ensomi-labs/protocol.git
     exactVersion: "0.2.0"
