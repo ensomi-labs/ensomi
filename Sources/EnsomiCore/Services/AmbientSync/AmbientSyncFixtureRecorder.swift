@@ -446,9 +446,9 @@ public final class AmbientSyncFixtureRecorder: @unchecked Sendable {
         return nil
     }
 
-    private static func firstAncestorWithFixtureDirectory(from url: URL) -> URL? {
-        var current = url.hasDirectoryPath ? url : url.deletingLastPathComponent()
-        while current.path != current.deletingLastPathComponent().path {
+    static func firstAncestorWithFixtureDirectory(from url: URL) -> URL? {
+        var current = (url.hasDirectoryPath ? url : url.deletingLastPathComponent()).standardizedFileURL
+        while true {
             let fixtureDirectory = current
                 .appendingPathComponent("LocalFixtures", isDirectory: true)
                 .appendingPathComponent("ambient-sync-voice-memos", isDirectory: true)
@@ -456,10 +456,13 @@ public final class AmbientSyncFixtureRecorder: @unchecked Sendable {
                 return current
             }
 
-            current.deleteLastPathComponent()
+            // At the root, deletingLastPathComponent() gives "/..", never "/" again; standardizing does.
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            if parent.path == current.path {
+                return nil
+            }
+            current = parent
         }
-
-        return nil
     }
 
     private static func fileStem(
