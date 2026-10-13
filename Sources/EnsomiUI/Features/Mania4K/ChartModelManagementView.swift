@@ -82,3 +82,17 @@ struct ChartModelManagementView: View {
         return "No model is installed. Download Ensomi R2 (about 120 MB) or choose a folder that holds its onnx files."
     }
 }
+
+/// The model's licence as its model card states it.
+struct ChartModelLicenseView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ensomi R2 is licensed CC BY-NC-SA 4.0: you may use, share and adapt it with credit, not for commercial purposes, and adaptations must carry the same licence. The exception is BeatThis (CPJKU): its beat-tracking graph and front-end arrays keep BeatThis's MIT licence. See the [model card](https://huggingface.co/sed-i/ensomi-r2).")
+            // BeatThis's licence text goes here: the text of each file the runtime's `noticeFiles(runtimeConfig:)` names
+            // in the model in use. The runtime version project.yml pins (0.2.0) has no such function.
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
