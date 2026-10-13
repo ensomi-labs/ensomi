@@ -8,10 +8,13 @@ public struct ChartModelSource: Sendable {
     /// Ends with a slash; each file is at `files/<name>`.
     public var files: URL
 
-    /// Hugging Face `sed-i/ensomi-r2`, directory `onnx/`.
+    /// The tag of `sed-i/ensomi-r2` the app downloads, so the files it lists and fetches do not change under it.
+    public static let revision = "r2-1.0"
+
+    /// Hugging Face `sed-i/ensomi-r2` at `revision`, directory `onnx/`.
     public static let published = ChartModelSource(
-        listing: URL(string: "https://huggingface.co/api/models/sed-i/ensomi-r2/tree/main/onnx")!,
-        files: URL(string: "https://huggingface.co/sed-i/ensomi-r2/resolve/main/onnx/")!
+        listing: URL(string: "https://huggingface.co/api/models/sed-i/ensomi-r2/tree/\(revision)/onnx")!,
+        files: URL(string: "https://huggingface.co/sed-i/ensomi-r2/resolve/\(revision)/onnx/")!
     )
 }
 
@@ -34,7 +37,9 @@ public enum ChartModelDownloadError: Error, Equatable, LocalizedError {
 /// Downloads the model's files into a directory beside the install directory and moves it into place only when every
 /// file has its listed size and checksum and the directory validates. A download that fails or is cancelled leaves that
 /// directory with the files finished so far and the one in progress (`<name>.part`), and the next install continues
-/// from there: finished files are checked again and the partial one is resumed with an HTTP Range request.
+/// from there: finished files are checked again and the partial one is resumed with an HTTP Range request. A file the
+/// install directory already holds with its listed size and checksum is copied rather than fetched, so installing
+/// over an older install fetches only the files it lacks or that changed.
 public struct ChartModelDownloader: Sendable {
     public var source: ChartModelSource
     public var session: URLSession
@@ -77,7 +82,7 @@ public struct ChartModelDownloader: Sendable {
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
 
         let tracker = ProgressTracker(report: progress)
-        try await fetch("runtime.json", entries: entries, into: staging, tracker: tracker)
+        try await fetch("runtime.json", entries: entries, into: staging, installed: installDirectory, tracker: tracker)
         let config = try String(contentsOf: staging.appendingPathComponent("runtime.json"), encoding: .utf8)
         var names = try modelFiles(runtimeConfig: config)
         if entries["ensomi-model.json"] != nil { names.append("ensomi-model.json") }
@@ -86,7 +91,7 @@ public struct ChartModelDownloader: Sendable {
         }
         tracker.total += tracker.finished
         for name in names {
-            try await fetch(name, entries: entries, into: staging, tracker: tracker)
+            try await fetch(name, entries: entries, into: staging, installed: installDirectory, tracker: tracker)
         }
 
         try validate(staging)
@@ -99,9 +104,11 @@ public struct ChartModelDownloader: Sendable {
     }
 
     /// Brings `name` into `staging` and checks its size and checksum. A copy finished at an earlier start is kept if
-    /// it still passes. A partial one is continued, and started again if the whole then fails, as it does when the
-    /// published file changed in between.
-    private func fetch(_ name: String, entries: [String: Entry], into staging: URL, tracker: ProgressTracker) async throws {
+    /// it still passes, and so is the installed copy. A partial one is continued, and started again if the whole then
+    /// fails, as it does when the published file changed in between.
+    private func fetch(
+        _ name: String, entries: [String: Entry], into staging: URL, installed: URL, tracker: ProgressTracker
+    ) async throws {
         let entry = try Self.entry(named: name, in: entries)
         let fileManager = FileManager.default
         let file = staging.appendingPathComponent(name)
@@ -111,6 +118,12 @@ public struct ChartModelDownloader: Sendable {
                 return
             }
             try fileManager.removeItem(at: file)
+        }
+        let installedFile = installed.appendingPathComponent(name)
+        if (try? Self.check(installedFile, against: entry, name: name)) != nil {
+            try fileManager.copyItem(at: installedFile, to: file)
+            tracker.finished += entry.size
+            return
         }
 
         let partial = staging.appendingPathComponent(name + ".part")

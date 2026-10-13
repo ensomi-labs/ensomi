@@ -60,6 +60,16 @@ public final class ChartModelLibrary {
         isDownloaded = FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent("runtime.json").path)
         hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         restoreChosenFolder()
+        if isDownloaded, installLacksAListedFile { startDownload() }
+    }
+
+    /// The installed `runtime.json` names a file the install does not have, as it does for an install made before the
+    /// runtime listed that file. The download then fetches that file and copies the rest from the install.
+    private var installLacksAListedFile: Bool {
+        guard let config = try? String(contentsOf: installDirectory.appendingPathComponent("runtime.json"), encoding: .utf8),
+              let names = try? modelFiles(runtimeConfig: config)
+        else { return false }
+        return names.contains { !FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent($0).path) }
     }
 
     private var stagingDirectory: URL {

@@ -187,6 +187,30 @@ final class ChartModelDownloaderTests: XCTestCase {
         )
     }
 
+    /// An install that lacks a file its `runtime.json` names, as one made before the runtime listed that file does: the
+    /// library downloads that file when it starts and copies the rest from the install.
+    func testAnInstallThatLacksAListedFileGetsOnlyThatFileAtTheNextStart() async throws {
+        let name = "rows_step.onnx"
+        let model = try OnDeviceFixtures.model()
+        let downloader = ChartModelDownloader(
+            source: LocalServer.serve(try publishedCopy(of: model, in: scratch.appendingPathComponent("source"))),
+            session: LocalServer.session
+        )
+        let install = installDirectory
+        try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
+        try FileManager.default.removeItem(at: install.appendingPathComponent(name))
+        let earlier = LocalServer.requests.count
+
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
+        try await waitForDownload(library)
+
+        XCTAssertEqual(library.download, .idle)
+        XCTAssertTrue(library.isDownloaded)
+        XCTAssertEqual(LocalServer.requests.dropFirst(earlier).map(\.path), ["listing.json", "onnx/\(name)"])
+        XCTAssertEqual(try Data(contentsOf: install.appendingPathComponent(name)), try Data(contentsOf: model.appendingPathComponent(name)))
+        XCTAssertEqual(contents(of: install.deletingLastPathComponent()), ["ensomi-r2"])
+    }
+
     func testDownloadsThePublishedModelFromHuggingFace() async throws {
         guard ProcessInfo.processInfo.environment["ENSOMI_MODEL_DOWNLOAD_LIVE"] != nil else {
             throw XCTSkip("Set TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1 to download the model from Hugging Face.")

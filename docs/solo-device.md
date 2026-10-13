@@ -15,20 +15,23 @@ does not do.
 ## Installing the model
 
 The model is the published Ensomi R2 package, the `onnx/` directory of
-[`sed-i/ensomi-r2`](https://huggingface.co/sed-i/ensomi-r2) on Hugging Face
-(`runtime.json`, six graphs, state and array files: 29 files, 120 MB). Two ways to have it,
-in Settings under Chart model, or on Generate a Chart when "On this device" is chosen
-and no model is installed:
+[`sed-i/ensomi-r2`](https://huggingface.co/sed-i/ensomi-r2) on Hugging Face at the tag
+`r2-1.0` (`runtime.json`, six graphs, state and array files: 29 files, 120 MB). The tag is
+`ChartModelSource.revision`, the one place the app names it; the app never reads `main`, so
+later commits there do not change what it installs. Two ways to have it, in Settings under
+Chart model, or on Generate a Chart when "On this device" is chosen and no model is installed:
 
 - **Download Model** fetches it into `Application Support/Ensomi/Models/ensomi-r2`
   with a progress bar and **Cancel Download**. It lists the directory
-  (`/api/models/sed-i/ensomi-r2/tree/main/onnx`), downloads `runtime.json`, asks the
+  (`/api/models/sed-i/ensomi-r2/tree/r2-1.0/onnx`), downloads `runtime.json`, asks the
   runtime's `modelFiles(runtimeConfig:)` for the rest, adds `ensomi-model.json` if the
   listing has one (the runtime then checks the package against it on open), and checks
   every file's size and, where the listing gives an LFS object id, its SHA-256 (CryptoKit,
-  in 1 MiB chunks). Files collect in `.download-ensomi-r2` beside the install directory.
-  Only when every file is right and `ChartGenerator.open` accepts the directory is it moved
-  into place, replacing an older install.
+  in 1 MiB chunks). Files collect in `.download-ensomi-r2` beside the install directory; a
+  file the install directory already holds with its listed size and SHA-256 is copied from
+  there instead of fetched, so **Download Again** over an install fetches only the files that
+  are missing or changed. Only when every file is right and `ChartGenerator.open` accepts the
+  directory is it moved into place, replacing an older install.
 - **A stopped download resumes.** A failed or cancelled download leaves the installed model,
   if any, untouched and keeps `.download-ensomi-r2`: the files finished so far and the one in
   progress as `<name>.part`. The section then says the download stopped and offers **Resume
@@ -38,7 +41,14 @@ and no model is installed:
   server that ignores the range) rewrites the file from the start. When a resumed file then
   fails its size or SHA-256, as it does when the published file changed in between, it is
   fetched again whole. **Remove Download** also deletes the partial files. There is no
-  automatic retry; resuming is the person's choice.
+  automatic retry: apart from completing an install that lacks a listed file (next item),
+  resuming is the person's choice.
+- **An install that lacks a listed file is completed when the app starts.** When the
+  installed `runtime.json` names a file the install directory does not have, as it does for
+  an install made before the runtime listed that file, the library starts the download by
+  itself: it fetches the missing file and copies the rest from the install. The installed
+  model stays in use meanwhile; a failed download leaves it as it was and offers **Resume
+  Download**.
 - **Choose Folder…** uses any directory that holds the files, such as a local copy of
   `onnx/`. The folder is refused unless `ChartGenerator` opens it. It is kept across
   launches as a bookmark (security-scoped on macOS, which also makes it work in a
@@ -49,6 +59,13 @@ and no model is installed:
 any folder without a grant. A sandboxed channel would need the network client and
 user-selected read entitlements. iOS is always sandboxed; the bookmark covers the
 chosen folder there.
+
+Below the controls, Settings states the model's licence as the model card does: CC BY-NC-SA
+4.0 (use, share and adapt with credit, not for commercial purposes, adaptations under the
+same licence), except BeatThis (CPJKU), whose beat-tracking graph and front-end arrays keep
+BeatThis's MIT licence, with a link to the model card. The package at `r2-1.0` carries
+BeatThis's licence text in a file `runtime.json` names; the runtime version the app pins
+(0.2.0) does not list that file, so the app neither downloads nor shows the text yet.
 
 When a model is installed, "On this device" is the default engine; "Chart server" stays
 selectable and the choice is remembered. The engine picker is disabled during a generation.
@@ -151,8 +168,9 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
   `beatthis.onnx` (the next start sends `Range: bytes=3000000-` and fetches no finished file
   again; Remove Download leaves nothing), a file changed on the server while 5 MB of it waited
   (the resumed file fails its SHA-256 and is fetched again whole), and cancelling mid-file (the
-  finished files and the partial one stay, the next start resumes).
-  `TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads from Hugging Face.
+  finished files and the partial one stay, the next start resumes). An install that lacks a
+  listed file gets that file alone when the library starts, the rest copied from the install.
+  `TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads from Hugging Face at `r2-1.0`.
 - `ChartGenerationClientTests`: the seed field (refuses what is not a seed, sends 2^64 − 1), the
   result keeping the seed the server reports though none was asked for, and Stop ending in the
   stopped state.
@@ -233,6 +251,7 @@ at narrow widths and with large text were not rendered.
   by size only. Resuming against Hugging Face itself (its redirect to the file host keeping the
   Range header) was not tried; the tests use a local server.
 - ONNX Runtime's MIT licence and notices (`ensomi-runtime/licenses/onnxruntime`) are not
-  yet shown in the app.
+  yet shown in the app, nor is BeatThis's licence text, which runtime 0.2.0 does not list
+  among the model's files.
 - On iOS the app builds for the simulator and the generator runs there through the Swift API;
   the app's screens were not run on iOS and nothing ran on a device.

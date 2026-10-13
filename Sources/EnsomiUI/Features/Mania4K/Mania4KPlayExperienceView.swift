@@ -1214,6 +1214,7 @@ public struct EnsomiSettingsView: View {
 
             Section {
                 ChartModelManagementView(library: chartModels)
+                ChartModelLicenseView()
             } header: {
                 Text("Chart model")
             } footer: {
