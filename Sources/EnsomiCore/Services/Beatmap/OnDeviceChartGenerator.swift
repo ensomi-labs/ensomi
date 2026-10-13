@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import EnsomiProtocol
 import EnsomiRuntime
 import Foundation
@@ -35,11 +36,21 @@ public enum OnDeviceAudioDecoder {
     }
 }
 
-/// The Rust core's chart generator, opened once on a model directory. Decoding and generation run one song at a time.
+/// The Rust core's chart generator, opened once on a model directory, with the audio stages of the songs it prepared.
+/// Every chart it makes comes from a `ChartScheduler`.
 public actor OnDeviceChartGenerator {
+    /// How the app's chart schedulers commit a chart: whole, before play starts. Play while generating (`.aheadOfPlay`)
+    /// waits for a streaming R2.
+    public static let scheduleMode = ScheduleMode.wholeChart
+    /// How many songs' audio stages are kept: they take about 50 KB per second of song.
+    static let preparedSongLimit = 4
+
     /// The model's capabilities in the protocol type the service answers with.
     public nonisolated let capabilities: ChartGenerationCapabilities
     private let generator: ChartGenerator
+    /// Songs' audio stages by the audio file's SHA-256, oldest first, in memory only. They hold for this model alone,
+    /// so the key is the file's hash together with the model.
+    private var preparedSongs: [(sha256: String, prepared: Prepared)] = []
 
     /// Reads the model and its files (a fraction of a second), so call it off the main actor. Without
     /// `resamplerDirectory`, PCM at a rate other than 22050 Hz is resampled with the tables the runtime package carries.
@@ -52,36 +63,74 @@ public actor OnDeviceChartGenerator {
         capabilities = ChartGenerationCapabilities(opened.capabilities())
     }
 
-    /// `progress` hears each phase on a thread of the core's. Cancelling the task throws `GeneratorError.Cancelled`.
-    public func generate(
+    /// The song's audio stages (PCM preparation, the spectrogram, BeatThis, the features and the beat grid), which take
+    /// most of a generation; any star, seed and sections generate from them. A song this model prepared before, found by
+    /// the file's SHA-256 (`sha256`, or read from the file), returns at once. `progress` hears `.loading` while the file
+    /// decodes and `.timing` while the stages run. Cancelling the task throws and keeps nothing.
+    public func prepare(
         audioURL: URL,
-        star: Double,
-        seed: UInt64,
-        controls: ChartGenerationControls = .init(),
-        title: String? = nil,
-        artist: String? = nil,
+        sha256: String? = nil,
         progress: @escaping @Sendable (ChartGenerationPhase) -> Void = { _ in }
-    ) async throws -> ChartResult {
+    ) async throws -> Prepared {
+        let accessed = audioURL.startAccessingSecurityScopedResource()
+        defer { if accessed { audioURL.stopAccessingSecurityScopedResource() } }
+        let sha256 = try sha256 ?? SHA256.hash(data: Data(contentsOf: audioURL, options: .mappedIfSafe))
+            .map { String(format: "%02x", $0) }.joined()
+        if let prepared = preparedSong(sha256: sha256) { return prepared }
+        progress(.loading)
+        let audio = try OnDeviceAudioDecoder.decode(audioURL)
+        progress(.timing)
+        let prepared = try await generator.prepare(pcm: audio.samples, sampleRate: audio.sampleRate)
+        try Task.checkCancellation()
+        keep(prepared, sha256: sha256)
+        return prepared
+    }
+
+    /// The whole chart for `request` from a song's audio stages. Cancelling the task throws `GeneratorError.Cancelled`.
+    public func generate(prepared: Prepared, request: GenerateChartRequest) async throws -> ChartResult {
+        // No play starts from this scheduler, so its lead is never used.
+        let scheduler = try ChartScheduler.fromPrepared(
+            generator: generator, prepared: prepared, request: request, mode: Self.scheduleMode,
+            lead: LeadPolicy(ruleset: Ruleset(judge: .c), renderLeadMs: 0, marginMs: 0)
+        )
+        _ = try await scheduler.work()
+        guard let result = scheduler.result() else { throw GeneratorError.Cancelled }
+        return result
+    }
+
+    /// A scheduler for play along with the song at `audioURL`, whose file has the SHA-256 `sha256`: from the song's audio
+    /// stages when this model holds them, else from its PCM. `keep` holds what a scheduler prepared.
+    public func scheduler(audioURL: URL, sha256: String, request: GenerateChartRequest, lead: LeadPolicy) throws -> ChartScheduler {
+        if let prepared = preparedSong(sha256: sha256) {
+            return try ChartScheduler.fromPrepared(
+                generator: generator, prepared: prepared, request: request, mode: Self.scheduleMode, lead: lead
+            )
+        }
         let accessed = audioURL.startAccessingSecurityScopedResource()
         defer { if accessed { audioURL.stopAccessingSecurityScopedResource() } }
         let audio = try OnDeviceAudioDecoder.decode(audioURL)
-        let request = GenerateChartRequest(
-            star: star, seed: seed, controls: ChartControls(controls),
-            title: title, artist: artist, audioName: audioURL.lastPathComponent
+        return try ChartScheduler.fromPcm(
+            generator: generator, pcm: audio.samples, sampleRate: audio.sampleRate, request: request,
+            mode: Self.scheduleMode, lead: lead
         )
-        return try await generator.generate(pcm: audio.samples, sampleRate: audio.sampleRate, request: request) {
-            progress(ChartGenerationPhase($0))
+    }
+
+    /// Holds a song's audio stages, made with this model, dropping the oldest beyond `preparedSongLimit`.
+    public func keep(_ prepared: Prepared, sha256: String) {
+        preparedSongs.removeAll { $0.sha256 == sha256 }
+        preparedSongs.append((sha256, prepared))
+        if preparedSongs.count > Self.preparedSongLimit {
+            preparedSongs.removeFirst()
         }
+    }
+
+    func preparedSong(sha256: String) -> Prepared? {
+        preparedSongs.first { $0.sha256 == sha256 }?.prepared
     }
 
     /// The stars a person can choose with this model.
     public nonisolated var selectableStars: ClosedRange<Double> {
         capabilities.selectableStars
-    }
-
-    /// The whole chart of `audioURL` as play takes it. Cancelling the task throws `GeneratorError.Cancelled`.
-    public func chart(audioURL: URL, star: Double, seed: UInt64) async throws -> Mania4KGeneratedChart {
-        try Mania4KGeneratedChart(await generate(audioURL: audioURL, star: star, seed: seed).chart)
     }
 }
 
@@ -115,18 +164,6 @@ extension ChartGenerationCapabilities {
                 case .notWorking: $0.status = .notWorking
                 }
             }
-        }
-    }
-}
-
-extension ChartGenerationPhase {
-    init(_ source: GenerationPhase) {
-        switch source {
-        case .loading: self = .loading
-        case .timing: self = .timing
-        case .rows: self = .rows
-        case .arrangement: self = .arrangement
-        case .export: self = .export
         }
     }
 }

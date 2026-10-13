@@ -85,7 +85,9 @@ final class SetupScreenScreenshotTests: XCTestCase {
         // A refusal from the core, as a failed generation shows it.
         let refusal: String
         do {
-            _ = try await library.generator().generate(audioURL: song, star: 7, seed: result.seed)
+            let generator = try await library.generator()
+            _ = try await generator.generate(
+                prepared: try await generator.prepare(audioURL: song), request: GenerateChartRequest(star: 7, seed: result.seed))
             return XCTFail("The core generated at 7 stars.")
         } catch {
             refusal = OnDeviceChartGenerator.message(for: error)

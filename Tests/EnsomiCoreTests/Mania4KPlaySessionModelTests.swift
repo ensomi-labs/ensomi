@@ -44,51 +44,46 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(clampedTimeMS, 180_000)
     }
 
-    func testAmbientGeneratedBackendPlayUsesHostClockWithoutPlayingDefaultAudio() async throws {
+    /// Ambient play runs on the host-time clock from the heard position and never prepares or plays the default audio.
+    /// It joins the scheduler's chart past that position, so a note before it is never judged.
+    func testAmbientChartPlayJoinsPastTheHeardPositionOnTheHostClock() async throws {
         let defaultClock = TrackingMania4KAudioClock()
-        let endpoint = ScriptedInferenceEndpoint(
-            objects: [
-                tap(.left, 3_000),
-                tap(.right, 8_500)
-            ],
-            completeThroughMS: 10_000
-        )
-        let endpointFactory = ScriptedInferenceEndpointFactory(endpoint: endpoint)
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: defaultClock,
-            inferenceEndpointClientFactory: endpointFactory.makeClient(configuration:)
+            audioClock: defaultClock
         )
+        let scheduler = FakeChartScheduler()
+        scheduler.finish(Chart(durationMs: 10_000, objects: [
+            ChartObject(lane: 0, startMs: 1_000, endMs: nil),
+            ChartObject(lane: 3, startMs: 8_500, endMs: nil)
+        ]))
+        let chart = ScheduledChart { scheduler }
         let anchorHostTimeMS = EnsomiHostClock.currentTimeMS()
 
-        let started = await model.startAmbientGeneratedBackendPlay(
+        let started = await model.startAmbientChartPlay(
             audioFileURL: URL(fileURLWithPath: "/tmp/ambient.mp3"),
-            isMock: true,
             referenceTimeMS: 2_000,
             anchorHostTimeMS: anchorHostTimeMS,
-            durationMS: 10_000,
             title: "Ambient Test",
-            musicSource: .background
+            chart: chart
         )
 
         XCTAssertTrue(started)
         XCTAssertEqual(model.phase, .playing)
-        XCTAssertEqual(model.activeConfiguration?.chartSource, .generated(displayName: "Ambient: Ambient Test"))
-        XCTAssertEqual(model.backendReferenceTimeMS, 2_000)
+        XCTAssertEqual(model.activeConfiguration?.chartSource, .generated(displayName: "Ambient Test"))
         XCTAssertGreaterThanOrEqual(model.playFrame?.gameplayChartTimeMs ?? -1, 2_000)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(chart.joinMs), 2_000)
         let prepareCallCount = await defaultClock.prepareCallCount()
         let playCallCount = await defaultClock.playCallCount()
-        let audioPathMusicSources = await endpoint.audioPathCalls().map(\.musicSource)
-        let referenceTimes = await endpoint.referenceTimeCalls().map(\.refTimeMS)
-
         XCTAssertEqual(prepareCallCount, 0)
         XCTAssertEqual(playCallCount, 0)
-        XCTAssertEqual(endpointFactory.recordedConfigurations, [
-            InferenceEndpointConfiguration(difficulty: 4.0, isMock: true)
-        ])
-        XCTAssertEqual(audioPathMusicSources, [.background])
-        XCTAssertEqual(referenceTimes, [2_000])
+
+        // Both notes are due by 11 s; only the one past the join point is judged, as a miss.
+        await model.tick(atHostTimeMs: anchorHostTimeMS + 9_000)
+
+        XCTAssertEqual(model.playFrame?.score.tierCounts.judgedObjectCount, 1)
+        XCTAssertEqual(model.playFrame?.score.tierCounts.missCount, 1)
     }
 
     func testKeyBindingSetNormalizesKeysAndRejectsInvalidUpdates() {
@@ -157,9 +152,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     }
 
     func testQuitReturnsToSetupWithoutClearingTheSong() async throws {
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 1_000)])
+        let (model, chart) = modelWithChart(objects: [tap(.left, 1_000)])
 
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
         XCTAssertEqual(model.activeConfiguration?.audioFileURL, testAudioURL)
 
@@ -170,40 +165,43 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.audioFileURL, testAudioURL)
     }
 
-    func testStartPlayIgnoresStalePreparationAfterQuit() async throws {
-        let stream = SuspendedPrepareMania4KHitObjectStream()
-        let clock = FakeMania4KAudioClock()
+    func testQuittingWhileTheChartIsMadeAbandonsTheStart() async throws {
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
-            audioClock: clock
+            audioClock: FakeMania4KAudioClock()
         )
+        let scheduler = FakeChartScheduler()
+        let chart = ScheduledChart { scheduler }
         let startTask = Task {
-            await start(model, stream)
+            await model.startAmbientChartPlay(
+                audioFileURL: URL(fileURLWithPath: "/tmp/ambient.mp3"), referenceTimeMS: 0,
+                anchorHostTimeMS: EnsomiHostClock.currentTimeMS(), chart: chart
+            )
         }
-        await stream.waitForPrepareToStart()
+        while model.phase != .loading {
+            await Task.yield()
+        }
 
         await model.quitToSetup()
-        await stream.completePrepare()
+        scheduler.finish(Chart(durationMs: 1_000, objects: [ChartObject(lane: 0, startMs: 500, endMs: nil)]))
         let started = await startTask.value
 
         XCTAssertFalse(started)
         XCTAssertEqual(model.phase, .setup)
         XCTAssertNil(model.activeConfiguration)
-        let isRunning = await clock.isRunning()
-        XCTAssertFalse(isRunning)
     }
 
     func testSessionPublishesFramesWithAudioAndVisualOffsetsAndFinishesOnGameplayTime() async throws {
         let clock = FakeMania4KAudioClock(metadata: Mania4KAudioMetadata(durationMs: 1_000, title: "Fake"))
-        let (model, stream) = modelWithInMemoryChart(
+        let (model, chart) = modelWithChart(
             objects: [tap(.left, 100)],
             clock: clock,
             audioOffset: 25,
             visualOffset: -10
         )
 
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
         XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 25)
         XCTAssertEqual(model.playFrame?.renderChartTimeMs, 15)
@@ -230,14 +228,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionUsesPreparedClockTimeForInitialFrame() async throws {
         let clock = PreparedTimeMania4KAudioClock(audioTimeMs: 72_000)
-        let stream = InMemoryMania4KHitObjectStream(objects: [tap(.left, 72_500)])
-        let model = Mania4KPlaySessionModel(
-            audioOffsetMilliseconds: 0,
-            visualOffsetMilliseconds: 0,
-            audioClock: clock
-        )
+        let (model, chart) = modelWithChart(objects: [tap(.left, 72_500)], clock: clock)
 
-        let started = await start(model, stream)
+        let started = await start(model, chart)
 
         XCTAssertTrue(started)
         XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 72_000)
@@ -247,12 +240,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testAudioOffsetChangesKeyboardJudgementChartTimeAndHitResult() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(
+        let (model, chart) = modelWithChart(
             objects: [tap(.left, 180)],
             clock: clock,
             audioOffset: 80
         )
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(100)
@@ -269,12 +262,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testKeyboardInputAfterRenderedFrameUsesGameplayTimeNotVisualRenderTime() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(
+        let (model, chart) = modelWithChart(
             objects: [tap(.left, 100)],
             clock: clock,
             visualOffset: 300
         )
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(100)
@@ -293,14 +286,14 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.playFrame?.score.tierCounts.perfectCount, 1)
     }
 
-    func testPositiveVisualOffsetReadsFarEnoughAheadToRenderUpcomingNotes() async throws {
+    func testPositiveVisualOffsetDrawsUpcomingNotes() async throws {
         let objectTimeMs = 1_200.0
-        let (model, stream) = modelWithInMemoryChart(
+        let (model, chart) = modelWithChart(
             objects: [tap(.left, objectTimeMs)],
             visualOffset: 500
         )
 
-        let started = await start(model, stream)
+        let started = await start(model, chart)
 
         XCTAssertTrue(started)
         XCTAssertEqual(model.playFrame?.gameplayChartTimeMs, 0)
@@ -308,39 +301,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.playFrame?.visibleObjects.first?.startTimeMs, objectTimeMs)
     }
 
-    func testSessionRejectsInputBeyondStreamWatermark() async throws {
-        let clock = FakeMania4KAudioClock()
-        let stream = LaggingMania4KHitObjectStream(completeThroughChartTimeMs: 0)
-        let model = Mania4KPlaySessionModel(
-            audioOffsetMilliseconds: 0,
-            visualOffsetMilliseconds: 0,
-            audioClock: clock
-        )
-        let started = await start(model, stream)
-        XCTAssertTrue(started)
-
-        // The press waits for coverage; the play fails once the frame's watermark (its time less the input allowance) passes it.
-        await clock.setAudioTimeMs(100 + Mania4KPlaySessionModel.inputDeliveryAllowanceMs)
-        let handled = model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false)
-        let ticked = await model.tick()
-
-        XCTAssertTrue(handled)
-        XCTAssertFalse(ticked)
-        guard case .failed(let failure) = model.phase else {
-            return XCTFail("Expected failed phase, got \(model.phase)")
-        }
-        XCTAssertEqual(failure, .streamFailed("The chart stream fell behind the judgement clock."))
-    }
-
     func testKeyboardStateCommitsAtOnceAndReachesJudgementAtTheNextFrame() async throws {
-        let clock = FakeMania4KAudioClock()
-        let stream = DelayedSafeMania4KHitObjectStream()
-        let model = Mania4KPlaySessionModel(
-            audioOffsetMilliseconds: 0,
-            visualOffsetMilliseconds: 0,
-            audioClock: clock
-        )
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.right, 10_000)])
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         XCTAssertTrue(model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false))
@@ -365,12 +328,12 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testKeyEventsAreJudgedAtTheirTimestampsNotWhenTheFrameRuns() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let (model, stream) = modelWithInMemoryChart(
+        let (model, chart) = modelWithChart(
             objects: [tap(.left, 1_000)],
             clock: clock,
             audioOffset: -215
         )
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         // Pressed when the offset-adjusted chart time was exactly 1000, handled 100 ms later.
@@ -384,11 +347,11 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testInputsAreDeliveredInTimestampOrderBeforeTheFrameAdvances() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let (model, stream) = modelWithInMemoryChart(
+        let (model, chart) = modelWithChart(
             objects: [tap(.right, 900), tap(.left, 1_000)],
             clock: clock
         )
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false, hostTimeMs: origin + 1_000)
@@ -402,11 +365,11 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testPressAndReleaseWithinOneFrameBothReachTheEngineInOrder() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let (model, stream) = modelWithInMemoryChart(
-            objects: [holdStart(.left, 100), holdEnd(.left, 200)],
+        let (model, chart) = modelWithChart(
+            objects: [hold(.left, 100, 200)],
             clock: clock
         )
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false, hostTimeMs: origin + 100)
@@ -420,8 +383,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testInputStampedAfterTheFrameWaitsForTheNextFrame() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 1_000)], clock: clock)
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 1_000)], clock: clock)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false, hostTimeMs: origin + 1_000)
@@ -434,8 +397,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testFramesAdvanceOnlyWhenDrivenAndDrawForThePresentationTime() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock, visualOffset: -10)
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 100)], clock: clock, visualOffset: -10)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         await clock.setAudioTimeMs(500)
@@ -451,8 +414,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     func testRenderTimeFollowsThePresentationHostTime() async throws {
         let origin = EnsomiHostClock.currentTimeMS() + 10_000
         let clock = LinearMania4KAudioClock(audioMinusHostMs: -origin)
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 5_000)], clock: clock, visualOffset: -10)
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 5_000)], clock: clock, visualOffset: -10)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         await model.tick(atHostTimeMs: origin + 1_000, presentationHostTimeMs: origin + 1_017)
@@ -461,86 +424,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.playFrame?.renderChartTimeMs ?? .nan, 1_007, accuracy: 0.001)
     }
 
-    func testFrameBeyondTheStreamWatermarkFailsTheSession() async throws {
-        let clock = FakeMania4KAudioClock()
-        let stream = LaggingMania4KHitObjectStream(completeThroughChartTimeMs: 0)
-        let model = Mania4KPlaySessionModel(
-            audioOffsetMilliseconds: 0,
-            visualOffsetMilliseconds: 0,
-            audioClock: clock
-        )
-        let started = await start(model, stream)
-        XCTAssertTrue(started)
-
-        // Frames declare inputs delivered up to the input allowance before their time; that watermark passes the coverage.
-        await clock.setAudioTimeMs(100 + Mania4KPlaySessionModel.inputDeliveryAllowanceMs)
-        XCTAssertFalse(model.advanceFrame(atHostTimeMs: 0, presentationHostTimeMs: 0))
-        XCTAssertFalse(model.advanceFrame(atHostTimeMs: 0, presentationHostTimeMs: 0))
-
-        guard case .failed(let failure) = model.phase else {
-            return XCTFail("Expected failed phase, got \(model.phase)")
-        }
-        XCTAssertEqual(failure, .streamFailed("The chart stream fell behind the judgement clock."))
-    }
-
-    /// The core rejects a page that reaches back before the coverage it declared (BeforeCoverage); the play fails
-    /// as rejected objects, not as a stream failure.
-    func testSessionFailsWhenStreamEmitsObjectBehindPreviousWatermark() async throws {
-        let clock = FakeMania4KAudioClock()
-        let stream = WatermarkViolatingMania4KHitObjectStream()
-        let model = Mania4KPlaySessionModel(
-            audioOffsetMilliseconds: 0,
-            visualOffsetMilliseconds: 0,
-            audioClock: clock
-        )
-        let started = await start(model, stream)
-        XCTAssertTrue(started)
-
-        await clock.setAudioTimeMs(2_000)
-        let ticked = await model.tick()
-
-        XCTAssertFalse(ticked)
-        guard case .failed(let failure) = model.phase else {
-            return XCTFail("Expected failed phase, got \(model.phase)")
-        }
-        XCTAssertEqual(failure, .engineRejectedObjects(.chart(.BeforeCoverage(object: 0))))
-        XCTAssertEqual(
-            failure.errorDescription,
-            "Chart was rejected by the engine: Object 0 arrived after the stream had declared its time complete."
-        )
-    }
-
-    func testConcurrentStreamReadsDoNotTriggerWatermarkFalsePositive() async throws {
-        let clock = FakeMania4KAudioClock()
-        let stream = DuplicateOnConcurrentCursorReadMania4KHitObjectStream()
-        let model = Mania4KPlaySessionModel(
-            audioOffsetMilliseconds: 0,
-            visualOffsetMilliseconds: 0,
-            audioClock: clock
-        )
-        let started = await start(model, stream)
-        XCTAssertTrue(started)
-
-        await clock.setAudioTimeMs(29_820)
-        let firstTick = Task {
-            await model.tick()
-        }
-        await stream.waitForObjectReadInFlight()
-        let secondTick = Task {
-            await model.tick()
-        }
-
-        let firstTicked = await firstTick.value
-        let secondTicked = await secondTick.value
-
-        XCTAssertTrue(firstTicked)
-        XCTAssertTrue(secondTicked)
-        XCTAssertEqual(model.phase, .playing)
-    }
-
     func testSessionIgnoresGameplayInputWhilePaused() async throws {
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)])
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 100)])
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         await model.pause()
@@ -553,8 +439,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionDoesNotTickJudgementWhilePaused() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 100)], clock: clock)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         await model.pause()
@@ -568,11 +454,11 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionFeedbackKeepsNoteLockMissWhileLatestJudgementIsPerfect() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(objects: [
+        let (model, chart) = modelWithChart(objects: [
             tap(.left, 1_000),
             tap(.left, 1_100)
         ], clock: clock)
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         let handled = model.handleInput(input(.left, .press, 1_100, 0))
@@ -589,8 +475,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionFeedbackRecordsAutoAdvancedMissWithoutInput() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 100)], clock: clock)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         // The miss is due at 300 and decided once the frame's watermark, its time less the input allowance, passes it.
@@ -609,8 +495,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     /// frame refreshes, and the playfield pulls the feedback itself.
     func testSessionFeedbackExpiresWithoutInputAndTheFramePublishesIt() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 100)], clock: clock)
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 100)], clock: clock)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         let handled = model.handleInput(input(.left, .press, 100, 0))
@@ -646,8 +532,8 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     }
 
     func testSessionKeyboardRepeatAndDuplicatePressDoNotUpdateLaneInputFeedbackTransition() async throws {
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.right, 10_000)])
-        let started = await start(model, stream)
+        let (model, chart) = modelWithChart(objects: [tap(.right, 10_000)])
+        let started = await start(model, chart)
         XCTAssertTrue(started)
 
         let pressed = model.handleKeyboardInput(key: "d", isPressed: true, isRepeat: false)
@@ -669,9 +555,9 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
     func testSessionAudioLifecycleAwaitsClockTransitions() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(objects: [tap(.left, 1_000)], clock: clock)
+        let (model, chart) = modelWithChart(objects: [tap(.left, 1_000)], clock: clock)
 
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
         var isRunning = await clock.isRunning()
         XCTAssertTrue(isRunning)
@@ -693,21 +579,18 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
     }
 
     func testSessionUsesScrollSpeedForScrollTime() throws {
-        let (model, _) = modelWithInMemoryChart(objects: [tap(.left, 1_000)], scrollSpeed: 10)
+        let (model, _) = modelWithChart(objects: [tap(.left, 1_000)], scrollSpeed: 10)
 
         XCTAssertEqual(model.scrollTimeMs, 1_148.5, accuracy: 0.001)
     }
 
-    func testOpenEndedLongNoteRemainsVisibleAfterHeadLeavesSnapshotLowerBound() async throws {
+    func testHeldLongNoteRemainsVisibleAfterHeadLeavesSnapshotLowerBound() async throws {
         let clock = FakeMania4KAudioClock()
-        let (model, stream) = modelWithInMemoryChart(
-            objects: [
-                holdStart(.left, 1_000),
-                holdEnd(.left, 10_000)
-            ],
+        let (model, chart) = modelWithChart(
+            objects: [hold(.left, 1_000, 10_000)],
             clock: clock
         )
-        let started = await start(model, stream)
+        let started = await start(model, chart)
         XCTAssertTrue(started)
         let handledPress = model.handleInput(input(.left, .press, 1_000, 0))
         XCTAssertTrue(handledPress)
@@ -717,7 +600,7 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
 
         XCTAssertTrue(ticked)
         XCTAssertEqual(model.playFrame?.visibleObjects, [
-            VisibleObject(id: 0, lane: Mania4KLane.left.index, startTimeMs: 1_000, endTimeMs: nil, state: .holding)
+            VisibleObject(id: 0, lane: Mania4KLane.left.index, startTimeMs: 1_000, endTimeMs: 10_000, state: .holding)
         ])
     }
 
@@ -736,42 +619,40 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(release?.phase, .release)
     }
 
-    private func modelWithInMemoryChart(
-        objects: [Mania4KHitObject],
+    private func modelWithChart(
+        objects: [ChartObject],
         clock: any Mania4KAudioClock = FakeMania4KAudioClock(),
         scrollSpeed: Double = 16,
         audioOffset: Double = 0,
         visualOffset: Double = 0
-    ) -> (Mania4KPlaySessionModel, InMemoryMania4KHitObjectStream) {
+    ) -> (Mania4KPlaySessionModel, Mania4KGeneratedChart) {
         let model = Mania4KPlaySessionModel(
             scrollSpeed: scrollSpeed,
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: visualOffset,
             audioClock: clock
         )
-        return (model, InMemoryMania4KHitObjectStream(objects: objects))
+        // The chart lasts until its last object ends.
+        let durationMs = objects.map { $0.endMs ?? $0.startMs }.max() ?? 0
+        return (model, try! Mania4KGeneratedChart(Chart(durationMs: durationMs, objects: objects)))
     }
 
     private var testAudioURL: URL {
         URL(fileURLWithPath: "/tmp/audio.mp3")
     }
 
-    /// Plays `stream` with a stand-in audio file, as a generated chart is played.
-    private func start(_ model: Mania4KPlaySessionModel, _ stream: any Mania4KHitObjectStreaming) async -> Bool {
-        await model.startPlay(stream: stream, audioFileURL: testAudioURL, chartSource: .generated(displayName: "Test chart"))
+    /// Plays `chart` with a stand-in audio file, as a generated chart is played.
+    private func start(_ model: Mania4KPlaySessionModel, _ chart: Mania4KGeneratedChart) async -> Bool {
+        await model.startGeneratedChartPlay(audioFileURL: testAudioURL, chart: chart, title: "Test chart")
     }
 }
 
-private func tap(_ lane: Mania4KLane, _ timeMs: Double) -> Mania4KHitObject {
-    Mania4KHitObject(lane: lane, timeMs: timeMs, kind: .tap)
+private func tap(_ lane: Mania4KLane, _ timeMs: Double) -> ChartObject {
+    ChartObject(lane: lane.index, startMs: UInt32(timeMs), endMs: nil)
 }
 
-private func holdStart(_ lane: Mania4KLane, _ timeMs: Double) -> Mania4KHitObject {
-    Mania4KHitObject(lane: lane, timeMs: timeMs, kind: .holdStart)
-}
-
-private func holdEnd(_ lane: Mania4KLane, _ timeMs: Double) -> Mania4KHitObject {
-    Mania4KHitObject(lane: lane, timeMs: timeMs, kind: .holdEnd)
+private func hold(_ lane: Mania4KLane, _ startMs: Double, _ endMs: Double) -> ChartObject {
+    ChartObject(lane: lane.index, startMs: UInt32(startMs), endMs: UInt32(endMs))
 }
 
 private func input(
@@ -797,61 +678,6 @@ private func pressedLanes(in model: Mania4KPlaySessionModel) -> [Mania4KLane] {
 @MainActor
 private func livePressedLanes(in model: Mania4KPlaySessionModel) -> [Mania4KLane] {
     model.liveInputLaneStates.filter(\.isPressed).compactMap { Mania4KLane(rawValue: Int($0.lane)) }
-}
-
-private actor LaggingMania4KHitObjectStream: Mania4KHitObjectStreaming {
-    private let completeThroughChartTimeMs: Double
-
-    init(completeThroughChartTimeMs: Double) {
-        self.completeThroughChartTimeMs = completeThroughChartTimeMs
-    }
-
-    func prepare() async throws -> Mania4KChartMetadata {
-        Mania4KChartMetadata(
-            title: "Lagging chart",
-            sourceDescription: "Lagging test stream",
-            objectCount: nil,
-            durationMs: nil
-        )
-    }
-
-    func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        Mania4KHitObjectBatch(
-            objects: [],
-            nextCursor: cursor,
-            completeThroughChartTimeMs: completeThroughChartTimeMs,
-            isEndOfStream: false
-        )
-    }
-}
-
-private actor DelayedSafeMania4KHitObjectStream: Mania4KHitObjectStreaming {
-    func prepare() async throws -> Mania4KChartMetadata {
-        Mania4KChartMetadata(
-            title: "Delayed safe chart",
-            sourceDescription: "Delayed safe test stream",
-            objectCount: nil,
-            durationMs: nil
-        )
-    }
-
-    func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        try await Task.sleep(nanoseconds: 60_000_000)
-        return Mania4KHitObjectBatch(
-            objects: [],
-            nextCursor: cursor,
-            completeThroughChartTimeMs: throughChartTimeMs + 10_000,
-            isEndOfStream: false
-        )
-    }
 }
 
 /// A clock whose audio time is the host time plus a constant, so key timestamps map to known chart times.
@@ -973,267 +799,67 @@ private actor TrackingMania4KAudioClock: Mania4KAudioClock {
     }
 }
 
-private final class ScriptedInferenceEndpointFactory: @unchecked Sendable {
-    private let endpoint: ScriptedInferenceEndpoint
+/// Stands in for the runtime's scheduler: its chart is made when the test says, and a play started on it joins at the
+/// time asked, without the objects before it.
+final class FakeChartScheduler: ChartScheduler, @unchecked Sendable {
+    let request: GenerateChartRequest
     private let lock = NSLock()
-    private var configurations: [InferenceEndpointConfiguration] = []
+    private let made = DispatchSemaphore(value: 0)
+    private var chart: Chart?
+    private var stopped = false
+    private var play: (atMs: Double, session: GameplaySession)?
 
-    init(endpoint: ScriptedInferenceEndpoint) {
-        self.endpoint = endpoint
+    init(request: GenerateChartRequest = GenerateChartRequest(star: 3)) {
+        self.request = request
+        super.init(noHandle: NoHandle())
     }
 
-    var recordedConfigurations: [InferenceEndpointConfiguration] {
-        lock.lock()
-        defer { lock.unlock() }
-        return configurations
+    required init(unsafeFromHandle handle: UInt64) {
+        fatalError("A fake scheduler has no handle.")
     }
 
-    func makeClient(configuration: InferenceEndpointConfiguration) -> any InferenceEndpointClient {
-        lock.lock()
-        configurations.append(configuration)
-        lock.unlock()
-        return endpoint
-    }
-}
-
-private actor ScriptedInferenceEndpoint: InferenceEndpointClient {
-    struct AudioPathCall: Equatable, Sendable {
-        let audioPath: String
-        let sessionID: String
-        let musicSource: MusicSource
+    /// Makes `chart`: a `work()` waiting for it goes on.
+    func finish(_ chart: Chart) {
+        lock.withLock { self.chart = chart }
+        made.signal()
     }
 
-    struct ReferenceTimeCall: Equatable, Sendable {
-        let sessionID: String
-        let refTimeMS: Double
-        let localHostTimeSendMS: Double
-    }
-
-    private let objects: [Mania4KHitObject]
-    private let completeThroughMS: Double
-    private var audioPathCallLog: [AudioPathCall] = []
-    private var referenceTimeCallLog: [ReferenceTimeCall] = []
-    private var queuedEvents: [InferenceEndpointEvent] = []
-    private var eventWaiters: [CheckedContinuation<InferenceEndpointEvent, Never>] = []
-
-    init(objects: [Mania4KHitObject], completeThroughMS: Double) {
-        self.objects = objects
-        self.completeThroughMS = completeThroughMS
-    }
-
-    func prepare() async throws {}
-
-    func sendAudioPath(_ audioPath: String, sessionID: String, musicSource: MusicSource) async throws {
-        audioPathCallLog.append(AudioPathCall(
-            audioPath: audioPath,
-            sessionID: sessionID,
-            musicSource: musicSource
-        ))
-    }
-
-    func sendReferenceTime(sessionID: String, refTimeMS: Double, localHostTimeSendMS: Double) async throws {
-        referenceTimeCallLog.append(ReferenceTimeCall(
-            sessionID: sessionID,
-            refTimeMS: refTimeMS,
-            localHostTimeSendMS: localHostTimeSendMS
-        ))
-        enqueue(.hitObjectToken(InferenceEndpointHitObjectToken(
-            sessionID: sessionID,
-            tokenID: 25,
-            timeMS: objects.first?.timeMs ?? 0,
-            objects: objects
-        )))
-        enqueue(.endOfStream(InferenceEndpointEndOfStream(
-            sessionID: sessionID,
-            audioLengthMS: completeThroughMS,
-            completeThroughMS: completeThroughMS
-        )))
-    }
-
-    func stop(sessionID: String) async throws {}
-
-    func nextEvent() async throws -> InferenceEndpointEvent {
-        if !queuedEvents.isEmpty {
-            return queuedEvents.removeFirst()
+    override func work() throws -> SchedulerAction {
+        made.wait()
+        made.signal()
+        let (chart, play) = lock.withLock {
+            defer { self.play = nil }
+            return (stopped ? nil : self.chart, self.play)
         }
-
-        return await withCheckedContinuation { continuation in
-            eventWaiters.append(continuation)
-        }
-    }
-
-    func audioPathCalls() -> [AudioPathCall] {
-        audioPathCallLog
-    }
-
-    func referenceTimeCalls() -> [ReferenceTimeCall] {
-        referenceTimeCallLog
-    }
-
-    private func enqueue(_ event: InferenceEndpointEvent) {
-        if !eventWaiters.isEmpty {
-            let waiter = eventWaiters.removeFirst()
-            waiter.resume(returning: event)
-        } else {
-            queuedEvents.append(event)
-        }
-    }
-}
-
-private actor SuspendedPrepareMania4KHitObjectStream: Mania4KHitObjectStreaming {
-    private var didStartPrepare = false
-    private var prepareWaiters: [CheckedContinuation<Void, Never>] = []
-    private var prepareContinuation: CheckedContinuation<Mania4KChartMetadata, Never>?
-
-    func prepare() async throws -> Mania4KChartMetadata {
-        didStartPrepare = true
-        prepareWaiters.forEach { $0.resume() }
-        prepareWaiters.removeAll()
-
-        return await withCheckedContinuation { continuation in
-            prepareContinuation = continuation
-        }
-    }
-
-    func waitForPrepareToStart() async {
-        if didStartPrepare {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            prepareWaiters.append(continuation)
-        }
-    }
-
-    func completePrepare() {
-        prepareContinuation?.resume(
-            returning: Mania4KChartMetadata(
-                title: "Suspended chart",
-                sourceDescription: "Suspended test stream",
-                objectCount: 0,
-                durationMs: 0
-            )
+        guard let chart, let play else { return .done }
+        _ = try play.session.append(
+            objects: chart.objects.filter { Double($0.startMs) >= play.atMs },
+            coverageMs: Double(chart.durationMs), endOfStream: true
         )
-        prepareContinuation = nil
+        return .ready(joinMs: play.atMs)
     }
 
-    func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        Mania4KHitObjectBatch(
-            objects: [],
-            nextCursor: nil,
-            completeThroughChartTimeMs: throughChartTimeMs,
-            isEndOfStream: true
-        )
-    }
-}
-
-private actor WatermarkViolatingMania4KHitObjectStream: Mania4KHitObjectStreaming {
-    private var readCount = 0
-
-    func prepare() async throws -> Mania4KChartMetadata {
-        Mania4KChartMetadata(
-            title: "Watermark violation chart",
-            sourceDescription: "Watermark violation test stream",
-            objectCount: nil,
-            durationMs: nil
-        )
+    override func start(atMs: Double, session: GameplaySession) {
+        lock.withLock { play = (atMs, session) }
     }
 
-    func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        readCount += 1
-        if readCount == 1 {
-            return Mania4KHitObjectBatch(
-                objects: [],
-                nextCursor: Mania4KHitObjectStreamCursor(rawValue: "first"),
-                completeThroughChartTimeMs: 2_000,
-                isEndOfStream: false
-            )
-        }
+    override func heard(chartMs: Double, wallMs: Double) {}
 
-        return Mania4KHitObjectBatch(
-            objects: [tap(.left, 1_000)],
-            nextCursor: nil,
-            completeThroughChartTimeMs: throughChartTimeMs,
-            isEndOfStream: true
-        )
-    }
-}
-
-private actor DuplicateOnConcurrentCursorReadMania4KHitObjectStream: Mania4KHitObjectStreaming {
-    private let objectTimeMs = 29_793.0
-    private var isObjectReadInFlight = false
-    private var objectReadWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func prepare() async throws -> Mania4KChartMetadata {
-        Mania4KChartMetadata(
-            title: "Concurrent read chart",
-            sourceDescription: "Concurrent read test stream",
-            objectCount: 1,
-            durationMs: objectTimeMs
-        )
+    override func stop() {
+        lock.withLock { stopped = true }
+        made.signal()
     }
 
-    func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        guard throughChartTimeMs >= objectTimeMs else {
-            return Mania4KHitObjectBatch(
-                objects: [],
-                nextCursor: Mania4KHitObjectStreamCursor(rawValue: "0"),
-                completeThroughChartTimeMs: throughChartTimeMs,
-                isEndOfStream: false
-            )
-        }
-
-        guard cursor?.rawValue != "1" else {
-            return Mania4KHitObjectBatch(
-                objects: [],
-                nextCursor: cursor,
-                completeThroughChartTimeMs: throughChartTimeMs,
-                isEndOfStream: false
-            )
-        }
-
-        if isObjectReadInFlight {
-            try await Task.sleep(nanoseconds: 90_000_000)
-            return objectBatch(throughChartTimeMs: throughChartTimeMs)
-        }
-
-        isObjectReadInFlight = true
-        let waiters = objectReadWaiters
-        objectReadWaiters.removeAll()
-        waiters.forEach { $0.resume() }
-        try await Task.sleep(nanoseconds: 40_000_000)
-        isObjectReadInFlight = false
-        return objectBatch(throughChartTimeMs: throughChartTimeMs)
-    }
-
-    func waitForObjectReadInFlight() async {
-        guard !isObjectReadInFlight else {
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            objectReadWaiters.append(continuation)
+    override func result() -> ChartResult? {
+        lock.withLock {
+            chart.map {
+                ChartResult(chart: $0, osu: "", receipt: GenerationReceipt(
+                    modelName: "Fake", modelVersion: "0", seed: request.seed, star: request.star, receiptJson: "{}"))
+            }
         }
     }
 
-    private func objectBatch(throughChartTimeMs: Double) -> Mania4KHitObjectBatch {
-        Mania4KHitObjectBatch(
-            objects: [tap(.left, objectTimeMs)],
-            nextCursor: Mania4KHitObjectStreamCursor(rawValue: "1"),
-            completeThroughChartTimeMs: throughChartTimeMs,
-            isEndOfStream: false
-        )
+    override func prepared() -> Prepared? {
+        nil
     }
 }

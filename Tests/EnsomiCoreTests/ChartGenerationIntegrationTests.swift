@@ -36,10 +36,7 @@ final class ChartGenerationIntegrationTests: XCTestCase {
 
         let chart = try Mania4KGeneratedChart(finished.chart)
         XCTAssertEqual(chart.objectCount, 1_192)
-        let holds = finished.chart.objects.filter(\.hasEndMs).count
-        XCTAssertEqual(chart.objects.count, 1_192 + holds)
-        XCTAssertEqual(chart.objects.filter { $0.kind == .holdStart }.count, holds)
-        XCTAssertEqual(chart.objects.filter { $0.kind == .holdEnd }.count, holds)
+        XCTAssertEqual(chart.chart.objects.filter { $0.endMs != nil }.count, finished.chart.objects.filter(\.hasEndMs).count)
         XCTAssertEqual(chart.durationMs, 121_169, accuracy: 500)
     }
 }

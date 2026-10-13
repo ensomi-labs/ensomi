@@ -10,26 +10,19 @@ private actor DemoPermissionProbe: MicrophonePermissionProviding {
     func requestAccess() -> MicrophonePermissionStatus { calls += 1; return .denied }
 }
 
-/// Stands in for the generator: records each chart asked for and finishes it when the test says.
+/// Stands in for the generator: records each chart asked for, with a scheduler that makes it when the test says.
 @MainActor
-private final class ChartMaker {
-    struct Request: Equatable {
-        let audioURL: URL
-        let star: Double
-        let seed: UInt64
+private final class SchedulerMaker {
+    private(set) var made: [(asset: LocalAudioAsset, lead: LeadPolicy, scheduler: FakeChartScheduler)] = []
+
+    func make(_ asset: LocalAudioAsset, _ request: GenerateChartRequest, _ lead: LeadPolicy) -> ChartScheduler {
+        let scheduler = FakeChartScheduler(request: request)
+        made.append((asset, lead, scheduler))
+        return scheduler
     }
 
-    private(set) var requests: [Request] = []
-    private var waiting: CheckedContinuation<Mania4KGeneratedChart, Error>?
-
-    func make(_ audioURL: URL, _ star: Double, _ seed: UInt64) async throws -> Mania4KGeneratedChart {
-        requests.append(Request(audioURL: audioURL, star: star, seed: seed))
-        return try await withCheckedThrowingContinuation { waiting = $0 }
-    }
-
-    func finish(_ chart: Mania4KGeneratedChart) {
-        waiting?.resume(returning: chart)
-        waiting = nil
+    func finish(_ chart: Chart) {
+        made.last?.scheduler.finish(chart)
     }
 }
 
@@ -46,7 +39,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
                 XCTFail("Without a model nothing is opened.")
                 return offered().selectableStars
             },
-            makeChart: { _, _, _ in throw CancellationError() }
+            makeScheduler: { _, _, _ in throw CancellationError() }
         )
 
         model.enter()
@@ -67,7 +60,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: permission),
             gameplay: Mania4KPlaySessionModel(), models: try installedLibrary(),
-            stars: { capabilities.selectableStars }, makeChart: { _, _, _ in throw CancellationError() }
+            stars: { capabilities.selectableStars }, makeScheduler: { _, _, _ in throw CancellationError() }
         )
         model.gameplay.starDifficulty = capabilities.maxStarExclusive + 1
 
@@ -80,7 +73,6 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         XCTAssertTrue(range.contains(capabilities.minStar))
         XCTAssertFalse(range.contains(capabilities.maxStarExclusive))
         XCTAssertEqual(model.gameplay.starDifficulty, range.upperBound, "the star is brought into the range")
-        XCTAssertFalse(model.recognition.startsPrototypeInference)
         model.stop()
     }
 
@@ -90,7 +82,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: permission),
             gameplay: Mania4KPlaySessionModel(), models: try installedLibrary(),
-            stars: { throw ModelFailure() }, makeChart: { _, _, _ in throw CancellationError() }
+            stars: { throw ModelFailure() }, makeScheduler: { _, _, _ in throw CancellationError() }
         )
 
         model.enter()
@@ -113,7 +105,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
                 try await Task.sleep(for: .milliseconds(100))
                 throw ModelFailure()
             },
-            makeChart: { _, _, _ in throw CancellationError() }
+            makeScheduler: { _, _, _ in throw CancellationError() }
         )
 
         model.enter()
@@ -129,33 +121,38 @@ final class LiveGenerationDemoModelTests: XCTestCase {
 
     @MainActor
     func testAChartMadeBeforeFinalLockIsTheOnePlayed() async throws {
-        let maker = ChartMaker()
+        let maker = SchedulerMaker()
         let model = try await readyModel(maker)
         model.seedText = "42"
+        let reference = makeLocalAudioAsset(displayPath: song.path)
 
-        model.referenceResolved(song)
-        try await eventually { maker.requests.count == 1 }
-        let chart = try listenAndPlayChart()
-        maker.finish(chart)
+        model.referenceResolved(reference)
+        try await eventually { maker.made.count == 1 }
+        maker.finish(listenAndPlayChart)
         try await eventually { model.chartNoteCount != nil }
         model.locked(lock(at: 10_000))
         try await eventually { model.gameplay.phase == .playing }
 
-        XCTAssertEqual(maker.requests, [.init(audioURL: song, star: model.gameplay.starDifficulty, seed: 42)])
+        let made = try XCTUnwrap(maker.made.first)
+        XCTAssertEqual(made.asset, reference)
+        XCTAssertEqual(made.scheduler.request.star, model.gameplay.starDifficulty)
+        XCTAssertEqual(made.scheduler.request.seed, 42)
+        XCTAssertEqual(made.lead.renderLeadMs, model.gameplay.scrollTimeMs, "play joins a scroll time ahead")
+        XCTAssertEqual(made.lead.marginMs, 0)
         XCTAssertEqual(model.chartSeed, 42)
-        XCTAssertEqual(model.chartNoteCount, chart.objectCount)
-        XCTAssertEqual(model.gameplay.playFrame?.metadata.durationMs, chart.durationMs)
+        XCTAssertEqual(model.chartNoteCount, listenAndPlayChart.objects.count)
+        XCTAssertEqual(model.gameplay.playFrame?.metadata.durationMs, Double(listenAndPlayChart.durationMs))
         XCTAssertGreaterThanOrEqual(model.gameplay.playFrame?.gameplayChartTimeMs ?? 0, 10_000)
         model.stop()
     }
 
     @MainActor
     func testFinalLockBeforeTheChartIsMadeWaitsForIt() async throws {
-        let maker = ChartMaker()
+        let maker = SchedulerMaker()
         let model = try await readyModel(maker)
 
-        model.referenceResolved(song)
-        try await eventually { maker.requests.count == 1 }
+        model.referenceResolved(makeLocalAudioAsset(displayPath: song.path))
+        try await eventually { maker.made.count == 1 }
         model.locked(lock(at: 10_000))
         try await eventually { model.gameplay.phase == .loading }
         try await Task.sleep(for: .milliseconds(100))
@@ -163,34 +160,54 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         XCTAssertEqual(model.gameplay.phase, .loading, "nothing plays before the chart is made")
         XCTAssertTrue(model.showingGameplay)
 
-        maker.finish(try listenAndPlayChart())
+        maker.finish(listenAndPlayChart)
         try await eventually { model.gameplay.phase == .playing }
 
-        XCTAssertEqual(maker.requests.count, 1, "final lock takes the chart started at resolution")
+        XCTAssertEqual(maker.made.count, 1, "final lock takes the chart started at resolution")
         XCTAssertGreaterThanOrEqual(model.gameplay.playFrame?.gameplayChartTimeMs ?? 0, 10_000)
         model.stop()
     }
 
     @MainActor
+    func testStopEndsTheChartBeingMade() async throws {
+        let maker = SchedulerMaker()
+        let model = try await readyModel(maker)
+
+        model.referenceResolved(makeLocalAudioAsset(displayPath: song.path))
+        try await eventually { maker.made.count == 1 }
+        let chart = try XCTUnwrap(model.chart)
+        model.stop()
+
+        do {
+            _ = try await chart.result()
+            XCTFail("A stopped chart is never made.")
+        } catch {}
+        XCTAssertNil(model.chart)
+        XCTAssertNil(model.chartNoteCount)
+    }
+
+    @MainActor
     func testAStarOutsideTheRangeMakesNoChartAndFinalLockPlaysNothing() async throws {
-        let maker = ChartMaker()
+        let maker = SchedulerMaker()
         let model = try await readyModel(maker)
         let range = try XCTUnwrap(model.starRange)
         model.gameplay.starDifficulty = range.upperBound + 1
 
-        model.referenceResolved(song)
+        model.referenceResolved(makeLocalAudioAsset(displayPath: song.path))
         model.locked(lock(at: 10_000))
         try await Task.sleep(for: .milliseconds(50))
 
-        XCTAssertTrue(maker.requests.isEmpty)
+        XCTAssertTrue(maker.made.isEmpty)
         XCTAssertNil(model.chart)
         XCTAssertEqual(model.errorMessage, model.starValidationMessage)
         XCTAssertFalse(model.showingGameplay)
         model.stop()
     }
 
-    /// The released model on a real song: the time from the recording's resolution to the finished chart, with final
-    /// lock coming first and waiting for it. Nothing else competes for the CPU: no capture, reference index or alignment.
+    /// The released model on a real song, with final lock coming at once: first from the song's PCM, while the chart
+    /// is still being made, then from the audio stages the first chart kept. Logs the time from resolution to the
+    /// finished chart and from final lock to the first note. Nothing else competes for the CPU: no capture, reference
+    /// index or alignment.
     @MainActor
     func testTheReleasedModelMakesTheSongsChartAndPlaysItFromTheHeardPosition() async throws {
         let modelDirectory = try OnDeviceFixtures.model()
@@ -201,40 +218,55 @@ final class LiveGenerationDemoModelTests: XCTestCase {
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: DemoPermissionProbe()),
             gameplay: Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0), models: library
         )
-        model.enter()
-        try await eventually(within: .seconds(10)) { model.modelReady }
-        let offeredStars = try await library.generator().selectableStars
-        XCTAssertEqual(model.starRange, offeredStars)
+        let reference = makeLocalAudioAsset(displayPath: song.path, sha256: try sha256Hex(of: song))
+        let generator = try await library.generator()
+        model.seedText = "7"
+        var charts: [ChartResult] = []
 
-        let resolved = ContinuousClock.now
-        model.referenceResolved(song)
-        let making = try XCTUnwrap(model.chart)
-        model.locked(lock(at: 30_000, of: song))
-        let chart = try await making.value
-        let ready = resolved.duration(to: .now)
-        try await eventually(within: .seconds(10)) { model.gameplay.phase == .playing }
-        let playing = resolved.duration(to: .now)
+        for source in ["PCM", "kept audio stages"] {
+            model.enter()
+            try await eventually(within: .seconds(10)) { model.modelReady }
+            XCTAssertEqual(model.starRange, generator.selectableStars)
 
-        XCTAssertGreaterThan(chart.objectCount, 0)
-        XCTAssertEqual(model.gameplay.playFrame?.metadata.durationMs, chart.durationMs)
-        XCTAssertGreaterThan(model.gameplay.playFrame?.gameplayChartTimeMs ?? 0, 30_000)
-        let stars = model.gameplay.starDifficulty.formatted(.number.precision(.fractionLength(1)))
-        print("""
-            Listen & Play R2: \(song.lastPathComponent), \(Int(chart.durationMs)) ms, \(chart.objectCount) objects at \(stars) \
-            stars, seed \(model.chartSeed ?? 0): reference resolved to chart ready \(ready), to play \(playing)
-            """)
+            let resolved = ContinuousClock.now
+            model.referenceResolved(reference)
+            let chart = try XCTUnwrap(model.chart)
+            let lockedAtMs = 30_000.0
+            model.locked(lock(at: lockedAtMs, of: song))
+            let made = try await chart.result()
+            let ready = resolved.duration(to: .now)
+            try await eventually(within: .seconds(10)) { model.gameplay.phase == .playing }
+            charts.append(made)
+
+            let joinMs = try XCTUnwrap(chart.joinMs)
+            let firstNoteMs = try XCTUnwrap(made.chart.objects.map { Double($0.startMs) }.filter { $0 >= joinMs }.min())
+            XCTAssertGreaterThan(made.chart.objects.count, 0)
+            XCTAssertEqual(model.gameplay.playFrame?.metadata.durationMs, Double(made.chart.durationMs))
+            XCTAssertGreaterThan(model.gameplay.playFrame?.gameplayChartTimeMs ?? 0, lockedAtMs)
+            XCTAssertGreaterThanOrEqual(joinMs, lockedAtMs + model.gameplay.scrollTimeMs, "the join is at least a scroll time ahead")
+            // The recording's audio stages are kept for its next chart.
+            try await eventually { await generator.preparedSong(sha256: reference.sha256) != nil }
+            let stars = model.gameplay.starDifficulty.formatted(.number.precision(.fractionLength(1)))
+            print("""
+                Listen & Play R2 from \(source): \(song.lastPathComponent), \(made.chart.durationMs) ms, \
+                \(made.chart.objects.count) objects at \(stars) stars, seed \(model.chartSeed ?? 0): reference resolved to \
+                chart ready \(ready); final lock to the first note \(Int(firstNoteMs - lockedAtMs)) ms (join at \
+                \(Int(joinMs)) ms, first note at \(Int(firstNoteMs)) ms)
+                """)
+        }
+        XCTAssertEqual(charts.map(\.osu).last, charts.first?.osu, "the kept audio stages make the chart the PCM made")
         model.stop()
     }
 
     /// A model ready to play, with `maker` making its charts.
     @MainActor
-    private func readyModel(_ maker: ChartMaker) async throws -> LiveGenerationDemoModel {
+    private func readyModel(_ maker: SchedulerMaker) async throws -> LiveGenerationDemoModel {
         let capabilities = offered()
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: DemoPermissionProbe()),
             gameplay: Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0),
             models: try installedLibrary(),
-            stars: { capabilities.selectableStars }, makeChart: { try await maker.make($0, $1, $2) }
+            stars: { capabilities.selectableStars }, makeScheduler: { maker.make($0, $1, $2) }
         )
         model.enter()
         try await eventually { model.modelReady }
@@ -245,8 +277,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
     private func lock(at referenceTimeMS: Double, of audioFileURL: URL? = nil) -> LiveRecognitionPlaySessionRequest {
         LiveRecognitionPlaySessionRequest(
             audioFileURL: audioFileURL ?? song, referenceTimeMS: referenceTimeMS,
-            anchorHostTimeMS: EnsomiHostClock.currentTimeMS(), durationMS: nil, title: "Song", isMock: false,
-            musicSource: .background
+            anchorHostTimeMS: EnsomiHostClock.currentTimeMS(), title: "Song"
         )
     }
 }
@@ -274,11 +305,11 @@ private func installedLibrary() throws -> ChartModelLibrary {
 }
 
 /// A 30 s chart with notes before and after 11 s.
-private func listenAndPlayChart() throws -> Mania4KGeneratedChart {
-    try Mania4KGeneratedChart(makeChart(duration: 30_000, [
-        (0, 2_000, nil), (2, 9_000, nil), (1, 10_500, 11_500), (3, 12_000, nil), (0, 20_000, nil)
-    ]))
-}
+private let listenAndPlayChart = Chart(durationMs: 30_000, objects: [
+    ChartObject(lane: 0, startMs: 2_000, endMs: nil), ChartObject(lane: 2, startMs: 9_000, endMs: nil),
+    ChartObject(lane: 1, startMs: 10_500, endMs: 11_500), ChartObject(lane: 3, startMs: 12_000, endMs: nil),
+    ChartObject(lane: 0, startMs: 20_000, endMs: nil)
+])
 
 @MainActor
 private func eventually(within limit: Duration = .seconds(2), _ condition: @MainActor () async -> Bool) async throws {

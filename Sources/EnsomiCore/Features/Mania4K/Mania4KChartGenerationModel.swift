@@ -225,6 +225,16 @@ public final class Mania4KChartGenerationModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var durationAudioURL: URL?
     @ObservationIgnored private var deviceTask: Task<ChartResult, Error>?
+    /// The chosen song's audio stages, prepared on this device from when it was chosen.
+    @ObservationIgnored private(set) var preparation: Preparation?
+
+    /// The audio stages of one song with one model, and the phase they have reached.
+    struct Preparation {
+        let audioURL: URL
+        let model: URL?
+        let task: Task<Prepared, Error>
+        var phase = ChartGenerationPhase.loading
+    }
 
     private static let engineKey = "mania4k.chartEngine"
 
@@ -291,14 +301,21 @@ public final class Mania4KChartGenerationModel {
             && seedValidationMessage == nil
     }
 
-    /// Reads the length of a newly chosen song and clears the last result; the song already read is kept as it is.
-    public func loadAudioDuration(for url: URL?) {
+    /// Takes a newly chosen song: reads its length, clears the last result and, on this device, starts preparing its
+    /// audio stages, which Generate then starts from. Choosing another song cancels that preparation; the song already
+    /// chosen is kept as it is.
+    public func chooseAudio(_ url: URL?) {
         guard url == nil || url != durationAudioURL else { return }
         durationAudioURL = url
         audioDurationMS = nil
         audioDurationError = nil
         state = .idle
+        preparation?.task.cancel()
+        preparation = nil
         guard let url else { return }
+        if engine == .device, models.hasModel {
+            prepare(url)
+        }
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         do {
@@ -352,7 +369,7 @@ public final class Mania4KChartGenerationModel {
         audioURL: URL, star: Double, seed: UInt64? = nil, title: String? = nil, artist: String? = nil
     ) async -> Mania4KChartGenerationResult? {
         guard !isGenerating else { return nil }
-        if durationAudioURL != audioURL { loadAudioDuration(for: audioURL) }
+        if durationAudioURL != audioURL { chooseAudio(audioURL) }
         guard canGenerate(star: star), let audioDurationMS, let starRange else {
             state = .failed(audioDurationError ?? sectionValidationMessage ?? seedValidationMessage ?? capabilitiesError
                 ?? "Choose audio and a star target within the supported range.")
@@ -391,6 +408,8 @@ public final class Mania4KChartGenerationModel {
     public func stop() async {
         if let deviceTask {
             deviceTask.cancel()
+            // A generation still waiting for the song's audio stages stops only when they do.
+            preparation?.task.cancel()
         } else {
             await client.stop()
         }
@@ -418,20 +437,65 @@ public final class Mania4KChartGenerationModel {
         audioURL: URL, star: Double, seed: UInt64?, controls: ChartGenerationControls, title: String?, artist: String?
     ) async throws -> Made {
         let generator = try await models.generator()
-        let seed = seed ?? ChartGenerationSeed.random()
+        let preparation = currentPreparation(of: audioURL)
+        state = .generating(phase: preparation.phase)
+        let request = GenerateChartRequest(
+            star: star, seed: seed ?? ChartGenerationSeed.random(), controls: ChartControls(controls),
+            title: title, artist: artist, audioName: audioURL.lastPathComponent
+        )
         let task = Task {
-            try await generator.generate(
-                audioURL: audioURL, star: star, seed: seed, controls: controls, title: title, artist: artist
-            ) { phase in
-                Task { @MainActor in
-                    if case .generating = self.state { self.state = .generating(phase: phase) }
-                }
+            let prepared: Prepared
+            do {
+                prepared = try await preparation.task.value
+            } catch {
+                // The next generation prepares the song again.
+                if self.preparation?.task == preparation.task { self.preparation = nil }
+                throw error
             }
+            try Task.checkCancellation()
+            show(.rows)
+            return try await generator.generate(prepared: prepared, request: request)
         }
         deviceTask = task
         defer { deviceTask = nil }
         let result = try await task.value
         return (try Mania4KGeneratedChart(result.chart), result.receipt, result.osu, nil)
+    }
+
+    /// The preparation of `audioURL` with the model in use: the one under way or done since the song was chosen, or a
+    /// new one.
+    private func currentPreparation(of audioURL: URL) -> Preparation {
+        if let preparation, preparation.audioURL == audioURL, preparation.model == models.activeModel,
+           !preparation.task.isCancelled {
+            return preparation
+        }
+        return prepare(audioURL)
+    }
+
+    @discardableResult
+    private func prepare(_ audioURL: URL) -> Preparation {
+        let models = models
+        let task = Task {
+            try await models.generator().prepare(audioURL: audioURL) { phase in
+                Task { @MainActor [weak self] in self?.preparation(of: audioURL, reached: phase) }
+            }
+        }
+        preparation = Preparation(audioURL: audioURL, model: models.activeModel, task: task)
+        return preparation!
+    }
+
+    private func preparation(of audioURL: URL, reached phase: ChartGenerationPhase) {
+        guard preparation?.audioURL == audioURL else { return }
+        preparation?.phase = phase
+        show(phase)
+    }
+
+    /// Shows `phase` while generating, unless a later one is shown.
+    private func show(_ phase: ChartGenerationPhase) {
+        guard case .generating(let shown) = state,
+              (shown.flatMap { Self.phases.firstIndex(of: $0) } ?? -1) < Self.phases.firstIndex(of: phase) ?? 0
+        else { return }
+        state = .generating(phase: phase)
     }
 
     nonisolated private static func title(of phase: ChartGenerationPhase) -> String {

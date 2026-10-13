@@ -8,33 +8,19 @@ public struct LiveRecognitionPlaySessionRequest: Equatable, Sendable {
     public let audioFileURL: URL
     public let referenceTimeMS: Double
     public let anchorHostTimeMS: Double
-    public let durationMS: Double?
     public let title: String?
-    public let isMock: Bool
-    public let musicSource: MusicSource
 
-    public init(
-        audioFileURL: URL,
-        referenceTimeMS: Double,
-        anchorHostTimeMS: Double,
-        durationMS: Double?,
-        title: String?,
-        isMock: Bool,
-        musicSource: MusicSource
-    ) {
+    public init(audioFileURL: URL, referenceTimeMS: Double, anchorHostTimeMS: Double, title: String?) {
         self.audioFileURL = audioFileURL
         self.referenceTimeMS = referenceTimeMS
         self.anchorHostTimeMS = anchorHostTimeMS
-        self.durationMS = durationMS
         self.title = title
-        self.isMock = isMock
-        self.musicSource = musicSource
     }
 }
 
 public typealias LiveRecognitionPlaySessionRequestHandler = @MainActor (LiveRecognitionPlaySessionRequest) -> Void
 /// Hears the local recording that sync starts on, before alignment locks.
-public typealias LiveRecognitionReferenceHandler = @MainActor (URL) -> Void
+public typealias LiveRecognitionReferenceHandler = @MainActor (LocalAudioAsset) -> Void
 
 @MainActor
 @Observable
@@ -55,14 +41,6 @@ public final class LiveRecognitionSyncModel {
     public private(set) var ambientReferencePlaybackAnchor: AmbientReferencePlaybackAnchor?
     public private(set) var ambientUpdateCount = 0
     public private(set) var latestFrameBatchCount = 0
-    public private(set) var inferenceEndpointStatus = "Idle"
-    public private(set) var inferenceSessionID: String?
-    public private(set) var inferenceReceivedTokenCount = 0
-    public private(set) var inferenceReadyWindowMS: Double = 0
-    public private(set) var inferenceStreamingStarted = false
-    public private(set) var inferenceLastTokenDescription: String?
-    public var inferenceIsMock = false
-    public var startsPrototypeInference = true
 
     public var firstRequestAtText = "3"
     public var requestCadenceText = "1"
@@ -106,9 +84,6 @@ public final class LiveRecognitionSyncModel {
     private let referenceIndexBuilder: AmbientSyncReferenceIndexBuilder
 
     @ObservationIgnored
-    private let inferenceEndpointClientFactory: InferenceEndpointClientFactory
-
-    @ObservationIgnored
     private var playSessionRequestHandler: LiveRecognitionPlaySessionRequestHandler?
 
     @ObservationIgnored
@@ -127,27 +102,10 @@ public final class LiveRecognitionSyncModel {
     private var ambientSessionID: UUID?
 
     @ObservationIgnored
-    private var inferenceSetupTask: Task<Void, Never>?
-
-    @ObservationIgnored
-    private var inferenceReceiveTask: Task<Void, Never>?
-
-    @ObservationIgnored
-    private var inferenceTokenBuffer = InferenceHitObjectTokenBuffer()
-
-    @ObservationIgnored
-    private var inferenceReferenceTimeSent = false
-
-    @ObservationIgnored
-    private var inferenceEndpoint: (any InferenceEndpointClient)?
-
-    @ObservationIgnored
     private var ambientReferenceAsset: LocalAudioAsset?
 
     @ObservationIgnored
     private var didRequestPlaySessionForAmbientLock = false
-
-    private let inferenceReadyWindowStartThresholdMS: Double = 2_000
 
     public init(
         database: LocalAudioLibraryDatabase,
@@ -155,11 +113,6 @@ public final class LiveRecognitionSyncModel {
         captureService: AudioClipCaptureService = AudioClipCaptureService(),
         systemAudioClipCaptureService: SystemAudioClipCaptureService = SystemAudioClipCaptureService(),
         referenceIndexBuilder: AmbientSyncReferenceIndexBuilder = AmbientSyncReferenceIndexBuilder(),
-        inferenceIsMock: Bool = false,
-        inferenceEndpoint: (any InferenceEndpointClient)? = nil,
-        inferenceEndpointClientFactory: @escaping InferenceEndpointClientFactory = {
-            InferenceEndpointWebSocketClient(configuration: $0)
-        },
         onPlaySessionRequested: LiveRecognitionPlaySessionRequestHandler? = nil
     ) {
         self.database = database
@@ -168,12 +121,6 @@ public final class LiveRecognitionSyncModel {
         self.systemAudioClipCaptureService = systemAudioClipCaptureService
         self.resolver = LocalTrackResolver(database: database)
         self.referenceIndexBuilder = referenceIndexBuilder
-        self.inferenceIsMock = inferenceIsMock
-        if let inferenceEndpoint {
-            self.inferenceEndpointClientFactory = { _ in inferenceEndpoint }
-        } else {
-            self.inferenceEndpointClientFactory = inferenceEndpointClientFactory
-        }
         self.playSessionRequestHandler = onPlaySessionRequested
 
         loadEnvironmentDefaults()
@@ -181,8 +128,6 @@ public final class LiveRecognitionSyncModel {
 
     deinit {
         ambientSession?.stop()
-        inferenceSetupTask?.cancel()
-        inferenceReceiveTask?.cancel()
         flowTask?.cancel()
     }
 
@@ -222,10 +167,6 @@ public final class LiveRecognitionSyncModel {
 
     public var canChangeMusicSource: Bool {
         flowTask == nil && !phase.isBusy && phase != .ambientSyncing
-    }
-
-    public var canChangeInferenceRoute: Bool {
-        inferenceSessionID == nil && flowTask == nil && !phase.isBusy && phase != .ambientSyncing
     }
 
     public func setPlaySessionRequestHandler(_ handler: LiveRecognitionPlaySessionRequestHandler?) {
@@ -297,7 +238,6 @@ public final class LiveRecognitionSyncModel {
         flowTask?.cancel()
         flowTask = nil
         let ambientSessionToStop = takeAmbientSession(markStopped: true)
-        stopInferenceSession(markStopped: true)
 
         Task {
             await captureService.cancelCapture()
@@ -311,7 +251,6 @@ public final class LiveRecognitionSyncModel {
         previousFlow?.cancel()
         flowTask = nil
         let previousAmbient = takeAmbientSession(markStopped: true)
-        stopInferenceSession(markStopped: true)
         await captureService.cancelCapture()
         await systemAudioClipCaptureService.cancelCapture()
         await previousAmbient?.stopAndWait()
@@ -472,8 +411,7 @@ public final class LiveRecognitionSyncModel {
         ambientSessionID = sessionID
         ambientReferenceAsset = asset
         didRequestPlaySessionForAmbientLock = false
-        if startsPrototypeInference { startInferenceSession(for: asset, musicSource: musicSource) }
-        referenceHandler?(URL(fileURLWithPath: asset.displayPath))
+        referenceHandler?(asset)
         phase = .buildingReferenceIndex
         statusMessage = "Building ambient reference index"
 
@@ -518,7 +456,6 @@ public final class LiveRecognitionSyncModel {
     private func failAmbientStart(_ error: Error, sessionID: UUID) {
         guard ambientSessionID == sessionID else { return }
         ambientSessionID = nil
-        stopInferenceSession(markStopped: false)
         if error is CancellationError {
             statusMessage = "Stopped"
             phase = .idle
@@ -610,7 +547,6 @@ public final class LiveRecognitionSyncModel {
 
         if update.snapshot.state == .locked, update.snapshot.phase == .final {
             let referenceTimeMS = ambientReferenceTimeMS(for: update)
-            sendInferenceReferenceTimeAfterLock(referenceTimeMS: referenceTimeMS)
             requestPlaySessionAfterAmbientFinalLock(
                 referenceTimeMS: referenceTimeMS,
                 anchorHostTimeMS: update.receivedHostTimeMS
@@ -635,7 +571,6 @@ public final class LiveRecognitionSyncModel {
         latestAmbientSnapshot = nil
         ambientReferencePlaybackAnchor = nil
         didRequestPlaySessionForAmbientLock = false
-        stopInferenceSession(markStopped: false)
         fail("Ambient sync failed: \(error.localizedDescription)")
     }
 
@@ -717,10 +652,6 @@ public final class LiveRecognitionSyncModel {
             sessionID: sessionID
         )
     }
-
-    func debugStartInferenceSession(for asset: LocalAudioAsset, musicSource: MusicSource = .background) {
-        startInferenceSession(for: asset, musicSource: musicSource)
-    }
     #endif
 
     private func resetAmbientSyncState() {
@@ -750,7 +681,6 @@ public final class LiveRecognitionSyncModel {
         ambientSession?.stop()
         ambientSession = nil
         resetAmbientSyncState()
-        stopInferenceSession(markStopped: false)
         refreshLocalLibraryStatus()
     }
 
@@ -778,89 +708,6 @@ public final class LiveRecognitionSyncModel {
         }
 
         return session
-    }
-
-    private func startInferenceSession(for asset: LocalAudioAsset, musicSource: MusicSource) {
-        stopInferenceSession(markStopped: false)
-
-        let sessionID = UUID().uuidString
-        let endpointConfiguration = InferenceEndpointConfiguration(isMock: inferenceIsMock)
-        let endpoint = inferenceEndpointClientFactory(endpointConfiguration)
-        inferenceEndpoint = endpoint
-        inferenceSessionID = sessionID
-        inferenceEndpointStatus = "Connecting to \(InferenceEndpointWebSocketClient.defaultEndpointURL.absoluteString)"
-        inferenceReceivedTokenCount = 0
-        inferenceReadyWindowMS = 0
-        inferenceStreamingStarted = false
-        inferenceLastTokenDescription = nil
-        inferenceTokenBuffer.removeAll()
-        inferenceReferenceTimeSent = false
-
-        inferenceReceiveTask = Task { @MainActor [weak self] in
-            await self?.receiveInferenceEvents(sessionID: sessionID, endpoint: endpoint)
-        }
-
-        inferenceSetupTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            do {
-                try await endpoint.prepare()
-                try await endpoint.sendAudioPath(
-                    asset.displayPath,
-                    sessionID: sessionID,
-                    musicSource: musicSource
-                )
-                guard inferenceSessionID == sessionID else {
-                    return
-                }
-                inferenceEndpointStatus = "Audio path sent; awaiting ambient reference time"
-            } catch {
-                guard inferenceSessionID == sessionID else {
-                    return
-                }
-                inferenceEndpointStatus = "Inference WS setup failed: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func sendInferenceReferenceTimeAfterLock(referenceTimeMS: Double?) {
-        guard let sessionID = inferenceSessionID,
-              let endpoint = inferenceEndpoint,
-              !inferenceReferenceTimeSent else {
-            return
-        }
-
-        guard let referenceTimeMS else {
-            inferenceEndpointStatus = "Ambient locked without a reference time estimate"
-            return
-        }
-
-        inferenceReferenceTimeSent = true
-        inferenceEndpointStatus = "Sending ambient reference time"
-        let setupTask = inferenceSetupTask
-
-        Task { @MainActor [weak self] in
-            await setupTask?.value
-            guard let self, self.inferenceSessionID == sessionID else {
-                return
-            }
-
-            do {
-                try await endpoint.sendReferenceTime(
-                    sessionID: sessionID,
-                    refTimeMS: referenceTimeMS,
-                    localHostTimeSendMS: EnsomiHostClock.currentTimeMS()
-                )
-                inferenceEndpointStatus = "Reference time sent; awaiting tokens"
-            } catch {
-                guard inferenceSessionID == sessionID else {
-                    return
-                }
-                inferenceEndpointStatus = "Reference time send failed: \(error.localizedDescription)"
-            }
-        }
     }
 
     private func ambientReferenceTimeMS(for update: LiveAmbientSyncUpdate) -> Double? {
@@ -894,93 +741,9 @@ public final class LiveRecognitionSyncModel {
                 audioFileURL: URL(fileURLWithPath: asset.displayPath),
                 referenceTimeMS: referenceTimeMS,
                 anchorHostTimeMS: anchorHostTimeMS,
-                durationMS: Double(asset.durationMS),
-                title: asset.title?.trimmedNilIfEmpty ?? latestMatch?.title.trimmedNilIfEmpty ?? asset.fileName,
-                isMock: inferenceIsMock,
-                musicSource: musicSource
+                title: asset.title?.trimmedNilIfEmpty ?? latestMatch?.title.trimmedNilIfEmpty ?? asset.fileName
             )
         )
-    }
-
-    private func receiveInferenceEvents(sessionID: String, endpoint: any InferenceEndpointClient) async {
-        do {
-            while !Task.isCancelled {
-                let event = try await endpoint.nextEvent()
-                applyInferenceEvent(event, expectedSessionID: sessionID)
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            guard inferenceSessionID == sessionID else {
-                return
-            }
-            inferenceEndpointStatus = "Inference WS receive failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func applyInferenceEvent(_ event: InferenceEndpointEvent, expectedSessionID: String) {
-        switch event {
-        case .hitObjectToken(let token):
-            guard token.sessionID == expectedSessionID,
-                  token.sessionID == inferenceSessionID
-            else {
-                return
-            }
-
-            guard inferenceTokenBuffer.append(contentsOf: token.objects) else {
-                return
-            }
-
-            inferenceReceivedTokenCount += 1
-            inferenceReadyWindowMS = inferenceTokenBuffer.readyWindow?.lengthMS ?? 0
-            inferenceLastTokenDescription = "token_id \(token.tokenID) -> \(token.objects.count) objects @ \(Int(token.timeMS.rounded())) ms"
-
-            if !inferenceStreamingStarted,
-               inferenceReadyWindowMS >= inferenceReadyWindowStartThresholdMS {
-                inferenceStreamingStarted = true
-                inferenceEndpointStatus = "Ready window reached; streaming render can start"
-            } else if inferenceStreamingStarted {
-                inferenceEndpointStatus = "Streaming tokens"
-            } else {
-                inferenceEndpointStatus = "Buffering tokens"
-            }
-        case .endOfStream(let end):
-            guard end.sessionID == expectedSessionID,
-                  end.sessionID == inferenceSessionID
-            else {
-                return
-            }
-
-            inferenceTokenBuffer.setMaximumAcceptedTimeMS(end.completeThroughMS)
-            inferenceReadyWindowMS = inferenceTokenBuffer.readyWindow?.lengthMS ?? inferenceReadyWindowMS
-            inferenceLastTokenDescription = "end_of_stream @ \(Int(end.completeThroughMS.rounded())) ms"
-            inferenceEndpointStatus = "Inference stream complete"
-        }
-    }
-
-    private func stopInferenceSession(markStopped: Bool) {
-        let sessionID = inferenceSessionID
-        let endpoint = inferenceEndpoint
-        inferenceSessionID = nil
-        inferenceEndpoint = nil
-        inferenceReferenceTimeSent = false
-        inferenceSetupTask?.cancel()
-        inferenceSetupTask = nil
-        inferenceReceiveTask?.cancel()
-        inferenceReceiveTask = nil
-        inferenceTokenBuffer.removeAll()
-        inferenceReceivedTokenCount = 0
-        inferenceReadyWindowMS = 0
-        inferenceStreamingStarted = false
-        inferenceLastTokenDescription = nil
-
-        if let sessionID {
-            Task {
-                try? await endpoint?.stop(sessionID: sessionID)
-            }
-        }
-
-        inferenceEndpointStatus = markStopped ? "Stopped" : "Idle"
     }
 
     private func fail(_ message: String) {
@@ -1320,7 +1083,6 @@ public struct LiveRecognitionSyncWindow: View {
                     recognitionSection
                     localResolveSection
                     ambientSyncSection
-                    inferenceEndpointSection
                 }
                 .padding(20)
                 .frame(maxWidth: 980, alignment: .leading)
@@ -1412,7 +1174,6 @@ public struct LiveRecognitionSyncWindow: View {
 
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
                 musicSourceRow
-                inferenceRouteRow
                 inputRow("first request", text: $model.firstRequestAtText, suffix: "seconds", width: 90)
                 inputRow("cadence", text: $model.requestCadenceText, suffix: "seconds", width: 90)
                 inputRow("max window", text: $model.maxRequestWindowText, suffix: "seconds", width: 90)
@@ -1541,33 +1302,6 @@ public struct LiveRecognitionSyncWindow: View {
         .sectionPanel()
     }
 
-    private var inferenceEndpointSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Inference Endpoint")
-                .font(.headline)
-
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                metricRow("url", InferenceEndpointWebSocketClient.defaultEndpointURL.absoluteString)
-                metricRow("route", inferenceRouteText)
-                metricRow("status", model.inferenceEndpointStatus)
-                if let sessionID = model.inferenceSessionID {
-                    metricRow("session", sessionID)
-                }
-                metricRow("tokens", "\(model.inferenceReceivedTokenCount)")
-                metricRow("ready window", (model.inferenceReadyWindowMS / 1_000).secondsLabel)
-                metricRow("render stream", model.inferenceStreamingStarted ? "ready" : "buffering")
-                if let token = model.inferenceLastTokenDescription {
-                    metricRow("last token", token)
-                }
-            }
-        }
-        .sectionPanel()
-    }
-
-    private var inferenceRouteText: String {
-        model.inferenceIsMock ? "timing_mock / is_mock true" : "mapper / is_mock false"
-    }
-
     private var musicSourceRow: some View {
         GridRow {
             Text("music source")
@@ -1581,22 +1315,6 @@ public struct LiveRecognitionSyncWindow: View {
             .pickerStyle(.segmented)
             .frame(width: 260)
             .disabled(!model.canChangeMusicSource)
-        }
-    }
-
-    private var inferenceRouteRow: some View {
-        GridRow {
-            Text("inference route")
-                .foregroundStyle(.secondary)
-            HStack(spacing: 10) {
-                Toggle("mock backend", isOn: $model.inferenceIsMock)
-                    .toggleStyle(.switch)
-                    .disabled(!model.canChangeInferenceRoute)
-
-                Text(inferenceRouteText)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 

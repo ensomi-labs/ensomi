@@ -355,7 +355,7 @@ private struct Mania4KSetupView: View {
         .onChange(of: generation.engine) { Task { await loadGenerationCapabilities() } }
         .onChange(of: generation.models.activeModel) { Task { await loadGenerationCapabilities() } }
         .onChange(of: model.audioFileURL, initial: true) { _, url in
-            generation.loadAudioDuration(for: url)
+            generation.chooseAudio(url)
         }
     }
 
@@ -734,7 +734,7 @@ private struct Mania4KSetupView: View {
         generation.sections = []
         generation.seedText = ""
         exportMessage = nil
-        generation.loadAudioDuration(for: nil)
+        generation.chooseAudio(nil)
     }
 
     private func startGeneration() {
@@ -832,31 +832,15 @@ private struct Mania4KSetupView: View {
                 }
             }
 
-            if shouldShowBackendDetails {
+            if selectedMode == .generatedSong {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(selectedMode == .generatedSong ? generation.engine.title : "Backend")
+                    Text(generation.engine.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Mania4KStyle.textPrimary)
 
-                    if selectedMode == .generatedSong {
-                        Text(generationStatusText)
-                            .font(.callout)
-                            .textSelection(.enabled)
-                    } else {
-                        statTile(title: "Status", value: model.backendSessionStatus)
-                        HStack(spacing: 10) {
-                            statTile(title: "Tokens", value: String(model.backendReceivedTokenCount))
-                            statTile(title: "Ready Window", value: "\(Int(model.backendReadyWindowMS.rounded())) ms")
-                        }
-
-                        if let token = model.backendLastTokenDescription {
-                            Text(token)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(Mania4KStyle.textSecondary)
-                                .lineLimit(2)
-                                .truncationMode(.middle)
-                        }
-                    }
+                    Text(generationStatusText)
+                        .font(.callout)
+                        .textSelection(.enabled)
                 }
             }
 
@@ -917,9 +901,7 @@ private struct Mania4KSetupView: View {
             SessionSummaryRow(title: "Mode", value: selectedMode?.rawValue ?? "--"),
             SessionSummaryRow(title: "Song", value: model.audioFileURL?.lastPathComponent ?? "--"),
             SessionSummaryRow(title: "Beatmap", value: beatmapSummaryText),
-            SessionSummaryRow(title: "Difficulty", value: model.starDifficulty.formatted(.number.precision(.fractionLength(1)))),
-            SessionSummaryRow(title: "Mock", value: model.backendIsMock ? "true" : "false"),
-            SessionSummaryRow(title: "Reference", value: referenceSummaryText)
+            SessionSummaryRow(title: "Difficulty", value: model.starDifficulty.formatted(.number.precision(.fractionLength(1))))
         ]
     }
 
@@ -930,18 +912,6 @@ private struct Mania4KSetupView: View {
         case .generatedSong:
             return model.activeConfiguration?.chartSource.displayName ?? "Backend generated"
         }
-    }
-
-    private var referenceSummaryText: String {
-        guard let referenceTimeMS = model.backendReferenceTimeMS else {
-            return "0 ms"
-        }
-
-        return "\(Int(referenceTimeMS.rounded())) ms"
-    }
-
-    private var shouldShowBackendDetails: Bool {
-        selectedMode == .generatedSong || model.backendSessionID != nil
     }
 
     private func filePickerRow(

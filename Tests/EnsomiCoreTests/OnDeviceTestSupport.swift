@@ -36,6 +36,11 @@ enum OnDeviceFixtures {
     }
 }
 
+/// The file's SHA-256 in lowercase hex, as the library stores it.
+func sha256Hex(of url: URL) throws -> String {
+    SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
+}
+
 func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
