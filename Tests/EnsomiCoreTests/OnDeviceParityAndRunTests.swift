@@ -4,53 +4,12 @@ import EnsomiRuntime
 import XCTest
 @testable import EnsomiCore
 
-/// Runs the real model on saigetsu's audio; each test skips when the model, the resampler tables, the song or the
-/// command line generator is absent. `ENSOMI_PARITY_OUT=<dir>` keeps the PCM dump and both charts there.
+/// Runs the real model on saigetsu's audio; each test skips when the model, the resampler tables or the song is absent.
+/// Parity with the native generator is the runtime's check (`GeneratorTests`, against its committed native charts).
 @MainActor
 final class OnDeviceParityAndRunTests: XCTestCase {
     private static let title = "Saigetsu"
     private static let artist = "Parity"
-
-    /// The app's decoder and generator, through the song's audio stages and a whole-chart scheduler, give the chart the
-    /// native command line generator gives for the same PCM, request and seed, byte for byte.
-    func testChartMatchesTheNativeGeneratorOnTheSamePCM() async throws {
-        let model = try OnDeviceFixtures.model()
-        let resampler = try OnDeviceFixtures.resampler()
-        let song = try OnDeviceFixtures.song()
-        let cli = try OnDeviceFixtures.cli()
-        let output = try ProcessInfo.processInfo.environment["ENSOMI_PARITY_OUT"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? temporaryDirectory()
-        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        if ProcessInfo.processInfo.environment["ENSOMI_PARITY_OUT"] == nil { addTeardownBlock { try? FileManager.default.removeItem(at: output) } }
-
-        let audio = try OnDeviceAudioDecoder.decode(song)
-        let pcm = output.appendingPathComponent("saigetsu.f32")
-        try audio.samples.withUnsafeBufferPointer { Data(buffer: $0) }.write(to: pcm)
-
-        let generator = try OnDeviceChartGenerator(modelDirectory: model)
-        let result = try await generator.generate(
-            prepared: try await generator.prepare(audioURL: song),
-            request: GenerateChartRequest(star: 3.5, seed: 0, title: Self.title, artist: Self.artist, audioName: song.lastPathComponent))
-        let app = output.appendingPathComponent("app.osu")
-        try Data(result.osu.utf8).write(to: app)
-
-        let native = output.appendingPathComponent("native.osu")
-        let process = Process()
-        process.executableURL = cli
-        process.arguments = [
-            "--model-dir", model.path, "--assets", resampler.path, "--pcm", pcm.path,
-            "--sample-rate", String(Int(audio.sampleRate)), "--star", "3.5", "--seed", "0",
-            "--title", Self.title, "--artist", Self.artist, "--audio-name", song.lastPathComponent, "--out", native.path
-        ]
-        try process.run()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0)
-
-        print("PARITY \(audio.samples.count) samples at \(audio.sampleRate) Hz, \(result.chart.objects.count) objects, app.osu \(try Data(contentsOf: app).count) bytes, native.osu \(try Data(contentsOf: native).count) bytes")
-        XCTAssertEqual(try Data(contentsOf: app), try Data(contentsOf: native))
-        XCTAssertEqual(result.receipt.seed, 0)
-        XCTAssertEqual(result.receipt.star, 3.5)
-    }
 
     /// A failed generation reaches the app as the core's error, and the generator still works. A resampler table cut
     /// short used to make the core panic and leave the generator failing every later generation; the core now refuses

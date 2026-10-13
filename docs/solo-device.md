@@ -168,8 +168,8 @@ had 29 files and no manifest (the link, not the app, sets that).
 ## Checks
 
 All of these run on the Mac with `xcodebuild … test -only-testing:EnsomiCoreTests/<class>`;
-each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER`, `ENSOMI_SONG`
-and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
+each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER` and `ENSOMI_SONG`
+override the sibling-checkout defaults).
 
 - `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability and
   control mappings, the engine default and its persistence, a chosen folder kept only if the
@@ -197,23 +197,9 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
   result keeping the seed the server reports though none was asked for, Stop ending in the
   stopped state, and the section check, which refuses a section outside 8–32 seconds whatever
   its target, as the runtime does.
-- `OnDeviceParityAndRunTests.testChartMatchesTheNativeGeneratorOnTheSamePCM`: the
-  app's decoder, `prepare` and a whole-chart scheduler against
-  `ensomi-runtime/target/apple/release/generate` on the same PCM dump, byte for byte. To keep the dump and both charts and compare by hand,
-  from the app root on the Mac:
-
-  ```sh
-  TEST_RUNNER_ENSOMI_PARITY_OUT="$PWD/.build/parity" xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac \
-    -destination 'platform=macOS' -derivedDataPath .build/solo test \
-    -only-testing:EnsomiCoreTests/OnDeviceParityAndRunTests/testChartMatchesTheNativeGeneratorOnTheSamePCM
-  ../ensomi-runtime/target/apple/release/generate --model-dir ../ensomi-model/artifacts/release-r2/bulk/hf/ensomi-r2/onnx \
-    --assets ../ensomi-runtime/assets/resampler --pcm .build/parity/saigetsu.f32 --sample-rate 44100 \
-    --star 3.5 --seed 0 --title Saigetsu --artist Parity --audio-name audio.mp3 --out .build/parity/by-hand.osu
-  cmp .build/parity/app.osu .build/parity/by-hand.osu
-  ```
-
-  The PCM is 5,875,200 samples at 44,100 Hz; both charts are 34,867 bytes with the same
-  SHA-256. Other decoders give other PCM and other charts, and were not compared.
+- Parity with the native generator is the runtime's check: its `GeneratorTests` compare the
+  Swift API's charts, including a whole-chart scheduler from stored audio stages, with the native
+  charts committed in `conformance/generate/native-charts`, byte for byte.
 - `OnDeviceParityAndRunTests.testGenerateOnThisDeviceThenExport`: generates saigetsu at 3.5
   stars with a random seed through the generation model, checks the `.osu` parses to the chart,
   writes the `.osz` and opens it with `/usr/bin/unzip`: `audio.mp3` (the song's bytes),

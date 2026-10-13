@@ -21,18 +21,13 @@ enum OnDeviceFixtures {
         try existing("ensomi-model/artifacts/release-r2/bulk/hf/ensomi-r2/onnx", environment: "ENSOMI_R2_ONNX")
     }
 
-    /// The runtime's resampler tables, which the runtime package carries; the command line generator reads them here.
+    /// The runtime's resampler tables, which the runtime package carries.
     static func resampler() throws -> URL {
         try existing("ensomi-runtime/assets/resampler", environment: "ENSOMI_RESAMPLER")
     }
 
     static func song() throws -> URL {
         try existing("ensomi-model/dataset/0/1403084/audio.mp3", environment: "ENSOMI_SONG")
-    }
-
-    /// The native command line generator.
-    static func cli() throws -> URL {
-        try existing("ensomi-runtime/target/apple/release/generate", environment: "ENSOMI_GENERATE_CLI")
     }
 }
 
