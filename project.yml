@@ -34,7 +34,7 @@ packages:
     from: "1.38.0"
   EnsomiRuntime:
     url: https://github.com/ensomi-labs/runtime
-    exactVersion: "0.2.0"
+    exactVersion: "0.3.0"
 
 targets:
   EnsomiIOS:
