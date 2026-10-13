@@ -14,27 +14,21 @@ public enum Mania4KPlaySessionWindow {
 
 public struct Mania4KPlayExperienceView: View {
     @Bindable public var model: Mania4KPlaySessionModel
-    private let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
     // Kept here rather than in the setup view, so the chosen mode and a generated chart outlive its play.
     @State private var generation: Mania4KChartGenerationModel
     @State private var selectedMode: Mania4KSetupGameMode?
 
-    public init(
-        model: Mania4KPlaySessionModel,
-        onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)? = nil
-    ) {
-        self.init(model: model, onAmbientRecognitionRequested: onAmbientRecognitionRequested, generation: Mania4KChartGenerationModel())
+    public init(model: Mania4KPlaySessionModel) {
+        self.init(model: model, generation: Mania4KChartGenerationModel())
     }
 
     /// Opens on `selectedMode` with `generation`, as the screenshot tests render it.
     init(
         model: Mania4KPlaySessionModel,
-        onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)? = nil,
         generation: Mania4KChartGenerationModel,
         selectedMode: Mania4KSetupGameMode? = nil
     ) {
         self.model = model
-        self.onAmbientRecognitionRequested = onAmbientRecognitionRequested
         _generation = State(initialValue: generation)
         _selectedMode = State(initialValue: selectedMode)
     }
@@ -47,8 +41,7 @@ public struct Mania4KPlayExperienceView: View {
                 Mania4KSetupView(
                     model: model,
                     generation: generation,
-                    selectedMode: $selectedMode,
-                    onAmbientRecognitionRequested: onAmbientRecognitionRequested
+                    selectedMode: $selectedMode
                 )
             } else {
                 Mania4KPlaySceneView(model: model)
@@ -61,7 +54,6 @@ public struct Mania4KPlayExperienceView: View {
 
 enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
     case generatedSong = "1"
-    case ambient = "2"
 
     var id: String {
         rawValue
@@ -71,8 +63,6 @@ enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
         switch self {
         case .generatedSong:
             return "Generate a Chart"
-        case .ambient:
-            return "Listen & Play"
         }
     }
 
@@ -80,8 +70,6 @@ enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
         switch self {
         case .generatedSong:
             return "Create a chart from a local song"
-        case .ambient:
-            return "Recognize nearby music and play along"
         }
     }
 
@@ -89,8 +77,6 @@ enum Mania4KSetupGameMode: String, CaseIterable, Identifiable {
         switch self {
         case .generatedSong:
             return "wand.and.sparkles"
-        case .ambient:
-            return "waveform.badge.magnifyingglass"
         }
     }
 }
@@ -136,18 +122,12 @@ private struct SessionSummaryRow: Identifiable {
 
 private struct Mania4KSetupView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    #if os(macOS) && DEBUG
-    @Environment(\.openWindow) private var openWindow
-    #endif
     @Bindable var model: Mania4KPlaySessionModel
     @Bindable var generation: Mania4KChartGenerationModel
     @Binding var selectedMode: Mania4KSetupGameMode?
     @State private var isChoosingAudio = false
-    @State private var backendIsMock = false
-    @State private var ambientModeStatus = "Idle"
     @State private var export: ChartExport?
     @State private var exportMessage: (text: String, isError: Bool)?
-    let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
 
     var body: some View {
         GeometryReader { geometry in
@@ -266,8 +246,6 @@ private struct Mania4KSetupView: View {
             EmptyView()
         case .generatedSong:
             generatedSongSetup
-        case .ambient:
-            ambientSetup
         }
     }
 
@@ -627,64 +605,6 @@ private struct Mania4KSetupView: View {
         }
     }
 
-    private var ambientSetup: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 10) {
-                Image(systemName: "waveform.badge.magnifyingglass")
-                    .font(.headline)
-                    .frame(width: 32, height: 32)
-                    .foregroundStyle(Mania4KStyle.warn)
-                    .background(Mania4KStyle.warn.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Ambient Recognition")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Mania4KStyle.textPrimary)
-
-                    Text(ambientModeStatus)
-                        .font(.caption)
-                        .foregroundStyle(Mania4KStyle.textSecondary)
-                        .lineLimit(2)
-                }
-
-                Spacer()
-            }
-            .padding(12)
-            .background(Mania4KStyle.controlFill, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Mania4KStyle.border, lineWidth: 1)
-            )
-
-            backendMockToggle
-
-            Button {
-                startAmbientMode()
-            } label: {
-                Label("Start Ambient Flow", systemImage: "waveform")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(Mania4KPrimaryButtonStyle())
-            .controlSize(.large)
-        }
-    }
-
-    private var backendMockToggle: some View {
-        Toggle(isOn: $backendIsMock) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Mock backend")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Mania4KStyle.textPrimary)
-
-                Text(backendIsMock ? "is_mock true" : "is_mock false")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(Mania4KStyle.textSecondary)
-            }
-        }
-        .toggleStyle(.switch)
-        .tint(Mania4KStyle.ok)
-    }
-
     private func modeButton(_ mode: Mania4KSetupGameMode) -> some View {
         Button {
             selectedMode = mode
@@ -787,8 +707,6 @@ private struct Mania4KSetupView: View {
             return "MODE"
         case .generatedSong:
             return sessionBadgeText
-        case .ambient:
-            return "AMBIENT"
         }
     }
 
@@ -802,22 +720,16 @@ private struct Mania4KSetupView: View {
             case .failed: return false
             default: return generation.canGenerate(star: model.starDifficulty)
             }
-        case .ambient:
-            return true
         }
     }
 
     private var hasSetupStateToClear: Bool {
         selectedMode != nil
             || model.audioFileURL != nil
-            || backendIsMock
-            || ambientModeStatus != "Idle"
     }
 
     private func clearSetupState() {
         selectedMode = nil
-        backendIsMock = false
-        ambientModeStatus = "Idle"
         model.clearSetupSelections()
         generation.sections = []
         generation.seedText = ""
@@ -856,19 +768,6 @@ private struct Mania4KSetupView: View {
         } catch {
             exportMessage = ("Could not read the song for the .osz: \(error.localizedDescription)", true)
         }
-    }
-
-    private func startAmbientMode() {
-        #if os(macOS) && DEBUG
-        if let onAmbientRecognitionRequested {
-            onAmbientRecognitionRequested(backendIsMock)
-        } else {
-            openWindow(id: LiveRecognitionSyncWindow.windowID)
-        }
-        ambientModeStatus = "Recognition flow opened"
-        #else
-        ambientModeStatus = "Ambient recognition is available in the macOS debug build"
-        #endif
     }
 
     private func handleAudioImportResult(_ result: Result<[URL], Error>) {
@@ -978,8 +877,6 @@ private struct Mania4KSetupView: View {
             case .finished: return "READY"
             case .idle, .stopped: return generation.canGenerate(star: model.starDifficulty) ? "READY" : "WAITING"
             }
-        case .ambient:
-            return "SYNC"
         }
     }
 
@@ -1021,7 +918,7 @@ private struct Mania4KSetupView: View {
             SessionSummaryRow(title: "Song", value: model.audioFileURL?.lastPathComponent ?? "--"),
             SessionSummaryRow(title: "Beatmap", value: beatmapSummaryText),
             SessionSummaryRow(title: "Difficulty", value: model.starDifficulty.formatted(.number.precision(.fractionLength(1)))),
-            SessionSummaryRow(title: "Mock", value: selectedMode == .generatedSong ? "--" : backendIsMock ? "true" : "false"),
+            SessionSummaryRow(title: "Mock", value: model.backendIsMock ? "true" : "false"),
             SessionSummaryRow(title: "Reference", value: referenceSummaryText)
         ]
     }
@@ -1032,21 +929,19 @@ private struct Mania4KSetupView: View {
             return "--"
         case .generatedSong:
             return model.activeConfiguration?.chartSource.displayName ?? "Backend generated"
-        case .ambient:
-            return "Ambient generated"
         }
     }
 
     private var referenceSummaryText: String {
         guard let referenceTimeMS = model.backendReferenceTimeMS else {
-            return selectedMode == .ambient ? "ambient lock" : "0 ms"
+            return "0 ms"
         }
 
         return "\(Int(referenceTimeMS.rounded())) ms"
     }
 
     private var shouldShowBackendDetails: Bool {
-        selectedMode == .generatedSong || selectedMode == .ambient || model.backendSessionID != nil
+        selectedMode == .generatedSong || model.backendSessionID != nil
     }
 
     private func filePickerRow(

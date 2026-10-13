@@ -42,8 +42,9 @@ judgement events the core reports, and each tier is named in words as well as
 coloured. With Reduce Motion, feedback fades without growing, pulsing or drifting.
 The choices and their reasons are in [gameplay look](gameplay-look.md).
 
-The Play setup offers Generate a Chart and Listen & Play. Ensomi is not made for playing
-existing charts, so no mode loads a song with a chart to play it.
+The Play setup offers Generate a Chart; on macOS, Listen & Play has its own window, opened
+from the Live Demo toolbar button. Ensomi is not made for playing existing charts, so no
+mode loads a song with a chart to play it.
 
 The Chart Inspector (macOS, Settings → Developer) draws an existing chart against its
 song for checking it. It uses the play screen's stage, playfield and palette, without

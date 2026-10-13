@@ -53,12 +53,14 @@ SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
 
 ## Live recognition and generation
 
-The macOS **Live Demo** toolbar button opens **Listen & Play**: it checks the
-local H/R/R1 service, starts recognition and synchronization automatically, and
-opens gameplay after final lock. Optional difficulty/style requests are captured
-at lock. See the [operation manual](docs/live_generation_demo.md) for the backend it
-needs, local audio preparation and troubleshooting; no ensomi-model branch or tag holds
-that backend now.
+The macOS **Live Demo** toolbar button opens **Listen & Play**: it recognizes the
+music playing nearby, finds its recording in **Library**, makes the whole chart
+from that recording with the on-device Ensomi R2 model while synchronization locks,
+and opens gameplay after final lock, joining the chart past the heard position. It
+uses the model Generate a Chart downloads or reads from a folder, and needs no demo
+backend or other service. Set the stars and an optional seed before the song is
+identified. See the [operation manual](docs/live_generation_demo.md) for local audio
+preparation and troubleshooting.
 
 
 **Generate a Chart** builds a complete chart from a local audio file. Pick the file,

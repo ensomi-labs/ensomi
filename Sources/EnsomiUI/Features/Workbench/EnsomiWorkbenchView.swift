@@ -12,18 +12,15 @@ public struct EnsomiWorkbenchView: View {
     @State private var localLibraryModel: LocalLibraryDashboardModel
     @State private var isShowingSettings = false
     @State private var didRestoreStoredManiaSettings = false
-    private let onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)?
 
     public init(
         maniaModel: Mania4KPlaySessionModel = Mania4KPlaySessionModel(),
         localLibraryModel: LocalLibraryDashboardModel = .livePrototype(),
-        initialSelection: WorkbenchTab = .localLibrary,
-        onAmbientRecognitionRequested: (@MainActor (Bool) -> Void)? = nil
+        initialSelection: WorkbenchTab = .localLibrary
     ) {
         _selection = State(initialValue: initialSelection)
         _maniaModel = State(initialValue: maniaModel)
         _localLibraryModel = State(initialValue: localLibraryModel)
-        self.onAmbientRecognitionRequested = onAmbientRecognitionRequested
     }
 
     public var body: some View {
@@ -50,7 +47,7 @@ public struct EnsomiWorkbenchView: View {
                 Button { openWindow(id: LiveGenerationDemoView.windowID) } label: {
                     Label("Live Demo", systemImage: "play.circle.fill")
                 }
-                .help("Recognize, synchronize and play with the generation backend")
+                .help("Recognize the music playing, synchronize and play a chart made on this device")
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             }
         }
@@ -127,10 +124,7 @@ public struct EnsomiWorkbenchView: View {
     }
 
     private var playExperience: some View {
-        Mania4KPlayExperienceView(
-            model: maniaModel,
-            onAmbientRecognitionRequested: onAmbientRecognitionRequested
-        )
+        Mania4KPlayExperienceView(model: maniaModel)
         .navigationTitle("Play")
     }
 

@@ -4,65 +4,95 @@ import Observation
 import SwiftUI
 import EnsomiCore
 
+/// Listen & Play: recognizes the music playing nearby, finds its recording in the library, makes the whole chart from
+/// that recording with R2 on this device while sync locks, and plays it from the heard position after final lock.
 @MainActor
 @Observable
 public final class LiveGenerationDemoModel {
+    /// Makes the whole chart of a recording at a star and seed.
+    typealias MakeChart = @MainActor @Sendable (URL, Double, UInt64) async throws -> Mania4KGeneratedChart
+
     public let recognition: LiveRecognitionSyncModel
+    /// Plays the chart; its `starDifficulty` is the star the chart is made at.
     public let gameplay: Mania4KPlaySessionModel
-    public private(set) var checkingBackend = false
-    public private(set) var backendReady = false
+    public let models: ChartModelLibrary
+    public private(set) var checkingModel = false
+    public private(set) var modelReady = false
+    /// Selectable stars in 0.1 steps; nil until the model has answered.
+    public private(set) var starRange: ClosedRange<Double>?
+    /// Blank for a new chart each time, or the seed of a chart to make again.
+    public var seedText = ""
+    /// The seed of the chart being made for the identified song.
+    public private(set) var chartSeed: UInt64?
+    /// The note count of that chart once it is made.
+    public private(set) var chartNoteCount: Int?
     public private(set) var showingGameplay = false
     public private(set) var errorMessage: String?
-    public private(set) var availableStyles: [String] = []
-    public var backendAddress = ControlledGenerationClient.defaultURL.absoluteString
-    public var difficultyEnabled = false
-    public var difficulty = 3.0
-    public var style = ""
-    @ObservationIgnored private let checkBackend: @Sendable (URL) async throws -> GenerationServiceHealth
+    @ObservationIgnored private let stars: @MainActor @Sendable () async throws -> ClosedRange<Double>
+    @ObservationIgnored private let makeChart: MakeChart
+    /// The chart of the identified song: started when its recording is resolved, played at final lock.
+    @ObservationIgnored private(set) var chart: Task<Mania4KGeneratedChart, Error>?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var teardown: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
-    @ObservationIgnored private var activeEndpoint = ControlledGenerationClient.defaultURL
 
-    public init(recognition: LiveRecognitionSyncModel = .liveDebug(), gameplay: Mania4KPlaySessionModel = .init(),
-                checkBackend: @escaping @Sendable (URL) async throws -> GenerationServiceHealth = {
-                    try await ControlledGenerationClient(baseURL: $0).health()
-                }) {
-        self.checkBackend = checkBackend
+    /// Generates with the model `models` holds, as Generate a Chart does on this device.
+    public convenience init(recognition: LiveRecognitionSyncModel = .liveDebug(), gameplay: Mania4KPlaySessionModel = .init(),
+                            models: ChartModelLibrary = .shared) {
+        self.init(recognition: recognition, gameplay: gameplay, models: models,
+            stars: { try await models.generator().selectableStars },
+            makeChart: { try await models.generator().chart(audioURL: $0, star: $1, seed: $2) })
+    }
+
+    /// `stars` gives the model's selectable stars; `makeChart` makes a chart with it.
+    init(recognition: LiveRecognitionSyncModel, gameplay: Mania4KPlaySessionModel, models: ChartModelLibrary,
+         stars: @escaping @MainActor @Sendable () async throws -> ClosedRange<Double>, makeChart: @escaping MakeChart) {
         self.recognition = recognition
         self.gameplay = gameplay
+        self.models = models
+        self.stars = stars
+        self.makeChart = makeChart
         recognition.startsPrototypeInference = false
+        recognition.setReferenceHandler { [weak self] audioURL in self?.referenceResolved(audioURL) }
         recognition.setPlaySessionRequestHandler { [weak self] request in self?.locked(request) }
     }
 
+    public var starValidationMessage: String? {
+        guard let starRange, !starRange.contains(gameplay.starDifficulty) else { return nil }
+        return "Choose a star target within the supported range (\(starRange.lowerBound)–\(starRange.upperBound))."
+    }
+
+    public var seedValidationMessage: String? {
+        ChartGenerationSeed.validationMessage(seedText)
+    }
+
+    /// Opens the model, then starts recognition. Without an installed model nothing starts; the window offers the
+    /// install.
     public func enter() {
         invalidate()
         let identity = generation
         let cleanup = teardown
-        checkingBackend = true
         errorMessage = nil
+        guard models.hasModel else { return }
+        checkingModel = true
         task = Task { [weak self] in
             guard let self else { return }
             await cleanup?.value
             guard generation == identity, !Task.isCancelled else { return }
             do {
-                guard let url = URL(string: backendAddress.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-                    throw GenerationServiceFailure("Enter a valid backend address.")
-                }
-                let health = try await checkBackend(url)
+                let range = try await stars()
                 try Task.checkCancellation()
                 guard generation == identity else { return }
-                availableStyles = health.styleNames
-                if !availableStyles.contains(style) { style = "" }
-                activeEndpoint = url
-                backendReady = true
-                checkingBackend = false
+                starRange = range
+                gameplay.starDifficulty = min(max(gameplay.starDifficulty, range.lowerBound), range.upperBound)
+                modelReady = true
+                checkingModel = false
                 recognition.refreshLocalLibraryStatus()
                 recognition.startFlow()
             } catch {
                 guard generation == identity, !Task.isCancelled else { return }
-                checkingBackend = false
-                errorMessage = "Backend unavailable: \(error.localizedDescription)"
+                checkingModel = false
+                errorMessage = "The on-device model could not be opened: \(OnDeviceChartGenerator.message(for: error))"
             }
         }
     }
@@ -72,6 +102,7 @@ public final class LiveGenerationDemoModel {
         let oldTask = task
         oldTask?.cancel()
         task = nil
+        replaceChart(with: nil)
         let previousCleanup = teardown
         teardown = Task {
             await previousCleanup?.value
@@ -79,8 +110,8 @@ public final class LiveGenerationDemoModel {
             await recognition.stopAndWait()
             await gameplay.quitToSetup()
         }
-        backendReady = false
-        checkingBackend = false
+        modelReady = false
+        checkingModel = false
         showingGameplay = false
     }
 
@@ -88,17 +119,51 @@ public final class LiveGenerationDemoModel {
         invalidate()
     }
 
-    private func locked(_ request: LiveRecognitionPlaySessionRequest) {
-        guard backendReady, !showingGameplay else { return }
+    /// Starts the chart as soon as the song's recording is known, with the star and seed set then, so that it is
+    /// ready or nearly so at final lock.
+    func referenceResolved(_ audioURL: URL) {
+        guard modelReady, !showingGameplay else { return }
+        replaceChart(with: nil)
+        if let message = starValidationMessage ?? seedValidationMessage {
+            errorMessage = message
+            return
+        }
+        let star = gameplay.starDifficulty
+        let seed = ChartGenerationSeed.parse(seedText) ?? ChartGenerationSeed.random()
+        let makeChart = self.makeChart
+        let chart = Task { try await makeChart(audioURL, star, seed) }
+        replaceChart(with: chart)
+        chartSeed = seed
+        errorMessage = nil
+        Task { [weak self] in
+            do {
+                let made = try await chart.value
+                guard let self, self.chart == chart else { return }
+                chartNoteCount = made.objectCount
+            } catch {
+                guard let self, self.chart == chart, !chart.isCancelled else { return }
+                errorMessage = OnDeviceChartGenerator.message(for: error)
+            }
+        }
+    }
+
+    private func replaceChart(with chart: Task<Mania4KGeneratedChart, Error>?) {
+        self.chart?.cancel()
+        self.chart = chart
+        chartSeed = nil
+        chartNoteCount = nil
+    }
+
+    /// Plays the chart started at resolution, waiting for it if it is not made yet.
+    func locked(_ request: LiveRecognitionPlaySessionRequest) {
+        guard modelReady, !showingGameplay, let chart else { return }
         showingGameplay = true
         let identity = generation
-        let controls = GenerationControls(difficulty: difficultyEnabled ? difficulty : nil,
-            style: style.isEmpty ? [:] : [style: 1])
         task = Task { [weak self] in
             guard let self, generation == identity else { return }
-            _ = await gameplay.startAmbientControlledPlay(audioFileURL: request.audioFileURL,
+            _ = await gameplay.startAmbientChartPlay(audioFileURL: request.audioFileURL,
                 referenceTimeMS: request.referenceTimeMS, anchorHostTimeMS: request.anchorHostTimeMS,
-                title: request.title, controls: controls, endpointURL: activeEndpoint)
+                title: request.title, chart: chart)
         }
     }
 }
@@ -137,6 +202,9 @@ public struct LiveGenerationDemoView: View {
         .onChange(of: model.gameplay.phase) { _, phase in
             if model.showingGameplay, phase == .setup { model.stop() }
         }
+        .onChange(of: model.models.activeModel) {
+            if !model.showingGameplay { model.enter() }
+        }
     }
 
     private var setup: some View {
@@ -149,19 +217,24 @@ public struct LiveGenerationDemoView: View {
                 }
             }
             HStack {
-                status("Backend", complete: model.backendReady, active: model.checkingBackend)
+                status("Model", complete: model.modelReady, active: model.checkingModel)
                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 status("Recognize", complete: model.recognition.latestMatch != nil,
-                    active: model.backendReady && model.recognition.latestMatch == nil)
+                    active: model.modelReady && model.recognition.latestMatch == nil)
                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 status("Sync", complete: model.recognition.latestAmbientSnapshot?.phase == .final,
                     active: model.recognition.phase == .ambientSyncing)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                status("Chart", complete: model.chartNoteCount != nil,
+                    active: model.chartSeed != nil && model.chartNoteCount == nil)
             }
-            Text(model.checkingBackend ? "Checking generation backend…" : model.recognition.statusMessage)
-                .font(.headline)
+            Text(headline).font(.headline)
             if let title = model.recognition.latestMatch?.title { Text(title).font(.title2) }
             if let error = model.errorMessage ?? model.recognition.errorMessage {
                 Text(error).foregroundStyle(.red).textSelection(.enabled)
+            }
+            if !model.models.hasModel {
+                ChartModelManagementView(library: model.models)
             }
             if model.recognition.phase == .awaitingLocalConfirmation {
                 Picker("Local recording", selection: Binding(get: { model.recognition.selectedResolveAssetID }, set: { model.recognition.selectedResolveAssetID = $0 })) {
@@ -173,19 +246,10 @@ public struct LiveGenerationDemoView: View {
                     .disabled(!model.recognition.canStartAmbientSync)
             }
             Divider()
-            HStack {
-                Toggle("Difficulty target", isOn: $model.difficultyEnabled)
-                Slider(value: $model.difficulty, in: 1.5...6, step: 0.5).disabled(!model.difficultyEnabled)
-                Text(model.difficultyEnabled ? String(format: "%.1f", model.difficulty) : "Auto").monospacedDigit().frame(width: 48)
+            if let range = model.starRange {
+                chartControls(range: range)
             }
-            Picker("Style", selection: $model.style) {
-                Text("Automatic").tag("")
-                ForEach(model.availableStyles, id: \.self) { value in Text(styleTitle(value)).tag(value) }
-            }
-            Text("Optional targets apply when the song locks. Generated difficulty and style may vary.")
-                .font(.caption).foregroundStyle(.secondary)
-            DisclosureGroup("Connection & audio input") {
-                TextField("Backend address", text: $model.backendAddress)
+            DisclosureGroup("Audio input") {
                 Picker("Listen to", selection: Binding(get: { model.recognition.musicSource }, set: { model.recognition.musicSource = $0 })) {
                     Text("Microphone").tag(MusicSource.background)
                     Text("System audio").tag(MusicSource.systemAudio)
@@ -195,7 +259,7 @@ public struct LiveGenerationDemoView: View {
             }
             HStack {
                 Button("Retry / Start") { model.enter() }.buttonStyle(.borderedProminent)
-                    .disabled(model.checkingBackend)
+                    .disabled(model.checkingModel || !model.models.hasModel)
                 Button("Stop") { model.stop() }
                 Spacer()
                 Text("4-key gameplay").foregroundStyle(.secondary)
@@ -203,19 +267,47 @@ public struct LiveGenerationDemoView: View {
         }.padding(32).frame(maxWidth: 760).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var headline: String {
+        if model.checkingModel { return "Opening the on-device model…" }
+        if !model.models.hasModel { return "Install the on-device model to play. Listen & Play makes the chart on this device." }
+        return model.recognition.statusMessage
+    }
+
+    /// The star and seed, as Generate a Chart takes them. They are fixed once the chart starts.
+    private func chartControls(range: ClosedRange<Double>) -> some View {
+        let stars = Binding(get: { model.gameplay.starDifficulty }, set: { model.gameplay.starDifficulty = $0 })
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Stars")
+                Stepper(value: stars, in: range, step: 0.1) {
+                    TextField("Stars", value: stars, format: .number.precision(.fractionLength(1)))
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 64)
+                }
+                .disabled(model.chartSeed != nil)
+                Text("Seed").padding(.leading, 16)
+                TextField("Seed", text: $model.seedText, prompt: Text("Random"))
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
+                    .disabled(model.chartSeed != nil)
+                if let seed = model.chartSeed {
+                    Text("This chart: seed \(seed)").monospacedDigit().textSelection(.enabled)
+                    Button("Use Seed") { model.seedText = String(seed) }
+                }
+            }
+            if let message = model.starValidationMessage ?? model.seedValidationMessage {
+                Text(message).font(.caption).foregroundStyle(.red)
+            }
+            Text("The chart is made when the song is identified, with the stars and seed set then. A blank seed makes a new chart each time; the same recording, stars and seed make the same chart again.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private func status(_ title: String, complete: Bool, active: Bool) -> some View {
         Label(title, systemImage: complete ? "checkmark.circle.fill" : (active ? "circle.dotted" : "circle"))
             .foregroundStyle(complete ? Color.green : (active ? Color.accentColor : Color.secondary))
-    }
-    private func styleTitle(_ value: String) -> String {
-        switch value {
-        case "jack-organization": "Jack"
-        case "stream-organization": "Stream"
-        case "trill-organization": "Trill"
-        case "tech": "Tech"
-        case "ln-coordination": "Long-note coordination"
-        default: value
-        }
     }
 }
 #endif

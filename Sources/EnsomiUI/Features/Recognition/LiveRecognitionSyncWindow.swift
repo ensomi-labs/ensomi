@@ -33,6 +33,8 @@ public struct LiveRecognitionPlaySessionRequest: Equatable, Sendable {
 }
 
 public typealias LiveRecognitionPlaySessionRequestHandler = @MainActor (LiveRecognitionPlaySessionRequest) -> Void
+/// Hears the local recording that sync starts on, before alignment locks.
+public typealias LiveRecognitionReferenceHandler = @MainActor (URL) -> Void
 
 @MainActor
 @Observable
@@ -108,6 +110,9 @@ public final class LiveRecognitionSyncModel {
 
     @ObservationIgnored
     private var playSessionRequestHandler: LiveRecognitionPlaySessionRequestHandler?
+
+    @ObservationIgnored
+    private var referenceHandler: LiveRecognitionReferenceHandler?
 
     @ObservationIgnored
     private var environmentValues = ACRCloudFileScanConfiguration.defaultProcessEnvironment()
@@ -225,6 +230,10 @@ public final class LiveRecognitionSyncModel {
 
     public func setPlaySessionRequestHandler(_ handler: LiveRecognitionPlaySessionRequestHandler?) {
         playSessionRequestHandler = handler
+    }
+
+    public func setReferenceHandler(_ handler: LiveRecognitionReferenceHandler?) {
+        referenceHandler = handler
     }
 
     public var selectedResolveResult: LocalResolveResult? {
@@ -464,6 +473,7 @@ public final class LiveRecognitionSyncModel {
         ambientReferenceAsset = asset
         didRequestPlaySessionForAmbientLock = false
         if startsPrototypeInference { startInferenceSession(for: asset, musicSource: musicSource) }
+        referenceHandler?(URL(fileURLWithPath: asset.displayPath))
         phase = .buildingReferenceIndex
         statusMessage = "Building ambient reference index"
 

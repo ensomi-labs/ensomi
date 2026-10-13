@@ -55,37 +55,43 @@ replacing it with callback delivery time changes synchronization.
 
 Provisional, confirmed, and final locks are distinct. Only a final lock triggers
 the ambient generated-play handoff. That handoff creates a host-time-anchored
-clock, clamped to track duration, and does not replay the local reference audio.
-The shared play model drives both the workbench Play tab and the macOS play window.
+clock from the lock's anchor, with no correction afterwards, and does not replay
+the local reference audio. Listen & Play's clock has no clamp: the chart's
+duration, measured from the decoded audio, ends play, so a rounded library
+duration cannot stop the clock early. The debug recognition window's handoff
+clamps its clock to the library's track duration. The shared play model drives
+both the workbench Play tab and the macOS play window.
 See [`LiveRecognitionSyncModel`](../Sources/EnsomiUI/Features/Recognition/LiveRecognitionSyncWindow.swift)
 and [`Mania4KPlaySessionModel`](../Sources/EnsomiCore/Features/Mania4K/Mania4KPlaySessionModel.swift).
 
-## Listen & Play demo
+## Listen & Play
 
-The macOS Live Demo entry is available in Debug and Release. It checks the local
-HTTP service before starting capture, then reuses ACRCloud identification, local
-resolution and Sonalign final-lock handling. This path disables the prototype
-inference connection during recognition; final lock starts one controlled
-H/R/R1 generation session and switches the demo window to the shared gameplay
-view. The host-time clock continues external playback without replaying the
-reference file. Difficulty/style selections are fixed when the session starts.
+The macOS Live Demo entry opens Listen & Play in Debug and Release builds. It
+generates with R2 on the device, through the same `ChartModelLibrary` and
+`OnDeviceChartGenerator` as Generate a Chart's on-device engine; no generation
+service runs. It is offered when that model is installed: without one, the
+window offers the download or a folder and capture never starts, and a model
+that does not open is reported without starting capture. The star control takes
+the model's range `[min_star, max_star_exclusive)` in 0.1 steps and is brought
+into it when the model opens; the seed field follows Generate a Chart, and a
+blank one draws a new seed.
 
-`ControlledGenerationClient` uses `ensomi-demo/v1` at `http://127.0.0.1:8766`.
-A health response requires a loaded compatible model. Session creation sends the
-local audio path, optional controls and a client-owned identity. Sequenced window
-requests receive complete four-lane rows, confirmed `coverage_ms` and EOS.
-The first request may catch up from BOS for a late join; later responses advance
-by at most one audio second. Refill runs independently of frame rendering,
-starting near six seconds ahead and targeting eight seconds. Read requests do
-not themselves establish completeness. Limited pages cannot settle timestamps
-with undelivered events. Settled silence can satisfy initial coverage, but entry
-must not begin inside a hold. Stop, replacement, failure and completion release
-the backend session. The producer's decoded duration owns termination.
-
-The model service caches immutable full-audio features; physical state, history
-caches and RNGs remain private to each generation session. This local protocol
-is independent of the prototype protobuf transport described below. Operator
-setup and limits are in the [demo manual](live_generation_demo.md).
+Recognition, local resolution and Sonalign locking are those of the debug flow,
+with the prototype inference connection off. When sync starts on the resolved
+recording, [`LiveGenerationDemoModel`](../Sources/EnsomiUI/Features/Recognition/LiveGenerationDemo.swift)
+starts the whole chart from that file with the star and seed set then, which
+stay fixed for that chart; it runs alongside alignment. Final lock calls
+`startAmbientChartPlay` with that chart, never a new one. Its
+[`WholeChartStream`](../Sources/EnsomiCore/Services/Beatmap/WholeChartStream.swift)
+waits for the chart while play shows loading, then publishes every object into
+`BufferedInferenceMania4KHitObjectStream` as one finished page, with coverage and
+end of stream at the chart's duration. The buffered stream's late-join rule picks
+the start: the first point at least one second past the heard position with no
+hold open, with five seconds of coverage after it, or what remains near the end
+of the song. Objects before that point are not played. Nothing plays while the
+chart is generating, and alignment sets one anchor at final lock with no tracking
+afterwards. Stop, Recognize again and a newly resolved recording cancel the chart
+in progress. Operator steps are in the [manual](live_generation_demo.md).
 
 ## Inference transport and chart streams
 
