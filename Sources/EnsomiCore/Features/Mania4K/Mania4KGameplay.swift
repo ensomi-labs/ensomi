@@ -1,8 +1,8 @@
 @_exported import EnsomiRuntime
 import Foundation
 
-/// One play judged by the gameplay core. The play session model feeds it stream pages, key input and the frame
-/// clock; each call that decides events also records them in the feedback the views read.
+/// One play judged by the gameplay core. The play session model feeds it key input and the frame clock; each call
+/// that decides events also records them in the feedback the views read.
 final class Mania4KGameplay {
     let session: GameplaySession
     let feedback: GameplayFeedback
@@ -12,27 +12,6 @@ final class Mania4KGameplay {
     init(session: GameplaySession, feedback: GameplayFeedback = GameplayFeedback()) {
         self.session = session
         self.feedback = feedback
-    }
-
-    /// A session without a chart yet; the stream's pages supply it through `append`.
-    static func streaming(judge: Judge, feedback: GameplayFeedback = GameplayFeedback()) -> Mania4KGameplay {
-        Mania4KGameplay(session: .streaming(ruleset: Ruleset(judge: judge)), feedback: feedback)
-    }
-
-    /// A page of the stream: its tokens and how far the stream is complete. A page the core rejects throws
-    /// `Mania4KChartValidationError`.
-    @discardableResult
-    func append(tokens: [ChartToken], coverageMs: Double, endOfStream: Bool) throws -> [JudgementEvent] {
-        let events: [JudgementEvent]
-        do {
-            events = try session.appendTokens(tokens: tokens, coverageMs: coverageMs, endOfStream: endOfStream)
-        } catch let error as ChartError {
-            throw Mania4KChartValidationError.chart(error)
-        }
-        if let decidedAtMs = events.last?.timeMs {
-            record(events, atChartTimeMs: decidedAtMs)
-        }
-        return events
     }
 
     @discardableResult

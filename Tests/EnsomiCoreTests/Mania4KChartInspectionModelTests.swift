@@ -191,15 +191,11 @@ final class Mania4KChartInspectionModelTests: XCTestCase {
         let inspected = try XCTUnwrap(model.playFrame)
 
         // The same chart played: taps in lane 0 every 250 ms from 1000 ms, with the clock at the same reading.
-        let objects = (0..<4).map { Mania4KHitObject(lane: .left, timeMs: 1_000 + 250 * Double($0), kind: .tap) }
-        let started = await settings.startPlay(
-            stream: InMemoryMania4KHitObjectStream(objects: objects),
-            audioFileURL: URL(fileURLWithPath: "/tmp/song.mp3"),
-            chartSource: .generated(displayName: "Same chart")
-        )
+        let objects = (0..<4).map { ChartObject(lane: 0, startMs: 1_000 + 250 * UInt32($0), endMs: nil) }
+        let chart = try Mania4KGeneratedChart(Chart(durationMs: 1_750, objects: objects))
+        let started = await settings.startGeneratedChartPlay(audioFileURL: URL(fileURLWithPath: "/tmp/song.mp3"), chart: chart)
         XCTAssertTrue(started)
         await playClock.setAudioTimeMs(900)
-        // A tick reads the stream through its frame first, as the display link's background reads do.
         let ticked = await settings.tick(atHostTimeMs: 0, presentationHostTimeMs: 0)
         XCTAssertTrue(ticked)
         let played = try XCTUnwrap(settings.playFrame)

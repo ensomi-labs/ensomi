@@ -35,7 +35,7 @@ struct EnsomiMacApp: App {
         .commands {
             CommandMenu("Debug") {
                 Button("Open Recognition Sync Flow") {
-                    openRecognitionSync()
+                    openWindow(id: LiveRecognitionSyncWindow.windowID)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             }
@@ -50,9 +50,6 @@ struct EnsomiMacApp: App {
         #if DEBUG
         Window(LiveRecognitionSyncWindow.windowTitle, id: LiveRecognitionSyncWindow.windowID) {
             LiveRecognitionSyncWindow(model: recognitionModel)
-                .onAppear {
-                    recognitionModel.setPlaySessionRequestHandler(openPlaySession(from:))
-                }
         }
         .defaultSize(width: 980, height: 760)
         #endif
@@ -73,27 +70,4 @@ struct EnsomiMacApp: App {
         }
         .defaultSize(width: 1120, height: 780)
     }
-
-    #if DEBUG
-    private func openRecognitionSync() {
-        recognitionModel.setPlaySessionRequestHandler(openPlaySession(from:))
-        openWindow(id: LiveRecognitionSyncWindow.windowID)
-    }
-
-    private func openPlaySession(from request: LiveRecognitionPlaySessionRequest) {
-        openWindow(id: Mania4KPlaySessionWindow.windowID)
-        Task {
-            await model.startAmbientGeneratedBackendPlay(
-                audioFileURL: request.audioFileURL,
-                isMock: request.isMock,
-                referenceTimeMS: request.referenceTimeMS,
-                anchorHostTimeMS: request.anchorHostTimeMS,
-                durationMS: request.durationMS,
-                title: request.title,
-                musicSource: request.musicSource
-            )
-        }
-    }
-    #endif
-
 }

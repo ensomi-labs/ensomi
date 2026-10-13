@@ -54,13 +54,12 @@ between that endpoint and receipt. Capture must preserve sample and host timing;
 replacing it with callback delivery time changes synchronization.
 
 Provisional, confirmed, and final locks are distinct. Only a final lock triggers
-the ambient generated-play handoff. That handoff creates a host-time-anchored
-clock from the lock's anchor, with no correction afterwards, and does not replay
-the local reference audio. Listen & Play's clock has no clamp: the chart's
-duration, measured from the decoded audio, ends play, so a rounded library
-duration cannot stop the clock early. The debug recognition window's handoff
-clamps its clock to the library's track duration. The shared play model drives
-both the workbench Play tab and the macOS play window.
+the play handoff, which Listen & Play takes; the debug recognition window stops at
+the lock. The handoff creates a host-time-anchored clock from the lock's anchor,
+with no correction afterwards, and does not replay the local reference audio. The
+clock has no clamp: the chart's duration, measured from the decoded audio, ends
+play, so a rounded library duration cannot stop the clock early. The shared play
+model drives both the workbench Play tab and the macOS play window.
 See [`LiveRecognitionSyncModel`](../Sources/EnsomiUI/Features/Recognition/LiveRecognitionSyncWindow.swift)
 and [`Mania4KPlaySessionModel`](../Sources/EnsomiCore/Features/Mania4K/Mania4KPlaySessionModel.swift).
 
@@ -76,47 +75,39 @@ the model's range `[min_star, max_star_exclusive)` in 0.1 steps and is brought
 into it when the model opens; the seed field follows Generate a Chart, and a
 blank one draws a new seed.
 
-Recognition, local resolution and Sonalign locking are those of the debug flow,
-with the prototype inference connection off. When sync starts on the resolved
-recording, [`LiveGenerationDemoModel`](../Sources/EnsomiUI/Features/Recognition/LiveGenerationDemo.swift)
-starts the whole chart from that file with the star and seed set then, which
-stay fixed for that chart; it runs alongside alignment. Final lock calls
-`startAmbientChartPlay` with that chart, never a new one. Its
-[`WholeChartStream`](../Sources/EnsomiCore/Services/Beatmap/WholeChartStream.swift)
-waits for the chart while play shows loading, then publishes every object into
-`BufferedInferenceMania4KHitObjectStream` as one finished page, with coverage and
-end of stream at the chart's duration. The buffered stream's late-join rule picks
-the start: the first point at least one second past the heard position with no
-hold open, with five seconds of coverage after it, or what remains near the end
-of the song. Objects before that point are not played. Nothing plays while the
-chart is generating, and alignment sets one anchor at final lock with no tracking
-afterwards. Stop, Recognize again and a newly resolved recording cancel the chart
-in progress. Operator steps are in the [manual](live_generation_demo.md).
+Recognition, local resolution and Sonalign locking are those of the debug flow.
+When sync starts on the resolved recording, [`LiveGenerationDemoModel`](../Sources/EnsomiUI/Features/Recognition/LiveGenerationDemo.swift)
+makes a [`ScheduledChart`](../Sources/EnsomiCore/Services/Beatmap/ScheduledChart.swift)
+for that file with the star and seed set then, which stay fixed for that chart:
+a runtime `ChartScheduler` built from the recording's kept audio stages when the
+generator holds them for its SHA-256 (the library's), otherwise from its decoded
+PCM, and its first `work()` starts at once, alongside alignment. With no play
+started, that `work()` generates the whole chart and returns `.done`; the
+recording's `Prepared` is then kept for its next chart. Final lock calls
+`startAmbientChartPlay` with that chart, never a new one. Play shows loading
+until the chart is whole, then calls `start(atMs:session:)` with the chart time
+heard at that moment and a new `GameplaySession.streaming`, and the next `work()`
+appends the chart from the join point to that session and returns
+`.ready(joinMs:)`. The join and lead are the runtime's: the lead is
+`LeadPolicy(ruleset:, renderLeadMs: <the playfield's scroll time>, marginMs: 0)`,
+and play joins at the first time at least that lead past the heard position with
+no hold open. Objects before it are not in the session. `start` joins from the
+time it is given while the music runs on, so it is called only once the chart is
+whole, not at final lock. Each frame passes the heard chart time to the
+scheduler's `heard`. Alignment sets one anchor at final lock with no tracking
+afterwards. Stop, Recognize again and a newly resolved recording stop the
+scheduler. Operator steps are in the [manual](live_generation_demo.md).
 
-## Inference transport and chart streams
+## Chart generation
 
-[`InferenceEndpointWebSocketClient`](../Sources/EnsomiCore/Services/Beatmap/InferenceEndpointWebSocketClient.swift)
-sends binary EnsomiProtocol `Envelope` frames: `ready`, then session `audio` with
-the local path, sync source, difficulty and route, then `reference_time` with the
-reference position and monotonic host send time. `stop_session` ends a session.
-The server must have access to that path. Text websocket frames are rejected.
-Incoming `hit_object_token` and `end_of_stream` events require a session ID;
-events from obsolete sessions cannot update the active game.
+Every chart the app makes on the device comes from the runtime's `ChartScheduler`
+in `ScheduleMode.wholeChart`, which commits the chart in one page at the end:
+`OnDeviceChartGenerator.scheduleMode` names the mode for every scheduler the app
+makes. Play while generating (`.aheadOfPlay`) waits for a streaming R2. A chart
+that is already complete, Generate a Chart's or one being inspected, needs no
+scheduler: play judges it with a plain `GameplaySession(chart:ruleset:)`.
 
-Tokens become four-lane `tap`, `holdStart`, and `holdEnd` events. Event times must
-be finite and nonnegative, ordered by time then lane, preserving source order for
-ties. Each lane permits one open hold; its next hold end closes it. Taps or new
-holds inside an open hold, unmatched ends, overlapping objects, and holds left
-open at end of stream are errors. A hold's two endpoints create one scoring object.
-
-Streams are append-only. `completeThroughChartTimeMs` promises that no future
-batch contains an event at or before that watermark. Empty batches can mean that
-generation is pending; only `isEndOfStream` declares completion. The session
-serializes reads, rejects watermark violations, and fails if the judgement clock
-outpaces complete data. Initial inference readiness requires a clean hold boundary
-and sufficient future coverage; it cannot begin halfway through an existing hold.
-
-Local-audio generation uses a complete-chart exchange instead of a stream, made by
+Local-audio generation uses a complete-chart exchange, made by
 one of two engines that answer the same questions: capabilities, a complete chart,
 progress by phase and a stop. `Mania4KChartGenerationModel` picks one: the on-device
 engine when a model is installed and the person has not chosen otherwise, else the
@@ -138,24 +129,30 @@ section stars in the song's selectable range. Capability statuses determine whic
 kinds are offered; long-note controls remain unspecified. The service replies with `generation_progress`
 phases, then one `chart_result`, or an `ErrorEvent` whose string `code` names the
 failure; `stop_session` is answered by a stopped status. Generation state owns the
-setup panels' phase, readiness and error message independently of live inference
-session state. There is no `ready` or node hello. Chart times are whole-millisecond
+setup panels' phase, readiness and error message. There is no `ready` or node hello. Chart times are whole-millisecond
 audio time, unshifted; the app's offsets apply at play time. `Mania4KGeneratedChart` has the
 gameplay core validate the chart (it rejects out-of-range lanes or times, unsorted objects and
-same-lane overlaps), then plays it with its audio from time 0 as an in-memory chart, with every
-note.
+same-lane overlaps), then plays it with its audio from time 0, with every note.
 
 The on-device engine ([`OnDeviceChartGenerator`](../Sources/EnsomiCore/Services/Beatmap/OnDeviceChartGenerator.swift),
 details in [solo device mode](solo-device.md)) decodes the chosen file with `AVAudioFile` to
 mono Float PCM at the file's own rate (channels averaged in Double) and gives it to the runtime's
 `ChartGenerator`, which opens once on a model directory and keeps ONNX Runtime's CPU sessions.
-The generation model maps what it already has to the runtime's types and back: `ModelCapabilities`
-to the protocol `ModelCapabilities` (so the same statuses decide the section kinds), the sections to
-`ChartControls` (long notes stay unspecified), the runtime's phases to `GenerationPhase`, and
-the runtime's `Chart` to `Mania4KGeneratedChart`. A refusal arrives as `GeneratorError` and
-is shown as the core's message. The seed comes from the seed field, or is a new random one when
-the field is blank. Stop cancels the generation task, which throws `GeneratorError.Cancelled` at
-the core's next graph run or phase, and the state becomes stopped. Either engine's chart ends as a
+When a song is chosen, the generation model starts `prepare`: the stages that read only the audio
+(PCM preparation, the spectrogram, BeatThis, the features and the beat grid), most of a
+generation's time. Choosing another song cancels it, and a cancelled preparation keeps nothing.
+Generate waits for the preparation of the song it generates, or starts one, then runs the chart
+stages from the `Prepared` through a whole-chart scheduler. The generator keeps each song's
+`Prepared` in memory for its model, keyed by the audio file's SHA-256, the four most recent songs;
+nothing is stored on disk. Progress shows loading while the file decodes, timing while the audio
+stages run and rows for the chart stages, which report no phases of their own. The generation
+model maps what it already has to the runtime's types and back: `ModelCapabilities` to the
+protocol `ModelCapabilities` (so the same statuses decide the section kinds), the sections to
+`ChartControls` (long notes stay unspecified), and the runtime's `Chart` to
+`Mania4KGeneratedChart`. A refusal arrives as `GeneratorError` and is shown as the core's
+message. The seed comes from the seed field, or is a new random one when the field is blank. Stop
+cancels the generation task and a preparation it waits for, which throw `GeneratorError.Cancelled`
+at the core's next graph run, and the state becomes stopped. Either engine's chart ends as a
 `Mania4KChartGenerationResult`: the chart, the seed and star the engine reports in its receipt,
 the receipt JSON and, on this device, the `.osu`. Saving the `.osz` passes that `.osu`, the song
 file's bytes and the receipt to the runtime's `exportOsz`, so every client writes the same archive.
@@ -215,9 +212,9 @@ frame delivers the inputs stamped up to its chart time in timestamp order, then
 advances the session to that time; an input stamped later waits for the next
 frame. The play view's display link makes the frames, one per display refresh,
 and nothing else ticks the session: each frame judges at the current chart time
-and is drawn for the time the display shows it (`targetTimestamp`). The stream
-is read ahead in the background, and a frame the stream has not covered fails the
-session. Paused sessions do not judge input or advance misses. The renderer
+and is drawn for the time the display shows it (`targetTimestamp`). A frame the
+session's chart has not covered fails the play; a whole chart covers every frame.
+Paused sessions do not judge input or advance misses. The renderer
 consumes snapshots and never infers judgements.
 
 The playfield (lanes, notes, hold bodies, the key tray, the judgement line, the
@@ -237,10 +234,11 @@ is described in [gameplay look](gameplay-look.md).
 
 Every play mode judges with the Rust gameplay core (`EnsomiRuntime`, rules in the
 runtime repository's `crates/gameplay/README.md`), driven through
-[`Mania4KGameplay`](../Sources/EnsomiCore/Features/Mania4K/Mania4KGameplay.swift): stream
-pages go in as tokens with their coverage, inputs with their chart time, and each frame
-advances the session. A frame whose session has not decided through the gameplay time
-because the stream lags fails the play. The core applies
+[`Mania4KGameplay`](../Sources/EnsomiCore/Features/Mania4K/Mania4KGameplay.swift): inputs go
+in with their chart time and each frame advances the session. A scheduler appends its pages
+to the session inside the runtime, and the events a page decides come out of the next input or
+advance. A frame whose session has not decided through the gameplay time fails the play. The
+core applies
 per-lane note lock: earlier unresolved objects cannot remain hittable past the
 next object's start. A tap or hold head pressed too early is ignored; an unresolved
 head misses after its successful window. A hold resolves once, using the worse
@@ -262,7 +260,7 @@ Accuracy averages tier weights `1`, `0.9`, `0.85`, `0.8`, `0.4`, and `0` across
 resolved objects, defaulting to `1` before any judgement. Success increments combo;
 a miss resets it. Successful tap and hold-head errors contribute to the suggested
 audio-offset adjustment, which is the negative mean error; misses and release
-errors do not. A session finishes only after the stream ends, all objects resolve,
+errors do not. A session finishes only after the chart is complete, all objects resolve,
 and the audio clock reaches the end.
 
 ## Chart inspection
@@ -311,6 +309,6 @@ The inspected song lasts until the audio or the chart's last note ends, whicheve
 later, and playback pauses there.
 
 Focused regression coverage lives in
-[`Tests/EnsomiCoreTests`](../Tests/EnsomiCoreTests), including stream watermark,
+[`Tests/EnsomiCoreTests`](../Tests/EnsomiCoreTests), including the ambient join,
 input ordering, stale callback, cache validation, and ambient clock tests. Private
 recordings and historical measurements are not requirements for these contracts.

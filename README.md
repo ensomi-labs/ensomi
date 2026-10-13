@@ -10,9 +10,9 @@ plays a generated four-lane mania chart. It does not play existing charts; on ma
 **Settings → Developer → Open Chart Inspector…** draws an `.osz`, or an `.osu` with its
 audio, against the song for checking it.
 
-`EnsomiCore` owns recognition, local indexing, synchronization, inference transport,
+`EnsomiCore` owns recognition, local indexing, synchronization, chart generation,
 and gameplay; `EnsomiUI` owns the shared interface. See [architecture](docs/architecture.md)
-for the timing, streaming, and scoring contracts.
+for the timing, generation, and scoring contracts.
 
 ## Build and test
 
@@ -63,11 +63,11 @@ identified. See the [operation manual](docs/live_generation_demo.md) for local a
 preparation and troubleshooting.
 
 
-**Generate a Chart** builds a complete chart from a local audio file. Pick the file,
-set the stars (the model's range), an optional seed and optional sections, and the chart is
-made on this device by the Rust core's generator with ONNX Runtime, from the Ensomi R2 model
-that Settings downloads from [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) at the tag
-`r2-1.0` (the files its package manifest lists, about 120 MB, resumed after a dropped
+**Generate a Chart** builds a complete chart from a local audio file. Pick the file (the app
+starts on its audio stages at once), set the stars (the model's range), an optional seed and
+optional sections, and the chart is made on this device by the Rust core's generator with ONNX
+Runtime, from the Ensomi R2 model that Settings downloads from
+[Hugging Face](https://huggingface.co/sed-i/ensomi-r2) at the tag `r2-1.0` (the files its package manifest lists, about 120 MB, resumed after a dropped
 connection) or reads from a folder you choose. Nothing is sent to a server. The finished chart
 shows the seed that makes it again, plays from the start, and saves as `.osu` or as `.osz` with
 the song. The model is licensed CC BY-NC-SA 4.0, not for commercial use; its beat tracker,
@@ -82,9 +82,9 @@ repository's current Python system, at `ws://localhost:8765` by default; overrid
 `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default.
 
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
-Sync Flow** recognizes microphone or system audio, resolves a local reference,
-and opens generated gameplay after a final sync lock. The Play interface also
-supports local-audio generation. Live ambient recognition is a macOS debug
+Sync Flow** recognizes microphone or system audio, resolves a local reference and
+locks sync to it; Listen & Play plays it. The Play interface also supports
+local-audio generation. Live ambient recognition is a macOS debug
 workflow; ShazamKit has no implemented provider.
 
 The recognition window reads process environment values, then the first readable

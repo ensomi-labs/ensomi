@@ -179,43 +179,6 @@ public struct Mania4KKeyBindingSet: Equatable, Sendable {
     }
 }
 
-public typealias Mania4KHitObjectKind = TokenKind
-
-public struct Mania4KHitObject: Equatable, Sendable {
-    public let lane: Mania4KLane
-    public let timeMs: Double
-    public let kind: Mania4KHitObjectKind
-
-    public init(lane: Mania4KLane, timeMs: Double, kind: Mania4KHitObjectKind) {
-        self.lane = lane
-        self.timeMs = timeMs
-        self.kind = kind
-    }
-
-    public var token: ChartToken {
-        ChartToken(lane: lane.index, timeMs: timeMs, kind: kind)
-    }
-
-    /// The stream form of a chart: a tap, or a hold's start and end, ordered by time, then lane, then chart order.
-    /// The chart must be one the gameplay core accepted, so its lanes are valid.
-    public static func objects(of chart: Chart) -> [Mania4KHitObject] {
-        var tokens: [(object: Mania4KHitObject, order: Int)] = []
-        for source in chart.objects {
-            let lane = Mania4KLane(rawValue: Int(source.lane))!
-            let start = Double(source.startMs)
-            if let end = source.endMs {
-                tokens.append((Mania4KHitObject(lane: lane, timeMs: start, kind: .holdStart), tokens.count))
-                tokens.append((Mania4KHitObject(lane: lane, timeMs: Double(end), kind: .holdEnd), tokens.count))
-            } else {
-                tokens.append((Mania4KHitObject(lane: lane, timeMs: start, kind: .tap), tokens.count))
-            }
-        }
-        return tokens
-            .sorted { ($0.object.timeMs, $0.object.lane, $0.order) < ($1.object.timeMs, $1.object.lane, $1.order) }
-            .map(\.object)
-    }
-}
-
 public struct Mania4KChartMetadata: Equatable, Sendable {
     public let title: String
     public let artist: String?
@@ -235,47 +198,6 @@ public struct Mania4KChartMetadata: Equatable, Sendable {
         self.sourceDescription = sourceDescription
         self.objectCount = objectCount
         self.durationMs = durationMs
-    }
-}
-
-public protocol Mania4KHitObjectStreaming: Sendable {
-    func cancel() async
-    func prepare() async throws -> Mania4KChartMetadata
-    func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch
-}
-
-public extension Mania4KHitObjectStreaming {
-    func cancel() async {}
-}
-
-public struct Mania4KHitObjectStreamCursor: Hashable, Sendable {
-    public let rawValue: String
-
-    public init(rawValue: String) {
-        self.rawValue = rawValue
-    }
-}
-
-public struct Mania4KHitObjectBatch: Equatable, Sendable {
-    public let objects: [Mania4KHitObject]
-    public let nextCursor: Mania4KHitObjectStreamCursor?
-    public let completeThroughChartTimeMs: Double
-    public let isEndOfStream: Bool
-
-    public init(
-        objects: [Mania4KHitObject],
-        nextCursor: Mania4KHitObjectStreamCursor?,
-        completeThroughChartTimeMs: Double,
-        isEndOfStream: Bool
-    ) {
-        self.objects = objects
-        self.nextCursor = nextCursor
-        self.completeThroughChartTimeMs = completeThroughChartTimeMs
-        self.isEndOfStream = isEndOfStream
     }
 }
 
@@ -365,7 +287,6 @@ public enum Mania4KPlayFailure: Equatable, Error, Sendable {
     case audioPrepareFailed(String)
     case chartPrepareFailed(Mania4KChartValidationError)
     case streamFailed(String)
-    case engineRejectedObjects(Mania4KChartValidationError)
 }
 
 /// A chart or beatmap the gameplay core rejected, with the core's error and the text the player sees.
@@ -383,8 +304,6 @@ extension Mania4KPlayFailure: LocalizedError {
             return "Chart could not be prepared: \(error.localizedDescription)"
         case .streamFailed(let message):
             return "Chart stream failed: \(message)"
-        case .engineRejectedObjects(let error):
-            return "Chart was rejected by the engine: \(error.localizedDescription)"
         }
     }
 }
@@ -667,70 +586,4 @@ public struct Mania4KKeyboardInputRouter: Sendable {
     public static func lane(for key: String) -> Mania4KLane? {
         Mania4KKeyBindingSet.default.lane(for: key)
     }
-}
-
-public actor InMemoryMania4KHitObjectStream: Mania4KHitObjectStreaming {
-    private let objects: [Mania4KHitObject]
-    private let metadata: Mania4KChartMetadata
-
-    public init(objects: [Mania4KHitObject], metadata: Mania4KChartMetadata? = nil) {
-        self.objects = objects
-        let duration = objects.map(\.timeMs).max()
-        self.metadata = metadata ?? Mania4KChartMetadata(
-            title: "In-memory mania4k chart",
-            sourceDescription: "In-memory",
-            objectCount: objects.filter { $0.kind != .holdEnd }.count,
-            durationMs: duration
-        )
-    }
-
-    public func prepare() async throws -> Mania4KChartMetadata {
-        metadata
-    }
-
-    public func read(
-        after cursor: Mania4KHitObjectStreamCursor?,
-        throughChartTimeMs: Double,
-        limit: Int
-    ) async throws -> Mania4KHitObjectBatch {
-        readFromArray(objects, cursor: cursor, throughChartTimeMs: throughChartTimeMs, limit: limit, finalDurationMs: metadata.durationMs)
-    }
-}
-
-private func readFromArray(
-    _ objects: [Mania4KHitObject],
-    cursor: Mania4KHitObjectStreamCursor?,
-    throughChartTimeMs: Double,
-    limit: Int,
-    finalDurationMs: Double?
-) -> Mania4KHitObjectBatch {
-    let startIndex = max(Int(cursor?.rawValue ?? "0") ?? 0, 0)
-    let safeLimit = max(limit, 1)
-    var nextIndex = startIndex
-    var emitted: [Mania4KHitObject] = []
-
-    while nextIndex < objects.count,
-          objects[nextIndex].timeMs <= throughChartTimeMs,
-          emitted.count < safeLimit {
-        emitted.append(objects[nextIndex])
-        nextIndex += 1
-    }
-
-    let isEnd = nextIndex >= objects.count
-    let nextCursor = isEnd ? nil : Mania4KHitObjectStreamCursor(rawValue: String(nextIndex))
-    let completeThrough: Double
-    if isEnd {
-        completeThrough = max(throughChartTimeMs, finalDurationMs ?? throughChartTimeMs)
-    } else if objects[nextIndex].timeMs <= throughChartTimeMs {
-        completeThrough = objects[nextIndex].timeMs.nextDown
-    } else {
-        completeThrough = throughChartTimeMs
-    }
-
-    return Mania4KHitObjectBatch(
-        objects: emitted,
-        nextCursor: nextCursor,
-        completeThroughChartTimeMs: completeThrough,
-        isEndOfStream: isEnd
-    )
 }

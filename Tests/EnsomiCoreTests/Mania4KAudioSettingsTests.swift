@@ -58,7 +58,7 @@ final class Mania4KAudioSettingsTests: XCTestCase {
 
     func testVolumeOffsetsAndTheDeviceSwitchWaitForTheGameToEnd() async throws {
         let clock = FakeMania4KAudioClock(metadata: Mania4KAudioMetadata(durationMs: 1_000, title: "Fake"))
-        let stream = InMemoryMania4KHitObjectStream(objects: [Mania4KHitObject(lane: .left, timeMs: 100, kind: .tap)])
+        let chart = try Mania4KGeneratedChart(Chart(durationMs: 100, objects: [ChartObject(lane: 0, startMs: 100, endMs: nil)]))
         let model = Mania4KPlaySessionModel(settings: try isolatedSettings(), audioClock: clock)
         model.outputDeviceChanged(to: headphones)
         model.setAudioOffset(-50)
@@ -66,9 +66,7 @@ final class Mania4KAudioSettingsTests: XCTestCase {
         model.setAudioOffset(-30)
         model.setMusicVolume(0.6)
 
-        let started = await model.startPlay(
-            stream: stream, audioFileURL: URL(fileURLWithPath: "/tmp/audio.mp3"), chartSource: .generated(displayName: "Chart")
-        )
+        let started = await model.startGeneratedChartPlay(audioFileURL: URL(fileURLWithPath: "/tmp/audio.mp3"), chart: chart)
         XCTAssertTrue(started)
         XCTAssertTrue(model.isGameInProgress)
         let startedVolume = await clock.musicVolume

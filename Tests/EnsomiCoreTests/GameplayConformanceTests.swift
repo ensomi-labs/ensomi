@@ -2,7 +2,8 @@ import XCTest
 @testable import EnsomiCore
 
 /// Runs every fixture of the runtime repository's `conformance/gameplay` through `Mania4KGameplay`, the adapter the
-/// play session model drives, and compares events, score, late inputs and the decided-through assertions.
+/// play session model drives, and compares events, score, late inputs and the decided-through assertions. Pages go
+/// into the session itself, as a `ChartScheduler` appends them.
 final class GameplayConformanceTests: XCTestCase {
     func testEveryFixtureReproducesItsExpectedOutputThroughTheAdapter() throws {
         let fixtures = try fixtureFiles()
@@ -40,7 +41,7 @@ final class GameplayConformanceTests: XCTestCase {
                 ruleset: Ruleset(judge: judge)
             ))
         } else {
-            gameplay = .streaming(judge: judge)
+            gameplay = Mania4KGameplay(session: .streaming(ruleset: Ruleset(judge: judge)))
         }
 
         let kinds: [String: TokenKind] = ["tap": .tap, "hold_start": .holdStart, "hold_end": .holdEnd]
@@ -53,10 +54,12 @@ final class GameplayConformanceTests: XCTestCase {
             } else if let watermark = step.advance {
                 produced = gameplay.advance(to: watermark, frameTimeMs: watermark)
             } else if let page = step.page {
-                // The adapter takes tokens: a page of objects becomes a start and an end token per hold.
+                // A page of objects becomes a start and an end token per hold.
                 let tokens = page.tokens?.map { ChartToken(lane: $0.lane, timeMs: $0.timeMs, kind: kinds[$0.kind]!) }
                     ?? (page.objects ?? []).flatMap(objectTokens)
-                produced = try gameplay.append(tokens: tokens, coverageMs: page.coverageMs, endOfStream: page.endOfStream)
+                let decided = try gameplay.session.appendTokens(tokens: tokens, coverageMs: page.coverageMs, endOfStream: page.endOfStream)
+                events += decided.map { ($0, index) }
+                continue
             } else if let decidedThrough = step.decidedThroughMs {
                 XCTAssertEqual(gameplay.session.decidedThroughMs(), decidedThrough, "\(name): step \(index) decided through")
             }

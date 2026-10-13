@@ -55,7 +55,7 @@ final class WebSocketChartGenerationTransport: ChartGenerationTransport, @unchec
         case .data(let data):
             return data
         default:
-            throw InferenceEndpointProtocolError.invalidBinaryFrame
+            throw ChartGenerationError.unexpectedFrame("a text frame")
         }
     }
 
@@ -165,11 +165,13 @@ public actor ChartGenerationClient {
         sessionID: String,
         payload: Ensomi_Protocol_V1_Envelope.OneOf_Payload
     ) throws -> Data {
-        try InferenceEndpointProtocolCodec.envelope(
-            sessionID: sessionID,
-            payload: payload,
-            metadata: InferenceEndpointEnvelopeMetadata()
-        ).serializedData()
+        try Ensomi_Protocol_V1_Envelope.with {
+            $0.sessionID = sessionID
+            $0.sentAtUnixMs = Int64((Date().timeIntervalSince1970 * 1_000).rounded())
+            $0.sourceNodeID = "ensomi.reference.swift"
+            $0.messageID = UUID().uuidString
+            $0.payload = payload
+        }.serializedData()
     }
 
     private static func receiveEnvelope(_ transport: any ChartGenerationTransport) async throws -> Ensomi_Protocol_V1_Envelope {

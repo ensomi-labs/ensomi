@@ -21,7 +21,7 @@ enum OnDeviceFixtures {
         try existing("ensomi-model/artifacts/release-r2/bulk/hf/ensomi-r2/onnx", environment: "ENSOMI_R2_ONNX")
     }
 
-    /// The runtime's resampler tables, which the runtime package carries; the command line generator reads them here.
+    /// The runtime's resampler tables, which the runtime package carries.
     static func resampler() throws -> URL {
         try existing("ensomi-runtime/assets/resampler", environment: "ENSOMI_RESAMPLER")
     }
@@ -29,11 +29,11 @@ enum OnDeviceFixtures {
     static func song() throws -> URL {
         try existing("ensomi-model/dataset/0/1403084/audio.mp3", environment: "ENSOMI_SONG")
     }
+}
 
-    /// The native command line generator.
-    static func cli() throws -> URL {
-        try existing("ensomi-runtime/target/apple/release/generate", environment: "ENSOMI_GENERATE_CLI")
-    }
+/// The file's SHA-256 in lowercase hex, as the library stores it.
+func sha256Hex(of url: URL) throws -> String {
+    SHA256.hash(data: try Data(contentsOf: url, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
 }
 
 func temporaryDirectory() throws -> URL {

@@ -281,7 +281,7 @@ final class ChartGenerationClientTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: audioURL) }
         let generated = await model.generate(audioURL: audioURL, star: 3, artist: "Band")
         let result = try XCTUnwrap(generated)
-        XCTAssertEqual(result.chart.objects.map(\.kind), [.holdStart, .holdEnd])
+        XCTAssertEqual(result.chart.chart.objects, [ChartObject(lane: 0, startMs: 100, endMs: 600)])
         XCTAssertEqual(model.state, .finished(result))
         XCTAssertEqual(result.seed, 1_234_567, "the seed the server used, though none was asked for")
         XCTAssertEqual(result.model, "Ensomi R2 r2-1.0")
@@ -320,7 +320,7 @@ final class ChartGenerationClientTests: XCTestCase {
         let audioURL = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audioURL) }
         await model.loadCapabilities()
-        model.loadAudioDuration(for: audioURL)
+        model.chooseAudio(audioURL)
         model.sections = [section("00:00", "00:08")]
         XCTAssertFalse(model.canGenerate(star: 3))
         XCTAssertTrue(try XCTUnwrap(model.sectionValidationMessage).contains("inside the song"))
@@ -339,7 +339,7 @@ final class ChartGenerationClientTests: XCTestCase {
         let audioURL = try makeAudioFile(durationSeconds: 8)
         defer { try? FileManager.default.removeItem(at: audioURL) }
         await model.loadCapabilities()
-        model.loadAudioDuration(for: audioURL)
+        model.chooseAudio(audioURL)
         model.sections = [section("00:00", "00:08")]
         XCTAssertTrue(model.canGenerate(star: 3))
         _ = await model.generate(audioURL: audioURL, star: 3)
@@ -377,7 +377,7 @@ final class ChartGenerationClientTests: XCTestCase {
         let audioURL = try makeAudioFile()
         defer { try? FileManager.default.removeItem(at: audioURL) }
         await model.loadCapabilities()
-        model.loadAudioDuration(for: audioURL)
+        model.chooseAudio(audioURL)
 
         model.seedText = "-1"
         XCTAssertNil(model.seed)

@@ -2,11 +2,9 @@ import EnsomiProtocol
 import EnsomiRuntime
 import Foundation
 
-/// A complete generated chart as the stream tokens the play session takes.
+/// A complete generated chart, which the gameplay core accepted.
 public struct Mania4KGeneratedChart: Equatable, Sendable {
-    public let objects: [Mania4KHitObject]
-    public let objectCount: Int
-    public let durationMs: Double
+    public let chart: Chart
 
     /// From the chart service. Throws `Mania4KChartValidationError` unless the gameplay core accepts the chart.
     public init(_ source: Ensomi_Protocol_V1_Chart) throws {
@@ -22,9 +20,14 @@ public struct Mania4KGeneratedChart: Equatable, Sendable {
         } catch let error as ChartError {
             throw Mania4KChartValidationError.chart(error)
         }
+        self.chart = chart
+    }
 
-        self.objects = Mania4KHitObject.objects(of: chart)
-        self.objectCount = chart.objects.count
-        self.durationMs = Double(chart.durationMs)
+    public var objectCount: Int {
+        chart.objects.count
+    }
+
+    public var durationMs: Double {
+        Double(chart.durationMs)
     }
 }

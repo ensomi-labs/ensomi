@@ -3,19 +3,16 @@ import XCTest
 @testable import EnsomiCore
 
 final class Mania4KGeneratedChartTests: XCTestCase {
-    func testConvertsTapsAndHoldsToSortedStreamEvents() throws {
+    func testKeepsTheChartTheCoreAccepted() throws {
         let chart = try Mania4KGeneratedChart(makeChart(duration: 5_000, [
             (0, 100, nil), (1, 100, 900), (2, 500, nil), (1, 1_000, nil), (3, 2_000, 2_500)
         ]))
 
         XCTAssertEqual(chart.objectCount, 5)
         XCTAssertEqual(chart.durationMs, 5_000)
-        XCTAssertEqual(chart.objects.map(\.timeMs), [100, 100, 500, 900, 1_000, 2_000, 2_500])
-        XCTAssertEqual(
-            chart.objects.map(\.kind),
-            [.tap, .holdStart, .tap, .holdEnd, .tap, .holdStart, .holdEnd]
-        )
-        XCTAssertEqual(chart.objects.map(\.lane.rawValue), [0, 1, 2, 1, 1, 3, 3])
+        XCTAssertEqual(chart.chart.objects.map(\.startMs), [100, 100, 500, 1_000, 2_000])
+        XCTAssertEqual(chart.chart.objects.map(\.endMs), [nil, 900, nil, nil, 2_500])
+        XCTAssertEqual(chart.chart.objects.map(\.lane), [0, 1, 2, 1, 3])
     }
 
     func testRejectsInvalidChartsWithTheCoresErrors() {
@@ -40,8 +37,7 @@ final class Mania4KGeneratedChartTests: XCTestCase {
         let chart = try Mania4KGeneratedChart(makeChart(duration: 5_000, [(0, 100, 100), (1, 100, 900), (1, 900, nil)]))
 
         XCTAssertEqual(chart.objectCount, 3)
-        XCTAssertEqual(chart.objects.map(\.kind), [.holdStart, .holdEnd, .holdStart, .holdEnd, .tap])
-        XCTAssertEqual(chart.objects.map(\.timeMs), [100, 100, 100, 900, 900])
+        XCTAssertEqual(chart.chart.objects.map(\.endMs), [100, 900, nil])
     }
 
     @MainActor

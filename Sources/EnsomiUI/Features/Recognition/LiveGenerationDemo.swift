@@ -9,8 +9,8 @@ import EnsomiCore
 @MainActor
 @Observable
 public final class LiveGenerationDemoModel {
-    /// Makes the whole chart of a recording at a star and seed.
-    typealias MakeChart = @MainActor @Sendable (URL, Double, UInt64) async throws -> Mania4KGeneratedChart
+    /// Makes the scheduler of a recording's chart for a request, with play's lead.
+    typealias MakeScheduler = @MainActor @Sendable (LocalAudioAsset, GenerateChartRequest, LeadPolicy) async throws -> ChartScheduler
 
     public let recognition: LiveRecognitionSyncModel
     /// Plays the chart; its `starDifficulty` is the star the chart is made at.
@@ -29,31 +29,33 @@ public final class LiveGenerationDemoModel {
     public private(set) var showingGameplay = false
     public private(set) var errorMessage: String?
     @ObservationIgnored private let stars: @MainActor @Sendable () async throws -> ClosedRange<Double>
-    @ObservationIgnored private let makeChart: MakeChart
+    @ObservationIgnored private let makeScheduler: MakeScheduler
     /// The chart of the identified song: started when its recording is resolved, played at final lock.
-    @ObservationIgnored private(set) var chart: Task<Mania4KGeneratedChart, Error>?
+    @ObservationIgnored private(set) var chart: ScheduledChart?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var teardown: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
 
-    /// Generates with the model `models` holds, as Generate a Chart does on this device.
+    /// Generates with the model `models` holds, from the recording's audio stages when it holds them.
     public convenience init(recognition: LiveRecognitionSyncModel = .liveDebug(), gameplay: Mania4KPlaySessionModel = .init(),
                             models: ChartModelLibrary = .shared) {
         self.init(recognition: recognition, gameplay: gameplay, models: models,
             stars: { try await models.generator().selectableStars },
-            makeChart: { try await models.generator().chart(audioURL: $0, star: $1, seed: $2) })
+            makeScheduler: { asset, request, lead in
+                try await models.generator().scheduler(
+                    audioURL: URL(fileURLWithPath: asset.displayPath), sha256: asset.sha256, request: request, lead: lead)
+            })
     }
 
-    /// `stars` gives the model's selectable stars; `makeChart` makes a chart with it.
+    /// `stars` gives the model's selectable stars; `makeScheduler` makes a chart's scheduler with it.
     init(recognition: LiveRecognitionSyncModel, gameplay: Mania4KPlaySessionModel, models: ChartModelLibrary,
-         stars: @escaping @MainActor @Sendable () async throws -> ClosedRange<Double>, makeChart: @escaping MakeChart) {
+         stars: @escaping @MainActor @Sendable () async throws -> ClosedRange<Double>, makeScheduler: @escaping MakeScheduler) {
         self.recognition = recognition
         self.gameplay = gameplay
         self.models = models
         self.stars = stars
-        self.makeChart = makeChart
-        recognition.startsPrototypeInference = false
-        recognition.setReferenceHandler { [weak self] audioURL in self?.referenceResolved(audioURL) }
+        self.makeScheduler = makeScheduler
+        recognition.setReferenceHandler { [weak self] asset in self?.referenceResolved(asset) }
         recognition.setPlaySessionRequestHandler { [weak self] request in self?.locked(request) }
     }
 
@@ -120,34 +122,40 @@ public final class LiveGenerationDemoModel {
     }
 
     /// Starts the chart as soon as the song's recording is known, with the star and seed set then, so that it is
-    /// ready or nearly so at final lock.
-    func referenceResolved(_ audioURL: URL) {
+    /// ready or nearly so at final lock. Once made, the recording's audio stages are kept for its next chart.
+    func referenceResolved(_ asset: LocalAudioAsset) {
         guard modelReady, !showingGameplay else { return }
         replaceChart(with: nil)
         if let message = starValidationMessage ?? seedValidationMessage {
             errorMessage = message
             return
         }
-        let star = gameplay.starDifficulty
         let seed = ChartGenerationSeed.parse(seedText) ?? ChartGenerationSeed.random()
-        let makeChart = self.makeChart
-        let chart = Task { try await makeChart(audioURL, star, seed) }
+        let request = GenerateChartRequest(star: gameplay.starDifficulty, seed: seed, audioName: asset.fileName)
+        // Play joins at least the playfield's scroll time ahead of the heard position, so its first notes scroll in.
+        let lead = LeadPolicy(
+            ruleset: Ruleset(judge: gameplay.judgeDifficulty.judge), renderLeadMs: gameplay.scrollTimeMs, marginMs: 0)
+        let makeScheduler = self.makeScheduler
+        let chart = ScheduledChart { try await makeScheduler(asset, request, lead) }
         replaceChart(with: chart)
         chartSeed = seed
         errorMessage = nil
         Task { [weak self] in
             do {
-                let made = try await chart.value
-                guard let self, self.chart == chart else { return }
-                chartNoteCount = made.objectCount
+                let made = try await chart.result()
+                guard let self, self.chart === chart else { return }
+                chartNoteCount = made.chart.objects.count
+                if let prepared = chart.scheduler?.prepared() {
+                    try? await models.generator().keep(prepared, sha256: asset.sha256)
+                }
             } catch {
-                guard let self, self.chart == chart, !chart.isCancelled else { return }
+                guard let self, self.chart === chart else { return }
                 errorMessage = OnDeviceChartGenerator.message(for: error)
             }
         }
     }
 
-    private func replaceChart(with chart: Task<Mania4KGeneratedChart, Error>?) {
+    private func replaceChart(with chart: ScheduledChart?) {
         self.chart?.cancel()
         self.chart = chart
         chartSeed = nil

@@ -31,15 +31,15 @@ final class GameplayTimingTests: XCTestCase {
         clock.volume = 0
         let audioOffset = -20.0
         let noteTimes = Array(stride(from: 1_500.0, through: 9_500.0, by: 400))
-        let stream = InMemoryMania4KHitObjectStream(
-            objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) }
-        )
+        let chart = try Mania4KGeneratedChart(Chart(
+            durationMs: 9_500, objects: noteTimes.map { ChartObject(lane: 0, startMs: UInt32($0), endMs: nil) }
+        ))
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: 0,
             audioClock: clock
         )
-        guard await model.startPlay(stream: stream, audioFileURL: url, chartSource: .generated(displayName: "Timing")) else {
+        guard await model.startGeneratedChartPlay(audioFileURL: url, chart: chart, title: "Timing") else {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
 
@@ -187,11 +187,12 @@ final class GameplayTimingTests: XCTestCase {
             let start = 1_500 + Double(index) * 140
             return Note(lane: Mania4KLane.allCases[(index * 3) % 4], startMs: start, endMs: index % 6 == 5 ? start + 400 : nil)
         }
-        let objects = notes.flatMap { note -> [Mania4KHitObject] in
-            note.endMs.map { [Mania4KHitObject(lane: note.lane, timeMs: note.startMs, kind: .holdStart), Mania4KHitObject(lane: note.lane, timeMs: $0, kind: .holdEnd)] }
-                ?? [Mania4KHitObject(lane: note.lane, timeMs: note.startMs, kind: .tap)]
-        }.sorted { ($0.timeMs, $0.lane.rawValue) < ($1.timeMs, $1.lane.rawValue) }
-        let stream = InMemoryMania4KHitObjectStream(objects: objects)
+        let objects = notes.map { note in
+            ChartObject(lane: note.lane.index, startMs: UInt32(note.startMs), endMs: note.endMs.map { UInt32($0) })
+        }
+        let chart = try Mania4KGeneratedChart(Chart(
+            durationMs: objects.map { $0.endMs ?? $0.startMs }.max() ?? 0, objects: objects
+        ))
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: audioOffset,
             visualOffsetMilliseconds: 0,
@@ -204,7 +205,7 @@ final class GameplayTimingTests: XCTestCase {
         window.contentView = playfield
         window.orderFrontRegardless()
         print("TIMING window: screens \(NSScreen.screens.count), visible \(window.isVisible), occluded \(!window.occlusionState.contains(.visible)), display asleep \(CGDisplayIsAsleep(CGMainDisplayID())), session \(String(describing: CGSessionCopyCurrentDictionary()))")
-        guard await model.startPlay(stream: stream, audioFileURL: url, chartSource: .generated(displayName: "Timing")) else {
+        guard await model.startGeneratedChartPlay(audioFileURL: url, chart: chart, title: "Timing") else {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
         oldClockPlayer.play()
@@ -273,14 +274,16 @@ final class GameplayTimingTests: XCTestCase {
         let clock = AVFoundationMania4KAudioClock()
         clock.volume = 0
         let noteTimes = [2_000.0, 2_600, 3_200, 3_800, 4_400, 5_000]
-        let stream = InMemoryMania4KHitObjectStream(objects: noteTimes.map { Mania4KHitObject(lane: .left, timeMs: $0, kind: .tap) })
+        let chart = try Mania4KGeneratedChart(Chart(
+            durationMs: 5_000, objects: noteTimes.map { ChartObject(lane: 0, startMs: UInt32($0), endMs: nil) }
+        ))
         let model = Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock)
 
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: Mania4KPlayExperienceView(model: model).frame(width: 900, height: 800))
         window.makeKeyAndOrderFront(nil)
-        guard await model.startPlay(stream: stream, audioFileURL: url, chartSource: .generated(displayName: "Timing")) else {
+        guard await model.startGeneratedChartPlay(audioFileURL: url, chart: chart, title: "Timing") else {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
 

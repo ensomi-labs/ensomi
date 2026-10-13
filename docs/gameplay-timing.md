@@ -36,9 +36,9 @@ offsets.
   refresh it judges at the current chart time, publishes a frame whose render time
   is the chart time at the link's `targetTimestamp`, and draws it. There is no
   other tick. The link stops while the window is minimized, hidden, fully covered or
-  on another Space (its occlusion state is not visible), so frames and stream reads
-  stop too. The playfield view then pauses the session, `pause()`, and the player
-  resumes with the Resume button.
+  on another Space (its occlusion state is not visible), so frames stop too. The
+  playfield view then pauses the session, `pause()`, and the player resumes with the
+  Resume button.
 - **Drawing.** `Mania4KPlayfieldLayout` turns the play frame into rounded
   rectangles, `Mania4KMetalRenderer` draws them in one instanced call. The HUD is
   SwiftUI over the Metal view.

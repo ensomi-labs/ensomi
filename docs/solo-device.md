@@ -8,7 +8,7 @@ Generate a Chart can make the chart on the device that plays it. The app decodes
 song, the runtime's Rust core runs the Ensomi R2 generator with ONNX Runtime's CPU
 provider inside the app process, and the chart plays through the same path as one from
 the chart server. Nothing is sent to a server and no service has to run. The contract
-is in [architecture](architecture.md#inference-transport-and-chart-streams); this
+is in [architecture](architecture.md#chart-generation); this
 document is how the mode is installed, what runs where, what it costs and what it
 does not do.
 
@@ -83,7 +83,8 @@ selectable and the choice is remembered. The engine picker is disabled during a 
 | --- | --- |
 | Pick the song, section validation, star range | App (`Mania4KChartGenerationModel`); the range and section kinds come from the model's capabilities (`ChartGenerator.capabilities()`, mapped to the protocol `ModelCapabilities`) |
 | Decode | App: `AVAudioFile` at the file's own sample rate, channels averaged in Double, then Float (`OnDeviceAudioDecoder`) |
-| Resample to 22050 Hz, beat tracking (BeatThis), rows, arrangement, `.osu` | The runtime's Rust core in the app process; ONNX Runtime CPU runs the graphs on a thread of its own |
+| Resample to 22050 Hz, beat tracking (BeatThis), features and beat grid (`prepare`, from when the song is chosen) | The runtime's Rust core in the app process; ONNX Runtime CPU runs the graphs on a thread of its own |
+| Rows, arrangement, `.osu` (a whole-chart `ChartScheduler` from the `Prepared`) | The same |
 | `.osz` | The runtime's Rust core (`exportOsz`, `crates/osz`) from the `.osu`, the song file's bytes and the receipt; the app reads the song and writes the file the save panel names |
 | Validate and play | App: the gameplay core checks the chart, `Mania4KPlaySessionModel` plays it from the song's time 0 |
 | Server | Not involved |
@@ -94,9 +95,14 @@ The core resamples any PCM not at 22050 Hz with the runtime's soxr tables. Those
 Swift package carries them as a resource, which `ChartGenerator.open` reads when no
 `resamplerDirectory` is given. The app bundles none of them. A song at 22050 Hz needs none of them.
 
-Generate lists the core's five phases (loading, timing, rows, arrangement, export) as they
-pass. Stop cancels the task; the core stops at its next graph run or phase and the screen says
-no chart was made. A refusal (`star_out_of_range`, `unsupported_control`, `generation_failed`) or
+Choosing a song starts preparing it, so Generate often has only the chart stages left; it waits
+for that preparation rather than starting another. Generate lists the five phases (loading,
+timing, rows, arrangement, export): loading while the file decodes, timing while the audio stages
+run, then rows until the chart is made, since the scheduler reports no phases of its own. The
+generator keeps each prepared song's `Prepared` in memory for the model, by the file's SHA-256,
+for the four most recent songs; nothing is written to disk. Stop cancels the task and a
+preparation it waits for; the core stops at its next graph run and the screen says no chart was
+made. A refusal (`star_out_of_range`, `unsupported_control`, `generation_failed`) or
 an unreadable model shows the core's message under "The chart could not be made." So does a panic
 in the core, which ends only its own generation (`generation_failed`, "internal error: ..."). The
 generator is opened once and kept.
@@ -162,12 +168,14 @@ had 29 files and no manifest (the link, not the app, sets that).
 ## Checks
 
 All of these run on the Mac with `xcodebuild … test -only-testing:EnsomiCoreTests/<class>`;
-each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER`, `ENSOMI_SONG`
-and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
+each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER` and `ENSOMI_SONG`
+override the sibling-checkout defaults).
 
-- `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability,
-  phase and control mappings, the engine default and its persistence, a chosen folder
-  kept only if the generator opens it, and refused when it lacks the model's notice.
+- `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability and
+  control mappings, the engine default and its persistence, a chosen folder kept only if the
+  generator opens it, and refused when it lacks the model's notice. With the model: Generate
+  waits for the chosen song's preparation and the generator keeps its `Prepared`; choosing
+  another song cancels the first preparation, which keeps nothing.
 - `ChartModelDownloaderTests`: install from a local copy of the package with a manifest the
   test writes (exactly the listed files and the manifest, opens, the licence read from the
   manifest, no leftovers), a file the manifest leaves out although `runtime.json` names it
@@ -189,23 +197,9 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
   result keeping the seed the server reports though none was asked for, Stop ending in the
   stopped state, and the section check, which refuses a section outside 8–32 seconds whatever
   its target, as the runtime does.
-- `OnDeviceParityAndRunTests.testChartMatchesTheNativeGeneratorOnTheSamePCM`: the
-  app's decoder and generator against `ensomi-runtime/target/apple/release/generate` on
-  the same PCM dump, byte for byte. To keep the dump and both charts and compare by hand,
-  from the app root on the Mac:
-
-  ```sh
-  TEST_RUNNER_ENSOMI_PARITY_OUT="$PWD/.build/parity" xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac \
-    -destination 'platform=macOS' -derivedDataPath .build/solo test \
-    -only-testing:EnsomiCoreTests/OnDeviceParityAndRunTests/testChartMatchesTheNativeGeneratorOnTheSamePCM
-  ../ensomi-runtime/target/apple/release/generate --model-dir ../ensomi-model/artifacts/release-r2/bulk/hf/ensomi-r2/onnx \
-    --assets ../ensomi-runtime/assets/resampler --pcm .build/parity/saigetsu.f32 --sample-rate 44100 \
-    --star 3.5 --seed 0 --title Saigetsu --artist Parity --audio-name audio.mp3 --out .build/parity/by-hand.osu
-  cmp .build/parity/app.osu .build/parity/by-hand.osu
-  ```
-
-  The PCM is 5,875,200 samples at 44,100 Hz; both charts are 34,867 bytes with the same
-  SHA-256. Other decoders give other PCM and other charts, and were not compared.
+- Parity with the native generator is the runtime's check: its `GeneratorTests` compare the
+  Swift API's charts, including a whole-chart scheduler from stored audio stages, with the native
+  charts committed in `conformance/generate/native-charts`, byte for byte.
 - `OnDeviceParityAndRunTests.testGenerateOnThisDeviceThenExport`: generates saigetsu at 3.5
   stars with a random seed through the generation model, checks the `.osu` parses to the chart,
   writes the `.osz` and opens it with `/usr/bin/unzip`: `audio.mp3` (the song's bytes),
@@ -257,7 +251,7 @@ at narrow widths and with large text were not rendered.
 ## Limits
 
 - CPU only, on macOS and iOS. The footprint is about 2 GiB on the Mac.
-- One generation at a time. Stop takes effect at the core's next graph run or phase.
+- One generation at a time. Stop takes effect at the core's next graph run.
 - The whole song is decoded into memory before generation.
 - Charts from the chart server cannot be saved from the app: the protocol's result carries no
   `.osu`.

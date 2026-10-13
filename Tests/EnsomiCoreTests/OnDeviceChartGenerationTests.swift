@@ -77,9 +77,57 @@ final class OnDeviceChartGenerationTests: XCTestCase {
         ])
     }
 
-    func testPhasesKeepTheirNames() {
-        let phases: [GenerationPhase] = [.loading, .timing, .rows, .arrangement, .export]
-        XCTAssertEqual(phases.map(ChartGenerationPhase.init), [.loading, .timing, .rows, .arrangement, .export])
+    /// A song is prepared from when it is chosen. Generate waits for that preparation rather than starting another, and
+    /// the generator keeps the song's audio stages under its file's SHA-256.
+    @MainActor
+    func testGenerateStartsFromThePreparationOfTheChosenSong() async throws {
+        let song = try OnDeviceFixtures.song()
+        let library = isolatedLibrary()
+        await library.choose(folder: try OnDeviceFixtures.model())
+        let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
+        await generation.loadCapabilities()
+
+        generation.chooseAudio(song)
+        let preparation = try XCTUnwrap(generation.preparation)
+        let generated = await generation.generate(audioURL: song, star: 3.5, seed: 0)
+
+        XCTAssertNotNil(generated, "\(generation.state)")
+        XCTAssertEqual(generation.preparation?.task, preparation.task)
+        let kept = try await library.generator().preparedSong(sha256: sha256Hex(of: song))
+        XCTAssertNotNil(kept)
+    }
+
+    /// Choosing another song cancels the first song's preparation, which keeps nothing.
+    @MainActor
+    func testChoosingAnotherSongCancelsThePreparationAndKeepsNothingOfIt() async throws {
+        let song = try OnDeviceFixtures.song()
+        let library = isolatedLibrary()
+        await library.choose(folder: try OnDeviceFixtures.model())
+        let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
+        let other = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: other) }
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 22_050, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 22_050 * 10))
+        buffer.frameLength = buffer.frameCapacity
+        for frame in 0..<Int(buffer.frameLength) {
+            buffer.floatChannelData![0][frame] = Float(sin(Double(frame) * 0.05)) * (frame % 11_025 < 2_000 ? 0.8 : 0.1)
+        }
+        try AVAudioFile(forWriting: other, settings: format.settings).write(from: buffer)
+
+        generation.chooseAudio(song)
+        let first = try XCTUnwrap(generation.preparation)
+        generation.chooseAudio(other)
+        let second = try XCTUnwrap(generation.preparation)
+        _ = try? await first.task.value
+        _ = try await second.task.value
+
+        XCTAssertTrue(first.task.isCancelled)
+        let generator = try await library.generator()
+        let (songSHA256, otherSHA256) = (try sha256Hex(of: song), try sha256Hex(of: other))
+        let keptSong = await generator.preparedSong(sha256: songSHA256)
+        let keptOther = await generator.preparedSong(sha256: otherSHA256)
+        XCTAssertNil(keptSong)
+        XCTAssertNotNil(keptOther)
     }
 
     @MainActor

@@ -53,18 +53,14 @@ final class PlayScreenScreenshotTests: XCTestCase {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let snapshotter = try PlayfieldSnapshotter(device: device, scale: Self.scale)
         let clock = FakeMania4KAudioClock(metadata: Mania4KAudioMetadata(durationMs: 12_000, title: "Screenshot"))
-        let stream = InMemoryMania4KHitObjectStream(
-            objects: Self.hitObjects(),
-            metadata: Mania4KChartMetadata(title: "Screenshot chart", sourceDescription: "Fixed chart", durationMs: 12_000)
-        )
+        let chart = try Mania4KGeneratedChart(Chart(durationMs: 12_000, objects: Self.chartObjects()))
         let model = Mania4KPlaySessionModel(
             audioOffsetMilliseconds: 0,
             visualOffsetMilliseconds: 0,
             audioClock: clock
         )
-        let started = await model.startPlay(
-            stream: stream, audioFileURL: URL(fileURLWithPath: "/tmp/screenshot.wav"),
-            chartSource: .generated(displayName: "Screenshot chart")
+        let started = await model.startGeneratedChartPlay(
+            audioFileURL: URL(fileURLWithPath: "/tmp/screenshot.wav"), chart: chart, title: "Screenshot chart"
         )
         XCTAssertTrue(started)
 
@@ -132,20 +128,10 @@ final class PlayScreenScreenshotTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination), "writing \(url.path)")
     }
 
-    private static func hitObjects() -> [Mania4KHitObject] {
+    private static func chartObjects() -> [ChartObject] {
         chart.flatMap { row in
-            row.lanes.flatMap { lane -> [Mania4KHitObject] in
-                let lane = Mania4KLane(rawValue: lane)!
-                guard let endMs = row.endMs else {
-                    return [Mania4KHitObject(lane: lane, timeMs: row.timeMs, kind: .tap)]
-                }
-                return [
-                    Mania4KHitObject(lane: lane, timeMs: row.timeMs, kind: .holdStart),
-                    Mania4KHitObject(lane: lane, timeMs: endMs, kind: .holdEnd)
-                ]
-            }
+            row.lanes.map { ChartObject(lane: UInt32($0), startMs: UInt32(row.timeMs), endMs: row.endMs.map { UInt32($0) }) }
         }
-        .sorted { ($0.timeMs, $0.lane.rawValue) < ($1.timeMs, $1.lane.rawValue) }
     }
 
     private static func inputLog() -> [(timeMs: Double, key: String, isPressed: Bool)] {
