@@ -92,26 +92,30 @@ struct ChartModelLicenseView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let license = library.license {
-                if let expression = license.expression {
-                    Text("Model licence: \(expression). The [model card](https://huggingface.co/sed-i/ensomi-r2) says what each part covers.")
-                } else {
-                    Text("The [model card](https://huggingface.co/sed-i/ensomi-r2) gives the model's licence.")
+                Group {
+                    if let expression = license.expression {
+                        Text("Model licence: \(expression). The [model card](https://huggingface.co/sed-i/ensomi-r2) says what each part covers.")
+                    } else {
+                        Text("The [model card](https://huggingface.co/sed-i/ensomi-r2) gives the model's licence.")
+                    }
                 }
-                noticeButtons(license.notices)
+                .foregroundStyle(.secondary)
+                noticeButtons("Notices:", license.notices)
             }
-            Text("ONNX Runtime runs the model on this device.")
-            noticeButtons(ChartModelLicense.onnxRuntimeNotices)
+            noticeButtons("ONNX Runtime, which runs the model:", ChartModelLicense.onnxRuntimeNotices)
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
         .sheet(item: $shown) { LicenseTextView(notice: $0) }
     }
 
-    private func noticeButtons(_ notices: [ChartModelLicense.Notice]) -> some View {
+    private func noticeButtons(_ label: String, _ notices: [ChartModelLicense.Notice]) -> some View {
         HStack(spacing: 12) {
+            Text(label)
+                .foregroundStyle(.secondary)
             ForEach(notices) { notice in
                 Button(notice.name) { shown = notice }
+                    .foregroundStyle(.tint)
             }
         }
         .buttonStyle(.borderless)
