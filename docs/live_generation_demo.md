@@ -34,41 +34,14 @@ Mac 的路径共享、音频上传和远程鉴权不在该入口的能力范围�
 
 ## 启动后端
 
-在包含 demo 服务实现的 Ensomi Model checkout 中执行：
+Listen & Play 需要本机 `http://127.0.0.1:8766` 上说 `ensomi-demo/v1` 的生成服务：
+`/health` 应返回 `protocol: "ensomi-demo/v1"` 和 `ready: true`。这个服务和它的启动脚本
+`scripts/demo-service.sh` 不在 ensomi-model 的任何分支或 tag 中，目前无法从发布的代码启动。
 
-```sh
-./scripts/demo-service.sh
-```
-
-该脚本在 Git 主仓库中寻找已有 Python 环境和研究权重，managed worktree 也可使用。
-缺少环境时先按模型仓库说明安装依赖。此脚本使用已安装的环境，不自动同步依赖。
-可以用 `UV_PROJECT_ENVIRONMENT` 指定可用的虚拟环境。
-
-默认使用提交 `a99519ccee60925dce10a4200f88a6c049d37964` 所报告的
-common-prefix outcome 模型：
-
-- 文件：`artifacts/joint-audio/20260926-common-prefix-outcomes-r1-v1/actor-128/step-128.pt`
-- SHA-256：`364c7b711bc39ab3384175b755658d2ef67a4c10b166f5eb85dc072d920e10e3`
-
-权重不随 Git 仓库分发。如果权重在其他位置，可指定：
-
-```sh
-ENSOMI_DEMO_CHECKPOINT=/绝对路径/step-128.pt ./scripts/demo-service.sh
-```
-
-终端输出 `listening`、`ready: true` 后，验证健康接口：
-
-```sh
-curl http://127.0.0.1:8766/health
-```
-
-返回应包含 `protocol: "ensomi-demo/v1"`、`ready: true` 和上述 checkpoint 哈希。
-服务只监听本机回环地址。默认使用 CPU、256 MiB 音频特征 LRU、最多两个会话；
-120 秒没有请求的会话会过期，在后续健康检查或生成请求时回收。可用 Hydra 覆盖设置，例如：
-
-```sh
-./scripts/demo-service.sh port=8766 cache_mib=512 max_sessions=2
-```
+ensomi-model 现在的模型服务是 Generate a Chart 的 chart server，启动命令见其报告
+[Serve the app](https://github.com/ensomi-labs/ensomi-model/blob/main/docs/research/r2_system.md#serve-the-app)
+一节（`python -m ensomi_model.service --model-dir ...`）。它在 `ws://localhost:8765` 上使用
+EnsomiProtocol，不提供 `ensomi-demo/v1`，所以不能代替 Listen & Play 的后端（见排障）。
 
 ## 构建与打开应用
 

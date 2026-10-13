@@ -114,8 +114,11 @@ Local-audio generation uses a complete-chart exchange instead of a stream, made 
 one of two engines that answer the same questions: capabilities, a complete chart,
 progress by phase and a stop. `Mania4KChartGenerationModel` picks one: the on-device
 engine when a model is installed and the person has not chosen otherwise, else the
-chart server. Controls, validation, the play path and `Mania4KGeneratedChart` are the
-same for both. The on-device engine is described after the server contract.
+chart server. The app's controls, its own request check, the play path and
+`Mania4KGeneratedChart` are the same for both; what each engine accepts is its own. The
+runtime is the production engine for released models. The model service is a development
+server for whatever ensomi-model's Python system currently does, and it need not refuse what
+the runtime refuses. The on-device engine is described after the server contract.
 
 [`ChartGenerationClient`](../Sources/EnsomiCore/Services/Beatmap/ChartGenerationClient.swift)
 opens a binary websocket (`ENSOMI_SERVICE_URL`, default `ws://localhost:8765`), sends
@@ -124,9 +127,9 @@ range `[min_star, max_star_exclusive)`) and `generate_chart` with a session ID, 
 star, seed and `ChartControls.sections`. Section targets map to either a star or
 a pattern kind and strength. The app reads the local audio duration and requires
 ordered endpoints inside the song, no overlapping sections (adjacency is allowed),
-8–32-second pattern spans, strength in `[0, 1]`, and section stars in the song's
-selectable range. Capability statuses determine which section kinds are offered;
-long-note controls remain unspecified. The service replies with `generation_progress`
+spans of 8–32 seconds whatever the target (the runtime's rule), strength in `[0, 1]`, and
+section stars in the song's selectable range. Capability statuses determine which section
+kinds are offered; long-note controls remain unspecified. The service replies with `generation_progress`
 phases, then one `chart_result`, or an `ErrorEvent` whose string `code` names the
 failure; `stop_session` is answered by a stopped status. Generation state owns the
 setup panels' phase, readiness and error message independently of live inference
@@ -152,7 +155,9 @@ the receipt JSON and, on this device, the `.osu`. Saving the `.osz` passes that 
 file's bytes and the receipt to the runtime's `exportOsz`, so every client writes the same archive.
 The model is the published Ensomi R2 download in Application Support or a folder the person chose;
 `ChartModelLibrary` owns that choice, opens the generator and keeps folder access across launches
-with a bookmark. A download that stops keeps its files and resumes with HTTP Range requests.
+with a bookmark. The download reads the package manifest (`ensomi-package.json`), checks it with the
+runtime's `checkPackage` and fetches exactly the files it lists, each checked against the size and
+SHA-256 the manifest gives. A download that stops keeps its files and resumes with HTTP Range requests.
 
 ## Gameplay and scoring
 

@@ -19,7 +19,7 @@ for the timing, streaming, and scoring contracts.
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
 macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Rust core in
 [ensomi-runtime](https://github.com/ensomi-labs/runtime): SwiftPM resolves its `EnsomiRuntime`
-package at the version pinned in `project.yml` (`0.2.0`) and downloads the xcframework from
+package at the version pinned in `project.yml` (`0.3.0`) and downloads the xcframework from
 that release. The package carries the generator's resampler tables; the apps bundle none. The
 gameplay conformance test reads its fixtures from a runtime checkout beside this repository
 (`../ensomi-runtime/conformance/gameplay`) and is skipped without one.
@@ -56,24 +56,28 @@ SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
 The macOS **Live Demo** toolbar button opens **Listen & Play**: it checks the
 local H/R/R1 service, starts recognition and synchronization automatically, and
 opens gameplay after final lock. Optional difficulty/style requests are captured
-at lock. See the [operation manual](docs/live_generation_demo.md) for backend
-startup, checkpoint identity, local audio preparation and troubleshooting.
+at lock. See the [operation manual](docs/live_generation_demo.md) for the backend it
+needs, local audio preparation and troubleshooting; no ensomi-model branch or tag holds
+that backend now.
 
 
 **Generate a Chart** builds a complete chart from a local audio file. Pick the file,
 set the stars (the model's range), an optional seed and optional sections, and the chart is
 made on this device by the Rust core's generator with ONNX Runtime, from the Ensomi R2 model
 that Settings downloads from [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) at the tag
-`r2-1.0` (about 120 MB, resumed after a dropped connection) or reads from a folder you choose.
-Nothing is sent to a server. The finished chart shows the seed that makes it again, plays from
-the start, and saves as `.osu` or as `.osz` with the song. The model is licensed CC BY-NC-SA 4.0,
-not for commercial use; its beat tracker, BeatThis (CPJKU), keeps BeatThis's MIT licence.
-Settings states both under Chart model. See [solo device mode](docs/solo-device.md).
+`r2-1.0` (the files its package manifest lists, about 120 MB, resumed after a dropped
+connection) or reads from a folder you choose. Nothing is sent to a server. The finished chart
+shows the seed that makes it again, plays from the start, and saves as `.osu` or as `.osz` with
+the song. The model is licensed CC BY-NC-SA 4.0, not for commercial use; its beat tracker,
+BeatThis (CPJKU), keeps BeatThis's MIT licence. Settings shows the licence the package gives
+under Chart model, with BeatThis's licence text and ONNX Runtime's licence and notices. See
+[solo device mode](docs/solo-device.md).
 
-The chart server stays selectable on the same screen: it runs the local Ensomi R2 model service
-(`python -m ensomi_model.service --model-dir <dir>` from
-[ensomi-model](https://github.com/ensomi-labs/ensomi-model), `ws://localhost:8765` by
-default; override with `ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default).
+The chart server stays selectable on the same screen: it is
+[ensomi-model](https://github.com/ensomi-labs/ensomi-model)'s model service
+(`python -m ensomi_model.service --model-dir <dir>`), a development server for that
+repository's current Python system, at `ws://localhost:8765` by default; override with
+`ENSOMI_SERVICE_URL` or the `EnsomiServiceURL` default.
 
 Index your audio in **Library**. On macOS Debug builds, **Debug → Open Recognition
 Sync Flow** recognizes microphone or system audio, resolves a local reference,
