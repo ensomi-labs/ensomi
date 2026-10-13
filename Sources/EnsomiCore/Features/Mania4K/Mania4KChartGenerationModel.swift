@@ -475,10 +475,11 @@ public final class Mania4KChartGenerationModel {
     @discardableResult
     private func prepare(_ audioURL: URL) -> Preparation {
         let models = models
+        let progress: @Sendable (ChartGenerationPhase) -> Void = { [weak self] phase in
+            Task { @MainActor in self?.preparation(of: audioURL, reached: phase) }
+        }
         let task = Task {
-            try await models.generator().prepare(audioURL: audioURL) { phase in
-                Task { @MainActor [weak self] in self?.preparation(of: audioURL, reached: phase) }
-            }
+            try await models.generator().prepare(audioURL: audioURL, progress: progress)
         }
         preparation = Preparation(audioURL: audioURL, model: models.activeModel, task: task)
         return preparation!

@@ -803,8 +803,7 @@ private actor TrackingMania4KAudioClock: Mania4KAudioClock {
 /// time asked, without the objects before it.
 final class FakeChartScheduler: ChartScheduler, @unchecked Sendable {
     let request: GenerateChartRequest
-    private let lock = NSLock()
-    private let made = DispatchSemaphore(value: 0)
+    private let condition = NSCondition()
     private var chart: Chart?
     private var stopped = false
     private var play: (atMs: Double, session: GameplaySession)?
@@ -820,14 +819,17 @@ final class FakeChartScheduler: ChartScheduler, @unchecked Sendable {
 
     /// Makes `chart`: a `work()` waiting for it goes on.
     func finish(_ chart: Chart) {
-        lock.withLock { self.chart = chart }
-        made.signal()
+        condition.withLock {
+            self.chart = chart
+            condition.broadcast()
+        }
     }
 
     override func work() throws -> SchedulerAction {
-        made.wait()
-        made.signal()
-        let (chart, play) = lock.withLock {
+        let (chart, play) = condition.withLock {
+            while self.chart == nil, !stopped {
+                condition.wait()
+            }
             defer { self.play = nil }
             return (stopped ? nil : self.chart, self.play)
         }
@@ -840,18 +842,20 @@ final class FakeChartScheduler: ChartScheduler, @unchecked Sendable {
     }
 
     override func start(atMs: Double, session: GameplaySession) {
-        lock.withLock { play = (atMs, session) }
+        condition.withLock { play = (atMs, session) }
     }
 
     override func heard(chartMs: Double, wallMs: Double) {}
 
     override func stop() {
-        lock.withLock { stopped = true }
-        made.signal()
+        condition.withLock {
+            stopped = true
+            condition.broadcast()
+        }
     }
 
     override func result() -> ChartResult? {
-        lock.withLock {
+        condition.withLock {
             chart.map {
                 ChartResult(chart: $0, osu: "", receipt: GenerationReceipt(
                     modelName: "Fake", modelVersion: "0", seed: request.seed, star: request.star, receiptJson: "{}"))
