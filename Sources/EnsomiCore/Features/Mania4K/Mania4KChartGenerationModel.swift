@@ -75,14 +75,14 @@ public struct ChartGenerationSection: Identifiable, Equatable, Sendable {
             guard Double(end) <= durationMS else {
                 throw ValidationError(message: "\(name): keep the span inside the song.")
             }
+            guard (8_000...32_000).contains(end - start) else {
+                throw ValidationError(message: "\(name): a section must last 8–32 seconds.")
+            }
             if section.kind == .star {
                 guard starRange.contains(section.star) else {
                     throw ValidationError(message: "\(name): use the song's star range (\(starRange.lowerBound)–\(starRange.upperBound)).")
                 }
             } else {
-                guard (8_000...32_000).contains(end - start) else {
-                    throw ValidationError(message: "\(name): a pattern must last 8–32 seconds.")
-                }
                 guard (0...1).contains(section.strength) else {
                     throw ValidationError(message: "\(name): strength must be from 0 to 1.")
                 }
