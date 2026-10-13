@@ -1,9 +1,11 @@
+import EnsomiRuntime
 import XCTest
 @testable import EnsomiCore
 
-/// Installs the published model from a local copy of its listing and files, as `file:` URLs or through `LocalServer`,
-/// an HTTP server inside the test process, so no network is needed. `ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads it
-/// from Hugging Face.
+/// Installs a model package from a local copy of its manifest and files, as `file:` URLs or through `LocalServer`, an
+/// HTTP server inside the test process, so no network is needed. The checks that come before the generator opens the
+/// download run on a small package; the rest need the published model (`OnDeviceFixtures.model()`).
+/// `ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads it from Hugging Face.
 @MainActor
 final class ChartModelDownloaderTests: XCTestCase {
     private var scratch: URL!
@@ -23,14 +25,19 @@ final class ChartModelDownloaderTests: XCTestCase {
 
     private var installDirectory: URL { scratch.appendingPathComponent("models/ensomi-r2") }
     private var staging: URL { ChartModelDownloader.stagingDirectory(for: installDirectory) }
+    private var manifestRequest: String { "onnx/\(ChartModelDownloader.manifestName)" }
 
     private func contents(of directory: URL) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
     }
 
-    func testInstallsOnlyTheFilesTheRuntimeNamesAndOpensThem() async throws {
-        let model = try OnDeviceFixtures.model()
-        let source = try publishedCopy(of: model, in: scratch.appendingPathComponent("source"))
+    private func served(_ package: PackageFixture, in name: String = "source") throws -> ChartModelDownloader {
+        ChartModelDownloader(source: LocalServer.serve(try publishedCopy(of: package, in: scratch.appendingPathComponent(name))), session: LocalServer.session)
+    }
+
+    func testInstallsExactlyTheFilesTheManifestListsAndOpensThem() async throws {
+        let package = try PackageFixture.r2()
+        let source = try publishedCopy(of: package, in: scratch.appendingPathComponent("source"))
         let library = isolatedLibrary(
             modelsDirectory: scratch.appendingPathComponent("models"),
             downloader: ChartModelDownloader(source: source)
@@ -43,47 +50,137 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertEqual(library.download, .idle)
         XCTAssertTrue(library.isDownloaded)
         XCTAssertEqual(library.activeModel, installDirectory)
-        let installed = Set(contents(of: installDirectory))
-        XCTAssertTrue(installed.isSuperset(of: ["runtime.json", "beatthis.onnx", "rows_step.onnx"]))
-        XCTAssertFalse(installed.contains("rows-smoke.json"), "files the runtime does not name stay out")
+        XCTAssertEqual(Set(contents(of: installDirectory)), Set(package.files + [ChartModelDownloader.manifestName]))
         XCTAssertEqual(contents(of: installDirectory.deletingLastPathComponent()), ["ensomi-r2"])
 
         let capabilities = try await library.generator().capabilities
         XCTAssertEqual(capabilities.modelName, "Ensomi R2")
         XCTAssertEqual(capabilities.minStar, 2)
         XCTAssertEqual(capabilities.maxStarExclusive, 6)
+
+        let deadline = Date().addingTimeInterval(10)
+        while library.license == nil, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(library.license?.expression, try package.manifest()["license"] as? String)
+        XCTAssertEqual(library.license?.notices.map(\.name), package.notices)
     }
 
-    func testAFileThatDiffersFromItsListedChecksumLeavesNoModel() async throws {
-        let source = try publishedCopy(of: try OnDeviceFixtures.model(), in: scratch.appendingPathComponent("source"), corrupting: "r2_initial_rows.bin")
+    /// The manifest asks for a later runtime: the download stops before fetching any file, with the runtime's reason.
+    func testAManifestTheRuntimeRefusesFetchesNoFile() async throws {
+        let package = try PackageFixture.small(in: scratch.appendingPathComponent("package"))
+        let source = LocalServer.serve(try publishedCopy(of: package, in: scratch.appendingPathComponent("source")) { $0["min_runtime"] = "9.0.0" })
+        let library = isolatedLibrary(
+            modelsDirectory: scratch.appendingPathComponent("models"),
+            downloader: ChartModelDownloader(source: source, session: LocalServer.session)
+        )
+
+        library.startDownload()
+        try await waitForDownload(library)
+
+        guard case .failed(let message) = library.download else { return XCTFail("\(library.download)") }
+        XCTAssertTrue(message.contains("9.0.0"), message)
+        XCTAssertEqual(LocalServer.requests.map(\.path), [manifestRequest])
+        XCTAssertFalse(library.hasModel)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: installDirectory.path))
+    }
+
+    func testAFileThatDiffersFromItsManifestChecksumLeavesNoModel() async throws {
+        let package = try PackageFixture.small(in: scratch.appendingPathComponent("package"))
+        let source = try publishedCopy(of: package, in: scratch.appendingPathComponent("source"), corrupting: "weights.bin")
         let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: ChartModelDownloader(source: source))
 
         library.startDownload()
         try await waitForDownload(library)
 
-        XCTAssertEqual(library.download, .failed(ChartModelDownloadError.checksum("r2_initial_rows.bin").localizedDescription))
+        XCTAssertEqual(library.download, .failed(ChartModelDownloadError.checksum("weights.bin").localizedDescription))
         XCTAssertFalse(library.hasModel)
         XCTAssertFalse(FileManager.default.fileExists(atPath: installDirectory.path))
-        XCTAssertFalse(contents(of: staging).contains { $0.hasPrefix("r2_initial_rows.bin") }, "the file that failed is not kept")
+        XCTAssertFalse(contents(of: staging).contains { $0.hasPrefix("weights.bin") }, "the file that failed is not kept")
     }
 
-    func testAFileTheListingLacksLeavesNoModel() async throws {
-        let source = try publishedCopy(of: try OnDeviceFixtures.model(), in: scratch.appendingPathComponent("source"), omitting: "rows_step.onnx")
+    /// The runtime refuses to open a package whose manifest leaves out a file `runtime.json` names, so the download is
+    /// not installed.
+    func testAManifestThatLeavesOutAFileTheConfigNamesLeavesNoModel() async throws {
+        let source = try publishedCopy(of: try PackageFixture.r2(), in: scratch.appendingPathComponent("source"), omitting: "rows_step.onnx")
         let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: ChartModelDownloader(source: source))
 
         library.startDownload()
         try await waitForDownload(library)
 
-        XCTAssertEqual(library.download, .failed(ChartModelDownloadError.notPublished("rows_step.onnx").localizedDescription))
+        guard case .failed(let message) = library.download else { return XCTFail("\(library.download)") }
+        XCTAssertTrue(message.contains("rows_step.onnx"), message)
         XCTAssertFalse(library.hasModel)
         XCTAssertFalse(FileManager.default.fileExists(atPath: installDirectory.path))
+    }
+
+    /// An install made before the app downloaded the manifest: one file as published, one changed, one missing, and
+    /// `ensomi-model.json`, which the package no longer lists. The download fetches the manifest, the changed file and
+    /// the missing one, copies the other, and the install ends with exactly the manifest's files.
+    func testAnInstallWithoutAManifestIsCompletedFromIt() async throws {
+        let package = try PackageFixture.small(in: scratch.appendingPathComponent("package"))
+        let downloader = try served(package)
+        let install = installDirectory
+        try FileManager.default.createDirectory(at: install, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: package.directory.appendingPathComponent("runtime.json"), to: install.appendingPathComponent("runtime.json"))
+        try Data("an older notice\n".utf8).write(to: install.appendingPathComponent("BeatThis-LICENSE.txt"))
+        try Data("{}".utf8).write(to: install.appendingPathComponent("ensomi-model.json"))
+
+        try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
+
+        XCTAssertEqual(LocalServer.requests.map(\.path), [manifestRequest, "onnx/BeatThis-LICENSE.txt", "onnx/weights.bin"])
+        XCTAssertEqual(Set(contents(of: install)), Set(package.files + [ChartModelDownloader.manifestName]))
+        for name in package.files {
+            XCTAssertEqual(try Data(contentsOf: install.appendingPathComponent(name)), try Data(contentsOf: package.directory.appendingPathComponent(name)), name)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
+    }
+
+    /// The library starts that completion by itself when the install has no manifest, and not once the install is
+    /// complete.
+    func testTheLibraryCompletesAnInstallWithoutAManifestWhenItStarts() async throws {
+        let name = "rows_step.onnx"
+        let package = try PackageFixture.r2()
+        let downloader = try served(package)
+        let install = installDirectory
+        try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
+        try FileManager.default.removeItem(at: install.appendingPathComponent(ChartModelDownloader.manifestName))
+        try FileManager.default.removeItem(at: install.appendingPathComponent(name))
+        let earlier = LocalServer.requests.count
+
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
+        try await waitForDownload(library)
+
+        XCTAssertEqual(library.download, .idle)
+        XCTAssertTrue(library.isDownloaded)
+        XCTAssertEqual(LocalServer.requests.dropFirst(earlier).map(\.path), [manifestRequest, "onnx/\(name)"])
+        XCTAssertEqual(try Data(contentsOf: install.appendingPathComponent(name)), try Data(contentsOf: package.directory.appendingPathComponent(name)))
+        XCTAssertEqual(contents(of: install.deletingLastPathComponent()), ["ensomi-r2"])
+
+        let completed = LocalServer.requests.count
+        let later = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
+        XCTAssertEqual(later.download, .idle)
+        XCTAssertEqual(LocalServer.requests.count, completed)
+    }
+
+    /// The installed package's licence and notice texts reach the library, and ONNX Runtime's licence files reach the
+    /// app from the runtime package.
+    func testTheLicenceComesFromTheInstalledManifest() async throws {
+        let package = try PackageFixture.small(in: installDirectory)
+        try package.writeManifest()
+
+        let license = try ChartModelLicense(modelDirectory: package.directory)
+
+        XCTAssertEqual(license.expression, try package.manifest()["license"] as? String)
+        XCTAssertEqual(license.notices.map(\.name), package.notices)
+        XCTAssertEqual(license.notices.first?.text, try String(contentsOf: package.directory.appendingPathComponent("BeatThis-LICENSE.txt"), encoding: .utf8))
+        XCTAssertEqual(ChartModelLicense.onnxRuntimeNotices.map(\.name), ChartGenerator.onnxRuntimeLicenseFiles.map(\.lastPathComponent))
+        XCTAssertFalse(ChartModelLicense.onnxRuntimeNotices.isEmpty)
     }
 
     /// The connection drops 3 MB into the largest file. The next start asks for the rest of that file with a Range
     /// request and fetches no finished file again; Remove Download then deletes the model and nothing is left.
     func testAFailedDownloadResumesWithARangeRequest() async throws {
-        let model = try OnDeviceFixtures.model()
-        let source = LocalServer.serve(try publishedCopy(of: model, in: scratch.appendingPathComponent("source")))
+        let package = try PackageFixture.r2()
+        let source = LocalServer.serve(try publishedCopy(of: package, in: scratch.appendingPathComponent("source")))
         LocalServer.cut("beatthis.onnx", after: 3_000_000, .fail)
         let library = isolatedLibrary(
             modelsDirectory: scratch.appendingPathComponent("models"),
@@ -96,7 +193,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertEqual(library.download, .failed(URLError(.networkConnectionLost).localizedDescription))
         XCTAssertTrue(library.hasPartialDownload)
         XCTAssertFalse(library.hasModel)
-        XCTAssertTrue(contents(of: staging).contains("runtime.json"))
+        XCTAssertTrue(contents(of: staging).contains("BeatThis-LICENSE.txt"))
         XCTAssertEqual(try Data(contentsOf: staging.appendingPathComponent("beatthis.onnx.part")).count, 3_000_000)
 
         library.startDownload()
@@ -105,14 +202,14 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertEqual(library.download, .idle)
         XCTAssertTrue(library.isDownloaded)
         XCTAssertFalse(library.hasPartialDownload)
-        let requests = LocalServer.requests.filter { $0.path != "listing.json" }
+        let requests = LocalServer.requests.filter { $0.path != manifestRequest }
         XCTAssertEqual(requests.filter { $0.path == "onnx/beatthis.onnx" }.map(\.range), [nil, "bytes=3000000-"])
         let others = requests.filter { $0.path != "onnx/beatthis.onnx" }
         XCTAssertEqual(others.count, Set(others.map(\.path)).count, "a finished file is not fetched again")
         XCTAssertTrue(others.allSatisfy { $0.range == nil })
         XCTAssertEqual(
             try Data(contentsOf: installDirectory.appendingPathComponent("beatthis.onnx")),
-            try Data(contentsOf: model.appendingPathComponent("beatthis.onnx"))
+            try Data(contentsOf: package.directory.appendingPathComponent("beatthis.onnx"))
         )
         XCTAssertEqual(contents(of: installDirectory.deletingLastPathComponent()), ["ensomi-r2"])
 
@@ -124,16 +221,14 @@ final class ChartModelDownloaderTests: XCTestCase {
     /// again from the start and the new version is installed.
     func testAFileChangedOnTheServerFailsItsCheckAndStartsAgain() async throws {
         let name = "rows_step.onnx"
-        let model = try OnDeviceFixtures.model()
+        let package = try PackageFixture.r2()
+        let model = package.directory
         let original = scratch.appendingPathComponent("model")
         try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
-        for file in try FileManager.default.contentsOfDirectory(atPath: model.path) {
+        for file in package.files {
             try FileManager.default.createSymbolicLink(at: original.appendingPathComponent(file), withDestinationURL: model.appendingPathComponent(file))
         }
-        let downloader = ChartModelDownloader(
-            source: LocalServer.serve(try publishedCopy(of: original, in: scratch.appendingPathComponent("source"))),
-            session: LocalServer.session
-        )
+        let downloader = try served(PackageFixture(directory: original, files: package.files, notices: package.notices))
         LocalServer.cut(name, after: 5_000_000, .fail)
         let install = installDirectory
         let first = await Task { try await downloader.install(into: install, validate: { _ in }, progress: { _ in }) }.result
@@ -146,7 +241,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         try FileManager.default.copyItem(at: original, to: updated)
         try FileManager.default.removeItem(at: updated.appendingPathComponent(name))
         try changed.write(to: updated.appendingPathComponent(name))
-        _ = LocalServer.serve(try publishedCopy(of: updated, in: scratch.appendingPathComponent("source-updated")))
+        _ = try served(PackageFixture(directory: updated, files: package.files, notices: package.notices), in: "source-updated")
 
         try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
 
@@ -157,11 +252,8 @@ final class ChartModelDownloaderTests: XCTestCase {
 
     /// Cancelling while a file is coming in keeps the finished files and the partial one; the next start continues it.
     func testCancellingKeepsWhatWasWrittenForTheNextStart() async throws {
-        let model = try OnDeviceFixtures.model()
-        let downloader = ChartModelDownloader(
-            source: LocalServer.serve(try publishedCopy(of: model, in: scratch.appendingPathComponent("source"))),
-            session: LocalServer.session
-        )
+        let package = try PackageFixture.r2()
+        let downloader = try served(package)
         LocalServer.cut("beatthis.onnx", after: 2_000_000, .stall)
         let install = installDirectory
         let partial = staging.appendingPathComponent("beatthis.onnx.part")
@@ -175,7 +267,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         guard case .failure(let error) = result else { return XCTFail("The download finished before it was cancelled.") }
         XCTAssertTrue(error is CancellationError || (error as? URLError)?.code == .cancelled, "\(error)")
         XCTAssertFalse(FileManager.default.fileExists(atPath: install.path))
-        XCTAssertTrue(contents(of: staging).contains("runtime.json"))
+        XCTAssertTrue(contents(of: staging).contains("BeatThis-LICENSE.txt"))
         XCTAssertEqual(try Data(contentsOf: partial).count, 2_000_000)
 
         try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
@@ -183,32 +275,8 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertEqual(LocalServer.requests.filter { $0.path == "onnx/beatthis.onnx" }.map(\.range), [nil, "bytes=2000000-"])
         XCTAssertEqual(
             try Data(contentsOf: install.appendingPathComponent("beatthis.onnx")),
-            try Data(contentsOf: model.appendingPathComponent("beatthis.onnx"))
+            try Data(contentsOf: package.directory.appendingPathComponent("beatthis.onnx"))
         )
-    }
-
-    /// An install that lacks a file its `runtime.json` names, as one made before the runtime listed that file does: the
-    /// library downloads that file when it starts and copies the rest from the install.
-    func testAnInstallThatLacksAListedFileGetsOnlyThatFileAtTheNextStart() async throws {
-        let name = "rows_step.onnx"
-        let model = try OnDeviceFixtures.model()
-        let downloader = ChartModelDownloader(
-            source: LocalServer.serve(try publishedCopy(of: model, in: scratch.appendingPathComponent("source"))),
-            session: LocalServer.session
-        )
-        let install = installDirectory
-        try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
-        try FileManager.default.removeItem(at: install.appendingPathComponent(name))
-        let earlier = LocalServer.requests.count
-
-        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
-        try await waitForDownload(library)
-
-        XCTAssertEqual(library.download, .idle)
-        XCTAssertTrue(library.isDownloaded)
-        XCTAssertEqual(LocalServer.requests.dropFirst(earlier).map(\.path), ["listing.json", "onnx/\(name)"])
-        XCTAssertEqual(try Data(contentsOf: install.appendingPathComponent(name)), try Data(contentsOf: model.appendingPathComponent(name)))
-        XCTAssertEqual(contents(of: install.deletingLastPathComponent()), ["ensomi-r2"])
     }
 
     func testDownloadsThePublishedModelFromHuggingFace() async throws {
@@ -253,8 +321,8 @@ private final class LocalServer: URLProtocol {
 
     /// Serves the directory `publishedCopy` laid out for `published` from now on.
     static func serve(_ published: ChartModelSource) -> ChartModelSource {
-        lock.withLock { root = published.listing.deletingLastPathComponent() }
-        return ChartModelSource(listing: URL(string: "http://model.test/listing.json")!, files: URL(string: "http://model.test/onnx/")!)
+        lock.withLock { root = published.directory.deletingLastPathComponent() }
+        return ChartModelSource(directory: URL(string: "http://model.test/onnx/")!)
     }
 
     static func cut(_ name: String, after bytes: Int, _ cut: Cut) {

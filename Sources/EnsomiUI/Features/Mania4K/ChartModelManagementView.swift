@@ -83,16 +83,69 @@ struct ChartModelManagementView: View {
     }
 }
 
-/// The model's licence as its model card states it.
+/// The licence of the model in use, from its package, with the notices that come with it; then ONNX Runtime's licence
+/// and notices, since the app ships ONNX Runtime inside the runtime. Each text opens in a sheet.
 struct ChartModelLicenseView: View {
+    let library: ChartModelLibrary
+    @State private var shown: ChartModelLicense.Notice?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Ensomi R2 is licensed CC BY-NC-SA 4.0: you may use, share and adapt it with credit, not for commercial purposes, and adaptations must carry the same licence. The exception is BeatThis (CPJKU): its beat-tracking graph and front-end arrays keep BeatThis's MIT licence. See the [model card](https://huggingface.co/sed-i/ensomi-r2).")
-            // BeatThis's licence text goes here: the text of each file the runtime's `noticeFiles(runtimeConfig:)` names
-            // in the model in use. The runtime version project.yml pins (0.2.0) has no such function.
+            if let license = library.license {
+                if let expression = license.expression {
+                    Text("Model licence: \(expression). The [model card](https://huggingface.co/sed-i/ensomi-r2) says what each part covers.")
+                } else {
+                    Text("The [model card](https://huggingface.co/sed-i/ensomi-r2) gives the model's licence.")
+                }
+                noticeButtons(license.notices)
+            }
+            Text("ONNX Runtime runs the model on this device.")
+            noticeButtons(ChartModelLicense.onnxRuntimeNotices)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
+        .sheet(item: $shown) { LicenseTextView(notice: $0) }
+    }
+
+    private func noticeButtons(_ notices: [ChartModelLicense.Notice]) -> some View {
+        HStack(spacing: 12) {
+            ForEach(notices) { notice in
+                Button(notice.name) { shown = notice }
+            }
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+/// A licence text in full, a paragraph at a time so that long notices scroll without laying out at once.
+private struct LicenseTextView: View {
+    let notice: ChartModelLicense.Notice
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    Text(notice.name)
+                        .font(.headline)
+                    ForEach(Array(notice.text.components(separatedBy: "\n\n").enumerated()), id: \.offset) { _, paragraph in
+                        Text(paragraph)
+                    }
+                }
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 560, idealWidth: 640, minHeight: 480, idealHeight: 640)
+        #endif
     }
 }

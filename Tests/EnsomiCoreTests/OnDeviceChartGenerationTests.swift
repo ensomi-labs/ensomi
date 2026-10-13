@@ -91,9 +91,7 @@ final class OnDeviceChartGenerationTests: XCTestCase {
         let without = Mania4KChartGenerationModel(models: isolatedLibrary(defaults: defaults, modelsDirectory: models), defaults: defaults)
         XCTAssertEqual(without.engine, .server)
 
-        let installed = models.appendingPathComponent("ensomi-r2", isDirectory: true)
-        try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
-        try Data("{}".utf8).write(to: installed.appendingPathComponent("runtime.json"))
+        try PackageFixture.small(in: models.appendingPathComponent("ensomi-r2", isDirectory: true)).writeManifest()
         let with = Mania4KChartGenerationModel(models: isolatedLibrary(defaults: defaults, modelsDirectory: models), defaults: defaults)
         XCTAssertEqual(with.engine, .device)
 
@@ -125,5 +123,32 @@ final class OnDeviceChartGenerationTests: XCTestCase {
         library.forgetChosenFolder()
         XCTAssertFalse(library.hasModel)
         XCTAssertFalse(isolatedLibrary(defaults: defaults).hasModel)
+    }
+
+    /// A folder the generator opens is still refused when it lacks a licence notice of the model, so the app never
+    /// runs a model whose notices it cannot show.
+    @MainActor
+    func testAFolderWithoutTheModelsNoticesIsRefused() async throws {
+        let model = try OnDeviceFixtures.model()
+        let folder = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let config = try String(contentsOf: model.appendingPathComponent("runtime.json"), encoding: .utf8)
+        let notices = try noticeFiles(runtimeConfig: config)
+        for name in ["runtime.json"] + (try modelFiles(runtimeConfig: config)) where !notices.contains(name) {
+            try FileManager.default.createSymbolicLink(at: folder.appendingPathComponent(name), withDestinationURL: model.appendingPathComponent(name))
+        }
+        let library = isolatedLibrary()
+
+        await library.choose(folder: folder)
+
+        XCTAssertNil(library.chosenFolder)
+        XCTAssertNil(library.license)
+        XCTAssertTrue(try XCTUnwrap(library.folderError).contains(try XCTUnwrap(notices.first)), "\(library.folderError ?? "")")
+
+        await library.choose(folder: model)
+
+        XCTAssertEqual(library.chosenFolder, model)
+        XCTAssertNil(library.license?.expression, "a folder without a manifest names no licence expression")
+        XCTAssertEqual(library.license?.notices.map(\.name), notices)
     }
 }
