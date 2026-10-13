@@ -138,10 +138,22 @@ final class ChartGenerationClientTests: XCTestCase {
         XCTAssertEqual(request.controls.sections.last?.target, .star(4.2))
     }
 
-    func testSectionValidationAcceptsPatternBoundsAndAdjacentUnsortedSpans() throws {
-        let sections = [section("00:08", "00:40"), section("00:00", "00:08")]
-        XCTAssertNoThrow(try ChartGenerationSection.controls(for: sections, durationMS: 40_000, starRange: 2...5.9))
-        XCTAssertNoThrow(try ChartGenerationSection.controls(for: [section("00:00", "01:00", kind: .star)], durationMS: 60_000, starRange: 2...5.9))
+    func testSectionValidationAcceptsLengthBoundsAndAdjacentUnsortedSpans() throws {
+        for kind in [ChartGenerationSection.Kind.jumpstream, .star] {
+            let sections = [section("00:08", "00:40", kind: kind), section("00:00", "00:08", kind: kind)]
+            XCTAssertNoThrow(try ChartGenerationSection.controls(for: sections, durationMS: 40_000, starRange: 2...5.9), "\(kind)")
+        }
+    }
+
+    /// The runtime refuses a section outside 8–32 seconds whatever its target, so the app refuses it before sending.
+    func testSectionValidationRefusesAnyTargetOutsideEightToThirtyTwoSeconds() {
+        for kind in [ChartGenerationSection.Kind.jumpstream, .star] {
+            for (start, end) in [("00:00", "00:07"), ("00:00", "00:33"), ("00:00", "01:00")] {
+                XCTAssertThrowsError(try ChartGenerationSection.controls(for: [section(start, end, kind: kind)], durationMS: 60_000, starRange: 2...5.9)) {
+                    XCTAssertEqual($0.localizedDescription, "Section 1: a section must last 8–32 seconds.", "\(kind) \(start)–\(end)")
+                }
+            }
+        }
     }
 
     func testSectionValidationRejectsMalformedTimesLengthsAndSongBounds() {

@@ -74,7 +74,8 @@ Generate a Chart opens with a segmented choice between generating on this device
 at the chart server, and while this device has no model it shows the model controls
 (download with progress and cancel, resume after a stopped download, or choose a folder)
 before anything else; the same controls sit in a Chart model section of Settings, followed
-there by the model's licence as the model card states it, with a link to the card. Below the
+there by the licence the model's package gives, with a link to the model card, and buttons that
+open the notice texts of the model (BeatThis's licence) and of ONNX Runtime in a sheet. Below the
 song's star target come an optional Seed field (blank is a new chart each time) and a
 Sections list. Each section uses start and end fields in `mm:ss`, a capability-backed kind
 picker, and either a strength slider from 0 to 1 or a star target with the song's range.

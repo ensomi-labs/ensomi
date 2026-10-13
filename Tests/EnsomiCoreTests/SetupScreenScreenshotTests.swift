@@ -25,7 +25,7 @@ final class SetupScreenScreenshotTests: XCTestCase {
         let empty = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: empty) }
         let library = isolatedLibrary(modelsDirectory: empty.appendingPathComponent("models"), downloader: ChartModelDownloader(
-            source: try publishedCopy(of: try OnDeviceFixtures.model(), in: empty.appendingPathComponent("source"))))
+            source: try publishedCopy(of: try PackageFixture.r2(), in: empty.appendingPathComponent("source"))))
         let play = Mania4KPlaySessionModel()
 
         try render(EnsomiSettingsView(model: play, chartModels: library), size: CGSize(width: 560, height: 760), name: "settings-1-no-model")

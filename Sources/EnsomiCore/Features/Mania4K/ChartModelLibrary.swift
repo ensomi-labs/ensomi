@@ -26,6 +26,8 @@ public final class ChartModelLibrary {
     public private(set) var hasPartialDownload = false
     /// Why the last chosen folder was refused.
     public private(set) var folderError: String?
+    /// The licence of the model in use, read off the main actor when that model changes.
+    public private(set) var license: ChartModelLicense?
 
     private let defaults: UserDefaults
     private let downloader: ChartModelDownloader
@@ -57,19 +59,24 @@ public final class ChartModelLibrary {
         self.defaults = defaults
         self.downloader = downloader
         installDirectory = modelsDirectory.appendingPathComponent("ensomi-r2", isDirectory: true)
-        isDownloaded = FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent("runtime.json").path)
+        isDownloaded = FileManager.default.fileExists(atPath: installDirectory.path)
         hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         restoreChosenFolder()
-        if isDownloaded, installLacksAListedFile { startDownload() }
+        if isDownloaded, !installIsComplete { startDownload() }
+        readLicense()
     }
 
-    /// The installed `runtime.json` names a file the install does not have, as it does for an install made before the
-    /// runtime listed that file. The download then fetches that file and copies the rest from the install.
-    private var installLacksAListedFile: Bool {
-        guard let config = try? String(contentsOf: installDirectory.appendingPathComponent("runtime.json"), encoding: .utf8),
-              let names = try? modelFiles(runtimeConfig: config)
-        else { return false }
-        return names.contains { !FileManager.default.fileExists(atPath: installDirectory.appendingPathComponent($0).path) }
+    /// The install holds its manifest and every file the manifest lists, at its listed size. An install made before
+    /// the app downloaded the manifest has none; the download then fetches the manifest and the files that are missing
+    /// or changed, and copies the rest from the install.
+    private var installIsComplete: Bool {
+        let manifest = installDirectory.appendingPathComponent(ChartModelDownloader.manifestName)
+        guard let text = try? String(contentsOf: manifest, encoding: .utf8), let package = try? checkPackage(manifestJson: text) else {
+            return false
+        }
+        return package.files.allSatisfy {
+            ChartModelDownloader.size(of: installDirectory.appendingPathComponent($0.path)) == $0.size
+        }
     }
 
     private var stagingDirectory: URL {
@@ -108,6 +115,7 @@ public final class ChartModelLibrary {
                 isDownloaded = true
                 opened = nil
                 download = .idle
+                readLicense()
             } catch is CancellationError {
                 download = .idle
             } catch let error as URLError where error.code == .cancelled {
@@ -131,19 +139,24 @@ public final class ChartModelLibrary {
         hasPartialDownload = false
         download = .idle
         opened = nil
+        readLicense()
     }
 
-    /// Uses the folder if the generator opens it, and remembers it across launches.
+    /// Uses the folder if the generator opens it and the folder holds the model's licence notices, and remembers it
+    /// across launches.
     public func choose(folder url: URL) async {
         let accessed = url.startAccessingSecurityScopedResource()
         do {
-            let generator = try await openGenerator(url)
+            let (generator, license) = try await Task.detached {
+                try (OnDeviceChartGenerator(modelDirectory: url), ChartModelLicense(modelDirectory: url))
+            }.value
             defaults.set(try url.bookmarkData(options: Self.bookmarkCreation), forKey: Self.folderKey)
             releaseFolder()
             scopedFolder = accessed ? url : nil
             chosenFolder = url
             opened = (url, generator)
             folderError = nil
+            self.license = license
         } catch {
             if accessed { url.stopAccessingSecurityScopedResource() }
             folderError = OnDeviceChartGenerator.message(for: error)
@@ -157,10 +170,20 @@ public final class ChartModelLibrary {
         chosenFolder = nil
         folderError = nil
         opened = nil
+        readLicense()
     }
 
     private func report(_ fraction: Double) {
         if case .downloading = download { download = .downloading(fraction) }
+    }
+
+    private func readLicense() {
+        license = nil
+        guard let directory = activeModel else { return }
+        Task {
+            let read = try? await Task.detached { try ChartModelLicense(modelDirectory: directory) }.value
+            if activeModel == directory { license = read }
+        }
     }
 
     private func openGenerator(_ directory: URL) async throws -> OnDeviceChartGenerator {
@@ -185,5 +208,40 @@ public final class ChartModelLibrary {
             defaults.set(fresh, forKey: Self.folderKey)
         }
         chosenFolder = url
+    }
+}
+
+/// The licence of a model directory and the texts of the notices that come with it.
+public struct ChartModelLicense: Equatable, Sendable {
+    public struct Notice: Equatable, Sendable, Identifiable {
+        public let name: String
+        public let text: String
+        public var id: String { name }
+    }
+
+    /// The package's licence as an SPDX expression; nil for a directory without `ensomi-package.json`.
+    public let expression: String?
+    public let notices: [Notice]
+
+    /// ONNX Runtime's licence and third-party notices, which the runtime package carries: the app ships ONNX Runtime
+    /// inside the runtime.
+    public static let onnxRuntimeNotices: [Notice] = ChartGenerator.onnxRuntimeLicenseFiles.compactMap { url in
+        (try? String(contentsOf: url, encoding: .utf8)).map { Notice(name: url.lastPathComponent, text: $0) }
+    }
+
+    /// Reads the licence and notices the manifest gives, or for a directory without one the notices `runtime.json`
+    /// names (`noticeFiles`). Throws when a notice file is missing.
+    init(modelDirectory: URL) throws {
+        let manifest = modelDirectory.appendingPathComponent(ChartModelDownloader.manifestName)
+        let names: [String]
+        if FileManager.default.fileExists(atPath: manifest.path) {
+            let package = try checkPackage(manifestJson: String(contentsOf: manifest, encoding: .utf8))
+            expression = package.license
+            names = package.notices
+        } else {
+            expression = nil
+            names = try noticeFiles(runtimeConfig: String(contentsOf: modelDirectory.appendingPathComponent("runtime.json"), encoding: .utf8))
+        }
+        notices = try names.map { Notice(name: $0, text: try String(contentsOf: modelDirectory.appendingPathComponent($0), encoding: .utf8)) }
     }
 }

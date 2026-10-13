@@ -16,56 +16,63 @@ does not do.
 
 The model is the published Ensomi R2 package, the `onnx/` directory of
 [`sed-i/ensomi-r2`](https://huggingface.co/sed-i/ensomi-r2) on Hugging Face at the tag
-`r2-1.0` (`runtime.json`, six graphs, state and array files: 29 files, 120 MB). The tag is
-`ChartModelSource.revision`, the one place the app names it; the app never reads `main`, so
-later commits there do not change what it installs. Two ways to have it, in Settings under
+`r2-1.0`: its manifest `ensomi-package.json` and the files the manifest lists (`runtime.json`,
+the graphs, state and array files and BeatThis's licence; 30 files and about 120 MB by the
+manifest at the tag). The format and its checks are the runtime's
+[model package](https://github.com/ensomi-labs/runtime/blob/v0.3.0/docs/model-package.md). The
+tag is `ChartModelSource.revision`, the one place the app names it; the app never reads `main`,
+so later commits there do not change what it installs. Two ways to have it, in Settings under
 Chart model, or on Generate a Chart when "On this device" is chosen and no model is installed:
 
 - **Download Model** fetches it into `Application Support/Ensomi/Models/ensomi-r2`
-  with a progress bar and **Cancel Download**. It lists the directory
-  (`/api/models/sed-i/ensomi-r2/tree/r2-1.0/onnx`), downloads `runtime.json`, asks the
-  runtime's `modelFiles(runtimeConfig:)` for the rest, adds `ensomi-model.json` if the
-  listing has one (the runtime then checks the package against it on open), and checks
-  every file's size and, where the listing gives an LFS object id, its SHA-256 (CryptoKit,
-  in 1 MiB chunks). Files collect in `.download-ensomi-r2` beside the install directory; a
-  file the install directory already holds with its listed size and SHA-256 is copied from
-  there instead of fetched, so **Download Again** over an install fetches only the files that
-  are missing or changed. Only when every file is right and `ChartGenerator.open` accepts the
-  directory is it moved into place, replacing an older install.
+  with a progress bar and **Cancel Download**. It downloads `ensomi-package.json`, checks it
+  with the runtime's `checkPackage` (which refuses, among others, a format it does not read, a
+  `min_runtime` above its own version or another model), then downloads exactly the files the
+  manifest lists and checks each one's size and SHA-256 against the manifest (CryptoKit, in
+  1 MiB chunks). Files collect in `.download-ensomi-r2` beside the install directory; a file
+  the install directory already holds with its listed size and SHA-256 is copied from there
+  instead of fetched, so **Download Again** over an install fetches only the manifest and the
+  files that are missing or changed. Only when every file is right and `ChartGenerator.open`
+  accepts the directory with its manifest is it moved into place, replacing an older install.
 - **A stopped download resumes.** A failed or cancelled download leaves the installed model,
   if any, untouched and keeps `.download-ensomi-r2`: the files finished so far and the one in
-  progress as `<name>.part`. The section then says the download stopped and offers **Resume
-  Download**, which lists the directory again, checks each finished file's size and SHA-256
-  against the new listing (fetching it again if it no longer matches), and asks for the rest
+  progress as `<path>.part`. The section then says the download stopped and offers **Resume
+  Download**, which fetches the manifest again, checks each finished file's size and SHA-256
+  against it (fetching the file again if it no longer matches), and asks for the rest
   of the partial file with `Range: bytes=<n>-`. A 206 answer is appended; a 200 answer (a
   server that ignores the range) rewrites the file from the start. When a resumed file then
   fails its size or SHA-256, as it does when the published file changed in between, it is
   fetched again whole. **Remove Download** also deletes the partial files. There is no
-  automatic retry: apart from completing an install that lacks a listed file (next item),
-  resuming is the person's choice.
-- **An install that lacks a listed file is completed when the app starts.** When the
-  installed `runtime.json` names a file the install directory does not have, as it does for
-  an install made before the runtime listed that file, the library starts the download by
-  itself: it fetches the missing file and copies the rest from the install. The installed
-  model stays in use meanwhile; a failed download leaves it as it was and offers **Resume
-  Download**.
+  automatic retry: apart from completing an install (next item), resuming is the person's
+  choice.
+- **An incomplete install is completed when the app starts.** The library reads the installed
+  manifest: when there is none, as in an install made before the app downloaded it, or when a
+  file it lists is missing or has another size, the library starts the download by itself. It
+  fetches the manifest and the files that are missing or changed, copies the rest from the
+  install, and leaves out files the manifest does not list, such as the `ensomi-model.json` of
+  earlier installs. The installed model stays in use meanwhile; a failed download leaves it as
+  it was and offers **Resume Download**.
 - **Choose Folder…** uses any directory that holds the files, such as a local copy of
-  `onnx/`. The folder is refused unless `ChartGenerator` opens it. It is kept across
-  launches as a bookmark (security-scoped on macOS, which also makes it work in a
-  sandboxed build) and takes precedence over the download; **Use Downloaded Model**
-  goes back. **Remove Download** deletes the downloaded copy.
+  `onnx/`. The folder is refused unless `ChartGenerator` opens it and it holds the model's
+  licence notices (the manifest's `notices`, or for a folder without a manifest the files
+  `noticeFiles(runtimeConfig:)` names). It is kept across launches as a bookmark
+  (security-scoped on macOS, which also makes it work in a sandboxed build) and takes
+  precedence over the download; **Use Downloaded Model** goes back. **Remove Download**
+  deletes the downloaded copy.
 
 `EnsomiMac` has no entitlements file, so it is not sandboxed: it reaches Hugging Face and
 any folder without a grant. A sandboxed channel would need the network client and
 user-selected read entitlements. iOS is always sandboxed; the bookmark covers the
 chosen folder there.
 
-Below the controls, Settings states the model's licence as the model card does: CC BY-NC-SA
-4.0 (use, share and adapt with credit, not for commercial purposes, adaptations under the
-same licence), except BeatThis (CPJKU), whose beat-tracking graph and front-end arrays keep
-BeatThis's MIT licence, with a link to the model card. The package at `r2-1.0` carries
-BeatThis's licence text in a file `runtime.json` names; the runtime version the app pins
-(0.2.0) does not list that file, so the app neither downloads nor shows the text yet.
+Below the controls, Settings shows the licence of the model in use as its manifest gives it
+(an SPDX expression, `CC-BY-NC-SA-4.0 AND MIT` at `r2-1.0`) with a link to the model card,
+which says what each part covers, and a button for each of the model's notices, BeatThis's
+licence (`BeatThis-LICENSE.txt`). A folder without a manifest has no expression; its notices
+come from `noticeFiles(runtimeConfig:)`. ONNX Runtime's licence and third-party notices, which
+the runtime package carries (`ChartGenerator.onnxRuntimeLicenseFiles`), follow with a button
+each. A button opens the text in a sheet. The library reads the licence off the main actor
+whenever the model in use changes.
 
 When a model is installed, "On this device" is the default engine; "Chart server" stays
 selectable and the choice is remembered. The engine picker is disabled during a generation.
@@ -130,9 +137,9 @@ On bings-mac (Apple M5, macOS 27, Debug build of the app's test bundle, CPU prov
 The footprint is `ri_lifetime_max_phys_footprint` from `proc_pid_rusage` at the end of the
 run, in the XCTest process that opened the model, decoded, generated and played: the
 runtime's own measurement for this model is 2.0 to 2.3 GiB peak, of which BeatThis's
-working memory is most. The decoded song as mono Float is 23.5 MB. Core ML is not offered:
-it opens in 10 s, runs BeatThis two to three times slower and needs 11.5 GiB (see the
-runtime's Swift README). On iOS the core's `lowMemory` default is on (1.3 to 1.6 GiB on the Mac).
+working memory is most. The decoded song as mono Float is 23.5 MB. Core ML is not offered; the
+runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.0/swift/README.md#execution-provider)
+measurements give its cost. On iOS the core's `lowMemory` default is on (1.3 to 1.6 GiB on the Mac).
 
 In the iOS simulator (iPhone 17, iOS 27 simulator on bings-mac, the runtime's `GeneratorTests`
 through the Swift API on the recorded PCM of hesitation-snow), every generation gave the chart the
@@ -149,8 +156,8 @@ during the second and third runs, so the times are an upper bound:
 The simulator runs the arm64 simulator slice on the Mac's cores; it says nothing about a phone's
 speed or memory limit.
 
-Downloading the 29 files from Hugging Face to the Mac took 36 s and 64 s in two runs
-(the link, not the app, sets that).
+Downloading the package from Hugging Face to the Mac took 36 s and 64 s in two runs, when it
+had 29 files and no manifest (the link, not the app, sets that).
 
 ## Checks
 
@@ -160,20 +167,28 @@ and `ENSOMI_GENERATE_CLI` override the sibling-checkout defaults).
 
 - `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability,
   phase and control mappings, the engine default and its persistence, a chosen folder
-  kept only if the generator opens it.
-- `ChartModelDownloaderTests`: install from a local copy of the listing and files
-  (only the named files, opens, no leftovers), a wrong checksum (the bad file is not kept), a
-  file the listing lacks, and, through an HTTP server inside the test process that serves the
-  copy with Range support and can drop or stall a response: a connection lost 3 MB into
-  `beatthis.onnx` (the next start sends `Range: bytes=3000000-` and fetches no finished file
-  again; Remove Download leaves nothing), a file changed on the server while 5 MB of it waited
-  (the resumed file fails its SHA-256 and is fetched again whole), and cancelling mid-file (the
-  finished files and the partial one stay, the next start resumes). An install that lacks a
-  listed file gets that file alone when the library starts, the rest copied from the install.
+  kept only if the generator opens it, and refused when it lacks the model's notice.
+- `ChartModelDownloaderTests`: install from a local copy of the package with a manifest the
+  test writes (exactly the listed files and the manifest, opens, the licence read from the
+  manifest, no leftovers), a file the manifest leaves out although `runtime.json` names it
+  (the runtime's open refuses it), and, through an HTTP server inside the test process that
+  serves the copy with Range support and can drop or stall a response: a connection lost 3 MB
+  into `beatthis.onnx` (the next start sends `Range: bytes=3000000-` and fetches no finished
+  file again; Remove Download leaves nothing), a file changed on the server while 5 MB of it
+  waited (the resumed file fails its SHA-256 and is fetched again whole), cancelling mid-file
+  (the finished files and the partial one stay, the next start resumes), and an install
+  without a manifest that lacks a file, completed by the library when it starts with only the
+  manifest and that file fetched. On a package of three small files, so without the model and
+  in CI: a manifest `checkPackage` refuses (`min_runtime` 9.0.0; nothing is fetched after it), a
+  file whose SHA-256 differs from the manifest's (the bad file is not kept), completing an
+  install without a manifest (the matching file copied, the changed and the missing one
+  fetched, `ensomi-model.json` dropped), and the licence and notice texts read from a manifest
+  together with ONNX Runtime's files from the runtime package.
   `TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads from Hugging Face at `r2-1.0`.
 - `ChartGenerationClientTests`: the seed field (refuses what is not a seed, sends 2^64 − 1), the
-  result keeping the seed the server reports though none was asked for, and Stop ending in the
-  stopped state.
+  result keeping the seed the server reports though none was asked for, Stop ending in the
+  stopped state, and the section check, which refuses a section outside 8–32 seconds whatever
+  its target, as the runtime does.
 - `OnDeviceParityAndRunTests.testChartMatchesTheNativeGeneratorOnTheSamePCM`: the
   app's decoder and generator against `ensomi-runtime/target/apple/release/generate` on
   the same PCM dump, byte for byte. To keep the dump and both charts and compare by hand,
@@ -247,11 +262,9 @@ at narrow widths and with large text were not rendered.
 - Charts from the chart server cannot be saved from the app: the protocol's result carries no
   `.osu`.
 - Long-note amount stays unspecified, as with the server.
-- A download has no automatic retry. A file without an LFS object id (the JSON files) is checked
-  by size only. Resuming against Hugging Face itself (its redirect to the file host keeping the
-  Range header) was not tried; the tests use a local server.
-- ONNX Runtime's MIT licence and notices (`ensomi-runtime/licenses/onnxruntime`) are not
-  yet shown in the app, nor is BeatThis's licence text, which runtime 0.2.0 does not list
-  among the model's files.
+- A download has no automatic retry. Resuming against Hugging Face itself (its redirect to the
+  file host keeping the Range header) was not tried; the tests use a local server.
+- A chosen folder's files are checked as the runtime's open checks them (with a manifest, each
+  listed file at its listed size); their SHA-256s are not computed.
 - On iOS the app builds for the simulator and the generator runs there through the Swift API;
   the app's screens were not run on iOS and nothing ran on a device.

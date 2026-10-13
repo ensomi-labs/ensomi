@@ -385,7 +385,7 @@ private struct Mania4KSetupView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sections")
                 .font(.subheadline.weight(.semibold))
-            Text("Use mm:ss. Patterns last 8–32 seconds. Sections must stay inside the song and must not overlap.")
+            Text("Use mm:ss. Sections last 8–32 seconds, must stay inside the song and must not overlap.")
                 .font(.caption)
                 .foregroundStyle(Mania4KStyle.textSecondary)
 
@@ -1214,7 +1214,7 @@ public struct EnsomiSettingsView: View {
 
             Section {
                 ChartModelManagementView(library: chartModels)
-                ChartModelLicenseView()
+                ChartModelLicenseView(library: chartModels)
             } header: {
                 Text("Chart model")
             } footer: {
