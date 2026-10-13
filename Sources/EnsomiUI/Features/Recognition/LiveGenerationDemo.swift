@@ -28,7 +28,7 @@ public final class LiveGenerationDemoModel {
     public private(set) var chartNoteCount: Int?
     public private(set) var showingGameplay = false
     public private(set) var errorMessage: String?
-    @ObservationIgnored private let capabilities: @MainActor @Sendable () async throws -> ChartGenerationCapabilities
+    @ObservationIgnored private let stars: @MainActor @Sendable () async throws -> ClosedRange<Double>
     @ObservationIgnored private let makeChart: MakeChart
     /// The chart of the identified song: started when its recording is resolved, played at final lock.
     @ObservationIgnored private(set) var chart: Task<Mania4KGeneratedChart, Error>?
@@ -40,19 +40,17 @@ public final class LiveGenerationDemoModel {
     public convenience init(recognition: LiveRecognitionSyncModel = .liveDebug(), gameplay: Mania4KPlaySessionModel = .init(),
                             models: ChartModelLibrary = .shared) {
         self.init(recognition: recognition, gameplay: gameplay, models: models,
-            capabilities: { try await models.generator().capabilities },
-            makeChart: { audioURL, star, seed in
-                let result = try await models.generator().generate(audioURL: audioURL, star: star, seed: seed)
-                return try Mania4KGeneratedChart(result.chart)
-            })
+            stars: { try await models.generator().selectableStars },
+            makeChart: { try await models.generator().chart(audioURL: $0, star: $1, seed: $2) })
     }
 
+    /// `stars` gives the model's selectable stars; `makeChart` makes a chart with it.
     init(recognition: LiveRecognitionSyncModel, gameplay: Mania4KPlaySessionModel, models: ChartModelLibrary,
-         capabilities: @escaping @MainActor @Sendable () async throws -> ChartGenerationCapabilities, makeChart: @escaping MakeChart) {
+         stars: @escaping @MainActor @Sendable () async throws -> ClosedRange<Double>, makeChart: @escaping MakeChart) {
         self.recognition = recognition
         self.gameplay = gameplay
         self.models = models
-        self.capabilities = capabilities
+        self.stars = stars
         self.makeChart = makeChart
         recognition.startsPrototypeInference = false
         recognition.setReferenceHandler { [weak self] audioURL in self?.referenceResolved(audioURL) }
@@ -82,7 +80,7 @@ public final class LiveGenerationDemoModel {
             await cleanup?.value
             guard generation == identity, !Task.isCancelled else { return }
             do {
-                let range = try await capabilities().selectableStars
+                let range = try await stars()
                 try Task.checkCancellation()
                 guard generation == identity else { return }
                 starRange = range

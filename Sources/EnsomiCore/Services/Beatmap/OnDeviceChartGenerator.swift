@@ -73,6 +73,16 @@ public actor OnDeviceChartGenerator {
             progress(ChartGenerationPhase($0))
         }
     }
+
+    /// The stars a person can choose with this model.
+    public nonisolated var selectableStars: ClosedRange<Double> {
+        capabilities.selectableStars
+    }
+
+    /// The whole chart of `audioURL` as play takes it. Cancelling the task throws `GeneratorError.Cancelled`.
+    public func chart(audioURL: URL, star: Double, seed: UInt64) async throws -> Mania4KGeneratedChart {
+        try Mania4KGeneratedChart(await generate(audioURL: audioURL, star: star, seed: seed).chart)
+    }
 }
 
 extension OnDeviceChartGenerator {

@@ -42,9 +42,9 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: permission),
             gameplay: Mania4KPlaySessionModel(), models: isolatedLibrary(),
-            capabilities: {
+            stars: {
                 XCTFail("Without a model nothing is opened.")
-                return offered()
+                return offered().selectableStars
             },
             makeChart: { _, _, _ in throw CancellationError() }
         )
@@ -67,7 +67,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: permission),
             gameplay: Mania4KPlaySessionModel(), models: try installedLibrary(),
-            capabilities: { capabilities }, makeChart: { _, _, _ in throw CancellationError() }
+            stars: { capabilities.selectableStars }, makeChart: { _, _, _ in throw CancellationError() }
         )
         model.gameplay.starDifficulty = capabilities.maxStarExclusive + 1
 
@@ -90,7 +90,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: permission),
             gameplay: Mania4KPlaySessionModel(), models: try installedLibrary(),
-            capabilities: { throw ModelFailure() }, makeChart: { _, _, _ in throw CancellationError() }
+            stars: { throw ModelFailure() }, makeChart: { _, _, _ in throw CancellationError() }
         )
 
         model.enter()
@@ -109,7 +109,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         let model = LiveGenerationDemoModel(
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: permission),
             gameplay: Mania4KPlaySessionModel(), models: try installedLibrary(),
-            capabilities: {
+            stars: {
                 try await Task.sleep(for: .milliseconds(100))
                 throw ModelFailure()
             },
@@ -203,8 +203,8 @@ final class LiveGenerationDemoModelTests: XCTestCase {
         )
         model.enter()
         try await eventually(within: .seconds(10)) { model.modelReady }
-        let capabilities = try await library.generator().capabilities
-        XCTAssertEqual(model.starRange, capabilities.selectableStars)
+        let offeredStars = try await library.generator().selectableStars
+        XCTAssertEqual(model.starRange, offeredStars)
 
         let resolved = ContinuousClock.now
         model.referenceResolved(song)
@@ -234,7 +234,7 @@ final class LiveGenerationDemoModelTests: XCTestCase {
             recognition: LiveRecognitionSyncModel(database: try .openInMemory(), permissionService: DemoPermissionProbe()),
             gameplay: Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0),
             models: try installedLibrary(),
-            capabilities: { capabilities }, makeChart: { try await maker.make($0, $1, $2) }
+            stars: { capabilities.selectableStars }, makeChart: { try await maker.make($0, $1, $2) }
         )
         model.enter()
         try await eventually { model.modelReady }
