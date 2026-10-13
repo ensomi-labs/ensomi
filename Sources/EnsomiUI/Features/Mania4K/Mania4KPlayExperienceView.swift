@@ -484,7 +484,7 @@ private struct Mania4KSetupView: View {
 
     /// What was made and the seed that makes it again; the Session panel shows the song, stars and model.
     private func generationResult(_ result: Mania4KChartGenerationResult) -> some View {
-        let holds = result.chart.objects.filter { $0.kind == .holdStart }.count
+        let holds = result.chart.chart.objects.filter { $0.endMs != nil }.count
         return VStack(alignment: .leading, spacing: 8) {
             Label("Chart ready", systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.semibold))

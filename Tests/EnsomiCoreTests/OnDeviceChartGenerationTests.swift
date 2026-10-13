@@ -93,7 +93,7 @@ final class OnDeviceChartGenerationTests: XCTestCase {
 
         XCTAssertNotNil(generated, "\(generation.state)")
         XCTAssertEqual(generation.preparation?.task, preparation.task)
-        let kept = await library.generator().preparedSong(sha256: try sha256Hex(of: song))
+        let kept = try await library.generator().preparedSong(sha256: sha256Hex(of: song))
         XCTAssertNotNil(kept)
     }
 
@@ -123,8 +123,9 @@ final class OnDeviceChartGenerationTests: XCTestCase {
 
         XCTAssertTrue(first.task.isCancelled)
         let generator = try await library.generator()
-        let keptSong = await generator.preparedSong(sha256: try sha256Hex(of: song))
-        let keptOther = await generator.preparedSong(sha256: try sha256Hex(of: other))
+        let (songSHA256, otherSHA256) = (try sha256Hex(of: song), try sha256Hex(of: other))
+        let keptSong = await generator.preparedSong(sha256: songSHA256)
+        let keptOther = await generator.preparedSong(sha256: otherSHA256)
         XCTAssertNil(keptSong)
         XCTAssertNotNil(keptOther)
     }

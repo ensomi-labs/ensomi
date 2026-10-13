@@ -192,10 +192,8 @@ final class Mania4KChartInspectionModelTests: XCTestCase {
 
         // The same chart played: taps in lane 0 every 250 ms from 1000 ms, with the clock at the same reading.
         let objects = (0..<4).map { ChartObject(lane: 0, startMs: 1_000 + 250 * UInt32($0), endMs: nil) }
-        let started = await settings.startGeneratedChartPlay(
-            audioFileURL: URL(fileURLWithPath: "/tmp/song.mp3"),
-            chart: try Mania4KGeneratedChart(Chart(durationMs: 1_750, objects: objects))
-        )
+        let chart = try Mania4KGeneratedChart(Chart(durationMs: 1_750, objects: objects))
+        let started = await settings.startGeneratedChartPlay(audioFileURL: URL(fileURLWithPath: "/tmp/song.mp3"), chart: chart)
         XCTAssertTrue(started)
         await playClock.setAudioTimeMs(900)
         let ticked = await settings.tick(atHostTimeMs: 0, presentationHostTimeMs: 0)

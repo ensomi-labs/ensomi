@@ -187,7 +187,9 @@ final class GameplayTimingTests: XCTestCase {
             let start = 1_500 + Double(index) * 140
             return Note(lane: Mania4KLane.allCases[(index * 3) % 4], startMs: start, endMs: index % 6 == 5 ? start + 400 : nil)
         }
-        let objects = notes.map { ChartObject(lane: $0.lane.index, startMs: UInt32($0.startMs), endMs: $0.endMs.map(UInt32.init)) }
+        let objects = notes.map { note in
+            ChartObject(lane: note.lane.index, startMs: UInt32(note.startMs), endMs: note.endMs.map { UInt32($0) })
+        }
         let chart = try Mania4KGeneratedChart(Chart(
             durationMs: objects.map { $0.endMs ?? $0.startMs }.max() ?? 0, objects: objects
         ))

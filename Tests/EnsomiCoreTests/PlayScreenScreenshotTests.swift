@@ -130,7 +130,7 @@ final class PlayScreenScreenshotTests: XCTestCase {
 
     private static func chartObjects() -> [ChartObject] {
         chart.flatMap { row in
-            row.lanes.map { ChartObject(lane: UInt32($0), startMs: UInt32(row.timeMs), endMs: row.endMs.map(UInt32.init)) }
+            row.lanes.map { ChartObject(lane: UInt32($0), startMs: UInt32(row.timeMs), endMs: row.endMs.map { UInt32($0) }) }
         }
     }
 
