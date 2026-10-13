@@ -389,25 +389,25 @@ public final class Mania4KPlaySessionModel {
         return await startPreparedPlay(configuration: configuration, stream: stream, startGeneration: generation)
     }
 
-    /// Start at the recognized reference clock; the local reference is never played aloud.
+    /// Plays `chart`, waiting for it if it is still being made, along with music heard in the room: the clock runs on
+    /// from `referenceTimeMS` at `anchorHostTimeMS`, and play joins the chart past the heard position (`WholeChartStream`).
+    /// The local reference is never played aloud.
     @discardableResult
-    public func startAmbientControlledPlay(
+    public func startAmbientChartPlay(
         audioFileURL: URL, referenceTimeMS: Double, anchorHostTimeMS: Double,
-        title: String? = nil, controls: GenerationControls = .init(),
-        endpointURL: URL = ControlledGenerationClient.defaultURL
+        title: String? = nil, chart: Task<Mania4KGeneratedChart, Error>
     ) async -> Bool {
         resetPreparedPlayState()
         self.audioFileURL = audioFileURL
         let generation = playStateGeneration
         let title = title ?? audioFileURL.deletingPathExtension().lastPathComponent
-        // The producer's decoded duration owns EOS; a rounded library duration must not freeze the clock early.
+        // Unclamped: the chart's duration, measured from the decoded audio, ends play; a rounded library duration
+        // must not freeze the clock early.
         let clock = HostTimeAnchoredMania4KAudioClock(referenceTimeAtAnchorMS: referenceTimeMS,
             title: title, anchorHostTimeMS: anchorHostTimeMS)
-        let stream = ControlledGenerationStream(client: ControlledGenerationClient(baseURL: endpointURL),
-            audioURL: audioFileURL, title: title, controls: controls,
-            referenceTime: { await clock.currentAudioTimeMs() })
+        let stream = WholeChartStream(title: title, chart: chart, referenceTime: { await clock.currentAudioTimeMs() })
         let configuration = Mania4KPlayConfiguration(chartSource: .generated(displayName: title),
-            audioFileURL: audioFileURL, starDifficulty: controls.difficulty ?? starDifficulty,
+            audioFileURL: audioFileURL, starDifficulty: starDifficulty,
             scrollSpeed: scrollSpeed, audioOffsetMilliseconds: audioOffsetMilliseconds,
             visualOffsetMilliseconds: visualOffsetMilliseconds, judgeDifficulty: judgeDifficulty,
             keyBindings: keyBindings)

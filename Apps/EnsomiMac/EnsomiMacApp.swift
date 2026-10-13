@@ -27,10 +27,7 @@ struct EnsomiMacApp: App {
 
     var body: some Scene {
         WindowGroup {
-            EnsomiWorkbenchView(
-                maniaModel: model,
-                onAmbientRecognitionRequested: openRecognitionSyncFromSetup(isMock:)
-            )
+            EnsomiWorkbenchView(maniaModel: model)
             .frame(minWidth: 640, minHeight: 480)
         }
         .defaultSize(width: 1100, height: 760)
@@ -66,10 +63,7 @@ struct EnsomiMacApp: App {
         .defaultSize(width: 960, height: 760)
 
         Window(Mania4KPlaySessionWindow.windowTitle, id: Mania4KPlaySessionWindow.windowID) {
-            Mania4KPlayExperienceView(
-                model: model,
-                onAmbientRecognitionRequested: openRecognitionSyncFromSetup(isMock:)
-            )
+            Mania4KPlayExperienceView(model: model)
         }
         .defaultSize(width: 1120, height: 780)
 
@@ -81,11 +75,6 @@ struct EnsomiMacApp: App {
     }
 
     #if DEBUG
-    private func openRecognitionSyncFromSetup(isMock: Bool) {
-        recognitionModel.inferenceIsMock = isMock
-        openRecognitionSync()
-    }
-
     private func openRecognitionSync() {
         recognitionModel.setPlaySessionRequestHandler(openPlaySession(from:))
         openWindow(id: LiveRecognitionSyncWindow.windowID)
@@ -105,8 +94,6 @@ struct EnsomiMacApp: App {
             )
         }
     }
-    #else
-    private func openRecognitionSyncFromSetup(isMock: Bool) {}
     #endif
 
 }

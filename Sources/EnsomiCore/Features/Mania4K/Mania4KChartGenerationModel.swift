@@ -114,6 +114,32 @@ public struct ChartGenerationSectionOption: Identifiable, Equatable, Sendable {
     public var title: String { kind.title + (isExperimental ? " (Experimental)" : "") }
 }
 
+/// A seed field: blank for a new chart each time, or the seed of a chart to make again.
+public enum ChartGenerationSeed {
+    /// The seed in `text`; nil when it is blank or not a seed.
+    public static func parse(_ text: String) -> UInt64? {
+        UInt64(text.trimmingCharacters(in: .whitespaces))
+    }
+
+    public static func validationMessage(_ text: String) -> String? {
+        let text = text.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, UInt64(text) == nil else { return nil }
+        return "The seed must be a whole number from 0 to \(UInt64.max), or blank for a new chart."
+    }
+
+    /// A seed for a new chart, small enough to read and retype.
+    public static func random() -> UInt64 {
+        UInt64.random(in: 0..<1 << 32)
+    }
+}
+
+extension ChartGenerationCapabilities {
+    /// The stars a person can choose, in 0.1 steps: `[minStar, maxStarExclusive)`.
+    public var selectableStars: ClosedRange<Double> {
+        minStar...max(minStar, maxStarExclusive - 0.1)
+    }
+}
+
 /// A chart "Generate a Chart" made, with what reproduces it and what exports it.
 public struct Mania4KChartGenerationResult: Equatable, Sendable {
     public let chart: Mania4KGeneratedChart
@@ -240,13 +266,11 @@ public final class Mania4KChartGenerationModel {
 
     /// The seed in the seed field; nil when it is blank or not a seed.
     public var seed: UInt64? {
-        UInt64(seedText.trimmingCharacters(in: .whitespaces))
+        ChartGenerationSeed.parse(seedText)
     }
 
     public var seedValidationMessage: String? {
-        let text = seedText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty, UInt64(text) == nil else { return nil }
-        return "The seed must be a whole number from 0 to \(UInt64.max), or blank for a new chart."
+        ChartGenerationSeed.validationMessage(seedText)
     }
 
     public var sectionValidationMessage: String? {
@@ -306,7 +330,7 @@ public final class Mania4KChartGenerationModel {
                 capabilities = try await models.generator().capabilities
             }
             modelDescription = "\(capabilities.modelName) \(capabilities.modelVersion)"
-            starRange = capabilities.minStar...max(capabilities.minStar, capabilities.maxStarExclusive - 0.1)
+            starRange = capabilities.selectableStars
             sectionOptions = capabilities.controls.compactMap { control in
                 guard let kind = ChartGenerationSection.Kind(rawValue: control.name),
                       control.status == .works || control.status == .experimental else { return nil }
@@ -394,8 +418,7 @@ public final class Mania4KChartGenerationModel {
         audioURL: URL, star: Double, seed: UInt64?, controls: ChartGenerationControls, title: String?, artist: String?
     ) async throws -> Made {
         let generator = try await models.generator()
-        // Small enough to read and retype.
-        let seed = seed ?? UInt64.random(in: 0..<1 << 32)
+        let seed = seed ?? ChartGenerationSeed.random()
         let task = Task {
             try await generator.generate(
                 audioURL: audioURL, star: star, seed: seed, controls: controls, title: title, artist: artist
