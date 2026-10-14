@@ -9,7 +9,7 @@ public struct ChartModelSource: Sendable {
     public var directory: URL
 
     /// The tag of `sed-i/ensomi-r2` the app downloads, so the manifest and the files it lists do not change under it.
-    public static let revision = "r2-1.0"
+    public static let revision = "r2-1.0.1"
 
     /// Hugging Face `sed-i/ensomi-r2` at `revision`, directory `onnx/`.
     public static let published = ChartModelSource(

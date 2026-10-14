@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ensomi-labs/runtime",
       "state" : {
-        "revision" : "ef3bde308931bd87bba6a9e9ce8ced82ffead85c",
-        "version" : "0.3.0"
+        "revision" : "ca1053a6953dd6f0d5350924c282b63a9d496681",
+        "version" : "0.3.1"
       }
     },
     {

@@ -16,10 +16,10 @@ does not do.
 
 The model is the published Ensomi R2 package, the `onnx/` directory of
 [`sed-i/ensomi-r2`](https://huggingface.co/sed-i/ensomi-r2) on Hugging Face at the tag
-`r2-1.0`: its manifest `ensomi-package.json` and the files the manifest lists (`runtime.json`,
+`r2-1.0.1`: its manifest `ensomi-package.json` and the files the manifest lists (`runtime.json`,
 the graphs, state and array files and BeatThis's licence; 30 files and about 120 MB by the
 manifest at the tag). The format and its checks are the runtime's
-[model package](https://github.com/ensomi-labs/runtime/blob/v0.3.0/docs/model-package.md). The
+[model package](https://github.com/ensomi-labs/runtime/blob/v0.3.1/docs/model-package.md). The
 tag is `ChartModelSource.revision`, the one place the app names it; the app never reads `main`,
 so later commits there do not change what it installs. Two ways to have it, in Settings under
 Chart model, or on Generate a Chart when "On this device" is chosen and no model is installed:
@@ -66,7 +66,7 @@ user-selected read entitlements. iOS is always sandboxed; the bookmark covers th
 chosen folder there.
 
 Below the controls, Settings shows the licence of the model in use as its manifest gives it
-(an SPDX expression, `CC-BY-NC-SA-4.0 AND MIT` at `r2-1.0`) with a link to the model card,
+(an SPDX expression, `MIT` at `r2-1.0.1`) with a link to the model card,
 which says what each part covers, and a button for each of the model's notices, BeatThis's
 licence (`BeatThis-LICENSE.txt`). A folder without a manifest has no expression; its notices
 come from `noticeFiles(runtimeConfig:)`. ONNX Runtime's licence and third-party notices, which
@@ -144,7 +144,7 @@ The footprint is `ri_lifetime_max_phys_footprint` from `proc_pid_rusage` at the 
 run, in the XCTest process that opened the model, decoded, generated and played: the
 runtime's own measurement for this model is 2.0 to 2.3 GiB peak, of which BeatThis's
 working memory is most. The decoded song as mono Float is 23.5 MB. Core ML is not offered; the
-runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.0/swift/README.md#execution-provider)
+runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.1/swift/README.md#execution-provider)
 measurements give its cost. On iOS the core's `lowMemory` default is on (1.3 to 1.6 GiB on the Mac).
 
 In the iOS simulator (iPhone 17, iOS 27 simulator on bings-mac, the runtime's `GeneratorTests`
@@ -192,7 +192,7 @@ override the sibling-checkout defaults).
   install without a manifest (the matching file copied, the changed and the missing one
   fetched, `ensomi-model.json` dropped), and the licence and notice texts read from a manifest
   together with ONNX Runtime's files from the runtime package.
-  `TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads from Hugging Face at `r2-1.0`.
+  `TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads from Hugging Face at `r2-1.0.1`.
 - `ChartGenerationClientTests`: the seed field (refuses what is not a seed, sends 2^64 − 1), the
   result keeping the seed the server reports though none was asked for, Stop ending in the
   stopped state, and the section check, which refuses a section outside 8–32 seconds whatever

@@ -19,7 +19,7 @@ for the timing, generation, and scoring contracts.
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
 macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Rust core in
 [ensomi-runtime](https://github.com/ensomi-labs/runtime): SwiftPM resolves its `EnsomiRuntime`
-package at the version pinned in `project.yml` (`0.3.0`) and downloads the xcframework from
+package at the version pinned in `project.yml` (`0.3.1`) and downloads the xcframework from
 that release. The package carries the generator's resampler tables; the apps bundle none. The
 gameplay conformance test reads its fixtures from a runtime checkout beside this repository
 (`../ensomi-runtime/conformance/gameplay`) and is skipped without one.
@@ -67,7 +67,7 @@ preparation and troubleshooting.
 starts on its audio stages at once), set the stars (the model's range), an optional seed and
 optional sections, and the chart is made on this device by the Rust core's generator with ONNX
 Runtime, from the Ensomi R2 model that Settings downloads from
-[Hugging Face](https://huggingface.co/sed-i/ensomi-r2) at the tag `r2-1.0` (the files its package manifest lists, about 120 MB, resumed after a dropped
+[Hugging Face](https://huggingface.co/sed-i/ensomi-r2) at the tag `r2-1.0.1` (the files its package manifest lists, about 120 MB, resumed after a dropped
 connection) or reads from a folder you choose. Nothing is sent to a server. The finished chart
 shows the seed that makes it again, plays from the start, and saves as `.osu` or as `.osz` with
 the song. Ensomi R2 is licensed MIT, as its [card](https://huggingface.co/sed-i/ensomi-r2) states; its

@@ -1747,7 +1747,7 @@
 			repositoryURL = "https://github.com/ensomi-labs/runtime";
 			requirement = {
 				kind = exactVersion;
-				version = 0.3.0;
+				version = 0.3.1;
 			};
 		};
 		67E5D9560A7B6CBF135484CC /* XCRemoteSwiftPackageReference "sonalign" */ = {
