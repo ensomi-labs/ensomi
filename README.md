@@ -70,8 +70,8 @@ Runtime, from the Ensomi R2 model that Settings downloads from
 [Hugging Face](https://huggingface.co/sed-i/ensomi-r2) at the tag `r2-1.0` (the files its package manifest lists, about 120 MB, resumed after a dropped
 connection) or reads from a folder you choose. Nothing is sent to a server. The finished chart
 shows the seed that makes it again, plays from the start, and saves as `.osu` or as `.osz` with
-the song. The model is licensed CC BY-NC-SA 4.0, not for commercial use; its beat tracker,
-BeatThis (CPJKU), keeps BeatThis's MIT licence. Settings shows the licence the package gives
+the song. The model is licensed MIT, as its [card](https://huggingface.co/sed-i/ensomi-r2) states; its
+beat tracker, BeatThis (CPJKU), keeps its own MIT notice. Settings shows the licence the package gives
 under Chart model, with BeatThis's licence text and ONNX Runtime's licence and notices. See
 [solo device mode](docs/solo-device.md).
 
