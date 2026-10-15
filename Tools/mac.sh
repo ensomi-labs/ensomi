@@ -127,7 +127,13 @@ prune_results() {
     done
 }
 refuse_if_running() {
-    if pgrep -x EnsomiMac >/dev/null; then die "Ensomi is running. Quit it and run this again; mac.sh never quits it."; fi
+    local status=0
+    pgrep -x EnsomiMac >/dev/null 2>&1 || status=$?
+    case $status in
+        0) die "Ensomi is running. Quit it and run this again; mac.sh never quits it." ;;
+        1) ;;
+        *) die "pgrep cannot tell whether Ensomi is running (exit $status); quit it and check by hand." ;;
+    esac
 }
 
 cmd_test() {
@@ -147,8 +153,10 @@ cmd_test() {
 # the package versions Package.resolved pins and the released runtime, with the build recorded in its Info.plist.
 build_play() {
     local commit dirty=NO
-    commit=$(git -C "$root" rev-parse HEAD)
+    commit=$(git -C "$root" rev-parse HEAD) || die "git cannot read the commit, which the app must record."
     if [ -n "$(changes)" ]; then dirty=YES; fi
+    # Both caches resolve packages into the shared SourcePackages, so a play build also waits for dev builds.
+    lock dev
     lock play
     env -u ENSOMI_RUNTIME_XCFRAMEWORK xcodebuild -project "$project" -scheme EnsomiMac -configuration Debug \
         -destination 'platform=macOS' -derivedDataPath "$out/play" -clonedSourcePackagesDirPath "$out/SourcePackages" \
@@ -243,7 +251,14 @@ cmd_status() {
         commit=$(plist_value EnsomiBuildCommit)
         value=$(plist_value EnsomiRuntimeVersion)
         if [ -z "$commit" ]; then echo "STALE: the installed app records no build; Tools/mac.sh install records one."; fi
-        if [ -n "$commit" ] && [ "$commit" != "$head" ]; then echo "STALE: installed from $commit, the checkout is at $head."; fi
+        if [ -n "$commit" ] && [ "$commit" != "$head" ]; then
+            # shellcheck disable=SC2086 # $inputs is a list of paths
+            if git -C "$root" diff --quiet "$commit" HEAD -- $inputs 2>/dev/null; then
+                echo "Installed from $commit; the app's sources are unchanged since then."
+            else
+                echo "STALE: installed from $commit; the app's sources changed by $head."
+            fi
+        fi
         if [ "$(plist_value EnsomiBuildDirty)" = YES ]; then echo "STALE: installed with uncommitted changes."; fi
         if [ -n "$commit" ] && [ "$value" != "$runtime" ]; then
             echo "STALE: installed runtime ${value:-unknown}, Package.resolved pins ${runtime:-unknown}."
