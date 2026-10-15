@@ -7,14 +7,45 @@ import Foundation
 public struct ChartModelSource: Sendable {
     /// Ends with a slash; the manifest and each file are at `directory/<path>`.
     public var directory: URL
+    /// The package revision `directory` holds, which an install from it records.
+    public var revision: String = ChartModelSource.pinnedRevision
 
     /// The tag of `sed-i/ensomi-r2` the app downloads, so the manifest and the files it lists do not change under it.
-    public static let revision = "r2-1.0.1"
+    public static let pinnedRevision = "r2-1.0.1"
 
-    /// Hugging Face `sed-i/ensomi-r2` at `revision`, directory `onnx/`.
+    /// Hugging Face `sed-i/ensomi-r2` at `pinnedRevision`, directory `onnx/`.
     public static let published = ChartModelSource(
-        directory: URL(string: "https://huggingface.co/sed-i/ensomi-r2/resolve/\(revision)/onnx/")!
+        directory: URL(string: "https://huggingface.co/sed-i/ensomi-r2/resolve/\(pinnedRevision)/onnx/")!,
+        revision: pinnedRevision
     )
+}
+
+/// What an install was downloaded from: the package revision and the SHA-256 of its manifest, in
+/// `ensomi-install.json` beside the package's files. The manifest does not list the record, so the runtime's open and
+/// the copy from an older install pass it by. An install made before the app wrote it has none.
+public struct ChartModelInstallRecord: Codable, Equatable, Sendable {
+    public var revision: String
+    /// Lowercase hex, as the manifest gives its files' hashes.
+    public var manifestSHA256: String
+
+    public static let fileName = "ensomi-install.json"
+
+    enum CodingKeys: String, CodingKey {
+        case revision
+        case manifestSHA256 = "manifest_sha256"
+    }
+
+    /// The record in `directory`; nil when it has none or it does not decode.
+    public static func read(in directory: URL) -> ChartModelInstallRecord? {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent(fileName)) else { return nil }
+        return try? JSONDecoder().decode(ChartModelInstallRecord.self, from: data)
+    }
+
+    func write(in directory: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(self).write(to: directory.appendingPathComponent(Self.fileName))
+    }
 }
 
 public enum ChartModelDownloadError: Error, Equatable, LocalizedError {
@@ -33,11 +64,12 @@ public enum ChartModelDownloadError: Error, Equatable, LocalizedError {
 
 /// Downloads the package's manifest, checks it with the runtime's `checkPackage`, then downloads exactly the files it
 /// lists into a directory beside the install directory and moves that into place only when every file has the size and
-/// SHA-256 the manifest gives and the directory validates. A download that fails or is cancelled leaves that directory
-/// with the files finished so far and the one in progress (`<path>.part`), and the next install continues from there:
-/// finished files are checked again and the partial one is resumed with an HTTP Range request. A file the install
-/// directory already holds with its listed size and SHA-256 is copied rather than fetched, so installing over an older
-/// install, with or without a manifest, fetches only the manifest and the files it lacks or that changed.
+/// SHA-256 the manifest gives and the directory validates; a `ChartModelInstallRecord` of the source's revision is
+/// added after validation. A download that fails or is cancelled leaves that directory with the files finished so far
+/// and the one in progress (`<path>.part`), and the next install continues from there: finished files are checked
+/// again and the partial one is resumed with an HTTP Range request. A file the install directory already holds with
+/// its listed size and SHA-256 is copied rather than fetched, so installing over an older install, with or without a
+/// manifest, fetches only the manifest and the files it lacks or that changed.
 public struct ChartModelDownloader: Sendable {
     public var source: ChartModelSource
     public var session: URLSession
@@ -57,12 +89,13 @@ public struct ChartModelDownloader: Sendable {
     }
 
     /// `progress` hears the fraction of the model's bytes on disk, a whole percent at a time. Cancelling the task
-    /// stops the download and keeps what it wrote for the next install.
+    /// stops the download and keeps what it wrote for the next install. Returns the record the install now holds.
+    @discardableResult
     public func install(
         into installDirectory: URL,
         validate: @Sendable (URL) throws -> Void,
         progress: @escaping @Sendable (Double) -> Void
-    ) async throws {
+    ) async throws -> ChartModelInstallRecord {
         let (manifest, response) = try await session.data(from: source.directory.appendingPathComponent(Self.manifestName))
         try Self.checkStatus(response, name: Self.manifestName)
         let package = try checkPackage(manifestJson: String(decoding: manifest, as: UTF8.self))
@@ -76,15 +109,19 @@ public struct ChartModelDownloader: Sendable {
         for file in package.files {
             try await fetch(file, into: staging, installed: installDirectory, tracker: tracker)
         }
-        try manifest.write(to: staging.appendingPathComponent(Self.manifestName))
+        let manifestFile = staging.appendingPathComponent(Self.manifestName)
+        try manifest.write(to: manifestFile)
 
         try validate(staging)
+        let record = ChartModelInstallRecord(revision: source.revision, manifestSHA256: try Self.sha256Hex(of: manifestFile))
+        try record.write(in: staging)
         if fileManager.fileExists(atPath: installDirectory.path) {
             _ = try fileManager.replaceItemAt(installDirectory, withItemAt: staging)
         } else {
             try fileManager.moveItem(at: staging, to: installDirectory)
         }
         progress(1)
+        return record
     }
 
     /// Brings `entry` into `staging` and checks its size and SHA-256. A copy finished at an earlier start is kept if

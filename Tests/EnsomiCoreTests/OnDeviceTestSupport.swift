@@ -106,9 +106,12 @@ struct PackageFixture {
         ]
     }
 
-    /// Writes the manifest beside the files, as an install made from it holds it.
+    /// Writes the manifest beside the files, and the record of an install from the pinned revision, as an install made
+    /// from it holds them, so a library treats the install as current.
     func writeManifest() throws {
         try write(manifest: try manifest(), in: directory)
+        let manifestSHA256 = try sha256Hex(of: directory.appendingPathComponent(ChartModelDownloader.manifestName))
+        try ChartModelInstallRecord(revision: ChartModelSource.pinnedRevision, manifestSHA256: manifestSHA256).write(in: directory)
     }
 }
 

@@ -28,6 +28,9 @@ public final class ChartModelLibrary {
     public private(set) var folderError: String?
     /// The licence of the model in use, read off the main actor when that model changes.
     public private(set) var license: ChartModelLicense?
+    /// The package revision the download records (`ChartModelInstallRecord`); nil without a download or for one made
+    /// before the app recorded it.
+    public private(set) var installedRevision: String?
 
     private let defaults: UserDefaults
     private let downloader: ChartModelDownloader
@@ -60,10 +63,23 @@ public final class ChartModelLibrary {
         self.downloader = downloader
         installDirectory = modelsDirectory.appendingPathComponent("ensomi-r2", isDirectory: true)
         isDownloaded = FileManager.default.fileExists(atPath: installDirectory.path)
+        installedRevision = ChartModelInstallRecord.read(in: installDirectory)?.revision
         hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         restoreChosenFolder()
-        if isDownloaded, !installIsComplete { startDownload() }
+        if isDownloaded, !installIsComplete || isUpdatePending { startDownload() }
         readLicense()
+    }
+
+    /// The revision a download fetches: `ChartModelSource.pinnedRevision` for the published package.
+    public var pinnedRevision: String {
+        downloader.source.revision
+    }
+
+    /// The download is from another revision than `pinnedRevision`, or records none, and no download has replaced it
+    /// yet. The library starts that download when it is created, as at launch; the installed model stays in use while
+    /// it runs and after it fails.
+    public var isUpdatePending: Bool {
+        isDownloaded && installedRevision != pinnedRevision
     }
 
     /// The install holds its manifest and every file the manifest lists, at its listed size. An install made before
@@ -107,12 +123,13 @@ public final class ChartModelLibrary {
         downloadTask = Task {
             defer { downloadTask = nil }
             do {
-                try await downloader.install(
+                let record = try await downloader.install(
                     into: installDirectory,
                     validate: { _ = try OnDeviceChartGenerator(modelDirectory: $0) },
                     progress: { fraction in Task { @MainActor in self.report(fraction) } }
                 )
                 isDownloaded = true
+                installedRevision = record.revision
                 opened = nil
                 download = .idle
                 readLicense()
@@ -136,6 +153,7 @@ public final class ChartModelLibrary {
         try? FileManager.default.removeItem(at: installDirectory)
         try? FileManager.default.removeItem(at: stagingDirectory)
         isDownloaded = false
+        installedRevision = nil
         hasPartialDownload = false
         download = .idle
         opened = nil

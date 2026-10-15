@@ -68,13 +68,17 @@ struct ChartModelManagementView: View {
 
     private var status: String {
         if isDownloading {
-            return "Downloading the Ensomi R2 model."
+            return library.isUpdatePending
+                ? "Updating the Ensomi R2 model to package \(library.pinnedRevision)."
+                : "Downloading the Ensomi R2 model."
         }
         if let folder = library.chosenFolder {
             return "Using the model in the folder “\(folder.lastPathComponent)”."
         }
         if library.isDownloaded {
-            return "The Ensomi R2 model is downloaded."
+            let installed = "The Ensomi R2 model is downloaded (package \(library.installedRevision ?? "not recorded"))."
+            guard library.isUpdatePending else { return installed }
+            return installed + " Update pending: package \(library.pinnedRevision). The installed model stays in use until it downloads."
         }
         if library.hasPartialDownload {
             return "The download of Ensomi R2 stopped before it finished. Resume Download continues from the files already here."
