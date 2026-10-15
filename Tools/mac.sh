@@ -91,7 +91,7 @@ runtime_version() {
 model_revision() {
     local file=Sources/EnsomiCore/Services/Beatmap/ChartModelDownloader.swift
     { if [ -n "${1:-}" ]; then git -C "$root" show "$1:$file"; else cat "$root/$file"; fi; } 2>/dev/null |
-        awk -F'"' '/static let revision = "/ { print $2; exit }' || true
+        awk -F'"' '/static let (pinnedRevision|revision) = "/ { print $2; exit }' || true
 }
 plist_value() { "$plistbuddy" -c "Print :$1" "$installed/Contents/Info.plist" 2>/dev/null || true; }
 count_results() {
