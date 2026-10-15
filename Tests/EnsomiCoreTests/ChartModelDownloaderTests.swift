@@ -181,7 +181,8 @@ final class ChartModelDownloaderTests: XCTestCase {
 
     /// An install from the earlier revision, made before the app recorded revisions, while the app pins a revision whose
     /// manifest differs only in its licence: the library refreshes it when it starts, fetching only the manifest and
-    /// copying every file from the install. The library then has the new licence and revision.
+    /// copying every file from the install. The library then has the new licence and revision, and the model's name on
+    /// this device carries the revision.
     func testTheLibraryRefreshesAnInstallFromAnotherRevisionWhenItStarts() async throws {
         let package = try PackageFixture.r2()
         let install = installDirectory
@@ -206,6 +207,10 @@ final class ChartModelDownloaderTests: XCTestCase {
         let deadline = Date().addingTimeInterval(10)
         while library.license?.expression != "MIT", Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertEqual(library.license?.expression, "MIT")
+
+        let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
+        await generation.loadCapabilities()
+        XCTAssertEqual(generation.modelDescription, "Ensomi R2 r2-1.0 · package r2-1.0.1")
     }
 
     /// An install whose record names the revision the app pins is current: the library fetches nothing.
@@ -219,6 +224,7 @@ final class ChartModelDownloaderTests: XCTestCase {
 
         XCTAssertEqual(library.download, .idle)
         XCTAssertEqual(library.installedRevision, "r2-1.0.1")
+        XCTAssertEqual(library.activeRevision, "r2-1.0.1")
         XCTAssertFalse(library.isUpdatePending)
         XCTAssertEqual(LocalServer.requests.count, earlier)
     }

@@ -83,8 +83,14 @@ the runtime package carries (`ChartGenerator.onnxRuntimeLicenseFiles`), follow w
 each. A button opens the text in a sheet. The library reads the licence off the main actor
 whenever the model in use changes, and again when a download replaces the install.
 
-The section's status names the downloaded package's tag ("The Ensomi R2 model is downloaded
-(package r2-1.0.1).", or "not recorded" for an install without a record).
+The model has two version names. `r2-1.0` is the model identity: the manifest's
+`model.version`, which must equal the one the runtime implements, and the version capabilities
+and receipts report. The tag is the package revision: a new tag can change the package while
+the identity stays, as `r2-1.0.1` changed only the licence in `r2-1.0`'s manifest. The
+section's status names the downloaded package's tag ("The Ensomi R2 model is downloaded
+(package r2-1.0.1).", or "not recorded" for an install without a record), and a model on this
+device from the download is named "Ensomi R2 r2-1.0 · package r2-1.0.1" on Generate a Chart
+and in its result. A chosen folder and the chart server are named by the identity alone.
 
 When a model is installed, "On this device" is the default engine; "Chart server" stays
 selectable and the choice is remembered. The engine picker is disabled during a generation.
@@ -200,7 +206,8 @@ override the sibling-checkout defaults).
   without a manifest that lacks a file, completed by the library when it starts with only the
   manifest and that file fetched, and an install from another tag without a record, served a
   manifest that differs only in its licence: the library refreshes it when it starts with only
-  the manifest fetched, then has the new licence and a record of the new tag. On a package of
+  the manifest fetched, then has the new licence and a record of the new tag, and names the
+  model on this device "Ensomi R2 r2-1.0 · package <tag>". On a package of
   three small files, so without the model and in CI: a manifest `checkPackage` refuses
   (`min_runtime` 9.0.0; nothing is fetched after it), a file whose SHA-256 differs from the
   manifest's (the bad file is not kept), completing an install without a manifest (the

@@ -82,6 +82,12 @@ public final class ChartModelLibrary {
         isDownloaded && installedRevision != pinnedRevision
     }
 
+    /// The package revision of the model in use when that is the download; nil for a chosen folder, which records
+    /// none.
+    public var activeRevision: String? {
+        chosenFolder == nil ? installedRevision : nil
+    }
+
     /// The install holds its manifest and every file the manifest lists, at its listed size. An install made before
     /// the app downloaded the manifest has none; the download then fetches the manifest and the files that are missing
     /// or changed, and copies the rest from the install.

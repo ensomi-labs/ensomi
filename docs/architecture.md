@@ -165,6 +165,8 @@ The install records the tag it came from and its manifest's SHA-256 in `ensomi-i
 (`ChartModelInstallRecord`). When the library starts with an install whose record names another
 tag than `ChartModelSource.pinnedRevision`, or that has none, it downloads the pinned tag over it,
 copying the files that are unchanged, and the installed model stays in use until that succeeds.
+The manifest's `model.version` stays the model identity the runtime checks; a model on this device
+from the download is named with the tag after it, "Ensomi R2 r2-1.0 · package r2-1.0.1".
 
 ## Gameplay and scoring
 
