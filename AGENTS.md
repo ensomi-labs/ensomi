@@ -24,28 +24,33 @@ availability against `project.yml`, inspect affected screens, and report any UI
 checks that could not be run. Keep UI/UX decisions in the design document; keep
 service and domain contracts in `docs/architecture.md`.
 
-## macOS installation
+## macOS builds and installation
 
-Keep bundle ID `io.ensomi.mac`, signing identity, and launch path stable within a
-channel. Permission-sensitive runs use `/Applications/EnsomiMac.app`; do not
-launch from build output or stale copies. Quit the app before replacing that
-bundle, then launch the installed path. Debug disables signing; use Release only
-after configuring a stable signing identity. Coexisting channels need distinct
-names and bundle IDs.
+Build, test and install with `Tools/mac.sh`, not `xcodebuild` directly; it keeps
+every output under `.build/xcode/` and `Tools/mac.sh help` lists its commands.
+`test` and `build dev|ios|cli|release` share the Debug `dev` cache, and a lock
+makes a second build wait for the first. `install` builds the `play` channel, the
+Debug configuration compiled with `-O` and whole-module optimisation, from a tree
+without uncommitted changes to the app's sources. It refuses while the app runs
+and never quits it, replaces `/Applications/EnsomiMac.app`, keeps the previous app
+as one rollback zip (`Tools/mac.sh rollback`) and records the commit, channel and
+runtime version in the app.
 
-```sh
-set -e
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -configuration Debug -destination 'platform=macOS' -derivedDataPath .build/EnsomiMacInstallDerivedData build
-test -d .build/EnsomiMacInstallDerivedData/Build/Products/Debug/EnsomiMac.app
-pkill -x EnsomiMac || true
-rm -rf /Applications/EnsomiMac.app
-ditto .build/EnsomiMacInstallDerivedData/Build/Products/Debug/EnsomiMac.app /Applications/EnsomiMac.app
-open /Applications/EnsomiMac.app
-```
+Keep bundle ID `io.ensomi.mac` and the Debug signing settings. Permission-sensitive
+runs use `/Applications/EnsomiMac.app`; launch only that path, never a build
+product or an older copy. Install Release only after configuring a stable signing
+identity. Channels installed side by side need distinct names and bundle IDs.
 
-Remove stale same-named app bundles before requesting capture permissions. To
-reset capture access, run `tccutil reset ScreenCapture io.ensomi.mac`, launch the
-canonical app, and grant permission again.
+Every task that builds ends with `Tools/mac.sh clean` and reports
+`Tools/mac.sh status`. After a merge or a pin change on `dev/swift`, an agent may
+run `Tools/mac.sh install` once the human has quit the app; otherwise it reports
+the `STALE` line that `status` prints. Put renders and screenshots for review in
+`artifacts/renders/<topic>/`, not `.build/`.
+
+Before requesting capture permissions, remove the stale app copies `status` lists:
+`clean` removes those under `.build/xcode/`, and the human decides on the others.
+To reset capture access, run `tccutil reset ScreenCapture io.ensomi.mac`, launch
+the installed app, and grant permission again.
 
 ## Documentation
 

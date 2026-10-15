@@ -126,4 +126,5 @@ both light and dark appearances where those appearances are supported.
    labels, and affected empty/error states. Report checks that were unavailable.
 5. Update this document when a durable UI/UX convention changes. Keep local
    screenshots, run logs, and temporary verification artifacts out of committed
-   documentation.
+   documentation; renders for review go to the ignored `artifacts/renders/<topic>/`,
+   not `.build/`.

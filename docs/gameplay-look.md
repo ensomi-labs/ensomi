@@ -105,8 +105,7 @@ window, a display or sound, and writes the PNGs to the directory given:
 
 ```sh
 TEST_RUNNER_ENSOMI_SCREENSHOT_DIR="$PWD/docs/screenshots/gameplay-look/after" \
-  xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=macOS' test \
-  -only-testing:EnsomiCoreTests/PlayScreenScreenshotTests
+  Tools/mac.sh test -only-testing:EnsomiCoreTests/PlayScreenScreenshotTests
 ```
 
 The before set was rendered at `6ef7e3f`, the commit that added the test on top of

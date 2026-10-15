@@ -24,8 +24,10 @@ Usage: Tools/mac.sh <command>
 
   test [xcodebuild args...]  Run the EnsomiMac tests (Debug, dev cache), e.g.
                              -only-testing:EnsomiCoreTests/<class>; TEST_RUNNER_* pass through.
-  build dev|ios|cli|play     dev: EnsomiMac; ios: EnsomiIOS for the iOS simulator;
-                             cli: EnsomiACRCloudDebugCLI; play: the optimised app that install copies.
+  build dev|ios|cli|release|play
+                             dev: EnsomiMac; ios: EnsomiIOS for the iOS simulator;
+                             cli: EnsomiACRCloudDebugCLI; release: EnsomiMac Release, unsigned,
+                             to check conditional code; play: the optimised app that install copies.
   install [--allow-dirty]    Build play from a clean tree and replace /Applications/EnsomiMac.app,
                              keeping the previous app as .build/xcode/previous-EnsomiMac.zip.
                              Refuses while Ensomi runs. The app records --allow-dirty.
@@ -156,15 +158,19 @@ build_play() {
 }
 
 cmd_build() {
+    case "$#:${1:-}" in
+        1:dev | 1:ios | 1:cli | 1:release | 1:play) ;;
+        *) die "build takes one of dev, ios, cli, release, play." ;;
+    esac
     need xcodebuild
-    if [ $# -ne 1 ]; then die "build takes one of dev, ios, cli, play."; fi
     case $1 in
         dev) lock dev; xcb dev -scheme EnsomiMac -configuration Debug -destination 'platform=macOS' build ;;
         ios) lock dev; xcb dev -scheme EnsomiIOS -configuration Debug -destination 'generic/platform=iOS Simulator' \
             build CODE_SIGNING_ALLOWED=NO ;;
         cli) lock dev; xcb dev -scheme EnsomiACRCloudDebugCLI -configuration Debug -destination 'platform=macOS' build ;;
+        release) lock dev; xcb dev -scheme EnsomiMac -configuration Release -destination 'platform=macOS' \
+            build CODE_SIGNING_ALLOWED=NO ;;
         play) build_play; echo "Built for Tools/mac.sh install; do not launch the product." ;;
-        *) die "build takes one of dev, ios, cli, play." ;;
     esac
 }
 

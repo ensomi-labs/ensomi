@@ -31,21 +31,25 @@ To develop against a local runtime, change `EnsomiRuntime` in `project.yml` to
 `ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework`, a path relative to the
 runtime package. SwiftPM reads the variable whenever it loads that package, also the released
 one: `xcodebuild` takes it from the shell, Xcode from `launchctl setenv`. Unset it in both to
-build with the release.
+build with the release; `Tools/mac.sh install` refuses while either is set.
 
-Then generate the project from `project.yml`:
+Then generate the project from `project.yml`, and run the macOS tests and the iOS simulator
+build:
 
 ```sh
 xcodegen generate
 open Ensomi.xcodeproj
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=macOS' test
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiIOS -destination 'generic/platform=iOS Simulator' build CODE_SIGNING_ALLOWED=NO
+Tools/mac.sh test
+Tools/mac.sh build ios
 ```
 
-The [CI workflow](.github/workflows/ci.yml) runs these tests and the iOS simulator build on pull requests and on pushes to `dev/swift`.
+`Tools/mac.sh` keeps every build, package checkout and test result under `.build/xcode/`;
+`Tools/mac.sh help` lists its commands. The [CI workflow](.github/workflows/ci.yml) runs these
+tests and the iOS simulator build on pull requests and on pushes to `dev/swift`.
 
-Debug app builds disable code signing. For microphone or system-audio testing,
-follow the [canonical macOS installation guidance](AGENTS.md#macos-installation).
+Debug app builds disable code signing. For microphone or system-audio testing, install the app
+with `Tools/mac.sh install` and launch `/Applications/EnsomiMac.app`, as the
+[macOS build and installation rules](AGENTS.md#macos-builds-and-installation) describe.
 
 SwiftPM resolves [EnsomiProtocol](https://github.com/ensomi-labs/protocol) and
 [Sonalign](https://github.com/ensomi-labs/sonalign), pinned in `project.yml`
@@ -99,8 +103,8 @@ ACRCLOUD_ACCESS_SECRET=your-access-secret
 
 Filescan debugging additionally requires the `acrcloud` executable and
 `ACRCLOUD_ACCESS_TOKEN`; `ACRCLOUD_CLI` can select its path. Build the optional helper
-with `xcodebuild -project Ensomi.xcodeproj -scheme EnsomiACRCloudDebugCLI -configuration Debug -destination 'platform=macOS' build`
-and use its `--help` for options.
+with `Tools/mac.sh build cli` (it is written to `.build/xcode/dev/Build/Products/Debug/`) and
+use its `--help` for options.
 
 Generating on the chart server requires the companion [ensomi-model](https://github.com/ensomi-labs/ensomi-model)
 service, listening at `ws://localhost:8765` by default. It must be able to read the

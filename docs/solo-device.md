@@ -167,7 +167,7 @@ had 29 files and no manifest (the link, not the app, sets that).
 
 ## Checks
 
-All of these run on the Mac with `xcodebuild … test -only-testing:EnsomiCoreTests/<class>`;
+All of these run on the Mac with `Tools/mac.sh test -only-testing:EnsomiCoreTests/<class>`;
 each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER` and `ENSOMI_SONG`
 override the sibling-checkout defaults).
 
@@ -227,8 +227,8 @@ override the sibling-checkout defaults).
   refusal of 7 stars). The set in `docs/screenshots/solo-device` was rendered with:
 
   ```sh
-  TEST_RUNNER_ENSOMI_SCREENSHOT_DIR="$PWD/docs/screenshots/solo-device" xcodebuild -project Ensomi.xcodeproj \
-    -scheme EnsomiMac -destination 'platform=macOS' test -only-testing:EnsomiCoreTests/SetupScreenScreenshotTests
+  TEST_RUNNER_ENSOMI_SCREENSHOT_DIR="$PWD/docs/screenshots/solo-device" Tools/mac.sh test \
+    -only-testing:EnsomiCoreTests/SetupScreenScreenshotTests
   ```
 
 The review of the first renders found the setup screen in the placeholder navy, blue and
