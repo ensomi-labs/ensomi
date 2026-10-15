@@ -248,7 +248,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertEqual(LocalServer.requests.dropFirst(earlier).map(\.path), [manifestRequest])
         XCTAssertTrue(library.isUpdatePending)
         XCTAssertEqual(library.installedRevision, "r2-1.0")
-        XCTAssertEqual(library.activeModel, install)
+        XCTAssertEqual(library.activeModel?.standardizedFileURL.path, install.standardizedFileURL.path)
         XCTAssertFalse(library.hasPartialDownload)
         XCTAssertEqual(Set(contents(of: install)), Set(installed.keys))
         for (name, data) in installed {
