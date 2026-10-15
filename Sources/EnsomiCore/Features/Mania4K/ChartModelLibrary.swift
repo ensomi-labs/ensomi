@@ -245,3 +245,36 @@ public struct ChartModelLicense: Equatable, Sendable {
         notices = try names.map { Notice(name: $0, text: try String(contentsOf: modelDirectory.appendingPathComponent($0), encoding: .utf8)) }
     }
 }
+
+/// What the running app was built from, as `Tools/mac.sh` records it in the macOS app's Info.plist for the installed
+/// app: the commit, whether the app's sources had uncommitted changes, the channel and the runtime version. Other builds
+/// leave these values empty, and then no build is recorded.
+public struct AppBuildInfo: Equatable, Sendable {
+    /// The full commit hash; nil when no build is recorded.
+    public let commit: String?
+    public let isModified: Bool
+    public let channel: String?
+    /// The EnsomiRuntime version Package.resolved pinned.
+    public let runtimeVersion: String?
+
+    public static let current = AppBuildInfo(infoDictionary: Bundle.main.infoDictionary ?? [:])
+
+    public init(infoDictionary: [String: Any]) {
+        func value(_ key: String) -> String? {
+            (infoDictionary[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        commit = value("EnsomiBuildCommit")
+        isModified = value("EnsomiBuildDirty") == "YES"
+        channel = value("EnsomiBuildChannel")
+        runtimeVersion = value("EnsomiRuntimeVersion")
+    }
+
+    /// "App build abc1234 (modified) · play · runtime 0.3.1", or "App build not recorded".
+    public var summary: String {
+        guard let commit else { return "App build not recorded" }
+        var parts = ["App build \(commit.prefix(7))" + (isModified ? " (modified)" : "")]
+        if let channel { parts.append(channel) }
+        if let runtimeVersion { parts.append("runtime \(runtimeVersion)") }
+        return parts.joined(separator: " · ")
+    }
+}

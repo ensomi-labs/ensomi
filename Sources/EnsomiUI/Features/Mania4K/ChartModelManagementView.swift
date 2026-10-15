@@ -122,6 +122,19 @@ struct ChartModelLicenseView: View {
     }
 }
 
+/// What the running app was built from: the commit, channel and runtime `Tools/mac.sh install` records in the macOS
+/// app, so a stale install shows in Settings.
+struct AppBuildInfoView: View {
+    var build = AppBuildInfo.current
+
+    var body: some View {
+        Text(build.summary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+    }
+}
+
 /// A licence text in full, a paragraph at a time so that long notices scroll without laying out at once.
 private struct LicenseTextView: View {
     let notice: ChartModelLicense.Notice

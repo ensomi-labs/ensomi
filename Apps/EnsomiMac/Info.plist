@@ -20,6 +20,14 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>EnsomiBuildChannel</key>
+	<string>$(ENSOMI_BUILD_CHANNEL)</string>
+	<key>EnsomiBuildCommit</key>
+	<string>$(ENSOMI_BUILD_COMMIT)</string>
+	<key>EnsomiBuildDirty</key>
+	<string>$(ENSOMI_BUILD_DIRTY)</string>
+	<key>EnsomiRuntimeVersion</key>
+	<string>$(ENSOMI_RUNTIME_VERSION)</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Ensomi captures system audio to synchronize gameplay with audio playing on this Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>

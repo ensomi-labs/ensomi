@@ -1,6 +1,7 @@
 import Foundation
 import EnsomiCore
 import EnsomiUI
+import os
 import SwiftUI
 
 @main
@@ -16,6 +17,7 @@ struct EnsomiMacApp: App {
     #endif
 
     init() {
+        Logger(subsystem: "io.ensomi.mac", category: "build").notice("\(AppBuildInfo.current.summary, privacy: .public)")
         let model = Mania4KPlaySessionModel(settings: .standard)
         model.followSystemOutputDevice()
         _model = State(initialValue: model)

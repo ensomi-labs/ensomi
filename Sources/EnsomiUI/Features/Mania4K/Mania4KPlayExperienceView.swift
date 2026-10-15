@@ -1080,6 +1080,9 @@ public struct EnsomiSettingsView: View {
             Section {
                 ChartModelManagementView(library: chartModels)
                 ChartModelLicenseView(library: chartModels)
+                #if os(macOS)
+                AppBuildInfoView()
+                #endif
             } header: {
                 Text("Chart model")
             } footer: {
