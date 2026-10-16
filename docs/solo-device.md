@@ -19,7 +19,7 @@ The model is the published Ensomi R2 package, the `onnx/` directory of
 `r2-1.0.1`: its manifest `ensomi-package.json` and the files the manifest lists (`runtime.json`,
 the graphs, state and array files and BeatThis's licence; 30 files and about 120 MB by the
 manifest at the tag). The format and its checks are the runtime's
-[model package](https://github.com/ensomi-labs/runtime/blob/v0.3.1/docs/model-package.md). The
+[model package](https://github.com/ensomi-labs/runtime/blob/v0.3.2/docs/model-package.md). The
 tag is `ChartModelSource.pinnedRevision`, the one place the app names it; the app never reads
 `main`, so later commits there do not change what it installs. Two ways to have it, in Settings
 under Chart model, or on Generate a Chart when "On this device" is chosen and no model is
@@ -101,7 +101,7 @@ selectable and the choice is remembered. The engine picker is disabled during a 
 | --- | --- |
 | Pick the song, section validation, star range | App (`Mania4KChartGenerationModel`); the range and section kinds come from the model's capabilities (`ChartGenerator.capabilities()`, mapped to the protocol `ModelCapabilities`) |
 | Decode | App: `AVAudioFile` at the file's own sample rate, channels averaged in Double, then Float (`OnDeviceAudioDecoder`); an MP3 without a non-zero LAME delay starts 529 frames later, on the release engine's time (`MP3Lead`, see [architecture](architecture.md#chart-generation)) |
-| Resample to 22050 Hz, beat tracking (BeatThis), features and beat grid (`prepare`, from when the song is chosen) | The runtime's Rust core in the app process; ONNX Runtime CPU runs the graphs on a thread of its own |
+| Resample to 22050 Hz, beat tracking (BeatThis), features and beat grid (`prepare`, from when the song is chosen) | The runtime's Rust core in the app process; ONNX Runtime's CPU provider runs BeatThis on the device's performance cores and every other graph on one thread (the runtime's default since 0.3.2, `GeneratorOptions.beatthisThreads` unset) |
 | Rows, arrangement, `.osu` (a whole-chart `ChartScheduler` from the `Prepared`) | The same |
 | `.osz` | The runtime's Rust core (`exportOsz`, `crates/osz`) from the `.osu`, the song file's bytes and the receipt; the app reads the song and writes the file the save panel names |
 | Validate and play | App: the gameplay core checks the chart, `Mania4KPlaySessionModel` plays it from the song's time 0 |
@@ -130,9 +130,11 @@ generator is opened once and kept.
 The Seed field takes a whole number from 0 to 2^64 − 1; blank gives a new chart each time
 (on this device a random seed below 2^32, small enough to retype). A finished chart shows its
 note count and the seed the engine used, from its receipt, with **Use Seed** to put it in the
-field: the same song, model, stars, sections and seed make the same chart. Then come **Play**,
-**Save .osu…**, **Save .osz…** and **Generate Again**. The chart and the chosen mode stay
-after play ends, so a chart can be played and then saved.
+field: on one device, the same song, model, stars, sections and seed make the same chart (the
+runtime does not claim charts from two devices equal, see its
+[execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.2/swift/README.md#execution-provider)
+notes). Then come **Play**, **Save .osu…**, **Save .osz…** and **Generate Again**. The chart
+and the chosen mode stay after play ends, so a chart can be played and then saved.
 
 The save panel proposes the web app's name, `Artist - Title (ensomi R2 s<seed>)`, with the song
 file's name as the title. The `.osu` is the core's text. The `.osz` is a zip made by the Rust
@@ -144,6 +146,12 @@ its charts have no save buttons; when its receipt names an `.osz` it wrote on it
 the screen shows that path.
 
 ## Time and memory
+
+Everything in this section was measured before runtime 0.3.2, with every graph on one thread;
+the runs on bings-mac used the runtime built from source before its first release, 0.1.0.
+Since 0.3.2 BeatThis, most of a generation's time, runs on the device's performance cores; the
+runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.2/swift/README.md#execution-provider)
+notes give BeatThis's time on one thread and on four. The app has not been measured since.
 
 On bings-mac (Apple M5, macOS 27, Debug build of the app's test bundle, CPU provider), for a
 133 s stereo MP3 at 44.1 kHz without a LAME tag that gave a chart of 1225 objects at 3.5 stars,
@@ -163,7 +171,7 @@ The footprint is `ri_lifetime_max_phys_footprint` from `proc_pid_rusage` at the 
 run, in the XCTest process that opened the model, decoded, generated and played: the
 runtime's own measurement for this model is 2.0 to 2.3 GiB peak, of which BeatThis's
 working memory is most. The decoded song as mono Float is 23.5 MB. Core ML is not offered; the
-runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.1/swift/README.md#execution-provider)
+runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.2/swift/README.md#execution-provider)
 measurements give its cost. On iOS the core's `lowMemory` default is on (1.3 to 1.6 GiB on the Mac).
 
 In the iOS simulator (iPhone 17, iOS 27 simulator on bings-mac, the runtime's `GeneratorTests`
@@ -241,7 +249,8 @@ names a source.
   stars with a random seed through the generation model, checks the `.osu` parses to the chart,
   writes the `.osz` and opens it with `/usr/bin/unzip`: `audio.mp3` (the song's bytes),
   `generated.osu` (the `.osu`) and `receipt.json` (with the seed). Nothing is played. One run,
-  before the MP3 lead: 1152 objects with seed 1520549647 in 8.8 s, a 2,138,366-byte `.osz`.
+  before the MP3 lead and runtime 0.3.2: 1152 objects with seed 1520549647 in 8.8 s, a
+  2,138,366-byte `.osz`.
 - The runtime's checks for the exporter: `cargo test -p ensomi-osz` reads the archive back with
   the `zip` crate (names, order, stored and deflated entries, contents, same bytes twice), and
   `swift test` at `ensomi-runtime`'s root opens `exportOsz`'s archive with `/usr/bin/unzip`.
@@ -287,7 +296,7 @@ at narrow widths and with large text were not rendered.
 
 ## Limits
 
-- CPU only, on macOS and iOS. The footprint is about 2 GiB on the Mac.
+- CPU only, on macOS and iOS. The footprint was about 2 GiB on the Mac before runtime 0.3.2.
 - One generation at a time. Stop takes effect at the core's next graph run.
 - The whole song is decoded into memory before generation.
 - Charts from the chart server cannot be saved from the app: the protocol's result carries no
