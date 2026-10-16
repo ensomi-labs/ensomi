@@ -20,9 +20,10 @@ The model is the published Ensomi R2 package, the `onnx/` directory of
 the graphs, state and array files and BeatThis's licence; 30 files and about 120 MB by the
 manifest at the tag). The format and its checks are the runtime's
 [model package](https://github.com/ensomi-labs/runtime/blob/v0.3.1/docs/model-package.md). The
-tag is `ChartModelSource.revision`, the one place the app names it; the app never reads `main`,
-so later commits there do not change what it installs. Two ways to have it, in Settings under
-Chart model, or on Generate a Chart when "On this device" is chosen and no model is installed:
+tag is `ChartModelSource.pinnedRevision`, the one place the app names it; the app never reads
+`main`, so later commits there do not change what it installs. Two ways to have it, in Settings
+under Chart model, or on Generate a Chart when "On this device" is chosen and no model is
+installed:
 
 - **Download Model** fetches it into `Application Support/Ensomi/Models/ensomi-r2`
   with a progress bar and **Cancel Download**. It downloads `ensomi-package.json`, checks it
@@ -33,7 +34,10 @@ Chart model, or on Generate a Chart when "On this device" is chosen and no model
   the install directory already holds with its listed size and SHA-256 is copied from there
   instead of fetched, so **Download Again** over an install fetches only the manifest and the
   files that are missing or changed. Only when every file is right and `ChartGenerator.open`
-  accepts the directory with its manifest is it moved into place, replacing an older install.
+  accepts the directory with its manifest is `ensomi-install.json` added, recording the tag
+  (`revision`) and the manifest's SHA-256 (`manifest_sha256`), and the directory moved into
+  place, replacing an older install. The manifest does not list the record, so the runtime's
+  open and the copy from an install pass it by.
 - **A stopped download resumes.** A failed or cancelled download leaves the installed model,
   if any, untouched and keeps `.download-ensomi-r2`: the files finished so far and the one in
   progress as `<path>.part`. The section then says the download stopped and offers **Resume
@@ -43,15 +47,20 @@ Chart model, or on Generate a Chart when "On this device" is chosen and no model
   server that ignores the range) rewrites the file from the start. When a resumed file then
   fails its size or SHA-256, as it does when the published file changed in between, it is
   fetched again whole. **Remove Download** also deletes the partial files. There is no
-  automatic retry: apart from completing an install (next item), resuming is the person's
-  choice.
-- **An incomplete install is completed when the app starts.** The library reads the installed
-  manifest: when there is none, as in an install made before the app downloaded it, or when a
-  file it lists is missing or has another size, the library starts the download by itself. It
-  fetches the manifest and the files that are missing or changed, copies the rest from the
-  install, and leaves out files the manifest does not list, such as the `ensomi-model.json` of
-  earlier installs. The installed model stays in use meanwhile; a failed download leaves it as
-  it was and offers **Resume Download**.
+  automatic retry: apart from bringing an install up to date when the app starts (next item),
+  resuming is the person's choice.
+- **An incomplete or outdated install is brought up to date when the app starts.** The library
+  reads the installed manifest and `ensomi-install.json`, and starts the download by itself
+  when there is no manifest (an install made before the app downloaded it), when a file the
+  manifest lists is missing or has another size, or when the record names another tag than
+  `ChartModelSource.pinnedRevision` or is missing (an install made before the app wrote it).
+  The download fetches the manifest and the files that are missing or changed, copies the rest
+  from the install, and leaves out files the manifest does not list, such as the
+  `ensomi-model.json` of earlier installs; a tag that changes only the manifest costs that one
+  fetch. The installed model stays in use meanwhile. A failed download, such as one without a
+  network, leaves the install as it was and in use: the section says an update to the pinned
+  tag is pending and offers **Download Again**, or **Resume Download** when files are left
+  from it, and the next start tries again. A chosen folder is neither checked nor changed.
 - **Choose Folder…** uses any directory that holds the files, such as a local copy of
   `onnx/`. The folder is refused unless `ChartGenerator` opens it and it holds the model's
   licence notices (the manifest's `notices`, or for a folder without a manifest the files
@@ -72,7 +81,16 @@ licence (`BeatThis-LICENSE.txt`). A folder without a manifest has no expression;
 come from `noticeFiles(runtimeConfig:)`. ONNX Runtime's licence and third-party notices, which
 the runtime package carries (`ChartGenerator.onnxRuntimeLicenseFiles`), follow with a button
 each. A button opens the text in a sheet. The library reads the licence off the main actor
-whenever the model in use changes.
+whenever the model in use changes, and again when a download replaces the install.
+
+The model has two version names. `r2-1.0` is the model identity: the manifest's
+`model.version`, which must equal the one the runtime implements, and the version capabilities
+and receipts report. The tag is the package revision: a new tag can change the package while
+the identity stays, as `r2-1.0.1` changed only the licence in `r2-1.0`'s manifest. The
+section's status names the downloaded package's tag ("The Ensomi R2 model is downloaded
+(package r2-1.0.1).", or "not recorded" for an install without a record), and a model on this
+device from the download is named "Ensomi R2 r2-1.0 · package r2-1.0.1" on Generate a Chart
+and in its result. A chosen folder and the chart server are named by the identity alone.
 
 When a model is installed, "On this device" is the default engine; "Chart server" stays
 selectable and the choice is remembered. The engine picker is disabled during a generation.
@@ -167,9 +185,13 @@ had 29 files and no manifest (the link, not the app, sets that).
 
 ## Checks
 
-All of these run on the Mac with `xcodebuild … test -only-testing:EnsomiCoreTests/<class>`;
+All of these run on the Mac with `Tools/mac.sh test -only-testing:EnsomiCoreTests/<class>`;
 each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER` and `ENSOMI_SONG`
-override the sibling-checkout defaults).
+override the sibling-checkout defaults). In a test process `ChartModelLibrary.shared` does not
+bring the app's install up to date when it starts, so tests that make a view with the default
+library leave the installed model as it is. The tests' own libraries keep their models in
+temporary directories, and their downloads read a directory that does not exist unless a test
+names a source.
 
 - `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability and
   control mappings, the engine default and its persistence, a chosen folder kept only if the
@@ -184,14 +206,20 @@ override the sibling-checkout defaults).
   into `beatthis.onnx` (the next start sends `Range: bytes=3000000-` and fetches no finished
   file again; Remove Download leaves nothing), a file changed on the server while 5 MB of it
   waited (the resumed file fails its SHA-256 and is fetched again whole), cancelling mid-file
-  (the finished files and the partial one stay, the next start resumes), and an install
+  (the finished files and the partial one stay, the next start resumes), an install
   without a manifest that lacks a file, completed by the library when it starts with only the
-  manifest and that file fetched. On a package of three small files, so without the model and
-  in CI: a manifest `checkPackage` refuses (`min_runtime` 9.0.0; nothing is fetched after it), a
-  file whose SHA-256 differs from the manifest's (the bad file is not kept), completing an
-  install without a manifest (the matching file copied, the changed and the missing one
-  fetched, `ensomi-model.json` dropped), and the licence and notice texts read from a manifest
-  together with ONNX Runtime's files from the runtime package.
+  manifest and that file fetched, and an install from another tag without a record, served a
+  manifest that differs only in its licence: the library refreshes it when it starts with only
+  the manifest fetched, then has the new licence and a record of the new tag, and names the
+  model on this device "Ensomi R2 r2-1.0 · package <tag>". On a package of
+  three small files, so without the model and in CI: a manifest `checkPackage` refuses
+  (`min_runtime` 9.0.0; nothing is fetched after it), a file whose SHA-256 differs from the
+  manifest's (the bad file is not kept), completing an install without a manifest (the
+  matching file copied, the changed and the missing one fetched, `ensomi-model.json` dropped),
+  an install whose record names the pinned tag (nothing is fetched), a refresh whose
+  connection drops on the manifest (the install stays as it was and in use, with its licence,
+  and the update is pending), and the licence and notice texts read from a manifest together
+  with ONNX Runtime's files from the runtime package.
   `TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1` also downloads from Hugging Face at `r2-1.0.1`.
 - `ChartGenerationClientTests`: the seed field (refuses what is not a seed, sends 2^64 − 1), the
   result keeping the seed the server reports though none was asked for, Stop ending in the
@@ -227,8 +255,8 @@ override the sibling-checkout defaults).
   refusal of 7 stars). The set in `docs/screenshots/solo-device` was rendered with:
 
   ```sh
-  TEST_RUNNER_ENSOMI_SCREENSHOT_DIR="$PWD/docs/screenshots/solo-device" xcodebuild -project Ensomi.xcodeproj \
-    -scheme EnsomiMac -destination 'platform=macOS' test -only-testing:EnsomiCoreTests/SetupScreenScreenshotTests
+  TEST_RUNNER_ENSOMI_SCREENSHOT_DIR="$PWD/docs/screenshots/solo-device" Tools/mac.sh test \
+    -only-testing:EnsomiCoreTests/SetupScreenScreenshotTests
   ```
 
 The review of the first renders found the setup screen in the placeholder navy, blue and

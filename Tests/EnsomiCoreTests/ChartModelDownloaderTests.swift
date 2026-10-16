@@ -31,8 +31,18 @@ final class ChartModelDownloaderTests: XCTestCase {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
     }
 
-    private func served(_ package: PackageFixture, in name: String = "source") throws -> ChartModelDownloader {
-        ChartModelDownloader(source: LocalServer.serve(try publishedCopy(of: package, in: scratch.appendingPathComponent(name))), session: LocalServer.session)
+    /// Serves `package` as the package revision `revision`, with the manifest changed by `edit`.
+    private func served(
+        _ package: PackageFixture, in name: String = "source", revision: String = ChartModelSource.pinnedRevision,
+        manifest edit: (inout [String: Any]) -> Void = { _ in }
+    ) throws -> ChartModelDownloader {
+        var source = LocalServer.serve(try publishedCopy(of: package, in: scratch.appendingPathComponent(name), manifest: edit))
+        source.revision = revision
+        return ChartModelDownloader(source: source, session: LocalServer.session)
+    }
+
+    private func manifestSHA256(in directory: URL) throws -> String {
+        try sha256Hex(of: directory.appendingPathComponent(ChartModelDownloader.manifestName))
     }
 
     func testInstallsExactlyTheFilesTheManifestListsAndOpensThem() async throws {
@@ -50,8 +60,16 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertEqual(library.download, .idle)
         XCTAssertTrue(library.isDownloaded)
         XCTAssertEqual(library.activeModel, installDirectory)
-        XCTAssertEqual(Set(contents(of: installDirectory)), Set(package.files + [ChartModelDownloader.manifestName]))
+        XCTAssertEqual(
+            Set(contents(of: installDirectory)), Set(package.files + [ChartModelDownloader.manifestName, ChartModelInstallRecord.fileName])
+        )
         XCTAssertEqual(contents(of: installDirectory.deletingLastPathComponent()), ["ensomi-r2"])
+        XCTAssertEqual(
+            ChartModelInstallRecord.read(in: installDirectory),
+            ChartModelInstallRecord(revision: ChartModelSource.pinnedRevision, manifestSHA256: try manifestSHA256(in: source.directory))
+        )
+        XCTAssertEqual(library.installedRevision, ChartModelSource.pinnedRevision)
+        XCTAssertFalse(library.isUpdatePending)
 
         let capabilities = try await library.generator().capabilities
         XCTAssertEqual(capabilities.modelName, "Ensomi R2")
@@ -127,7 +145,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         try await downloader.install(into: install, validate: { _ in }, progress: { _ in })
 
         XCTAssertEqual(LocalServer.requests.map(\.path), [manifestRequest, "onnx/BeatThis-LICENSE.txt", "onnx/weights.bin"])
-        XCTAssertEqual(Set(contents(of: install)), Set(package.files + [ChartModelDownloader.manifestName]))
+        XCTAssertEqual(Set(contents(of: install)), Set(package.files + [ChartModelDownloader.manifestName, ChartModelInstallRecord.fileName]))
         for name in package.files {
             XCTAssertEqual(try Data(contentsOf: install.appendingPathComponent(name)), try Data(contentsOf: package.directory.appendingPathComponent(name)), name)
         }
@@ -159,6 +177,86 @@ final class ChartModelDownloaderTests: XCTestCase {
         let later = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
         XCTAssertEqual(later.download, .idle)
         XCTAssertEqual(LocalServer.requests.count, completed)
+    }
+
+    /// An install from the earlier revision, made before the app recorded revisions, while the app pins a revision whose
+    /// manifest differs only in its licence: the library refreshes it when it starts, fetching only the manifest and
+    /// copying every file from the install. The library then has the new licence and revision, and the model's name on
+    /// this device carries the revision.
+    func testTheLibraryRefreshesAnInstallFromAnotherRevisionWhenItStarts() async throws {
+        let package = try PackageFixture.r2()
+        let install = installDirectory
+        try await served(package, revision: "r2-1.0").install(into: install, validate: { _ in }, progress: { _ in })
+        try FileManager.default.removeItem(at: install.appendingPathComponent(ChartModelInstallRecord.fileName))
+        let downloader = try served(package, in: "source-new", revision: "r2-1.0.1") { $0["license"] = "MIT" }
+        let earlier = LocalServer.requests.count
+
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
+        XCTAssertNil(library.installedRevision)
+        XCTAssertTrue(library.isUpdatePending)
+        try await waitForDownload(library)
+
+        XCTAssertEqual(library.download, .idle)
+        XCTAssertEqual(LocalServer.requests.dropFirst(earlier).map(\.path), [manifestRequest])
+        XCTAssertEqual(library.installedRevision, "r2-1.0.1")
+        XCTAssertFalse(library.isUpdatePending)
+        XCTAssertEqual(
+            ChartModelInstallRecord.read(in: install),
+            ChartModelInstallRecord(revision: "r2-1.0.1", manifestSHA256: try manifestSHA256(in: scratch.appendingPathComponent("source-new/onnx")))
+        )
+        let deadline = Date().addingTimeInterval(10)
+        while library.license?.expression != "MIT", Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(library.license?.expression, "MIT")
+
+        let generation = Mania4KChartGenerationModel(models: library, defaults: try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString)))
+        await generation.loadCapabilities()
+        XCTAssertEqual(generation.modelDescription, "Ensomi R2 r2-1.0 · package r2-1.0.1")
+    }
+
+    /// An install whose record names the revision the app pins is current: the library fetches nothing.
+    func testTheLibraryFetchesNothingForAnInstallOfThePinnedRevision() async throws {
+        let package = try PackageFixture.small(in: scratch.appendingPathComponent("package"))
+        let downloader = try served(package, revision: "r2-1.0.1")
+        try await downloader.install(into: installDirectory, validate: { _ in }, progress: { _ in })
+        let earlier = LocalServer.requests.count
+
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
+
+        XCTAssertEqual(library.download, .idle)
+        XCTAssertEqual(library.installedRevision, "r2-1.0.1")
+        XCTAssertEqual(library.activeRevision, "r2-1.0.1")
+        XCTAssertFalse(library.isUpdatePending)
+        XCTAssertEqual(LocalServer.requests.count, earlier)
+    }
+
+    /// The refresh to the pinned revision loses its connection: the install from the earlier revision stays in place
+    /// and in use with its licence, and the library says an update is pending.
+    func testAnInstallStaysInUseWhenItsRefreshFails() async throws {
+        let package = try PackageFixture.small(in: scratch.appendingPathComponent("package"))
+        let install = installDirectory
+        try await served(package, revision: "r2-1.0").install(into: install, validate: { _ in }, progress: { _ in })
+        var installed: [String: Data] = [:]
+        for name in contents(of: install) { installed[name] = try Data(contentsOf: install.appendingPathComponent(name)) }
+        let downloader = try served(package, in: "source-new", revision: "r2-1.0.1") { $0["license"] = "MIT" }
+        LocalServer.cut(ChartModelDownloader.manifestName, after: 0, .fail)
+        let earlier = LocalServer.requests.count
+
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: downloader)
+        try await waitForDownload(library)
+
+        guard case .failed = library.download else { return XCTFail("\(library.download)") }
+        XCTAssertEqual(LocalServer.requests.dropFirst(earlier).map(\.path), [manifestRequest])
+        XCTAssertTrue(library.isUpdatePending)
+        XCTAssertEqual(library.installedRevision, "r2-1.0")
+        XCTAssertEqual(library.activeModel?.standardizedFileURL.path, install.standardizedFileURL.path)
+        XCTAssertFalse(library.hasPartialDownload)
+        XCTAssertEqual(Set(contents(of: install)), Set(installed.keys))
+        for (name, data) in installed {
+            XCTAssertEqual(try Data(contentsOf: install.appendingPathComponent(name)), data, name)
+        }
+        let deadline = Date().addingTimeInterval(10)
+        while library.license == nil, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(library.license?.expression, try package.manifest()["license"] as? String)
     }
 
     /// The installed package's licence and notice texts reach the library, and ONNX Runtime's licence files reach the
@@ -283,7 +381,7 @@ final class ChartModelDownloaderTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["ENSOMI_MODEL_DOWNLOAD_LIVE"] != nil else {
             throw XCTSkip("Set TEST_RUNNER_ENSOMI_MODEL_DOWNLOAD_LIVE=1 to download the model from Hugging Face.")
         }
-        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"))
+        let library = isolatedLibrary(modelsDirectory: scratch.appendingPathComponent("models"), downloader: ChartModelDownloader())
         var fractions: [Double] = []
         let started = Date()
         library.startDownload()
@@ -299,6 +397,24 @@ final class ChartModelDownloaderTests: XCTestCase {
         XCTAssertGreaterThan(fractions.count, 10, "progress is reported while the files come in")
         let capabilities = try await library.generator().capabilities
         XCTAssertEqual(capabilities.modelName, "Ensomi R2")
+    }
+}
+
+/// The build record Settings shows under Chart model, read from an Info.plist as `Tools/mac.sh` and Xcode leave it.
+final class AppBuildInfoTests: XCTestCase {
+    /// A build the script did not install has the key with its build setting expanded to nothing.
+    func testABuildWithoutARecordSaysSo() {
+        let unrecorded = AppBuildInfo(infoDictionary: ["EnsomiBuild": ""])
+
+        XCTAssertNil(unrecorded.build)
+        XCTAssertEqual(unrecorded.summary, "App build not recorded")
+        XCTAssertEqual(AppBuildInfo(infoDictionary: [:]), unrecorded)
+    }
+
+    func testARecordedBuildNamesItsCommit() {
+        XCTAssertEqual(AppBuildInfo(infoDictionary: ["EnsomiBuild": "39673d0"]).summary, "App build 39673d0")
+        XCTAssertEqual(AppBuildInfo(infoDictionary: ["EnsomiBuild": "39673d0-modified"]).summary,
+                       "App build 39673d0-modified")
     }
 }
 

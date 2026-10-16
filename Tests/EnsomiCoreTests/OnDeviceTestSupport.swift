@@ -42,12 +42,15 @@ func temporaryDirectory() throws -> URL {
     return url
 }
 
-/// A library with its own defaults and models directory, and no model unless `modelsDirectory` has one.
+/// A library with its own defaults and models directory, and no model unless `modelsDirectory` has one. Unless a test
+/// passes `downloader`, a download reads a directory that does not exist and fails without the network.
 @MainActor
 func isolatedLibrary(
     defaults: UserDefaults = UserDefaults(suiteName: UUID().uuidString)!,
     modelsDirectory: URL? = nil,
-    downloader: ChartModelDownloader = ChartModelDownloader()
+    downloader: ChartModelDownloader = ChartModelDownloader(
+        source: ChartModelSource(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true))
+    )
 ) -> ChartModelLibrary {
     ChartModelLibrary(
         defaults: defaults,
@@ -106,9 +109,12 @@ struct PackageFixture {
         ]
     }
 
-    /// Writes the manifest beside the files, as an install made from it holds it.
+    /// Writes the manifest beside the files, and the record of an install from the pinned revision, as an install made
+    /// from it holds them, so a library treats the install as current.
     func writeManifest() throws {
         try write(manifest: try manifest(), in: directory)
+        let manifestSHA256 = try sha256Hex(of: directory.appendingPathComponent(ChartModelDownloader.manifestName))
+        try ChartModelInstallRecord(revision: ChartModelSource.pinnedRevision, manifestSHA256: manifestSHA256).write(in: directory)
     }
 }
 

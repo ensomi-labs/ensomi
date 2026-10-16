@@ -26,15 +26,17 @@ permission to commit, push, rewrite history, or change PR state.
 Use an owning test class first, or omit `-only-testing` for a cross-cutting change:
 
 ```sh
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=macOS' -derivedDataPath .build/EnsomiValidation test -only-testing:EnsomiCoreTests/Mania4KPlaySessionModelTests
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiIOS -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/EnsomiValidation build CODE_SIGNING_ALLOWED=NO
+Tools/mac.sh test -only-testing:EnsomiCoreTests/Mania4KPlaySessionModelTests
+Tools/mac.sh build ios
 ```
 
-Build the `EnsomiACRCloudDebugCLI` scheme when its source or dependencies change.
-Check Release when conditional code changes; an unsigned validation build may use
-`CODE_SIGNING_ALLOWED=NO`, but is not an installed permission-tested application.
-Follow [AGENTS.md](../../../AGENTS.md#macos-installation) for capture runs.
-Run builds sequentially when they share derived data.
+Build the `EnsomiACRCloudDebugCLI` scheme with `Tools/mac.sh build cli` when its
+source or dependencies change. Check Release with `Tools/mac.sh build release` when
+conditional code changes; that build is unsigned (`CODE_SIGNING_ALLOWED=NO`) and is
+not an installed permission-tested application. Follow
+[AGENTS.md](../../../AGENTS.md#macos-builds-and-installation) for capture runs.
+These builds share one derived-data cache, and its lock makes a parallel build
+wait. End with `Tools/mac.sh clean` and report `Tools/mac.sh status`.
 
 Report skipped fixtures and missing services or hardware as limits of the
 evidence, not passes.

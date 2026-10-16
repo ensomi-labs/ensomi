@@ -7,7 +7,9 @@ import Observation
 @MainActor
 @Observable
 public final class ChartModelLibrary {
-    public static let shared = ChartModelLibrary()
+    /// The app's library. In a test process it does not bring the install up to date when it starts, so tests that make
+    /// a view or a generation model with it never download into the person's install.
+    public static let shared = ChartModelLibrary(updatesInstallAtStart: NSClassFromString("XCTestCase") == nil)
 
     public enum Download: Equatable {
         case idle
@@ -28,6 +30,9 @@ public final class ChartModelLibrary {
     public private(set) var folderError: String?
     /// The licence of the model in use, read off the main actor when that model changes.
     public private(set) var license: ChartModelLicense?
+    /// The package revision the download records (`ChartModelInstallRecord`); nil without a download or for one made
+    /// before the app recorded it.
+    public private(set) var installedRevision: String?
 
     private let defaults: UserDefaults
     private let downloader: ChartModelDownloader
@@ -51,19 +56,40 @@ public final class ChartModelLibrary {
         URL.applicationSupportDirectory.appendingPathComponent("Ensomi/Models", isDirectory: true)
     }
 
+    /// `updatesInstallAtStart` starts the download when the install is incomplete or `isUpdatePending`.
     public init(
         defaults: UserDefaults = .standard,
         modelsDirectory: URL = ChartModelLibrary.defaultModelsDirectory,
-        downloader: ChartModelDownloader = ChartModelDownloader()
+        downloader: ChartModelDownloader = ChartModelDownloader(),
+        updatesInstallAtStart: Bool = true
     ) {
         self.defaults = defaults
         self.downloader = downloader
         installDirectory = modelsDirectory.appendingPathComponent("ensomi-r2", isDirectory: true)
         isDownloaded = FileManager.default.fileExists(atPath: installDirectory.path)
+        installedRevision = ChartModelInstallRecord.read(in: installDirectory)?.revision
         hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         restoreChosenFolder()
-        if isDownloaded, !installIsComplete { startDownload() }
+        if updatesInstallAtStart, isDownloaded, !installIsComplete || isUpdatePending { startDownload() }
         readLicense()
+    }
+
+    /// The revision a download fetches: `ChartModelSource.pinnedRevision` for the published package.
+    public var pinnedRevision: String {
+        downloader.source.revision
+    }
+
+    /// The download is from another revision than `pinnedRevision`, or records none, and no download has replaced it
+    /// yet. A library starts that download when it is created, as `shared` does at launch; the installed model stays in
+    /// use while it runs and after it fails.
+    public var isUpdatePending: Bool {
+        isDownloaded && installedRevision != pinnedRevision
+    }
+
+    /// The package revision of the model in use when that is the download; nil for a chosen folder, which records
+    /// none.
+    public var activeRevision: String? {
+        chosenFolder == nil ? installedRevision : nil
     }
 
     /// The install holds its manifest and every file the manifest lists, at its listed size. An install made before
@@ -107,12 +133,13 @@ public final class ChartModelLibrary {
         downloadTask = Task {
             defer { downloadTask = nil }
             do {
-                try await downloader.install(
+                let record = try await downloader.install(
                     into: installDirectory,
                     validate: { _ = try OnDeviceChartGenerator(modelDirectory: $0) },
                     progress: { fraction in Task { @MainActor in self.report(fraction) } }
                 )
                 isDownloaded = true
+                installedRevision = record.revision
                 opened = nil
                 download = .idle
                 readLicense()
@@ -136,6 +163,7 @@ public final class ChartModelLibrary {
         try? FileManager.default.removeItem(at: installDirectory)
         try? FileManager.default.removeItem(at: stagingDirectory)
         isDownloaded = false
+        installedRevision = nil
         hasPartialDownload = false
         download = .idle
         opened = nil
@@ -244,4 +272,21 @@ public struct ChartModelLicense: Equatable, Sendable {
         }
         notices = try names.map { Notice(name: $0, text: try String(contentsOf: modelDirectory.appendingPathComponent($0), encoding: .utf8)) }
     }
+}
+
+/// What the running app was built from, as `Tools/mac.sh install` records it in the macOS app's Info.plist
+/// (`EnsomiBuild`): the short commit, with `-modified` when the app's sources had uncommitted changes or a local runtime
+/// was used. Other builds leave it empty, and then no build is recorded.
+public struct AppBuildInfo: Equatable, Sendable {
+    /// "39673d0" or "39673d0-modified"; nil when no build is recorded.
+    public let build: String?
+
+    public static let current = AppBuildInfo(infoDictionary: Bundle.main.infoDictionary ?? [:])
+
+    public init(infoDictionary: [String: Any]) {
+        build = (infoDictionary["EnsomiBuild"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// "App build 39673d0-modified", or "App build not recorded".
+    public var summary: String { "App build \(build ?? "not recorded")" }
 }

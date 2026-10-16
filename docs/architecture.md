@@ -161,6 +161,12 @@ The model is the published Ensomi R2 download in Application Support or a folder
 with a bookmark. The download reads the package manifest (`ensomi-package.json`), checks it with the
 runtime's `checkPackage` and fetches exactly the files it lists, each checked against the size and
 SHA-256 the manifest gives. A download that stops keeps its files and resumes with HTTP Range requests.
+The install records the tag it came from and its manifest's SHA-256 in `ensomi-install.json`
+(`ChartModelInstallRecord`). When the library starts with an install whose record names another
+tag than `ChartModelSource.pinnedRevision`, or that has none, it downloads the pinned tag over it,
+copying the files that are unchanged, and the installed model stays in use until that succeeds.
+The manifest's `model.version` stays the model identity the runtime checks; a model on this device
+from the download is named with the tag after it, "Ensomi R2 r2-1.0 · package r2-1.0.1".
 
 ## Gameplay and scoring
 

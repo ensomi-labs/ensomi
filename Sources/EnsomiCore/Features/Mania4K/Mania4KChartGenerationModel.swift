@@ -145,7 +145,8 @@ public struct Mania4KChartGenerationResult: Equatable, Sendable {
     public let chart: Mania4KGeneratedChart
     public let audioURL: URL
     public let engine: ChartGenerationEngine
-    /// The model's name and version, such as "Ensomi R2 r2-1.0".
+    /// The model's name and version, such as "Ensomi R2 r2-1.0"; on this device with the downloaded model, the package
+    /// revision follows: "Ensomi R2 r2-1.0 · package r2-1.0.1".
     public let model: String
     public let star: Double
     /// The seed the engine used: the same song, model, star, sections and seed give the same chart.
@@ -206,7 +207,11 @@ public final class Mania4KChartGenerationModel {
 
     /// Set only by the model; tests set it to render a state.
     public internal(set) var state = State.idle
-    public private(set) var modelDescription: String?
+    /// The model the engine names in its capabilities, as a result names it (`Mania4KChartGenerationResult.model`).
+    /// Computed, so a download that replaces the model in use shows its package revision here.
+    public var modelDescription: String? {
+        namedModel.map { describe($0.name, engine: $0.engine) }
+    }
     /// Selectable stars in 0.1 steps; nil until the service has answered.
     public private(set) var starRange: ClosedRange<Double>?
     public private(set) var capabilitiesError: String?
@@ -219,6 +224,8 @@ public final class Mania4KChartGenerationModel {
 
     /// The engine the person chose; nil until they do, when the device is used if it has a model.
     private var chosenEngine: ChartGenerationEngine?
+    /// The model name and version the last capabilities gave, and the engine that gave them.
+    private var namedModel: (name: String, engine: ChartGenerationEngine)?
 
     public let models: ChartModelLibrary
     @ObservationIgnored private let client: ChartGenerationClient
@@ -331,6 +338,7 @@ public final class Mania4KChartGenerationModel {
     }
 
     public func loadCapabilities() async {
+        let engine = engine
         do {
             let capabilities: ChartGenerationCapabilities
             switch engine {
@@ -340,13 +348,13 @@ public final class Mania4KChartGenerationModel {
                 guard models.hasModel else {
                     starRange = nil
                     sectionOptions = []
-                    modelDescription = nil
+                    namedModel = nil
                     capabilitiesError = nil
                     return
                 }
                 capabilities = try await models.generator().capabilities
             }
-            modelDescription = "\(capabilities.modelName) \(capabilities.modelVersion)"
+            namedModel = ("\(capabilities.modelName) \(capabilities.modelVersion)", engine)
             starRange = capabilities.selectableStars
             sectionOptions = capabilities.controls.compactMap { control in
                 guard let kind = ChartGenerationSection.Kind(rawValue: control.name),
@@ -389,7 +397,8 @@ public final class Mania4KChartGenerationModel {
             }
             let result = Mania4KChartGenerationResult(
                 chart: made.chart, audioURL: audioURL, engine: engine,
-                model: "\(made.receipt.modelName) \(made.receipt.modelVersion)", star: made.receipt.star, seed: made.receipt.seed,
+                model: describe("\(made.receipt.modelName) \(made.receipt.modelVersion)", engine: engine),
+                star: made.receipt.star, seed: made.receipt.seed,
                 title: title, artist: artist, osu: made.osu, receiptJSON: made.receipt.receiptJson, serverOszPath: made.oszPath
             )
             state = .finished(result)
@@ -460,6 +469,13 @@ public final class Mania4KChartGenerationModel {
         defer { deviceTask = nil }
         let result = try await task.value
         return (try Mania4KGeneratedChart(result.chart), result.receipt, result.osu, nil)
+    }
+
+    /// `name`, with the package revision of the downloaded model after it when `engine` is this device and uses that
+    /// download. The chart server's model comes from no package.
+    private func describe(_ name: String, engine: ChartGenerationEngine) -> String {
+        guard engine == .device, let revision = models.activeRevision else { return name }
+        return "\(name) · package \(revision)"
     }
 
     /// The preparation of `audioURL` with the model in use: the one under way or done since the song was chosen, or a

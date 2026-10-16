@@ -36,27 +36,21 @@ ACRCLOUD_ACCESS_SECRET=你的访问密钥
 
 ## 构建与打开应用
 
-在 Swift 仓库执行：
+退出正在运行的 Ensomi，再在 Swift 仓库执行：
 
 ```sh
-xcodegen generate
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -configuration Debug \
-  -destination 'platform=macOS' -derivedDataPath .build/EnsomiValidation build
-```
-
-退出正在运行的 Ensomi，再把构建安装到固定位置。以下命令保留旧应用，便于恢复；
-旧应用目录和源码、曲库数据库是不同的内容。
-
-```sh
-previous_app_dir=$(mktemp -d .build/previous-app.XXXXXX)
-if [ -d /Applications/EnsomiMac.app ]; then
-  mv /Applications/EnsomiMac.app "$previous_app_dir/EnsomiMac.app"
-fi
-ditto .build/EnsomiValidation/Build/Products/Debug/EnsomiMac.app /Applications/EnsomiMac.app
+Tools/mac.sh install
 open /Applications/EnsomiMac.app
 ```
 
-麦克风和系统音频测试始终使用这个安装路径；不要从 DerivedData 中启动另一份应用。
+`install` 从当前源码构建优化版应用（Debug 配置，`-O` 与整模块优化），替换
+`/Applications/EnsomiMac.app`，并把旧应用压缩保存为 `.build/xcode/previous-EnsomiMac.zip`，
+`Tools/mac.sh rollback` 可恢复它；压缩包和源码、曲库数据库是不同的内容。Ensomi 仍在运行时
+两者都拒绝执行，不会强制退出应用。应用记录构建时的提交；源码有未提交改动或设置了本地运行时，
+记为 `<提交>-modified`，照常安装。`Tools/mac.sh status` 对照这个记录：此后应用的源码（含运行时
+和模型的固定版本）有新提交时显示 `STALE`，应用由未提交改动或本地运行时构建时显示 `MODIFIED`。
+
+麦克风和系统音频测试始终使用这个安装路径；不要启动构建目录中的另一份应用。
 
 ## 开始一次 demo
 

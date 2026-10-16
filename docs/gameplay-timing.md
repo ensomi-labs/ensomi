@@ -190,8 +190,7 @@ On the Mac that has the display and audio device, from the repository root:
 
 ```sh
 xcodegen generate
-xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=macOS' test \
-  -only-testing:EnsomiCoreTests/GameplayTimingTests
+Tools/mac.sh test -only-testing:EnsomiCoreTests/GameplayTimingTests
 ```
 
 That runs the key-timestamp table, the CPU cost measurements and the clock
@@ -201,14 +200,15 @@ need an awake display and open a window, so they run only with an environment
 variable; `caffeinate -u -d` wakes and holds the display for the run:
 
 ```sh
-TEST_RUNNER_ENSOMI_TIMING_RUN=1 caffeinate -u -d -t 150 xcodebuild -project Ensomi.xcodeproj \
-  -scheme EnsomiMac -destination 'platform=macOS' test -only-testing:EnsomiCoreTests/GameplayTimingTests
+TEST_RUNNER_ENSOMI_TIMING_RUN=1 caffeinate -u -d -t 150 Tools/mac.sh test \
+  -only-testing:EnsomiCoreTests/GameplayTimingTests
 ```
 
 `TEST_RUNNER_ENSOMI_TIMING_SECONDS` shortens the autoplay. A change to a public
 default such as `Mania4KDefaultPlaySettings` can leave the test target with a stale
 inlined value in an incremental build; delete the test target's intermediates
-under the derived data path if a default test disagrees with the source.
+(`EnsomiCoreTests.build` under `.build/xcode/dev/Build/Intermediates.noindex/`) if a
+default test disagrees with the source.
 
 `-only-testing:EnsomiCoreTests/AVFoundationMania4KAudioClockTests` runs the clock's
 own checks, silently: it follows the host clock within 0.5 ms and only forward while
