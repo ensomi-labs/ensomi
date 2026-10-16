@@ -34,14 +34,17 @@ offsets.
 - **Frames.** The `MTKView` that draws the playfield owns a display link
   (`NSView.displayLink(target:selector:)`, `CADisplayLink` on iOS). Each
   refresh it judges at the current chart time, publishes a frame whose render time
-  is the chart time at the link's `targetTimestamp`, and draws it. There is no
-  other tick. The link stops while the window is minimized, hidden, fully covered or
+  is the chart time at the link's `targetTimestamp`, and draws it through
+  `MTKView.draw()`, which runs the view's `draw(_:)` and then releases the
+  drawable, so each frame renders into a new one. There is no other tick. The
+  link stops while the window is minimized, hidden, fully covered or
   on another Space (its occlusion state is not visible), so frames stop too. The
   playfield view then pauses the session, `pause()`, and the player resumes with the
   Resume button.
 - **Drawing.** `Mania4KPlayfieldLayout` turns the play frame into rounded
-  rectangles, `Mania4KMetalRenderer` draws them in one instanced call. The HUD is
-  SwiftUI over the Metal view.
+  rectangles, `Mania4KMetalRenderer` draws them in one instanced call. While the GPU
+  still has three frames in flight the renderer drops the frame before the view
+  takes a drawable for it. The HUD is SwiftUI over the Metal view.
 
 ## What the audio engine does
 
@@ -195,9 +198,13 @@ Tools/mac.sh test -only-testing:EnsomiCoreTests/GameplayTimingTests
 
 That runs the key-timestamp table, the CPU cost measurements and the clock
 checks, and plays silently for about 15 s. Lines starting with `TIMING` in the
-output are the numbers above. The 60 s autoplay and the hosted play-screen test
+output are the numbers above. The 60 s autoplay and the two hosted play-screen tests
 need an awake display and open a window, so they run only with an environment
-variable; `caffeinate -u -d` wakes and holds the display for the run:
+variable; `caffeinate -u -d` wakes and holds the display for the run. The second
+hosted test, `testHostedPlayfieldPresentsANewDrawableEveryFrame`, records at least
+120 drawn frames and requires a new drawable for each, at least 95% of them shown
+(`presentedTime` above 0), and a median interval between presentations within 10%
+of the display link's refresh interval:
 
 ```sh
 TEST_RUNNER_ENSOMI_TIMING_RUN=1 caffeinate -u -d -t 150 Tools/mac.sh test \

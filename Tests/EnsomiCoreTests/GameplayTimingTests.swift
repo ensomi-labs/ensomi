@@ -287,11 +287,8 @@ final class GameplayTimingTests: XCTestCase {
             throw XCTSkip("The audio engine did not start: \(model.phase)")
         }
 
-        func descendants(of view: NSView) -> [NSView] {
-            view.subviews + view.subviews.flatMap(descendants)
-        }
         try await Task.sleep(nanoseconds: 500_000_000)
-        let playfield = try XCTUnwrap(descendants(of: try XCTUnwrap(window.contentView)).compactMap { $0 as? Mania4KPlayfieldView }.first)
+        let playfield = try playfieldView(in: window)
         XCTAssertNotNil(playfield.window)
         XCTAssertGreaterThan(playfield.bounds.width, 280)
         XCTAssertLessThan(playfield.bounds.width, 621)
@@ -323,6 +320,72 @@ final class GameplayTimingTests: XCTestCase {
         XCTAssertEqual(counts.missCount, 0)
         await model.quitToSetup()
         window.close()
+    }
+
+    /// The play screen's Metal view draws every frame into a new drawable, and the drawables reach the screen one
+    /// display refresh apart.
+    func testHostedPlayfieldPresentsANewDrawableEveryFrame() async throws {
+        guard ProcessInfo.processInfo.environment["ENSOMI_TIMING_RUN"] != nil else {
+            throw XCTSkip("Set TEST_RUNNER_ENSOMI_TIMING_RUN=1 with a lit display.")
+        }
+
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.accessory)
+        let url = try writeToneFile(seconds: 20)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let clock = AVFoundationMania4KAudioClock()
+        clock.volume = 0
+        // A note every 140 ms cycling through the lanes, so notes move in every frame.
+        let objects = (0..<120).map { index in
+            ChartObject(lane: Mania4KLane.allCases[(index * 3) % 4].index, startMs: 1_500 + UInt32(index) * 140, endMs: nil)
+        }
+        let chart = try Mania4KGeneratedChart(Chart(durationMs: objects.last?.startMs ?? 0, objects: objects))
+        let model = Mania4KPlaySessionModel(audioOffsetMilliseconds: 0, visualOffsetMilliseconds: 0, audioClock: clock)
+
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: Mania4KPlayExperienceView(model: model).frame(width: 900, height: 800))
+        window.makeKeyAndOrderFront(nil)
+        guard await model.startGeneratedChartPlay(audioFileURL: url, chart: chart, title: "Timing") else {
+            throw XCTSkip("The audio engine did not start: \(model.phase)")
+        }
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let playfield = try playfieldView(in: window)
+        let probe = Mania4KDrawableProbe()
+        playfield.drawableProbe = probe
+        let deadlineMs = EnsomiHostClock.currentTimeMS() + 6_000
+        while probe.frames.count < 180, EnsomiHostClock.currentTimeMS() < deadlineMs {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        playfield.drawableProbe = nil
+        // The last frames' presented handlers run once those frames are on screen.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        await model.quitToSetup()
+        window.close()
+
+        let frames = probe.frames
+        let presentedTimes = frames.compactMap(\.presentedTime).filter { $0 > 0 }.sorted()
+        let presentIntervals = zip(presentedTimes.dropFirst(), presentedTimes).map { ($0 - $1) * 1_000 }
+        // The display link's refresh interval: steps of its `targetTimestamp`, from the frames the link made.
+        let refreshMs = zip(frames.dropFirst(), frames).map { $0.uiTimeMs - $1.uiTimeMs }.filter { $0 > 0 }.percentile(0.5)
+        print(String(
+            format: "TIMING hosted playfield drawables: frames %d, distinct drawables %d, presented %d, refresh interval %.3f ms, screen refresh interval %.3f to %.3f ms",
+            frames.count, Set(frames.map(\.drawableID)).count, presentedTimes.count, refreshMs,
+            (window.screen?.minimumRefreshInterval ?? 0) * 1_000, (window.screen?.maximumRefreshInterval ?? 0) * 1_000
+        ))
+        print("TIMING presentation interval (ms): \(presentIntervals.summary)")
+        XCTAssertGreaterThanOrEqual(frames.count, 120)
+        XCTAssertEqual(Set(frames.map(\.drawableID)).count, frames.count, "a drawable was drawn into more than once")
+        XCTAssertGreaterThanOrEqual(Double(presentedTimes.count), 0.95 * Double(frames.count))
+        XCTAssertEqual(presentIntervals.percentile(0.5), refreshMs, accuracy: refreshMs * 0.1)
+    }
+
+    private func playfieldView(in window: NSWindow) throws -> Mania4KPlayfieldView {
+        func descendants(of view: NSView) -> [NSView] {
+            view.subviews + view.subviews.flatMap(descendants)
+        }
+        return try XCTUnwrap(descendants(of: try XCTUnwrap(window.contentView)).compactMap { $0 as? Mania4KPlayfieldView }.first)
     }
 
     private func writeToneFile(seconds: Double) throws -> URL {
