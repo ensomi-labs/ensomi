@@ -57,12 +57,26 @@ final class Mania4KMetalRenderer {
         pass: MTLRenderPassDescriptor,
         drawable: (any MTLDrawable)?
     ) -> (any MTLCommandBuffer)? {
+        draw(quads, viewportSize: viewportSize) { (pass, drawable) }
+    }
+
+    /// Encodes and commits one frame into the render pass and drawable `target` returns; returns the frame. A frame is
+    /// dropped when the GPU is still busy with the previous three, and `target` is called only for a frame that is not:
+    /// an `MTKView` takes a drawable when its render pass is read, so a dropped frame takes none. A frame whose target
+    /// is nil is dropped too.
+    @discardableResult
+    func draw(
+        _ quads: [Mania4KQuad],
+        viewportSize: CGSize,
+        target: () -> (pass: MTLRenderPassDescriptor, drawable: (any MTLDrawable)?)?
+    ) -> (any MTLCommandBuffer)? {
         guard inFlight.wait(timeout: .now()) == .success else {
             return nil
         }
 
-        guard let commandBuffer = queue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass)
+        guard let destination = target(),
+              let commandBuffer = queue.makeCommandBuffer(),
+              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: destination.pass)
         else {
             inFlight.signal()
             return nil
@@ -86,7 +100,7 @@ final class Mania4KMetalRenderer {
             encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: count)
         }
         encoder.endEncoding()
-        if let drawable {
+        if let drawable = destination.drawable {
             commandBuffer.present(drawable)
         }
         let semaphore = inFlight

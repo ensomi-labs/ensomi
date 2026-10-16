@@ -50,4 +50,30 @@ final class Mania4KMetalRendererTests: XCTestCase {
         assertPixel(45, 10, blue: 255, green: 255, red: 255, alpha: 255)
         assertPixel(55, 10, blue: 0, green: 0, red: 0, alpha: 0)
     }
+
+    /// The playfield's target is its view's render pass, and reading that takes a drawable: a frame dropped because
+    /// three are in flight must not ask for it, and a frame without a target frees its place.
+    func testTheTargetIsAskedForOnlyWhenAFrameIsFree() throws {
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw XCTSkip("No Metal device")
+        }
+
+        let renderer = try Mania4KMetalRenderer(device: device, pixelFormat: .bgra8Unorm)
+        var targetsAsked = 0
+        // Each target starts the next frame before it answers, so the fourth frame starts while three are in flight.
+        func drawFrame(_ depth: Int) {
+            renderer.draw([], viewportSize: CGSize(width: 64, height: 64)) {
+                targetsAsked += 1
+                if depth <= Mania4KMetalRenderer.framesInFlight {
+                    drawFrame(depth + 1)
+                }
+                return nil
+            }
+        }
+
+        drawFrame(1)
+        XCTAssertEqual(targetsAsked, Mania4KMetalRenderer.framesInFlight)
+        drawFrame(1)
+        XCTAssertEqual(targetsAsked, 2 * Mania4KMetalRenderer.framesInFlight)
+    }
 }

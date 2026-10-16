@@ -2,6 +2,7 @@ import EnsomiCore
 import Metal
 import MetalKit
 import SwiftUI
+import os
 
 /// What the playfield draws: a frame made for each display refresh, and the feedback that lights it. The play model
 /// judges in its frames; chart inspection only draws.
@@ -42,7 +43,11 @@ final class Mania4KPlayfieldView: MTKView {
     var reduceMotion = false
     private var renderer: Mania4KMetalRenderer?
     private var displayLink: Mania4KDisplayLink?
+    /// The display time of the display link's last frame, in ms, at which `draw(_:)` lights the lanes.
+    private var frameUITimeMs = 0.0
     #if os(macOS)
+    /// Records the drawn frames for the hosted drawing test; nil otherwise.
+    var drawableProbe: Mania4KDrawableProbe?
     private var visibilityObserver: Mania4KWindowVisibilityObserver?
     #endif
 
@@ -81,16 +86,35 @@ final class Mania4KPlayfieldView: MTKView {
 
     private func step(_ link: CADisplayLink) {
         model.advanceFrame(for: link)
-        draw(atUITimeMs: link.targetTimestamp * 1_000)
+        frameUITimeMs = link.targetTimestamp * 1_000
+        // `draw()` runs `draw(_:)`, then releases the drawable. Drawing outside it would keep the drawable already
+        // presented, and every frame would render into the one on screen.
+        draw()
     }
 
-    private func draw(atUITimeMs uiTimeMs: Double) {
-        guard let renderer, bounds.width > 0, bounds.height > 0, let pass = currentRenderPassDescriptor else {
+    /// Draws the source's current frame. The display link calls it through `draw()` once per refresh; AppKit or UIKit
+    /// may also call it, which draws the same frame again.
+    override func draw(_ rect: CGRect) {
+        guard let renderer, bounds.width > 0, bounds.height > 0 else {
             return
         }
 
-        let quads = Self.quads(model: model, uiTimeMs: uiTimeMs, size: bounds.size, reduceMotion: reduceMotion)
-        renderer.draw(quads, viewportSize: bounds.size, pass: pass, drawable: currentDrawable)
+        let quads = Self.quads(model: model, uiTimeMs: frameUITimeMs, size: bounds.size, reduceMotion: reduceMotion)
+        // Reading the render pass takes a drawable, and waits when none is free; the renderer reads it only for a frame
+        // it does not drop.
+        renderer.draw(quads, viewportSize: bounds.size) {
+            guard let pass = currentRenderPassDescriptor else {
+                return nil
+            }
+
+            let drawable = currentDrawable
+            #if os(macOS)
+            if let drawable, let drawableProbe {
+                drawableProbe.record(drawable, uiTimeMs: frameUITimeMs)
+            }
+            #endif
+            return (pass, drawable)
+        }
     }
 
     /// The quads of the model's current frame, with the lane lights at `uiTimeMs`.
@@ -133,6 +157,40 @@ final class Mania4KPlayfieldView: MTKView {
     }
     #endif
 }
+
+#if os(macOS)
+/// The frames a playfield drew: each one's drawable, the display time it was drawn for, and when Metal reports the
+/// drawable reached the screen. Presented handlers run off the main thread, hence the lock. macOS only: the tests run
+/// there, and the iOS simulator SDK has neither drawable IDs nor presented handlers.
+final class Mania4KDrawableProbe: Sendable {
+    struct Frame: Sendable {
+        let drawableID: Int
+        let uiTimeMs: Double
+        /// The host time in seconds at which the drawable was shown, 0 when its frame was dropped; nil until Metal
+        /// reports it.
+        var presentedTime: CFTimeInterval?
+    }
+
+    private let recorded = OSAllocatedUnfairLock<[Frame]>(initialState: [])
+
+    var frames: [Frame] {
+        recorded.withLock { $0 }
+    }
+
+    /// Records a frame drawn into `drawable`; call it before the drawable is presented.
+    func record(_ drawable: any MTLDrawable, uiTimeMs: Double) {
+        let frame = Frame(drawableID: drawable.drawableID, uiTimeMs: uiTimeMs)
+        let index = recorded.withLock { frames in
+            frames.append(frame)
+            return frames.count - 1
+        }
+        drawable.addPresentedHandler { [recorded] presented in
+            let presentedTime = presented.presentedTime
+            recorded.withLock { $0[index].presentedTime = presentedTime }
+        }
+    }
+}
+#endif
 
 #if os(macOS)
 extension Mania4KPlayfieldMetalView: NSViewRepresentable {
