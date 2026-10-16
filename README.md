@@ -19,7 +19,7 @@ for the timing, generation, and scoring contracts.
 Requires Xcode with Swift 6 and XcodeGen 2.45.0 or newer. Deployment targets are
 macOS 14 and iOS 17. The gameplay rules and the chart generator come from the Rust core in
 [ensomi-runtime](https://github.com/ensomi-labs/runtime): SwiftPM resolves its `EnsomiRuntime`
-package at the version pinned in `project.yml` (`0.3.1`) and downloads the xcframework from
+package at the version pinned in `project.yml` (`0.3.2`) and downloads the xcframework from
 that release. The package carries the generator's resampler tables; the apps bundle none. The
 gameplay conformance test reads its fixtures from a runtime checkout beside this repository
 (`../ensomi-runtime/conformance/gameplay`) and is skipped without one.
