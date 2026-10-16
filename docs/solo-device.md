@@ -187,7 +187,11 @@ had 29 files and no manifest (the link, not the app, sets that).
 
 All of these run on the Mac with `Tools/mac.sh test -only-testing:EnsomiCoreTests/<class>`;
 each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER` and `ENSOMI_SONG`
-override the sibling-checkout defaults).
+override the sibling-checkout defaults). In a test process `ChartModelLibrary.shared` does not
+bring the app's install up to date when it starts, so tests that make a view with the default
+library leave the installed model as it is. The tests' own libraries keep their models in
+temporary directories, and their downloads read a directory that does not exist unless a test
+names a source.
 
 - `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability and
   control mappings, the engine default and its persistence, a chosen folder kept only if the

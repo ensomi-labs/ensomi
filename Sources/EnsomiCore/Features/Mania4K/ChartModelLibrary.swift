@@ -7,7 +7,9 @@ import Observation
 @MainActor
 @Observable
 public final class ChartModelLibrary {
-    public static let shared = ChartModelLibrary()
+    /// The app's library. In a test process it does not bring the install up to date when it starts, so tests that make
+    /// a view or a generation model with it never download into the person's install.
+    public static let shared = ChartModelLibrary(updatesInstallAtStart: NSClassFromString("XCTestCase") == nil)
 
     public enum Download: Equatable {
         case idle
@@ -54,10 +56,12 @@ public final class ChartModelLibrary {
         URL.applicationSupportDirectory.appendingPathComponent("Ensomi/Models", isDirectory: true)
     }
 
+    /// `updatesInstallAtStart` starts the download when the install is incomplete or `isUpdatePending`.
     public init(
         defaults: UserDefaults = .standard,
         modelsDirectory: URL = ChartModelLibrary.defaultModelsDirectory,
-        downloader: ChartModelDownloader = ChartModelDownloader()
+        downloader: ChartModelDownloader = ChartModelDownloader(),
+        updatesInstallAtStart: Bool = true
     ) {
         self.defaults = defaults
         self.downloader = downloader
@@ -66,7 +70,7 @@ public final class ChartModelLibrary {
         installedRevision = ChartModelInstallRecord.read(in: installDirectory)?.revision
         hasPartialDownload = FileManager.default.fileExists(atPath: stagingDirectory.path)
         restoreChosenFolder()
-        if isDownloaded, !installIsComplete || isUpdatePending { startDownload() }
+        if updatesInstallAtStart, isDownloaded, !installIsComplete || isUpdatePending { startDownload() }
         readLicense()
     }
 
@@ -76,8 +80,8 @@ public final class ChartModelLibrary {
     }
 
     /// The download is from another revision than `pinnedRevision`, or records none, and no download has replaced it
-    /// yet. The library starts that download when it is created, as at launch; the installed model stays in use while
-    /// it runs and after it fails.
+    /// yet. A library starts that download when it is created, as `shared` does at launch; the installed model stays in
+    /// use while it runs and after it fails.
     public var isUpdatePending: Bool {
         isDownloaded && installedRevision != pinnedRevision
     }
