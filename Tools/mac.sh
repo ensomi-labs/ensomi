@@ -89,13 +89,16 @@ xcb() {
     xcodebuild -project "$project" -derivedDataPath "$out/$cache" -clonedSourcePackagesDirPath "$out/SourcePackages" "$@"
 }
 
+# git in the checkout without optional locks: the checkout may be shared with another machine, so git status must not
+# refresh its index or take index.lock.
+checkout_git() { git --no-optional-locks -C "$root" "$@"; }
 # shellcheck disable=SC2086 # $inputs is a list of paths
-changes() { git -C "$root" status --porcelain -- $inputs 2>/dev/null; }
+changes() { checkout_git status --porcelain -- $inputs 2>/dev/null; }
 # What the installed app records: the short commit, with -modified when the app's sources have uncommitted changes or
 # a local runtime xcframework is set, or "unknown" when git cannot read the checkout. Recording never stops a build.
 build_id() {
     local id
-    id=$(git -C "$root" rev-parse --short HEAD 2>/dev/null) || { echo unknown; return; }
+    id=$(checkout_git rev-parse --short HEAD 2>/dev/null) || { echo unknown; return; }
     if [ -n "$(changes)" ] || [ -n "${ENSOMI_RUNTIME_XCFRAMEWORK:-}" ]; then id="$id-modified"; fi
     echo "$id"
 }
@@ -229,8 +232,8 @@ cmd_rollback() {
 
 cmd_status() {
     local build entry value
-    echo "Checkout: $(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" \
-        "$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    echo "Checkout: $(checkout_git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" \
+        "$(checkout_git rev-parse --short HEAD 2>/dev/null || echo unknown)"
     if [ ! -d "$installed" ]; then
         echo "STALE: nothing is installed at $installed."
     else
@@ -240,7 +243,7 @@ cmd_status() {
         # shellcheck disable=SC2086 # $inputs is a list of paths
         if [ -z "$build" ]; then
             echo "STALE: the installed app records no build; Tools/mac.sh install records one."
-        elif ! git -C "$root" diff --quiet "${build%-modified}" HEAD -- $inputs 2>/dev/null; then
+        elif ! checkout_git diff --quiet "${build%-modified}" HEAD -- $inputs 2>/dev/null; then
             echo "STALE: the app's sources changed since ${build%-modified}, or git cannot compare them."
         fi
     fi
