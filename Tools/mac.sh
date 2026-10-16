@@ -32,7 +32,7 @@ Usage: Tools/mac.sh <command>
   install                    Build play and replace /Applications/EnsomiMac.app, keeping the previous
                              app as .build/xcode/previous-EnsomiMac.zip. Refuses while Ensomi runs.
                              The app records the commit, with -modified for uncommitted changes.
-  rollback                   Put the previous app back from that zip.
+  rollback                   Put the previous app back from that zip. Refuses while Ensomi runs.
   status                     The installed build against this checkout, other app copies, disk use.
   clean [-n] [--all]         Delete built apps and all but the newest 3 test results; --all deletes
                              .build/xcode except the rollback zip; -n lists without deleting.
@@ -141,6 +141,9 @@ refuse_if_running() {
         *) die "pgrep cannot tell whether Ensomi is running (exit $status); quit it and check by hand." ;;
     esac
 }
+refuse_if_unwritable() {
+    if [ ! -w "$(dirname "$installed")" ]; then die "This user cannot write to $(dirname "$installed")."; fi
+}
 
 cmd_test() {
     local result status=0
@@ -193,17 +196,18 @@ show_installed() {
 cmd_install() {
     local product="$out/play/Build/Products/Debug/EnsomiMac.app"
     if [ $# -gt 0 ]; then die "install takes no arguments."; fi
-    refuse_if_running
-    if [ ! -w "$(dirname "$installed")" ]; then die "This user cannot write to $(dirname "$installed")."; fi
+    refuse_if_running # before a build of minutes
+    refuse_if_unwritable
     need xcodebuild ditto
     build_play
     if [ ! -d "$product" ]; then die "The build left no $(rel "$product")."; fi
-    refuse_if_running # the build takes minutes
+    refuse_if_running # before the rollback zip is replaced
     if [ -d "$installed" ]; then
         ditto -c -k --keepParent "$installed" "$rollback_zip.part"
         mv -f "$rollback_zip.part" "$rollback_zip"
         echo "Kept the previous app as $(rel "$rollback_zip")."
     fi
+    refuse_if_running # the zip takes seconds
     rm -rf "$installed"
     ditto "$product" "$installed"
     unregister_and_remove "$product"
@@ -213,9 +217,10 @@ cmd_install() {
 
 cmd_rollback() {
     if [ ! -f "$rollback_zip" ]; then die "There is no $(rel "$rollback_zip") to roll back to."; fi
-    refuse_if_running
+    refuse_if_unwritable
     need ditto
-    lock play
+    lock play # waits for an install's build
+    refuse_if_running
     rm -rf "$installed"
     ditto -x -k "$rollback_zip" "$(dirname "$installed")"
     "$lsregister" -f "$installed" || echo "LaunchServices did not register $installed." >&2
