@@ -246,6 +246,9 @@ cmd_status() {
         elif ! checkout_git diff --quiet "${build%-modified}" HEAD -- $inputs 2>/dev/null; then
             echo "STALE: the app's sources changed since ${build%-modified}, or git cannot compare them."
         fi
+        if [ "$build" != "${build%-modified}" ]; then
+            echo "MODIFIED: the installed app was built from uncommitted changes or a local runtime at ${build%-modified}."
+        fi
     fi
 
     echo "Other io.ensomi.mac and io.pulsefield.mac app copies (Spotlight, LaunchServices):"

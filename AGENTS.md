@@ -44,8 +44,10 @@ identity. Channels installed side by side need distinct names and bundle IDs.
 Every task that builds ends with `Tools/mac.sh clean` and reports
 `Tools/mac.sh status`. After a merge or a pin change on `dev/swift`, an agent may
 run `Tools/mac.sh install` once the human has quit the app; otherwise it reports
-the `STALE` line that `status` prints. Put renders and screenshots for review in
-`artifacts/renders/<topic>/`, not `.build/`.
+the `STALE` and `MODIFIED` lines that `status` prints: `STALE` when the app's
+sources changed since the installed app's commit, `MODIFIED` when that app was
+built from uncommitted changes or a local runtime. Put renders and screenshots
+for review in `artifacts/renders/<topic>/`, not `.build/`.
 
 Before requesting capture permissions, remove the stale app copies `status` lists:
 `clean` removes those under `.build/xcode/`, and the human decides on the others.
