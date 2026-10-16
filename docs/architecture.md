@@ -136,8 +136,9 @@ same-lane overlaps), then plays it with its audio from time 0, with every note.
 
 The on-device engine ([`OnDeviceChartGenerator`](../Sources/EnsomiCore/Services/Beatmap/OnDeviceChartGenerator.swift),
 details in [solo device mode](solo-device.md)) decodes the chosen file with `AVAudioFile` to
-mono Float PCM at the file's own rate (channels averaged in Double) and gives it to the runtime's
-`ChartGenerator`, which opens once on a model directory and keeps ONNX Runtime's CPU sessions.
+mono Float PCM at the file's own rate (channels averaged in Double), on the song's time described
+below, and gives it to the runtime's `ChartGenerator`, which opens once on a model directory and
+keeps ONNX Runtime's CPU sessions.
 When a song is chosen, the generation model starts `prepare`: the stages that read only the audio
 (PCM preparation, the spectrogram, BeatThis, the features and the beat grid), most of a
 generation's time. Choosing another song cancels it, and a cancelled preparation keeps nothing.
@@ -168,6 +169,21 @@ copying the files that are unchanged, and the installed model stays in use until
 The manifest's `model.version` stays the model identity the runtime checks; a model on this device
 from the download is named with the tag after it, "Ensomi R2 r2-1.0 · package r2-1.0.1".
 
+Charts are made and played on the song's time: the clock of ensomi-model's release engine, which
+puts every song on osu!'s (BASS's), the one R2 was fitted to. BASS trims an MP3's encoder delay and
+the 529-frame Layer III decoder delay only when a LAME extension gives a non-zero encoder delay;
+AVFoundation trims the decoder delay from every MP3. [`MP3Lead`](../Sources/EnsomiCore/Services/Beatmap/MP3Lead.swift)
+finds a file's header class as the release engine does and gives its lead, how far into the song
+AVFoundation's first frame is: 529 frames at the file's rate for an MP3 without a Xing or Info
+header, with one but no LAME extension, or with a LAME delay of 0. A non-zero LAME delay, any other
+format, and two cases not measured against the release engine have none: a VBRI header, and an
+iTunes gapless comment (`iTunSMPB`), whose priming AVFoundation also trims. AAC priming is not
+handled. The generation PCM starts with the lead as silence and keeps AVFoundation's length. The
+local-file clock counts the song's time, playing the lead as silence, and ambient play adds the
+lead to the position alignment finds in the recording as AVFoundation decodes it. So in every mode
+chart time is AVFoundation's playback time plus the lead, for charts made here and for `.osu` files
+from the site, the model service or osu!; the offsets are unchanged.
+
 ## Gameplay and scoring
 
 The session applies offsets exactly once:
@@ -179,9 +195,10 @@ scrollTimeMs        = 11485 / scrollSpeed
 ```
 
 The audio time is the audio heard at a host time, not how far the decoder has
-got. The local-file clock plays through `AVAudioEngine`: it takes the player
-node's sample time at its last render, carries it to the asked host time at rate
-1, and subtracts the output's presentation latency, so it is smooth between
+got, on the song's time ([chart generation](#chart-generation)). The local-file
+clock plays through `AVAudioEngine`: it takes the player node's sample time at
+its last render, carries it to the asked host time at rate 1, and subtracts the
+output's presentation latency, so it is smooth between
 render callbacks and monotonic while the output stays the same. Audio offset
 therefore corrects only what the device does not report. When the output device
 changes, the clock rebuilds the engine for the new device and resumes from the
