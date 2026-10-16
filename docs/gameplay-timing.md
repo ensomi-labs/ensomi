@@ -29,8 +29,10 @@ offsets.
 - **Audio clock.** Local files play through `AVAudioEngine`. The clock takes the
   player node's sample time at the last render (`lastRenderTime`,
   `playerTime(forNodeTime:)`), carries it to the asked host time at rate 1, and
-  subtracts `outputNode.presentationLatency`. Ambient play keeps its host-time
-  anchor.
+  subtracts `outputNode.presentationLatency`. It counts the song's time: an MP3
+  that AVFoundation starts 529 frames into the song plays them as silence first
+  ([MP3 lead](architecture.md#chart-generation)). Ambient play keeps its host-time
+  anchor and adds the same lead to the aligned position.
 - **Frames.** The `MTKView` that draws the playfield owns a display link
   (`NSView.displayLink(target:selector:)`, `CADisplayLink` on iOS). Each
   refresh it judges at the current chart time, publishes a frame whose render time

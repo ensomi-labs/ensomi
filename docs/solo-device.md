@@ -100,7 +100,7 @@ selectable and the choice is remembered. The engine picker is disabled during a 
 | Step | Where |
 | --- | --- |
 | Pick the song, section validation, star range | App (`Mania4KChartGenerationModel`); the range and section kinds come from the model's capabilities (`ChartGenerator.capabilities()`, mapped to the protocol `ModelCapabilities`) |
-| Decode | App: `AVAudioFile` at the file's own sample rate, channels averaged in Double, then Float (`OnDeviceAudioDecoder`) |
+| Decode | App: `AVAudioFile` at the file's own sample rate, channels averaged in Double, then Float (`OnDeviceAudioDecoder`); an MP3 without a non-zero LAME delay starts 529 frames later, on the release engine's time (`MP3Lead`, see [architecture](architecture.md#chart-generation)) |
 | Resample to 22050 Hz, beat tracking (BeatThis), features and beat grid (`prepare`, from when the song is chosen) | The runtime's Rust core in the app process; ONNX Runtime CPU runs the graphs on a thread of its own |
 | Rows, arrangement, `.osu` (a whole-chart `ChartScheduler` from the `Prepared`) | The same |
 | `.osz` | The runtime's Rust core (`exportOsz`, `crates/osz`) from the `.osu`, the song file's bytes and the receipt; the app reads the song and writes the file the save panel names |
@@ -146,7 +146,8 @@ the screen shows that path.
 ## Time and memory
 
 On bings-mac (Apple M5, macOS 27, Debug build of the app's test bundle, CPU provider), for a
-133 s stereo MP3 at 44.1 kHz that gives a chart of 1225 objects at 3.5 stars, seed 0:
+133 s stereo MP3 at 44.1 kHz without a LAME tag that gave a chart of 1225 objects at 3.5 stars,
+seed 0, measured before its decode started on the release engine's time (`MP3Lead`):
 
 | Quantity | Result |
 | --- | --- |
@@ -193,6 +194,14 @@ library leave the installed model as it is. The tests' own libraries keep their 
 temporary directories, and their downloads read a directory that does not exist unless a test
 names a source.
 
+- `MP3LeadTests`, on MP3s the test builds with the same Layer III frames behind each header (no
+  header, Xing without a LAME extension, LAME delays of 576 and 0, VBRI, ID3v2 tags in front, an iTunes
+  `iTunSMPB` comment; MPEG-1 at 44.1 kHz and MPEG-2 at 22.05 kHz): the header classes and leads; the
+  generation PCM, 529 frames later than AVFoundation's decode with its length, or equal to it with
+  a LAME delay or an `iTunSMPB` comment, whose priming AVFoundation trims; and each class with a
+  lead decoded where BASS puts it against the file without a header.
+  `AVFoundationMania4KAudioClockTests` renders such a file offline from 0, 5 and 100 ms and gets
+  the generation PCM from there, and `Mania4KPlaySessionModelTests` the lead in ambient play.
 - `OnDeviceChartGenerationTests`: decoder rate and channel averaging, the capability and
   control mappings, the engine default and its persistence, a chosen folder kept only if the
   generator opens it, and refused when it lacks the model's notice. With the model: Generate
@@ -231,8 +240,8 @@ names a source.
 - `OnDeviceParityAndRunTests.testGenerateOnThisDeviceThenExport`: generates saigetsu at 3.5
   stars with a random seed through the generation model, checks the `.osu` parses to the chart,
   writes the `.osz` and opens it with `/usr/bin/unzip`: `audio.mp3` (the song's bytes),
-  `generated.osu` (the `.osu`) and `receipt.json` (with the seed). Nothing is played. One run:
-  1152 objects with seed 1520549647 in 8.8 s, a 2,138,366-byte `.osz`.
+  `generated.osu` (the `.osu`) and `receipt.json` (with the seed). Nothing is played. One run,
+  before the MP3 lead: 1152 objects with seed 1520549647 in 8.8 s, a 2,138,366-byte `.osz`.
 - The runtime's checks for the exporter: `cargo test -p ensomi-osz` reads the archive back with
   the `zip` crate (names, order, stored and deflated entries, contents, same bytes twice), and
   `swift test` at `ensomi-runtime`'s root opens `exportOsz`'s archive with `/usr/bin/unzip`.

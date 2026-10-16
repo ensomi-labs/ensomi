@@ -24,14 +24,17 @@ struct Mania4KRenderAnchor: Equatable, Sendable {
 /// At a rate other than 1, a varispeed unit between the player and the mixer resamples the source, so the pitch
 /// follows the rate. The player's time then counts source time, which advances at the rate, and the unit's own
 /// latency adds to the output's.
+///
+/// A file's audio time is the song's time, the one charts are generated on: AVFoundation's first decoded frame is the
+/// file's MP3 lead (`MP3Lead`) into it, and the lead plays as silence.
 public final class AVFoundationMania4KAudioClock: Mania4KSeekableAudioClock, @unchecked Sendable {
     private enum Source {
-        case file(AVAudioFile)
+        case file(AVAudioFile, leadFrames: AVAudioFramePosition)
         case clickTrack(Mania4KCalibrationClickTrack)
 
         var format: AVAudioFormat {
             switch self {
-            case .file(let file): file.processingFormat
+            case .file(let file, _): file.processingFormat
             case .clickTrack(let track): track.loop.format
             }
         }
@@ -100,10 +103,11 @@ public final class AVFoundationMania4KAudioClock: Mania4KSeekableAudioClock, @un
 
     public func prepare(audioFileURL: URL) async throws -> Mania4KAudioMetadata {
         let file = try AVAudioFile(forReading: audioFileURL)
-        try prepareEngine(source: .file(file), atMs: 0, rate: 1, resumesPlaying: false)
+        let leadFrames = MP3Lead.leadFrames(of: file)
+        try prepareEngine(source: .file(file, leadFrames: leadFrames), atMs: 0, rate: 1, resumesPlaying: false)
 
         return Mania4KAudioMetadata(
-            durationMs: Double(file.length) / file.processingFormat.sampleRate * 1000,
+            durationMs: Double(leadFrames + file.length) / file.processingFormat.sampleRate * 1000,
             title: audioFileURL.deletingPathExtension().lastPathComponent
         )
     }
@@ -147,11 +151,8 @@ public final class AVFoundationMania4KAudioClock: Mania4KSeekableAudioClock, @un
         }
         engine.connect(mixer, to: engine.mainMixerNode, format: outputFormat)
         switch source {
-        case .file(let file):
-            let frame = AVAudioFramePosition((positionMs * file.processingFormat.sampleRate / 1000).rounded())
-            if frame < file.length {
-                player.scheduleSegment(file, startingFrame: frame, frameCount: AVAudioFrameCount(file.length - frame), at: nil, completionHandler: nil)
-            }
+        case .file(let file, let leadFrames):
+            Self.schedule(file, leadFrames: leadFrames, fromMs: positionMs, on: player)
         case .clickTrack(let track):
             track.resumed(atMs: positionMs).schedule(on: player)
         }
@@ -181,6 +182,20 @@ public final class AVFoundationMania4KAudioClock: Mania4KSeekableAudioClock, @un
             $0.isRunning = false
             $0.pausedAudioTimeMs = positionMs
             engine.mainMixerNode.outputVolume = $0.mainMixerVolume
+        }
+    }
+
+    /// Schedules `file` on `player` from `positionMs` of the song's time, in which the file's first decoded frame is
+    /// `leadFrames` in: the part of the lead after the position plays as silence first.
+    static func schedule(_ file: AVAudioFile, leadFrames: AVAudioFramePosition, fromMs positionMs: Double, on player: AVAudioPlayerNode) {
+        let format = file.processingFormat
+        let frame = AVAudioFramePosition((positionMs * format.sampleRate / 1000).rounded()) - leadFrames
+        if frame < 0 {
+            player.scheduleBuffer(silence(format: format, frames: Int(-frame)), at: nil, options: [], completionHandler: nil)
+        }
+        let start = max(frame, 0)
+        if start < file.length {
+            player.scheduleSegment(file, startingFrame: start, frameCount: AVAudioFrameCount(file.length - start), at: nil, completionHandler: nil)
         }
     }
 
@@ -308,8 +323,8 @@ public struct Mania4KCalibrationClickTrack {
     public init(tick: AVAudioPCMBuffer, leadInMs: Int, intervalMs: Int) {
         let format = tick.format
         let sampleRate = format.sampleRate
-        leadIn = Self.silence(format: format, frames: Int((Double(leadInMs) * sampleRate / 1000).rounded()))
-        loop = Self.silence(format: format, frames: Int((Double(intervalMs) * sampleRate / 1000).rounded()))
+        leadIn = silence(format: format, frames: Int((Double(leadInMs) * sampleRate / 1000).rounded()))
+        loop = silence(format: format, frames: Int((Double(intervalMs) * sampleRate / 1000).rounded()))
         for channel in 0..<Int(format.channelCount) {
             loop.floatChannelData![channel].update(from: tick.floatChannelData![channel], count: Int(tick.frameLength))
         }
@@ -326,12 +341,12 @@ public struct Mania4KCalibrationClickTrack {
         let frame = Int((positionMs * loop.format.sampleRate / 1000).rounded())
         let leadInFrames = Int(leadIn.frameLength)
         guard frame >= leadInFrames else {
-            return Mania4KCalibrationClickTrack(leadIn: Self.silence(format: loop.format, frames: leadInFrames - frame), loop: loop)
+            return Mania4KCalibrationClickTrack(leadIn: silence(format: loop.format, frames: leadInFrames - frame), loop: loop)
         }
 
         let loopFrames = Int(loop.frameLength)
         let phase = (frame - leadInFrames) % loopFrames
-        let rest = Self.silence(format: loop.format, frames: loopFrames - phase)
+        let rest = silence(format: loop.format, frames: loopFrames - phase)
         for channel in 0..<Int(loop.format.channelCount) {
             rest.floatChannelData![channel].update(from: loop.floatChannelData![channel] + phase, count: loopFrames - phase)
         }
@@ -343,13 +358,14 @@ public struct Mania4KCalibrationClickTrack {
         player.scheduleBuffer(leadIn, at: nil, options: [], completionHandler: nil)
         player.scheduleBuffer(loop, at: nil, options: .loops, completionHandler: nil)
     }
+}
 
-    private static func silence(format: AVAudioFormat, frames: Int) -> AVAudioPCMBuffer {
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
-        buffer.frameLength = AVAudioFrameCount(frames)
-        for channel in 0..<Int(format.channelCount) {
-            buffer.floatChannelData![channel].update(repeating: 0, count: frames)
-        }
-        return buffer
+/// `frames` frames of silence in `format`.
+private func silence(format: AVAudioFormat, frames: Int) -> AVAudioPCMBuffer {
+    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))!
+    buffer.frameLength = AVAudioFrameCount(frames)
+    for channel in 0..<Int(format.channelCount) {
+        buffer.floatChannelData![channel].update(repeating: 0, count: frames)
     }
+    return buffer
 }

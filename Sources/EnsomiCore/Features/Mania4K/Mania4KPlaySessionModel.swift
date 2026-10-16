@@ -281,6 +281,9 @@ public final class Mania4KPlaySessionModel {
     /// Plays `chart` along with music heard in the room, showing loading until the chart is whole: the clock runs on
     /// from `referenceTimeMS` at `anchorHostTimeMS`, and play joins the chart at the scheduler's join point past the
     /// position heard then. The local reference is never played aloud.
+    ///
+    /// `referenceTimeMS` is a position in `audioFileURL` as AVFoundation decodes it, where alignment found the music;
+    /// the chart is on the song's time, the file's MP3 lead (`MP3Lead`) later.
     @discardableResult
     public func startAmbientChartPlay(
         audioFileURL: URL, referenceTimeMS: Double, anchorHostTimeMS: Double,
@@ -289,7 +292,8 @@ public final class Mania4KPlaySessionModel {
         let title = title ?? audioFileURL.deletingPathExtension().lastPathComponent
         // Unclamped: the chart's duration, measured from the decoded audio, ends play; a rounded library duration
         // must not freeze the clock early.
-        let clock = HostTimeAnchoredMania4KAudioClock(referenceTimeAtAnchorMS: referenceTimeMS,
+        let clock = HostTimeAnchoredMania4KAudioClock(
+            referenceTimeAtAnchorMS: referenceTimeMS + MP3Lead.leadMilliseconds(ofAudioAt: audioFileURL),
             title: title, anchorHostTimeMS: anchorHostTimeMS)
         return await startPlay(audioFileURL: audioFileURL, chartSource: .generated(displayName: title),
             playbackClock: clock, scheduledChart: chart) { ruleset in

@@ -86,6 +86,32 @@ final class Mania4KPlaySessionModelTests: XCTestCase {
         XCTAssertEqual(model.playFrame?.score.tierCounts.missCount, 1)
     }
 
+    /// Alignment finds the music in the recording as AVFoundation decodes it, and the chart is on the song's time: the
+    /// heard chart time adds the recording's MP3 lead, 529 frames without a LAME delay and none with one.
+    func testAmbientChartTimeAddsTheRecordingsMP3Lead() async throws {
+        for (variant, leadMs) in [(MP3Fixture.Variant.untagged, 529 / 44.1), (.lameDelay, 0)] {
+            let url = try MP3Fixture.write(.mpeg1, variant)
+            defer { try? FileManager.default.removeItem(at: url) }
+            let model = Mania4KPlaySessionModel(
+                audioOffsetMilliseconds: 0,
+                visualOffsetMilliseconds: 0,
+                audioClock: FakeMania4KAudioClock()
+            )
+            let scheduler = FakeChartScheduler()
+            scheduler.finish(Chart(durationMs: 10_000, objects: [ChartObject(lane: 0, startMs: 9_000, endMs: nil)]))
+            let anchorHostTimeMS = EnsomiHostClock.currentTimeMS()
+
+            let started = await model.startAmbientChartPlay(
+                audioFileURL: url, referenceTimeMS: 2_000, anchorHostTimeMS: anchorHostTimeMS,
+                chart: ScheduledChart { scheduler }
+            )
+            XCTAssertTrue(started)
+            await model.tick(atHostTimeMs: anchorHostTimeMS + 1_000)
+
+            XCTAssertEqual(try XCTUnwrap(model.playFrame?.gameplayChartTimeMs), 3_000 + leadMs, accuracy: 1e-3, "\(variant)")
+        }
+    }
+
     func testKeyBindingSetNormalizesKeysAndRejectsInvalidUpdates() {
         let custom = Mania4KKeyBindingSet(keysByLane: [
             .left: "A",

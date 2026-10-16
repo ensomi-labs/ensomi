@@ -11,7 +11,9 @@ public struct DecodedAudio: Sendable {
 }
 
 public enum OnDeviceAudioDecoder {
-    /// Decodes the whole file with `AVAudioFile` at its own sample rate and averages the channels in Double.
+    /// Decodes the whole file with `AVAudioFile` at its own sample rate and averages the channels in Double. The PCM
+    /// is on the release engine's time: an MP3 with a lead (`MP3Lead`) starts with that many frames of silence and
+    /// keeps AVFoundation's length, so as many frames go from its end.
     public static func decode(_ url: URL) throws -> DecodedAudio {
         let file = try AVAudioFile(forReading: url)
         let format = file.processingFormat
@@ -20,8 +22,9 @@ public enum OnDeviceAudioDecoder {
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkFrames) else {
             throw CocoaError(.fileReadUnknown)
         }
-        var samples: [Float] = []
-        samples.reserveCapacity(Int(file.length))
+        let lead = Int(MP3Lead.leadFrames(of: file))
+        var samples = [Float](repeating: 0, count: lead)
+        samples.reserveCapacity(lead + Int(file.length))
         while file.framePosition < file.length {
             try Task.checkCancellation()
             try file.read(into: buffer, frameCount: chunkFrames)
@@ -32,6 +35,7 @@ public enum OnDeviceAudioDecoder {
                 samples.append(Float(sum / Double(channelCount)))
             }
         }
+        samples.removeLast(lead)
         return DecodedAudio(samples: samples, sampleRate: format.sampleRate)
     }
 }

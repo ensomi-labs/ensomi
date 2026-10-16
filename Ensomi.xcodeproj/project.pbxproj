@@ -48,6 +48,7 @@
 		4FC7CEFC8B9C1E1BF8519FFB /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C4B5BA72D63C36DCB65152FA /* AVFoundation.framework */; };
 		506E1E4312D5F20ACB0A3342 /* AmbientSyncEngineDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E69ACE12AF9FAA2BB98A0C0 /* AmbientSyncEngineDiagnostics.swift */; };
 		532BCBA85611682A8586911F /* AmbientSyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C756630C9C8F6A4A545C8B84 /* AmbientSyncEngine.swift */; };
+		553C7A776CAA2367302F8880 /* MP3LeadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F91DC9804DFB50710109A18 /* MP3LeadTests.swift */; };
 		5776EE01FD6A2D5414C22CDD /* LiveGenerationDemoModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513F230F3B20FBC8C3C20CB0 /* LiveGenerationDemoModelTests.swift */; };
 		57BCAF78D9F80F3C92837F76 /* AmbientSyncEngineReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA0F500ABD17BAE5AF968E1 /* AmbientSyncEngineReference.swift */; };
 		594071880E0B6F585DBF35F2 /* LocalResolveDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63A0CF260A417996D56F25E0 /* LocalResolveDebugView.swift */; };
@@ -68,6 +69,7 @@
 		75AA6950DFF5FD72EA26FA58 /* Mania4KChartInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256245D4E58E1412E731090 /* Mania4KChartInspectorView.swift */; };
 		7624F718B0CA7B90D80A9BC8 /* EnsomiUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C288CB29AE9D254EC43949DF /* EnsomiUI.framework */; };
 		78FA4BFA8D67AF433FE4741A /* ACRCloudDebugCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB5B287E7B66F49377DF98E /* ACRCloudDebugCLI.swift */; };
+		7DFB97669E8661B42604B5EE /* MP3Lead.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACF3B428D5FB941BB16F99C /* MP3Lead.swift */; };
 		7FA4955A34C85BF533D2C6B5 /* LocalAudioLibraryIndexerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADD64B514B050D92BF9DD9D1 /* LocalAudioLibraryIndexerTests.swift */; };
 		81733AF3768D1A867E9E0581 /* GameplayTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D8E898D90830223780282D /* GameplayTimingTests.swift */; };
 		829A42C27C70FD2BCE96D53C /* Mania4KGameplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9C776D2E675382AE1366975 /* Mania4KGameplay.swift */; };
@@ -247,6 +249,7 @@
 		0DB066262C921A3C684E9C57 /* 1-before-first-note.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "1-before-first-note.png"; sourceTree = "<group>"; };
 		0E28561591EE8BC7C59BFDBE /* HANDOFF-gameplay-shell.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "HANDOFF-gameplay-shell.md"; sourceTree = "<group>"; };
 		0F274D84858F0E34B84815AA /* AmbientSyncEngineConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncEngineConfiguration.swift; sourceTree = "<group>"; };
+		0F91DC9804DFB50710109A18 /* MP3LeadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP3LeadTests.swift; sourceTree = "<group>"; };
 		101733B500C67A09B97D2C89 /* generate-4-stopped.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "generate-4-stopped.png"; sourceTree = "<group>"; };
 		1181472594F72219B0685364 /* settings-3-folder-refused.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "settings-3-folder-refused.png"; sourceTree = "<group>"; };
 		1902276C428A06C90263608D /* AmbientSyncReferenceIndexBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBuilderTests.swift; sourceTree = "<group>"; };
@@ -312,6 +315,7 @@
 		7C53E008171548F10DEF0342 /* DebugACRCloudRecognitionProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugACRCloudRecognitionProvider.swift; sourceTree = "<group>"; };
 		7D47F4D1B496B9832951952F /* AmbientSyncReferenceIndexBinaryCacheCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientSyncReferenceIndexBinaryCacheCodec.swift; sourceTree = "<group>"; };
 		83F6733EDAC5551BBE227035 /* EnsomiCoreTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = EnsomiCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8ACF3B428D5FB941BB16F99C /* MP3Lead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP3Lead.swift; sourceTree = "<group>"; };
 		8BA733B20F927F472BB87547 /* LocalAudioLibraryIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAudioLibraryIndexer.swift; sourceTree = "<group>"; };
 		8ECB3EEABE4BC35423FAA2BD /* 6-narrow.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "6-narrow.png"; sourceTree = "<group>"; };
 		8F2284B92443BFD02DCDEB7B /* 5-paused.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "5-paused.png"; sourceTree = "<group>"; };
@@ -737,6 +741,7 @@
 				6F7F4FDD95701DCD6B212553 /* ChartGenerationClient.swift */,
 				7109538486A5C95E528CAF27 /* ChartModelDownloader.swift */,
 				700C80AB5EC00DAED021521E /* Mania4KGeneratedChart.swift */,
+				8ACF3B428D5FB941BB16F99C /* MP3Lead.swift */,
 				6AD21E7574350C01E8BB09DE /* OnDeviceChartGenerator.swift */,
 				E30AFA1147944AC5014996F2 /* OszArchive.swift */,
 				EA5E98F077F5FAD886BE765D /* ScheduledChart.swift */,
@@ -817,6 +822,7 @@
 				D725EB7B5D512C56510743DE /* Mania4KPlaySessionModelTests.swift */,
 				6D6538A66002844E3FD8FDE3 /* MicFeaturePayloadExtractorTests.swift */,
 				0306E91E9DC618ECFA5D9C53 /* MicFeatureStreamBufferTests.swift */,
+				0F91DC9804DFB50710109A18 /* MP3LeadTests.swift */,
 				4496CE4F1A4BEA0CFE045894 /* OnDeviceChartGenerationTests.swift */,
 				CDBAAD85F0F60FABE4761401 /* OnDeviceParityAndRunTests.swift */,
 				7A10203836A336DFD9DD46B1 /* OnDeviceTestSupport.swift */,
@@ -1116,6 +1122,7 @@
 				7FA4955A34C85BF533D2C6B5 /* LocalAudioLibraryIndexerTests.swift in Sources */,
 				3853A2AFDAE823701FF50AD7 /* LocalLibraryDashboardModelTests.swift in Sources */,
 				60B6E13972D3003611FD2B92 /* LocalTrackResolverTests.swift in Sources */,
+				553C7A776CAA2367302F8880 /* MP3LeadTests.swift in Sources */,
 				8A4C02CB3D6F4F8001B5477B /* Mania4KAudioSettingsTests.swift in Sources */,
 				D0E61907A9BB59F7CB863681 /* Mania4KChartInspectionModelTests.swift in Sources */,
 				40B639554D7412D427B8B271 /* Mania4KGeneratedChartTests.swift in Sources */,
@@ -1186,6 +1193,7 @@
 				C646E2188A21BBC6E452B76A /* LocalAudioMetadataExtractor.swift in Sources */,
 				96A4096CE39FCD07286B5A0A /* LocalMusicDirectoryStore.swift in Sources */,
 				12DFCBA69C209A0F0EB63E1B /* LocalTrackResolver.swift in Sources */,
+				7DFB97669E8661B42604B5EE /* MP3Lead.swift in Sources */,
 				047D3F0DE4DC81F56678E90B /* Mania4KAudioOutputDevice.swift in Sources */,
 				EC29E01837B8385F9A18D6FF /* Mania4KChartGenerationModel.swift in Sources */,
 				8762A2875E040E0B30A8BD7E /* Mania4KChartInspectionModel.swift in Sources */,

@@ -92,6 +92,68 @@ final class AVFoundationMania4KAudioClockTests: XCTestCase {
         }
     }
 
+    /// A file plays on the song's time, the one charts are generated on. Rendered offline from 0, from inside the lead
+    /// and from past it, an MP3 without a LAME delay sounds as the generation PCM at that position: the rest of the
+    /// 529-frame lead as silence, then AVFoundation's decode. The mixer's level is left aside.
+    func testFilePlaysTheGenerationPCMFromAnyPosition() throws {
+        let url = try MP3Fixture.write(.mpeg1, .untagged)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let file = try AVAudioFile(forReading: url)
+        let format = file.processingFormat
+        let leadFrames = MP3Lead.leadFrames(of: file)
+        XCTAssertEqual(leadFrames, 529)
+        let pcm = try OnDeviceAudioDecoder.decode(url).samples
+
+        for positionMs in [0.0, 5, 100] {
+            let engine = AVAudioEngine()
+            let player = AVAudioPlayerNode()
+            try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4_096)
+            engine.attach(player)
+            engine.connect(player, to: engine.mainMixerNode, format: format)
+            AVFoundationMania4KAudioClock.schedule(file, leadFrames: leadFrames, fromMs: positionMs, on: player)
+            try engine.start()
+            player.play()
+
+            let start = Int((positionMs * format.sampleRate / 1_000).rounded())
+            let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
+            var rendered: [Float] = []
+            while rendered.count < pcm.count - start {
+                XCTAssertEqual(try engine.renderOffline(4_096, to: output), .success)
+                rendered += UnsafeBufferPointer(start: try XCTUnwrap(output.floatChannelData)[0], count: Int(output.frameLength))
+            }
+            let expected = Array(pcm[start...])
+            XCTAssertEqual(MP3Fixture.onset(rendered), MP3Fixture.onset(expected), "from \(positionMs) ms")
+            let pairs = zip(rendered, expected).map { (Double($0), Double($1)) }
+            let gain = pairs.reduce(0.0) { $0 + $1.0 * $1.1 } / pairs.reduce(0.0) { $0 + $1.1 * $1.1 }
+            let residual = try XCTUnwrap(pairs.map { abs($0 - gain * $1) }.max())
+            let peak = try XCTUnwrap(pairs.map { abs($1) }.max())
+            print("TIMING file from \(positionMs) ms: gain \(gain), residual \(residual), peak \(peak)")
+            XCTAssertGreaterThan(gain, 0.1, "from \(positionMs) ms")
+            XCTAssertLessThanOrEqual(residual, 1e-5 * peak, "from \(positionMs) ms")
+            engine.stop()
+        }
+    }
+
+    /// The song lasts the lead and AVFoundation's decode.
+    func testPreparedDurationCountsTheMP3Lead() async throws {
+        for (variant, leadFrames) in [(MP3Fixture.Variant.untagged, 529), (.lameDelay, 0)] {
+            let url = try MP3Fixture.write(.mpeg1, variant)
+            defer { try? FileManager.default.removeItem(at: url) }
+            let length = try AVAudioFile(forReading: url).length
+            let clock = AVFoundationMania4KAudioClock()
+            clock.volume = 0
+            let metadata: Mania4KAudioMetadata
+            do {
+                metadata = try await clock.prepare(audioFileURL: url)
+            } catch Mania4KPlayFailure.audioPrepareFailed(let message) {
+                throw XCTSkip("No audio output to prepare for: \(message)")
+            }
+
+            XCTAssertEqual(try XCTUnwrap(metadata.durationMs), Double(Int(length) + leadFrames) / 44.1, accuracy: 1e-9, "\(variant)")
+            await clock.stop()
+        }
+    }
+
     func testEngineClockFollowsTheHostClockSmoothlyAndHoldsWhilePaused() async throws {
         let url = try writeToneFile(sampleRate: 44_100, seconds: 6)
         defer { try? FileManager.default.removeItem(at: url) }
