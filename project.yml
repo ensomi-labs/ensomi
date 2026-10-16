@@ -13,6 +13,8 @@ settings:
     SWIFT_VERSION: 6.0
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: YES
+    # The apps' version (CFBundleShortVersionString), which their release tag names: v0.1.0.
+    MARKETING_VERSION: "0.1.0"
     # Apple Silicon only, the architecture of the Rust core's xcframework (macOS 27 dropped Intel).
     EXCLUDED_ARCHS: x86_64
 
@@ -67,6 +69,7 @@ targets:
       path: Apps/EnsomiMac/Info.plist
       properties:
         CFBundleDisplayName: Ensomi
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         NSMicrophoneUsageDescription: Ensomi uses the microphone to prototype nearby music recognition flows.
         NSAudioCaptureUsageDescription: Ensomi captures system audio to synchronize gameplay with audio playing on this Mac.
         # The build Tools/mac.sh records for the installed app; empty in other builds.
