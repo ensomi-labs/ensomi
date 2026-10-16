@@ -70,10 +70,7 @@ targets:
         NSMicrophoneUsageDescription: Ensomi uses the microphone to prototype nearby music recognition flows.
         NSAudioCaptureUsageDescription: Ensomi captures system audio to synchronize gameplay with audio playing on this Mac.
         # The build Tools/mac.sh records for the installed app; empty in other builds.
-        EnsomiBuildCommit: $(ENSOMI_BUILD_COMMIT)
-        EnsomiBuildDirty: $(ENSOMI_BUILD_DIRTY)
-        EnsomiBuildChannel: $(ENSOMI_BUILD_CHANNEL)
-        EnsomiRuntimeVersion: $(ENSOMI_RUNTIME_VERSION)
+        EnsomiBuild: $(ENSOMI_BUILD)
     dependencies:
       - target: EnsomiCore
       - target: EnsomiUI

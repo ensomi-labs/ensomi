@@ -7,12 +7,11 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 out="$root/.build/xcode"
 project="$root/Ensomi.xcodeproj"
-resolved="$project/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 installed=/Applications/EnsomiMac.app
 rollback_zip="$out/previous-EnsomiMac.zip"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 plistbuddy=/usr/libexec/PlistBuddy
-# What the app is built from: a change here makes an install dirty.
+# What the app is built from: an uncommitted change here marks an install modified, a committed one makes it stale.
 inputs="Sources Apps Tests project.yml Ensomi.xcodeproj"
 keep_results=3
 dry=""
@@ -28,9 +27,9 @@ Usage: Tools/mac.sh <command>
                              dev: EnsomiMac; ios: EnsomiIOS for the iOS simulator;
                              cli: EnsomiACRCloudDebugCLI; release: EnsomiMac Release, unsigned,
                              to check conditional code; play: the optimised app that install copies.
-  install [--allow-dirty]    Build play from a clean tree and replace /Applications/EnsomiMac.app,
-                             keeping the previous app as .build/xcode/previous-EnsomiMac.zip.
-                             Refuses while Ensomi runs. The app records --allow-dirty.
+  install                    Build play and replace /Applications/EnsomiMac.app, keeping the previous
+                             app as .build/xcode/previous-EnsomiMac.zip. Refuses while Ensomi runs.
+                             The app records the commit, with -modified for uncommitted changes.
   rollback                   Put the previous app back from that zip.
   status                     The installed build against this checkout, other app copies, disk use.
   clean [-n] [--all]         Delete built apps and all but the newest 3 test results; --all deletes
@@ -82,16 +81,14 @@ xcb() {
 }
 
 # shellcheck disable=SC2086 # $inputs is a list of paths
-changes() { git -C "$root" status --porcelain -- $inputs; }
-runtime_version() {
-    awk -F'"' '$2 == "identity" { found = ($4 == "runtime") } found && $2 == "version" { print $4; exit }' \
-        "$resolved" 2>/dev/null || true
-}
-# The model revision the app downloads, at commit $1 or in the working tree.
-model_revision() {
-    local file=Sources/EnsomiCore/Services/Beatmap/ChartModelDownloader.swift
-    { if [ -n "${1:-}" ]; then git -C "$root" show "$1:$file"; else cat "$root/$file"; fi; } 2>/dev/null |
-        awk -F'"' '/static let (pinnedRevision|revision) = "/ { print $2; exit }' || true
+changes() { git -C "$root" status --porcelain -- $inputs 2>/dev/null; }
+# What the installed app records: the short commit, with -modified when the app's sources have uncommitted changes or
+# a local runtime xcframework is set, or "unknown" when git cannot read the checkout. Recording never stops a build.
+build_id() {
+    local id
+    id=$(git -C "$root" rev-parse --short HEAD 2>/dev/null) || { echo unknown; return; }
+    if [ -n "$(changes)" ] || [ -n "${ENSOMI_RUNTIME_XCFRAMEWORK:-}" ]; then id="$id-modified"; fi
+    echo "$id"
 }
 plist_value() { "$plistbuddy" -c "Print :$1" "$installed/Contents/Info.plist" 2>/dev/null || true; }
 count_results() {
@@ -149,20 +146,16 @@ cmd_test() {
     return "$status"
 }
 
-# The app /Applications holds: the Debug configuration (its signing settings and DEBUG tools) compiled optimised, from
-# the package versions Package.resolved pins and the released runtime, with the build recorded in its Info.plist.
+# The app /Applications holds: the Debug configuration (its signing settings and DEBUG tools) compiled optimised, with
+# its build id in its Info.plist.
 build_play() {
-    local commit dirty=NO
-    commit=$(git -C "$root" rev-parse HEAD) || die "git cannot read the commit, which the app must record."
-    if [ -n "$(changes)" ]; then dirty=YES; fi
+    local build
+    build=$(build_id)
     # Both caches resolve packages into the shared SourcePackages, so a play build also waits for dev builds.
     lock dev
     lock play
-    env -u ENSOMI_RUNTIME_XCFRAMEWORK xcodebuild -project "$project" -scheme EnsomiMac -configuration Debug \
-        -destination 'platform=macOS' -derivedDataPath "$out/play" -clonedSourcePackagesDirPath "$out/SourcePackages" \
-        -onlyUsePackageVersionsFromResolvedFile SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule \
-        ENSOMI_BUILD_COMMIT="$commit" ENSOMI_BUILD_DIRTY="$dirty" ENSOMI_BUILD_CHANNEL=play \
-        ENSOMI_RUNTIME_VERSION="$(runtime_version)" build
+    xcb play -scheme EnsomiMac -configuration Debug -destination 'platform=macOS' \
+        SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule ENSOMI_BUILD="$build" build
 }
 
 cmd_build() {
@@ -183,31 +176,15 @@ cmd_build() {
 }
 
 show_installed() {
-    local commit dirty=""
-    commit=$(plist_value EnsomiBuildCommit)
-    if [ -z "$commit" ]; then echo "Installed: $installed, no build recorded"; return; fi
-    if [ "$(plist_value EnsomiBuildDirty)" = YES ]; then dirty=" (modified)"; fi
-    echo "Installed: $installed, commit $commit$dirty, channel $(plist_value EnsomiBuildChannel)," \
-        "runtime $(plist_value EnsomiRuntimeVersion)"
+    local build
+    build=$(plist_value EnsomiBuild)
+    echo "Installed: $installed, build ${build:-not recorded}"
 }
 
 cmd_install() {
-    local allow_dirty="" product="$out/play/Build/Products/Debug/EnsomiMac.app"
-    case "${1:-}" in "") ;; --allow-dirty) allow_dirty=1 ;; *) die "install takes only --allow-dirty." ;; esac
+    local product="$out/play/Build/Products/Debug/EnsomiMac.app"
+    if [ $# -gt 0 ]; then die "install takes no arguments."; fi
     refuse_if_running
-    if [ -n "$(changes)" ]; then
-        changes >&2
-        if [ -z "$allow_dirty" ]; then die "Commit the changes above first, or pass --allow-dirty, which the app records."; fi
-        echo "Installing with the changes above; the app records that." >&2
-    fi
-    if awk '/^  EnsomiRuntime:/ { f = 1; next } /^[^ ]/ || /^  [^ ]/ { f = 0 } f && /^ +path:/ { found = 1 }
-        END { exit !found }' "$root/project.yml" || grep -q XCLocalSwiftPackageReference "$project/project.pbxproj"; then
-        die "A package is a local path (project.yml or Ensomi.xcodeproj); install builds only from released packages."
-    fi
-    if [ -n "${ENSOMI_RUNTIME_XCFRAMEWORK:-}" ] ||
-        [ -n "$(launchctl getenv ENSOMI_RUNTIME_XCFRAMEWORK 2>/dev/null || true)" ]; then
-        die "ENSOMI_RUNTIME_XCFRAMEWORK is set (in this shell or by launchctl setenv); unset it in both first."
-    fi
     if [ ! -w "$(dirname "$installed")" ]; then die "This user cannot write to $(dirname "$installed")."; fi
     need xcodebuild ditto
     build_play
@@ -237,35 +214,20 @@ cmd_rollback() {
 }
 
 cmd_status() {
-    local head runtime model commit value entry
-    head=$(git -C "$root" rev-parse HEAD)
-    runtime=$(runtime_version)
-    model=$(model_revision)
-    echo "Checkout: $(git -C "$root" rev-parse --abbrev-ref HEAD) $head, runtime ${runtime:-unknown}, model ${model:-unknown}"
+    local build entry value
+    echo "Checkout: $(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" \
+        "$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     if [ ! -d "$installed" ]; then
         echo "STALE: nothing is installed at $installed."
-    elif [ ! -x "$plistbuddy" ]; then
-        echo "Cannot read the installed build: $plistbuddy is missing."
     else
         show_installed
-        commit=$(plist_value EnsomiBuildCommit)
-        value=$(plist_value EnsomiRuntimeVersion)
-        if [ -z "$commit" ]; then echo "STALE: the installed app records no build; Tools/mac.sh install records one."; fi
-        if [ -n "$commit" ] && [ "$commit" != "$head" ]; then
-            # shellcheck disable=SC2086 # $inputs is a list of paths
-            if git -C "$root" diff --quiet "$commit" HEAD -- $inputs 2>/dev/null; then
-                echo "Installed from $commit; the app's sources are unchanged since then."
-            else
-                echo "STALE: installed from $commit; the app's sources changed by $head."
-            fi
-        fi
-        if [ "$(plist_value EnsomiBuildDirty)" = YES ]; then echo "STALE: installed with uncommitted changes."; fi
-        if [ -n "$commit" ] && [ "$value" != "$runtime" ]; then
-            echo "STALE: installed runtime ${value:-unknown}, Package.resolved pins ${runtime:-unknown}."
-        fi
-        value=$(model_revision "$commit")
-        if [ -n "$commit" ] && [ -n "$value" ] && [ "$value" != "$model" ]; then
-            echo "STALE: the installed app downloads the model at $value, the checkout at ${model:-unknown}."
+        build=$(plist_value EnsomiBuild)
+        # The runtime pin (Package.resolved) and the model pin are among the app's sources.
+        # shellcheck disable=SC2086 # $inputs is a list of paths
+        if [ -z "$build" ]; then
+            echo "STALE: the installed app records no build; Tools/mac.sh install records one."
+        elif ! git -C "$root" diff --quiet "${build%-modified}" HEAD -- $inputs 2>/dev/null; then
+            echo "STALE: the app's sources changed since ${build%-modified}, or git cannot compare them."
         fi
     fi
 
@@ -300,8 +262,6 @@ cmd_status() {
         esac
     done
     echo "Test result bundles: $(count_results)"
-    value=$(launchctl getenv ENSOMI_RUNTIME_XCFRAMEWORK 2>/dev/null || true)
-    echo "launchctl ENSOMI_RUNTIME_XCFRAMEWORK: ${value:-unset}"
 }
 
 cmd_clean() {

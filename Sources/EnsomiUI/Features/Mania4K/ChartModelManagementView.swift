@@ -126,8 +126,8 @@ struct ChartModelLicenseView: View {
     }
 }
 
-/// What the running app was built from: the commit, channel and runtime `Tools/mac.sh install` records in the macOS
-/// app, so a stale install shows in Settings.
+/// What the running app was built from: the commit `Tools/mac.sh install` records in the macOS app, so a stale install
+/// shows in Settings.
 struct AppBuildInfoView: View {
     var build = AppBuildInfo.current
 

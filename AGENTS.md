@@ -30,11 +30,11 @@ Build, test and install with `Tools/mac.sh`, not `xcodebuild` directly; it keeps
 every output under `.build/xcode/` and `Tools/mac.sh help` lists its commands.
 `test` and `build dev|ios|cli|release` share the Debug `dev` cache, and a lock
 makes a second build wait for the first. `install` builds the `play` channel, the
-Debug configuration compiled with `-O` and whole-module optimisation, from a tree
-without uncommitted changes to the app's sources. It refuses while the app runs
-and never quits it, replaces `/Applications/EnsomiMac.app`, keeps the previous app
-as one rollback zip (`Tools/mac.sh rollback`) and records the commit, channel and
-runtime version in the app.
+Debug configuration compiled with `-O` and whole-module optimisation. It refuses
+while the app runs and never quits it, replaces `/Applications/EnsomiMac.app`,
+keeps the previous app as one rollback zip (`Tools/mac.sh rollback`) and records
+the commit in the app, marked `-modified` when the app's sources have uncommitted
+changes or a local runtime is set. Recording never blocks an install.
 
 Keep bundle ID `io.ensomi.mac` and the Debug signing settings. Permission-sensitive
 runs use `/Applications/EnsomiMac.app`; launch only that path, never a build

@@ -31,7 +31,7 @@ To develop against a local runtime, change `EnsomiRuntime` in `project.yml` to
 `ENSOMI_RUNTIME_XCFRAMEWORK=build/apple/EnsomiRuntimeFFI.xcframework`, a path relative to the
 runtime package. SwiftPM reads the variable whenever it loads that package, also the released
 one: `xcodebuild` takes it from the shell, Xcode from `launchctl setenv`. Unset it in both to
-build with the release; `Tools/mac.sh install` refuses while either is set.
+build with the release; `Tools/mac.sh install` marks a build made with it `-modified`.
 
 Then generate the project from `project.yml`, and run the macOS tests and the iOS simulator
 build:

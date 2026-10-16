@@ -402,28 +402,19 @@ final class ChartModelDownloaderTests: XCTestCase {
 
 /// The build record Settings shows under Chart model, read from an Info.plist as `Tools/mac.sh` and Xcode leave it.
 final class AppBuildInfoTests: XCTestCase {
-    /// A build the script did not install has the keys with their build settings expanded to nothing.
+    /// A build the script did not install has the key with its build setting expanded to nothing.
     func testABuildWithoutARecordSaysSo() {
-        let unrecorded = AppBuildInfo(infoDictionary: [
-            "EnsomiBuildCommit": "", "EnsomiBuildDirty": "", "EnsomiBuildChannel": "", "EnsomiRuntimeVersion": "",
-        ])
+        let unrecorded = AppBuildInfo(infoDictionary: ["EnsomiBuild": ""])
 
-        XCTAssertNil(unrecorded.commit)
+        XCTAssertNil(unrecorded.build)
         XCTAssertEqual(unrecorded.summary, "App build not recorded")
         XCTAssertEqual(AppBuildInfo(infoDictionary: [:]), unrecorded)
     }
 
-    func testARecordedBuildNamesItsCommitChannelAndRuntime() {
-        var info: [String: Any] = [
-            "EnsomiBuildCommit": "39673d0c1bf77425c4ab87eaa678b3d9640bdf92",
-            "EnsomiBuildDirty": "NO",
-            "EnsomiBuildChannel": "play",
-            "EnsomiRuntimeVersion": "0.3.1",
-        ]
-        XCTAssertEqual(AppBuildInfo(infoDictionary: info).summary, "App build 39673d0 · play · runtime 0.3.1")
-
-        info["EnsomiBuildDirty"] = "YES"
-        XCTAssertEqual(AppBuildInfo(infoDictionary: info).summary, "App build 39673d0 (modified) · play · runtime 0.3.1")
+    func testARecordedBuildNamesItsCommit() {
+        XCTAssertEqual(AppBuildInfo(infoDictionary: ["EnsomiBuild": "39673d0"]).summary, "App build 39673d0")
+        XCTAssertEqual(AppBuildInfo(infoDictionary: ["EnsomiBuild": "39673d0-modified"]).summary,
+                       "App build 39673d0-modified")
     }
 }
 
