@@ -15,7 +15,9 @@ plistbuddy=/usr/libexec/PlistBuddy
 inputs="Sources Apps Tests project.yml Ensomi.xcodeproj"
 keep_results=3
 dry=""
-held=""
+# The exact path of each lock this process holds, so that release removes only those.
+held_dev=""
+held_play=""
 
 usage() {
     cat <<'EOF'
@@ -49,7 +51,11 @@ rel() { echo "${1#"$root"/}"; }
 # One lock per derived-data cache: a directory holding its owner's PID, broken once that process is gone.
 lock() {
     local dir="$out/$1.lock" pid said=""
-    case "$held " in *" $dir "*) return ;; esac
+    case $1 in
+        dev) if [ -n "$held_dev" ]; then return; fi ;;
+        play) if [ -n "$held_play" ]; then return; fi ;;
+        *) die "there is no $1 cache." ;;
+    esac
     mkdir -p "$out"
     until mkdir "$dir" 2>/dev/null; do
         pid=$(cat "$dir/pid" 2>/dev/null || true)
@@ -66,10 +72,13 @@ lock() {
             rm -rf "$dir"
         fi
     done
+    case $1 in dev) held_dev=$dir ;; play) held_play=$dir ;; esac
     echo "$$" >"$dir/pid"
-    held="$held $dir"
 }
-release() { local dir; for dir in $held; do rm -rf "$dir"; done; }
+release() {
+    if [ -n "$held_dev" ]; then rm -rf "$held_dev"; fi
+    if [ -n "$held_play" ]; then rm -rf "$held_play"; fi
+}
 trap release EXIT
 trap 'exit 130' INT TERM
 
