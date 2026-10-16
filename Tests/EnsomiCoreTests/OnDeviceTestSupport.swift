@@ -42,12 +42,15 @@ func temporaryDirectory() throws -> URL {
     return url
 }
 
-/// A library with its own defaults and models directory, and no model unless `modelsDirectory` has one.
+/// A library with its own defaults and models directory, and no model unless `modelsDirectory` has one. Unless a test
+/// passes `downloader`, a download reads a directory that does not exist and fails without the network.
 @MainActor
 func isolatedLibrary(
     defaults: UserDefaults = UserDefaults(suiteName: UUID().uuidString)!,
     modelsDirectory: URL? = nil,
-    downloader: ChartModelDownloader = ChartModelDownloader()
+    downloader: ChartModelDownloader = ChartModelDownloader(
+        source: ChartModelSource(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true))
+    )
 ) -> ChartModelLibrary {
     ChartModelLibrary(
         defaults: defaults,
