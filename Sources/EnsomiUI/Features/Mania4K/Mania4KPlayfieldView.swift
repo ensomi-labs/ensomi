@@ -41,13 +41,13 @@ extension EnvironmentValues {
 final class Mania4KPlayfieldView: MTKView {
     var model: any Mania4KPlayfieldSource
     var reduceMotion = false
-    /// Records the drawn frames for the hosted drawing test; nil otherwise.
-    var drawableProbe: Mania4KDrawableProbe?
     private var renderer: Mania4KMetalRenderer?
     private var displayLink: Mania4KDisplayLink?
     /// The display time of the display link's last frame, in ms, at which `draw(_:)` lights the lanes.
     private var frameUITimeMs = 0.0
     #if os(macOS)
+    /// Records the drawn frames for the hosted drawing test; nil otherwise.
+    var drawableProbe: Mania4KDrawableProbe?
     private var visibilityObserver: Mania4KWindowVisibilityObserver?
     #endif
 
@@ -108,9 +108,11 @@ final class Mania4KPlayfieldView: MTKView {
             }
 
             let drawable = currentDrawable
+            #if os(macOS)
             if let drawable, let drawableProbe {
                 drawableProbe.record(drawable, uiTimeMs: frameUITimeMs)
             }
+            #endif
             return (pass, drawable)
         }
     }
@@ -156,8 +158,10 @@ final class Mania4KPlayfieldView: MTKView {
     #endif
 }
 
+#if os(macOS)
 /// The frames a playfield drew: each one's drawable, the display time it was drawn for, and when Metal reports the
-/// drawable reached the screen. Presented handlers run off the main thread, hence the lock.
+/// drawable reached the screen. Presented handlers run off the main thread, hence the lock. macOS only: the tests run
+/// there, and the iOS simulator SDK has neither drawable IDs nor presented handlers.
 final class Mania4KDrawableProbe: Sendable {
     struct Frame: Sendable {
         let drawableID: Int
@@ -186,6 +190,7 @@ final class Mania4KDrawableProbe: Sendable {
         }
     }
 }
+#endif
 
 #if os(macOS)
 extension Mania4KPlayfieldMetalView: NSViewRepresentable {
