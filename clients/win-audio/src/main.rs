@@ -7,6 +7,8 @@
 
 use std::time::Duration;
 
+mod clock;
+
 use windows::core::Result;
 use windows::Win32::Media::Audio::{
     eConsole, eRender, IAudioClient, IAudioClock, IAudioRenderClient, IMMDeviceEnumerator,
@@ -75,6 +77,8 @@ fn run(seconds: f64) -> Result<()> {
     let start = now_qpc(qpf);
 
     let mut samples: Vec<(f64, f64)> = Vec::new();
+    let mut audio_clock = crate::clock::AudioClock::new(400);
+    let mut prediction_errors: Vec<f64> = Vec::new();
     loop {
         let host = now_qpc(qpf) - start;
         if host > seconds {
@@ -90,14 +94,32 @@ fn run(seconds: f64) -> Result<()> {
         let mut position = 0u64;
         let mut position_qpc = 0u64;
         clock.GetPosition(&mut position, Some(&mut position_qpc))?;
-        samples.push((host, position as f64 / clock_frequency as f64));
+        let position_seconds = position as f64 / clock_frequency as f64;
+
+        // How far the clock's prediction was from the reading that just arrived.
+        let predicted = audio_clock.audio_at(host);
+        audio_clock.push(host, position_seconds);
+        if audio_clock.samples() > 8 {
+            prediction_errors.push((predicted - position_seconds) * 1000.0);
+        }
+
+        samples.push((host, position_seconds));
 
         std::thread::sleep(Duration::from_millis(4));
     }
 
     client.Stop()?;
 
-    report(&samples, seconds, buffer_frames, rate, stream_latency, clock_frequency);
+    report(
+        &samples,
+        seconds,
+        buffer_frames,
+        rate,
+        stream_latency,
+        clock_frequency,
+        &prediction_errors,
+        audio_clock.rate(),
+    );
     Ok(())
   }
 }
@@ -133,6 +155,8 @@ fn report(
     rate: u32,
     stream_latency: i64,
     clock_frequency: u64,
+    prediction_errors: &[f64],
+    fitted_rate: f64,
 ) {
     if samples.len() < 4 {
         println!("only {} samples were taken; nothing is reported", samples.len());
@@ -220,5 +244,22 @@ fn report(
         step_median,
         steps.len()
     );
+
+    if !prediction_errors.is_empty() {
+        let mut errors: Vec<f64> = prediction_errors.iter().map(|value| value.abs()).collect();
+        errors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mean_sq = errors.iter().map(|value| value * value).sum::<f64>() / errors.len() as f64;
+        let p95 = errors[(errors.len() as f64 * 0.95) as usize];
+        println!();
+        println!("live clock (AudioClock):");
+        println!("  fitted rate   {fitted_rate:.9}");
+        println!(
+            "  prediction    {:.3} ms rms, p95 {:.3} ms, max {:.3} ms over {} readings",
+            mean_sq.sqrt(),
+            p95,
+            errors[errors.len() - 1],
+            errors.len()
+        );
+    }
 }
 
