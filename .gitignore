@@ -12,3 +12,12 @@ xcuserdata/
 # Private audio, recordings, and generated reports.
 LocalFixtures/
 artifacts/
+
+# Rust
+target/
+
+# Gradle and Kotlin
+.gradle/
+local.properties
+*.iml
+.kotlin/
