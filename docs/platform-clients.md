@@ -58,6 +58,30 @@ descriptor.
 **Platform shell.** Each shell implements the four contracts below plus storage and capture, and
 holds no judgement, generation or chart-serialization logic.
 
+## Repository layout
+
+Both clients live in this repository. `dev/swift` carries the Apple client; `dev/windows` carries
+the clients this document proposes, and their trees are outside what `project.yml` builds, so
+`xcodegen generate` ignores them.
+
+```
+Apps/EnsomiMac, Apps/EnsomiIOS        Apple entry points                  dev/swift
+Sources/EnsomiCore, Sources/EnsomiUI  shared Swift domain and interface   dev/swift
+clients/
+  settings.gradle.kts                 the Gradle root of both clients
+  shared/                             Compose UI and the shell contracts
+  windows/                            Windows entry, jpackage, native libraries
+  android/                            Android entry, manifest, JNI libraries
+  app-core/                           Rust: library index, decode, model download
+docs/                                 contracts, guidelines, these proposals
+.github/workflows/                    ci.yml stays the Apple checks; new workflows for the
+                                      clients trigger on dev/windows and on pull requests into it
+```
+
+The app core sits here rather than in the runtime repository because only these clients need it;
+anything both clients must agree on belongs in the runtime. The Gradle root is a subdirectory so
+the Xcode project's roots stay as they are.
+
 ## The binding
 
 `crates/ffi` is UniFFI 0.31 and exposes `GameplaySession`, `GameplayFeedback`, `ChartGenerator`,
@@ -161,8 +185,12 @@ the scheduler's progress from the core; it does not estimate them.
   alongside today's xcframework and npm package.
 - Clients pin an exact runtime version, as `project.yml` does today; a protocol change follows the
   ecosystem's usual order (protocol, runtime, clients).
-- CI keeps the Rust tests and the conformance fixtures, and adds jobs that build the Kotlin
-  binding with its two native libraries and run the fixtures through it.
+- CI keeps the Rust tests and the conformance fixtures, and adds workflows that build the Kotlin
+  binding with its two native libraries and run the fixtures through it. They trigger on
+  `dev/windows` and on pull requests into it, and do not change what `ci.yml` runs for the Apple
+  client.
+- A client release is tagged per client — `windows/v0.1.0`, `android/v0.1.0` — so it cannot be
+  mistaken for the Apple app's tag, and its installer or package is the release's artifact.
 - The chart server stays a development engine; a released model runs in the runtime on every
   client.
 
