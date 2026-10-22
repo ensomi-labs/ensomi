@@ -21,3 +21,6 @@ target/
 local.properties
 *.iml
 .kotlin/
+
+# Built native libraries of the runtime core
+clients/windows/libs/

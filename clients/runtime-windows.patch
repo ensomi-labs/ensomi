@@ -1,0 +1,70 @@
+﻿diff --git a/crates/generate-ort/Cargo.toml b/crates/generate-ort/Cargo.toml
+index c28fdee..38ebd26 100644
+--- a/crates/generate-ort/Cargo.toml
++++ b/crates/generate-ort/Cargo.toml
+@@ -14,7 +14,7 @@ coreml = ["ort/coreml"]
+ 
+ [dependencies]
+ ensomi-generate = { path = "../generate" }
+-ort = { version = "=2.0.0-rc.11" }
++ort = { version = "=2.0.0-rc.11", features = ["load-dynamic"] }
+ serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+ 
+ [target.'cfg(target_vendor = "apple")'.dependencies]
+@@ -23,3 +23,4 @@ libc = "0.2"
+ 
+ [dev-dependencies]
+ libc = "0.2"
++
+diff --git a/crates/generate-ort/src/recording.rs b/crates/generate-ort/src/recording.rs
+index 289220b..bb281e0 100644
+--- a/crates/generate-ort/src/recording.rs
++++ b/crates/generate-ort/src/recording.rs
+@@ -1,9 +1,12 @@
+-//! Reader for `ensomi-runtime-reference-v1` recordings: `index.json` and the `arrays.bin` it addresses.
++﻿//! Reader for `ensomi-runtime-reference-v1` recordings: `index.json` and the `arrays.bin` it addresses.
+ use ensomi_generate::{Data, Draw, Tensor};
+ use serde_json::Value;
+ use std::collections::HashMap;
+ use std::fs::File;
++#[cfg(unix)]
+ use std::os::unix::fs::FileExt;
++#[cfg(windows)]
++use std::os::windows::fs::FileExt;
+ use std::path::Path;
+ 
+ pub struct Recording {
+@@ -73,7 +76,7 @@ impl Recording {
+         let entry = &self.index["arrays"][id];
+         let nbytes = entry["nbytes"].as_u64().unwrap() as usize;
+         let mut bytes = vec![0u8; nbytes];
+-        self.file.read_exact_at(&mut bytes, entry["byte_offset"].as_u64().unwrap()).unwrap();
++        read_at(&self.file, &mut bytes, entry["byte_offset"].as_u64().unwrap()).unwrap();
+         Array { dtype: entry["dtype"].as_str().unwrap().to_string(), shape: entry["shape"].as_array().unwrap().iter().map(|d| d.as_u64().unwrap() as usize).collect(), bytes }
+     }
+ 
+@@ -101,3 +104,24 @@ impl Recording {
+             .collect()
+     }
+ }
++
++/// Reads exactly `buf.len()` bytes at `offset`. Windows' `seek_read` may return a
++/// short read, so it loops; Unix' `read_exact_at` already does.
++fn read_at(file: &File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
++    #[cfg(unix)]
++    {
++        file.read_exact_at(buf, offset)
++    }
++    #[cfg(windows)]
++    {
++        let mut done = 0;
++        while done < buf.len() {
++            let read = file.seek_read(&mut buf[done..], offset + done as u64)?;
++            if read == 0 {
++                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
++            }
++            done += read;
++        }
++        Ok(())
++    }
++}
