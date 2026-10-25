@@ -28,7 +28,7 @@ jobs:
         with:
           path: .build/SourcePackages
           key: ${{ runner.os }}-spm-${{ hashFiles('Ensomi.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-      # The hosted VM's event clock (systemUptime about 40 ms off mach time) and its audio output do not meet these real-hardware tolerances; both still run on the mac.
+      # The hosted VM's event clock (systemUptime about 40 ms off mach time) and its audio output do not meet these real-hardware tolerances; both still run on a local Mac.
       - name: Tests (those needing sibling checkouts or local data skip)
         run: >
           xcodebuild -project Ensomi.xcodeproj -scheme EnsomiMac -destination 'platform=macOS'

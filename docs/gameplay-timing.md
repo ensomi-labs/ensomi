@@ -191,7 +191,7 @@ screen pauses its clock until the window is visible again.
 
 ## Reproduce
 
-On the Mac that has the display and audio device, from the repository root:
+On a Mac that has a display and an audio device, from the repository root:
 
 ```sh
 xcodegen generate

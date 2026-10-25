@@ -148,12 +148,12 @@ the screen shows that path.
 ## Time and memory
 
 Everything in this section was measured before runtime 0.3.2, with every graph on one thread;
-the runs on bings-mac used the runtime built from source before its first release, 0.1.0.
+the runs here used the runtime built from source before its first release, 0.1.0.
 Since 0.3.2 BeatThis, most of a generation's time, runs on the device's performance cores; the
 runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.2/swift/README.md#execution-provider)
 notes give BeatThis's time on one thread and on four. The app has not been measured since.
 
-On bings-mac (Apple M5, macOS 27, Debug build of the app's test bundle, CPU provider), for a
+On a Mac (Apple M5, macOS 27, Debug build of the app's test bundle, CPU provider), for a
 133 s stereo MP3 at 44.1 kHz without a LAME tag that gave a chart of 1225 objects at 3.5 stars,
 seed 0, measured before its decode started on the release engine's time (`MP3Lead`):
 
@@ -174,7 +174,7 @@ working memory is most. The decoded song as mono Float is 23.5 MB. Core ML is no
 runtime's [execution provider](https://github.com/ensomi-labs/runtime/blob/v0.3.2/swift/README.md#execution-provider)
 measurements give its cost. On iOS the core's `lowMemory` default is on (1.3 to 1.6 GiB on the Mac).
 
-In the iOS simulator (iPhone 17, iOS 27 simulator on bings-mac, the runtime's `GeneratorTests`
+In the iOS simulator (iPhone 17, iOS 27 simulator on the same Mac, the runtime's `GeneratorTests`
 through the Swift API on the recorded PCM of hesitation-snow), every generation gave the chart the
 native generator made on macOS (`conformance/generate/native-charts`), byte for byte. Seconds per
 generation, with the same test under `swift test` on macOS beside it; other jobs loaded the Mac
@@ -194,7 +194,7 @@ had 29 files and no manifest (the link, not the app, sets that).
 
 ## Checks
 
-All of these run on the Mac with `Tools/mac.sh test -only-testing:EnsomiCoreTests/<class>`;
+All of these run on a Mac with `Tools/mac.sh test -only-testing:EnsomiCoreTests/<class>`;
 each skips when its files are absent (`ENSOMI_R2_ONNX`, `ENSOMI_RESAMPLER` and `ENSOMI_SONG`
 override the sibling-checkout defaults). In a test process `ChartModelLibrary.shared` does not
 bring the app's install up to date when it starts, so tests that make a view with the default
@@ -296,7 +296,7 @@ at narrow widths and with large text were not rendered.
 
 ## Limits
 
-- CPU only, on macOS and iOS. The footprint was about 2 GiB on the Mac before runtime 0.3.2.
+- CPU only, on macOS and iOS. The footprint was about 2 GiB on a Mac before runtime 0.3.2.
 - One generation at a time. Stop takes effect at the core's next graph run.
 - The whole song is decoded into memory before generation.
 - Charts from the chart server cannot be saved from the app: the protocol's result carries no
