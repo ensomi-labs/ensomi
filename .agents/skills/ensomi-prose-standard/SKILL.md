@@ -21,8 +21,7 @@ before regenerating the Xcode project. Do not copy generated API documentation.
 Keep README focused on purpose, setup, configuration, and runnable commands.
 Put current cross-module contracts in [architecture](../../../docs/architecture.md),
 and non-obvious ownership or failure constraints beside the relevant Swift code.
-Keep proposals and execution plans separate from implemented behavior. Use the
-[notes skill](../ensomi-archive-agent-notes/SKILL.md) for requested working records.
+Keep proposals and execution plans separate from implemented behavior.
 
 ## Preserve facts, remove narration
 

@@ -68,11 +68,10 @@ Use repository skills when their scope matches the task:
 | --- | --- |
 | Docs, comments, and prose cleanup | [Prose standard](.agents/skills/ensomi-prose-standard/SKILL.md) |
 | Dead code, redundancy, and observation audits | [Find simplifications](.agents/skills/ensomi-find-simplifications/SKILL.md) |
-| Final checks and authorized publication | [Pre-push checks](.agents/skills/ensomi-pre-push-checks/SKILL.md) |
-| Persistent working notes on `agent-notes` | [Agent Notes](.agents/skills/ensomi-archive-agent-notes/SKILL.md) |
+| Final checks and publication | [Pre-push checks](.agents/skills/ensomi-pre-push-checks/SKILL.md) |
 
 Skill baseline pins use `metadata.commit` in YAML frontmatter. Product docs must
-remain self-contained without the notes branch.
+remain self-contained.
 
 ## Facts shared with other Ensomi repositories
 

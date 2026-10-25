@@ -1,6 +1,6 @@
 ---
 name: ensomi-pre-push-checks
-description: Select and verify evidence for a completed Ensomi app change before handoff, an authorized push, or PR readiness. Match checks to Swift, Xcode, protocol, alignment, documentation, or skill changes.
+description: Select and verify evidence for a completed Ensomi app change before handoff, a push, or PR readiness. Match checks to Swift, Xcode, protocol, alignment, documentation, or skill changes.
 metadata:
   commit: 5c11794f08016478c1edbe2df27464f649b639c8
 ---
@@ -9,8 +9,10 @@ metadata:
 
 Inspect the actual final diff, including intended untracked files and renames.
 For publication, establish the destination branch and its real base; do not assume
-the default branch is the parent of a stacked change. This skill does not grant
-permission to commit, push, rewrite history, or change PR state.
+the default branch is the parent of a stacked change. Commit and push when the
+task's work is done, to the branch or default branch that the working
+conventions call for. Force-pushing, rewriting published history, and changing
+a pull request's state (ready, merge, close) need the user's explicit request.
 
 ## Select checks from behavior
 
@@ -45,16 +47,12 @@ Do not rerun passing checks unless relevant source, generated output, dependenci
 or environment changed. Do not hide a failure by weakening assertions or silently
 excluding a test. Finish with `git diff --check`; include new files in review.
 
-## Publication, when requested
-
-Keep `artifacts/agent-notes/` out of product commits, including add-then-delete
-history. Use the [notes skill](../ensomi-archive-agent-notes/SKILL.md) for that orphan
-branch; it has no product merge base or product test claim.
+## Publication
 
 Before an authorized force-push, fetch and record the remote branch OID; use an
 exact `--force-with-lease=<branch>:<observed-oid>`, never raw `--force`. Verify the
 published head and any required CI/review state before a readiness claim. Local
-tests alone establish neither remote CI success nor permission to publish.
+tests alone do not establish remote CI success.
 
 Report what changed, checks actually run, failures/skips, and meaningful untested
 paths. Keep the report proportional to the task; do not generate a check report
