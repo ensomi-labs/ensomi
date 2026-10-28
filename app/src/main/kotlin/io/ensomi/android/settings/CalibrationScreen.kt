@@ -6,6 +6,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -100,9 +104,10 @@ fun CalibrationScreen(
                 )
             },
         ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+            BoxWithConstraints(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+                val wide = maxWidth > maxHeight
                 Column(
-                    Modifier.widthIn(max = 560.dp).fillMaxSize().padding(horizontal = 16.dp),
+                    Modifier.widthIn(max = if (wide) 900.dp else 560.dp).fillMaxSize().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -118,7 +123,7 @@ fun CalibrationScreen(
                     }
                     when (step) {
                         CalibrationStep.SOUND -> SoundStep(settings, route)
-                        CalibrationStep.PICTURE -> PictureStep(settings, onChange)
+                        CalibrationStep.PICTURE -> PictureStep(settings, wide, onChange)
                     }
                 }
             }
@@ -208,18 +213,16 @@ private fun TapStrip(errorsMs: List<Int>) {
 }
 
 @Composable
-private fun PictureStep(settings: PlaySettings, onChange: ((PlaySettings) -> PlaySettings) -> Unit) {
+private fun PictureStep(settings: PlaySettings, wide: Boolean, onChange: ((PlaySettings) -> PlaySettings) -> Unit) {
     val notWired = LocalNotWired.current
     val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.calibration_picture_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+    // The play renderer, drawing a note on every click; nothing is judged. Beside the controls when the window is
+    // wider than tall, so the field keeps its height in landscape.
+    val playfield: @Composable (Modifier) -> Unit = { modifier ->
         Box(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f)
+            modifier
                 .border(BorderStroke(1.dp, Brand.PanelBorder), RoundedCornerShape(20.dp)),
         ) {
-            // The play renderer, drawing a note on every click; nothing is judged.
             AndroidView(
                 modifier = Modifier.fillMaxSize().padding(1.dp),
                 factory = { context ->
@@ -249,6 +252,8 @@ private fun PictureStep(settings: PlaySettings, onChange: ((PlaySettings) -> Pla
                 },
             )
         }
+    }
+    val controls: @Composable () -> Unit = {
         val visual = stringResource(R.string.settings_visual_offset)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(visual, style = MaterialTheme.typography.bodyLarge, color = Brand.Text, modifier = Modifier.weight(1f))
@@ -272,6 +277,21 @@ private fun PictureStep(settings: PlaySettings, onChange: ((PlaySettings) -> Pla
             onClick = { notWired("Saving the visual offset (plan step 1)") },
             modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 12.dp),
         )
+    }
+    if (wide) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            playfield(Modifier.weight(1f).fillMaxHeight().padding(bottom = 12.dp))
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.calibration_picture_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+                controls()
+            }
+        }
+    } else {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(stringResource(R.string.calibration_picture_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+            playfield(Modifier.fillMaxWidth().weight(1f))
+            controls()
+        }
     }
 }
 

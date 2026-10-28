@@ -5,6 +5,7 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -92,7 +93,8 @@ fun SettingsScreen(
             )
         },
     ) { padding ->
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            val wideWindow = maxWidth > maxHeight
             // Landscape puts the navigation bar or a cutout at a side: the list keeps clear of it.
             val direction = LocalLayoutDirection.current
             LazyColumn(
@@ -141,41 +143,22 @@ fun SettingsScreen(
 
                 // Keep PLAYFIELD_SETTINGS the index of this header.
                 item { Header(R.string.settings_playfield) }
-                item {
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(R.string.settings_orientation), style = MaterialTheme.typography.bodyLarge)
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            PlayOrientation.entries.forEachIndexed { index, orientation ->
-                                SegmentedButton(
-                                    selected = settings.orientation == orientation,
-                                    onClick = { onChange { it.copy(orientation = orientation) } },
-                                    shape = SegmentedButtonDefaults.itemShape(index, PlayOrientation.entries.size),
-                                    icon = {},
-                                ) { Text(stringResource(orientation.label)) }
+                // The preview stays in sight while a slider moves: under them in a tall window, beside them in a wide one.
+                if (wideWindow) {
+                    item {
+                        Row(Modifier.padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                OrientationSetting(settings, onChange)
+                                LeanSetting(settings, onChange)
                             }
+                            PlayfieldPreview(settings, Modifier.weight(1f))
                         }
-                        Text(
-                            stringResource(R.string.settings_orientation_help),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
+                } else {
+                    item { OrientationSetting(settings, onChange) }
+                    item { LeanSetting(settings, onChange) }
+                    item { PlayfieldPreview(settings, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) }
                 }
-                item {
-                    // The lean of the orientation chosen above; each orientation keeps its own.
-                    val orientation = settings.orientation
-                    SliderSetting(
-                        title = stringResource(
-                            if (orientation == PlayOrientation.LANDSCAPE) R.string.settings_lean_landscape else R.string.settings_lean_portrait,
-                        ),
-                        valueText = leanText(settings.lean),
-                        supporting = stringResource(R.string.settings_lean_help),
-                        value = settings.lean.toFloat(),
-                        range = PlaySettings.LEANS.first.toFloat()..PlaySettings.LEANS.last.toFloat(),
-                        steps = PlaySettings.LEANS.last - PlaySettings.LEANS.first - 1,
-                    ) { value -> onChange { it.withLean(orientation, PlaySettings.snapLean(value)) } }
-                }
-                item { PlayfieldPreview(settings, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) }
 
                 item { Header(R.string.settings_touch) }
                 item {
@@ -299,6 +282,44 @@ private val PlayOrientation.label: Int
         PlayOrientation.LANDSCAPE -> R.string.settings_orientation_landscape
         PlayOrientation.PORTRAIT -> R.string.settings_orientation_portrait
     }
+
+@Composable
+private fun OrientationSetting(settings: PlaySettings, onChange: ((PlaySettings) -> PlaySettings) -> Unit) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.settings_orientation), style = MaterialTheme.typography.bodyLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            PlayOrientation.entries.forEachIndexed { index, orientation ->
+                SegmentedButton(
+                    selected = settings.orientation == orientation,
+                    onClick = { onChange { it.copy(orientation = orientation) } },
+                    shape = SegmentedButtonDefaults.itemShape(index, PlayOrientation.entries.size),
+                    icon = {},
+                ) { Text(stringResource(orientation.label)) }
+            }
+        }
+        Text(
+            stringResource(R.string.settings_orientation_help),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The lean of the orientation chosen; each orientation keeps its own. */
+@Composable
+private fun LeanSetting(settings: PlaySettings, onChange: ((PlaySettings) -> PlaySettings) -> Unit) {
+    val orientation = settings.orientation
+    SliderSetting(
+        title = stringResource(
+            if (orientation == PlayOrientation.LANDSCAPE) R.string.settings_lean_landscape else R.string.settings_lean_portrait,
+        ),
+        valueText = leanText(settings.lean),
+        supporting = stringResource(R.string.settings_lean_help),
+        value = settings.lean.toFloat(),
+        range = PlaySettings.LEANS.first.toFloat()..PlaySettings.LEANS.last.toFloat(),
+        steps = PlaySettings.LEANS.last - PlaySettings.LEANS.first - 1,
+    ) { value -> onChange { it.withLean(orientation, PlaySettings.snapLean(value)) } }
+}
 
 @Composable
 private fun Header(@StringRes title: Int, first: Boolean = false) {
