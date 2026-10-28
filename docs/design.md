@@ -85,7 +85,7 @@ the tag. It never reads `main`.
   never backed up (the app's data extraction rules already exclude everything). A stopped download keeps its files
   and resumes with HTTP Range requests; there is no automatic retry.
 - In this round the download runs in the app's process while the app is open. Whether it should go on in the
-  background, under a notification, is an open question for the owner (review packet).
+  background, under a notification, is an open question for the owner.
 - Settings also shows the model's licence (from its manifest), a link to the model card, and the notice texts of
   BeatThis and ONNX Runtime (the AAR's `onnxRuntimeLicenseAssets`).
 
@@ -116,15 +116,17 @@ One screen per song. The top app bar has Back and the song's title; under it, th
   kinds marked not working left out, the capability's note under the menu), then a strength slider from 0 to 1 or, for
   a star target, a star slider. Problems show under the section in words with a symbol, with the runtime's own rules:
   8 to 32 seconds, inside the song, no overlap (sections may touch).
-- **The bar at the bottom carries the state**, so the primary action is always in the same place:
+- **A status card at the top and the actions at the bottom.** The bar at the bottom holds only the screen's actions,
+  so the primary action is always in the same place and the bar stays small at large text sizes and in landscape;
+  what happened shows in a card above the stars:
 
-| State | Bar |
-| --- | --- |
-| Ready | **Make chart**, enabled when the model is installed and every field is valid; "Install the chart model first." otherwise |
-| Making | The five phases (Loading audio, Finding the beat, Placing notes, Arranging lanes, Finishing), each done, under way or to come, in words and a symbol; an indeterminate progress bar; **Stop** |
-| Stopped | "Stopped. No chart was made."; Make chart |
-| Failed | "The chart could not be made." with a warning symbol, the runtime's message under it; Try again |
-| Ready to play | "Chart ready", "1,229 notes: 999 taps, 230 long notes", the seed with **Use seed**; **Play** (primary) and Make another |
+| State | Status card | Bar |
+| --- | --- | --- |
+| Ready | none | **Make chart**, with the reason beside it when it is disabled ("Install the chart model first.", "A section needs a change before the chart can be made.") |
+| Making | The five phases (Loading audio, Finding the beat, Placing notes, Arranging lanes, Finishing), each done, under way or to come, in words and a symbol | An indeterminate progress bar; **Stop** |
+| Stopped | "Stopped. No chart was made." | Make chart |
+| Failed | "The chart could not be made." with a warning symbol, the runtime's message under it | Try again |
+| Ready to play | "Chart ready", "1,229 notes: 999 taps, 230 long notes", the seed with **Use seed** | **Play** (primary) and Make another, side by side, stacked at large text sizes |
 
 - The runtime reports phases, not fractions, so the bar is indeterminate rather than a guessed percentage.
 - Choosing a song starts the runtime's `prepare` (the audio stages, most of the work) in the background, as the Swift
@@ -142,7 +144,9 @@ Full screen: the system bars hidden with `WindowInsetsController` and `BEHAVIOR_
 the top of the playfield, without a panel of its own, the HUD row: the song's title and its stars and judge on the
 left, accuracy on the right, then a Pause button. The playfield itself, its look and its timing are in
 [gameplay.md](gameplay.md). A game starts with two seconds of lead-in before the song's first frame, so the hands can
-reach the lanes.
+reach the lanes, and the lead-in starts only once the play window has focus: the first time an app hides the system
+bars, Android shows its "Viewing full screen" prompt, which takes focus, and the game waits for it instead of losing
+its start.
 
 The game pauses by itself whenever the player cannot be playing:
 
@@ -157,10 +161,10 @@ The game pauses by itself whenever the player cannot be playing:
 
 ### Pause
 
-The playfield stays visible, dimmed and frozen. A panel in the brand's card shape says "Paused" and "Resume when
-you're ready", with **Resume** (primary), Restart and Quit. When the output changed, the panel also says so: "Sound
-moved to Pixel Buds. Its audio offset applies from the next game." (the game keeps its offsets from start to end, as in
-the Swift app).
+The playfield stays visible, dimmed and frozen, without the judgement word and combo. A panel in the brand's card
+shape says "Paused" and "Resume when you're ready", with **Resume** (primary), Restart and Quit. When the output
+changed, the panel also says so: "Sound moved to Pixel Buds. Its audio offset applies from the next game." (the game
+keeps its offsets from start to end, as in the Swift app).
 
 **Resume counts in**: three beats over 1.5 seconds ("3, 2, 1" with "Get ready"), then the music goes on from where it
 stopped. The Swift app resumes at once, which suits a keyboard; on a phone the hands left the glass. The runtime's
@@ -169,10 +173,11 @@ session never moves back in time, so the game cannot rewind instead.
 ### Results
 
 In the game's dark presentation, replacing the game: the song with its stars and seed; accuracy, large; Perfect, Good
-and Miss counts, each named and coloured; the longest combo; a timing chart of how early or late the hits were, with
-the mean in words ("Your hits were 6 ms late on average."). When the runtime's score suggests an audio offset change
-of 3 ms or more, a line offers it for the output that was used: "Suggested audio offset for Phone speaker: −6 ms (now
-0 ms)." with **Use suggested offset**. Then **Play again** (primary) and Back to song.
+and Miss counts, each named and coloured (three tiles, or three rows at large text sizes); the longest combo; a timing
+chart of how early or late the hits were, with the mean in words ("Your hits were 6 ms late on average."). When the
+runtime's score suggests an audio offset change of 3 ms or more, a line offers it for the output that was used:
+"Suggested audio offset for Phone speaker: −6 ms (now 0 ms)." with **Use suggested offset**. Then **Play again**
+(primary) and Back to song.
 
 ### Settings
 
@@ -219,12 +224,13 @@ plum neutrals (`#130E1A` ground and `#2A2036` containers on dark), assigned to M
   ([Dynamic colour](https://developer.android.com/develop/ui/views/theming/dynamic-colors)), and the shell did. The
   design uses the brand scheme instead because the play screen is always the brand's plum and coral, and a chrome in
   the wallpaper's greens or blues makes every move into play a jump between two apps. Dynamic colour remains one
-  switch in the theme; the owner decides (review packet).
-- **The coral action** (`#F39AAF → #FF708F`, dark ink `#2B0F1E`) marks one thing per screen: the primary action (Download
-  model, Make chart, Play, Resume, Play again). Everything else is a Material button. In play, coral is the judgement
-  line and song progress only, as in the Swift app.
-- **Type** is the system's sans-serif with Material's type scale, and tabular figures wherever numbers change. The Swift play screen uses SF Pro Rounded; Android has no system rounded face, and bundling one is not worth
-  it for this round.
+  switch in the theme; which to use is a question for the owner.
+- **The coral action** (`#F39AAF → #FF708F`, dark ink `#2B0F1E`) marks one thing per screen: the primary action
+  (Download model, Make chart, Play, Resume, Play again). Everything else is a Material button. In play, coral is the
+  judgement line and song progress only, as in the Swift app.
+- **Type** is the system's sans-serif with Material's type scale, and tabular figures wherever numbers change. The
+  Swift play screen uses SF Pro Rounded; Android has no system rounded face, and bundling one is not worth it for this
+  round.
 - **Icons** are Material icons, kept as vector drawables in the app (Material 3 no longer pulls in an icon library).
 - **Failures** are always words with a warning symbol, never colour alone; cancelling a picker is not a failure.
 

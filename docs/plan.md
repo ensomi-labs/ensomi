@@ -27,7 +27,7 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 
 All in `gradle/libs.versions.toml`, each chosen when its step starts: Jetpack DataStore (step 1),
 kotlinx-serialization-json (step 2, for the library and settings files), and WorkManager only if the owner wants the
-model download to continue in the background (review packet).
+model download to continue in the background.
 
 ## Runtime changes
 
