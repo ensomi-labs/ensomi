@@ -3,11 +3,14 @@
 Ensomi is a rhythm game whose charts are generated from music. This branch holds its native Android app,
 written in Kotlin with Jetpack Compose. Chart generation and gameplay come from the shared Rust core,
 [ensomi-runtime](https://github.com/ensomi-labs/runtime), through its Kotlin bindings. The app shares no
-code or history with the Swift app.
+code or history with the Swift app, which is the reference for what it does.
 
-The app is in development and is not distributed. Today it has one screen, Diagnostics. It shows what the
-device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the runtime's
-native library loads.
+The app is in development and is not distributed. It holds a prototype of drop-in play: the library, making a
+chart, play, results, settings and timing calibration, on sample data. The playfield is real (a `SurfaceView`
+render thread with the runtime judging) and plays a sample chart without sound. Diagnostics, under Settings,
+shows what the device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the
+runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
+[docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
 
 ## Requirements
 
@@ -50,6 +53,18 @@ Without a phone, use an arm64 emulator. On Apple silicon it runs natively, for e
 adb wait-for-device
 ```
 
+## Prototype screens
+
+A debuggable build opens in any sample state of the prototype from a launch extra, for screenshots. The states are
+listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
+
+```sh
+adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made
+```
+
+`scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, some at 200 % font size and in
+landscape, and records the playfield preview, on the one booted emulator or device.
+
 ## Diagnostics output
 
 The Diagnostics screen reads the device at launch. **Copy JSON** copies everything as one JSON object.
@@ -64,8 +79,11 @@ JSON that fits in one logcat line is printed as is. Longer JSON is split into li
 
 ## Project layout
 
-- `app/src/main/kotlin/io/ensomi/android/`: the app. `EnsomiApp.kt` holds the navigation; each feature
-  has its own package, such as `diagnostics/`.
+- `app/src/main/kotlin/io/ensomi/android/`: the app. `Destinations.kt` and `EnsomiApp.kt` hold the
+  navigation; each feature has its own package: `library/`, `model/`, `chart/`, `play/`, `settings/`,
+  `diagnostics/`.
+- `docs/`: the design, the gameplay design and the build plan.
+- `scripts/`: the screenshot capture script.
 - `app/src/test/kotlin/`: unit tests that run on the JVM.
 - `gradle/libs.versions.toml`: every pinned version.
 
