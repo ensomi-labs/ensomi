@@ -5,13 +5,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -73,11 +73,11 @@ fun ResultsScreen(
         DarkSystemBars()
         val notWired = LocalNotWired.current
         Box(Modifier.fillMaxSize().background(Brand.Plum), contentAlignment = Alignment.TopCenter) {
-            // Wider than tall (the game's landscape, which the results keep): two columns, the score on the left and
-            // the timing and actions on the right, so the actions stay on the first screen.
+            // Wider than tall (the game's landscape, which the results keep): the score on the left, the timing on the
+            // right, each scrolling on its own if it must, and the actions held at the bottom right, on the first screen.
             BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                 val wide = maxWidth > maxHeight && maxWidth >= 600.dp
-                val score: @Composable ColumnScope.() -> Unit = {
+                val header: @Composable () -> Unit = {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             stringResource(R.string.results_title),
@@ -88,8 +88,9 @@ fun ResultsScreen(
                         Text(result.title, style = MaterialTheme.typography.headlineSmall, color = Brand.Text)
                         Text(result.detail, style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
                     }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                }
+                val accuracy: @Composable (Modifier) -> Unit = { modifier ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
                         Text(
                             formatAccuracy(result.accuracy),
                             style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
@@ -98,8 +99,9 @@ fun ResultsScreen(
                         )
                         Text(stringResource(R.string.play_accuracy), style = MaterialTheme.typography.titleSmall, color = Brand.MutedText)
                     }
-
-                    val counts = listOf(
+                }
+                val counts: @Composable () -> Unit = {
+                    val tiers = listOf(
                         Triple(stringResource(R.string.judgement_perfect), result.perfect, Brand.Perfect),
                         Triple(stringResource(R.string.judgement_good), result.good, Brand.Good),
                         Triple(stringResource(R.string.judgement_miss), result.miss, Brand.Miss),
@@ -107,14 +109,15 @@ fun ResultsScreen(
                     // Three tiles side by side at normal text sizes; one row per tier at large ones, so no word breaks.
                     if (LocalDensity.current.fontScale <= 1.3f) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                            counts.forEach { (label, count, color) -> CountTile(label, count, color, Modifier.weight(1f)) }
+                            tiers.forEach { (label, count, color) -> CountTile(label, count, color, Modifier.weight(1f)) }
                         }
                     } else {
                         Panel {
-                            counts.forEach { (label, count, color) -> CountRow(label, count, color) }
+                            tiers.forEach { (label, count, color) -> CountRow(label, count, color) }
                         }
                     }
-
+                }
+                val combo: @Composable () -> Unit = {
                     Panel {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -130,9 +133,8 @@ fun ResultsScreen(
                             )
                         }
                     }
-
                 }
-                val after: @Composable ColumnScope.() -> Unit = {
+                val details: @Composable () -> Unit = {
                     Panel {
                         Text(stringResource(R.string.results_timing), style = MaterialTheme.typography.titleSmall, color = Brand.Text)
                         Text(timingSummary(result.meanOffsetMs), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
@@ -142,7 +144,6 @@ fun ResultsScreen(
                             Text(stringResource(R.string.results_late), style = MaterialTheme.typography.labelSmall, color = Brand.Rose, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
                         }
                     }
-
                     val adjustment = result.suggestedAdjustmentMs
                     if (adjustment != null && abs(adjustment) >= MIN_SUGGESTION_MS) {
                         Panel {
@@ -162,35 +163,79 @@ fun ResultsScreen(
                             }
                         }
                     }
-
                     if (result.sample) {
                         Text(stringResource(R.string.results_sample_note), style = MaterialTheme.typography.bodySmall, color = Brand.MutedText)
                     }
-
-                    Spacer(Modifier.height(4.dp))
-                    ActionButton(stringResource(R.string.results_play_again), onClick = onPlayAgain, icon = R.drawable.ic_refresh, modifier = Modifier.fillMaxWidth())
-                    OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                }
+                val playAgain: @Composable (Modifier) -> Unit = { modifier ->
+                    ActionButton(stringResource(R.string.results_play_again), onClick = onPlayAgain, icon = R.drawable.ic_refresh, modifier = modifier)
+                }
+                val done: @Composable (Modifier) -> Unit = { modifier ->
+                    OutlinedButton(onClick = onDone, modifier = modifier.height(48.dp)) {
                         Text(stringResource(R.string.results_done), color = Brand.Text)
                     }
                 }
-                Column(
-                    // The insets pad the content inside the scroll, so it scrolls behind the system bars.
-                    modifier = Modifier
-                        .widthIn(max = if (wide) 960.dp else 560.dp)
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(horizontal = 24.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                ) {
-                    if (wide) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), content = score)
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), content = after)
+                if (wide) {
+                    Column(
+                        modifier = Modifier
+                            .widthIn(max = 1000.dp)
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                header()
+                                // Accuracy and the longest combo side by side, so the score fits the short side.
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    accuracy(Modifier.weight(1f))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            result.maxCombo.toString(),
+                                            style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
+                                            color = Brand.Text,
+                                        )
+                                        Text(stringResource(R.string.results_max_combo), style = MaterialTheme.typography.titleSmall, color = Brand.MutedText)
+                                    }
+                                }
+                                counts()
+                            }
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                            ) { details() }
                         }
-                    } else {
-                        score()
-                        after()
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Spacer(Modifier.weight(1f))
+                            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                done(Modifier.weight(1f))
+                                playAgain(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        // The insets pad the content inside the scroll, so it scrolls behind the system bars.
+                        modifier = Modifier
+                            .widthIn(max = 560.dp)
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                    ) {
+                        header()
+                        accuracy(Modifier.fillMaxWidth())
+                        counts()
+                        combo()
+                        details()
+                        Spacer(Modifier.height(4.dp))
+                        playAgain(Modifier.fillMaxWidth())
+                        done(Modifier.fillMaxWidth())
                     }
                 }
             }
