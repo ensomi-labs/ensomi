@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
 import io.ensomi.android.ui.ActionButton
+import io.ensomi.android.ui.LocalNotWired
 import java.util.Locale
 
 /**
@@ -65,6 +66,7 @@ fun ModelPanel(
 
 @Composable
 private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings: Boolean) {
+    val notWired = LocalNotWired.current
     if (!inSettings) {
         Text(stringResource(R.string.model_get_title), style = MaterialTheme.typography.titleLarge)
     }
@@ -83,7 +85,13 @@ private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings:
     } else {
         Problem(stringResource(R.string.model_no_space, megabytes(state.downloadBytes), megabytes(state.freeBytes)))
         Text(stringResource(R.string.model_no_space_hint), style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick = onDownload) { Text(stringResource(R.string.model_try_again)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onDownload) { Text(stringResource(R.string.model_try_again)) }
+            // The system's screen for freeing space (StorageManager.ACTION_MANAGE_STORAGE), plan step 4.
+            TextButton(onClick = { notWired("Opening the storage screen (plan step 4)") }) {
+                Text(stringResource(R.string.model_free_space))
+            }
+        }
     }
 }
 

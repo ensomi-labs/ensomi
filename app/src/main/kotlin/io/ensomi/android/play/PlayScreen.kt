@@ -111,13 +111,20 @@ fun PlayScreen(
 
         BackHandler(enabled = phase != PlayPhase.PAUSED) { pause() }
         LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { pause() }
-        // Another window taking focus (the notification shade, a dialog) pauses; the first composition may come
-        // before the window has focus, so only a loss of focus counts.
+        // The lead-in starts once the window has focus, so a system prompt over the first game (Android's "Viewing
+        // full screen") holds the game instead of eating its start. After that, another window taking focus (the
+        // notification shade, a dialog, split screen) pauses.
         val focused = LocalWindowInfo.current.isWindowFocused
-        var wasFocused by remember { mutableStateOf(false) }
-        LaunchedEffect(focused) {
-            if (wasFocused && !focused) pause()
-            wasFocused = focused
+        var started by remember(restarts) { mutableStateOf(false) }
+        LaunchedEffect(focused, view) {
+            val current = view ?: return@LaunchedEffect
+            when {
+                !started && focused && phase == PlayPhase.PLAYING -> {
+                    current.resume()
+                    started = true
+                }
+                started && !focused -> pause()
+            }
         }
         if (autoPauseAfterMs != null) {
             LaunchedEffect(Unit) {
@@ -135,6 +142,8 @@ fun PlayScreen(
                     factory = { context ->
                         PlayfieldView(context).apply {
                             keepScreenOn = true
+                            // Held at the start of the lead-in until the window has focus (above).
+                            this.pause()
                             controllerFactory = { hud, sequence ->
                                 PlayController(
                                     chart = SampleCharts.PREVIEW,

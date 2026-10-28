@@ -1,5 +1,7 @@
 package io.ensomi.android.settings
 
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,7 +90,7 @@ fun SettingsScreen(
                 modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
                 contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
             ) {
-                item { Header(R.string.settings_gameplay) }
+                item { Header(R.string.settings_gameplay, first = true) }
                 item {
                     val speed = PlaySettings.formatSpeed(settings.scrollSpeed)
                     SliderSetting(
@@ -187,8 +189,9 @@ fun SettingsScreen(
                         LinkRow(
                             title = stringResource(R.string.settings_model_licence, model.license),
                             supporting = stringResource(R.string.settings_model_card),
-                            icon = R.drawable.ic_open_in_new,
-                            onClick = { notWired("Opening the model card") },
+                            icon = R.drawable.ic_info,
+                            external = true,
+                            onClick = { notWired("Opening the model card (plan step 4)") },
                         )
                     }
                 }
@@ -238,9 +241,9 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun Header(title: Int) {
+private fun Header(@StringRes title: Int, first: Boolean = false) {
     Column {
-        HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        if (!first) HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
         Text(
             stringResource(title),
             style = MaterialTheme.typography.titleSmall,
@@ -308,13 +311,16 @@ private fun OffsetSetting(title: String, supporting: String, value: Int, onChang
     }
 }
 
+/** A row that opens a screen (a chevron) or, when [external], a page outside the app. */
 @Composable
-private fun LinkRow(title: String, supporting: String, icon: Int, onClick: () -> Unit) {
+private fun LinkRow(title: String, supporting: String, @DrawableRes icon: Int, onClick: () -> Unit, external: Boolean = false) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         headlineContent = { Text(title) },
         supportingContent = { Text(supporting) },
         leadingContent = { Icon(painterResource(icon), contentDescription = null) },
-        trailingContent = { Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null) },
+        trailingContent = {
+            Icon(painterResource(if (external) R.drawable.ic_open_in_new else R.drawable.ic_chevron_right), contentDescription = null)
+        },
     )
 }

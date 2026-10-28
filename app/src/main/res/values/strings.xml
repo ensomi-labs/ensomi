@@ -84,6 +84,7 @@
     <string name="model_no_space">Not enough space: the model needs %1$s, and %2$s is free.</string>
     <string name="model_no_space_hint">Free up space on the phone, then try again.</string>
     <string name="model_try_again">Try again</string>
+    <string name="model_free_space">Free up space</string>
     <string name="model_installed_detail">Package %1$s · %2$s</string>
     <string name="model_check_files">Download again</string>
     <string name="model_remove">Remove</string>
@@ -115,6 +116,8 @@
     <string name="make_add_section">Add section</string>
     <string name="make_chart">Make chart</string>
     <string name="make_needs_model">Install the chart model first.</string>
+    <string name="make_blocked_seed">Correct the seed first, or leave it blank.</string>
+    <string name="make_blocked_sections">A section needs a change before the chart can be made.</string>
     <string name="make_stop">Stop</string>
     <string name="make_ready">Chart ready</string>
     <string name="make_ready_notes">%1$s notes: %2$s taps, %3$s long notes</string>

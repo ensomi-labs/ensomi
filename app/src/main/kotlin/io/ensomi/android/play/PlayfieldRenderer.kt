@@ -99,8 +99,8 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         canvas.drawRect(g.fieldLeft, g.lineY - g.dp(1.5f), g.fieldLeft + g.fieldWidth, g.lineY + g.dp(1.5f), fill)
         if (frame != null) {
             drawHitFeedback(canvas, frame, g)
-            drawProgress(canvas, frame, g)
-            drawJudgement(canvas, frame, g)
+            if (frame.judging) drawProgress(canvas, frame, g)
+            if (frame.judging && !frame.paused) drawJudgement(canvas, frame, g)
         }
     }
 

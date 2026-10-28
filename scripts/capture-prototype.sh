@@ -40,7 +40,17 @@ dismiss_anr_dialog() {
   sleep 2
 }
 
+tap_text() { # text on screen to tap
+  local bounds
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || return 0
+  bounds=$(adb shell cat /sdcard/ui.xml | tr '>' '\n' | grep "text=\"$1\"" | sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' | head -1)
+  [ -n "$bounds" ] || { echo "no \"$1\" on screen"; return 0; }
+  set -- $bounds
+  adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+}
+
 restore() {
+  adb shell settings delete secure immersive_mode_confirmations || true
   adb shell settings put global hide_error_dialogs 0 || true
   adb shell settings put system font_scale 1.0 || true
   adb shell settings put system user_rotation 0 || true
@@ -76,6 +86,15 @@ for mode in light dark; do
 done
 adb shell cmd uimode night no
 sleep 2
+
+# The first game after install: Android's "Viewing full screen" prompt holds the game at the start of its lead-in.
+adb shell settings delete secure immersive_mode_confirmations
+launch play
+sleep 4; shot play-first-prompt
+tap_text "Got it"
+sleep 4; shot play-after-prompt
+# The prompt is shown once; mark it seen so it covers no other capture.
+adb shell settings put secure immersive_mode_confirmations confirmed
 
 # A game: the play screen at three moments, paused, counting in, and the results the runtime's score gives at the end.
 launch play

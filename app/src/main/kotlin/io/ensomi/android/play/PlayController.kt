@@ -45,6 +45,10 @@ class PlayFrame(
     val presentation: JudgementPresentation?,
     val combo: Int,
     val anyJudgement: Boolean,
+    /** The calibration's picture step judges nothing, so it shows no judgement word, combo or song progress. */
+    val judging: Boolean,
+    /** Paused or not yet started: the panel or the count-in is in front, so the judgement word and combo are not drawn. */
+    val paused: Boolean,
 )
 
 /**
@@ -126,6 +130,8 @@ class PlayController(
             presentation = feedback.judgementPresentation(gameplayMs),
             combo = score.combo.toInt(),
             anyJudgement = anyJudgement,
+            judging = judging,
+            paused = clock.isPaused,
         )
         if (loop && songNow > chart.durationMs + LOOP_GAP_MS) restart(nowNanos)
         return frame

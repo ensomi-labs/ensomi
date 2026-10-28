@@ -1,5 +1,6 @@
 package io.ensomi.android.chart
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,10 +33,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -44,6 +49,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ensomi.android.R
@@ -88,7 +94,16 @@ fun MakeChartScreen(
     val state = makerState.takeIf { it.songId == viewModel.song.id } ?: MakeState.Idle
     val making = state is MakeState.Making
     val song = viewModel.song
+    // Why Make chart is disabled, said next to it.
+    val blocker = when {
+        model !is ModelState.Installed -> R.string.make_needs_model
+        !ChartRequestRules.isSeedValid(viewModel.seedText) -> R.string.make_blocked_seed
+        capabilities?.let(viewModel::issues)?.isNotEmpty() == true -> R.string.make_blocked_sections
+        else -> null
+    }
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -97,17 +112,17 @@ fun MakeChartScreen(
                     }
                 },
                 title = { Text(song.title, maxLines = 1) },
+                scrollBehavior = scrollBehavior,
             )
         },
         bottomBar = {
             MakeBar(
                 state = state,
-                canMake = model is ModelState.Installed && viewModel.canMake(capabilities),
-                modelMissing = model !is ModelState.Installed,
+                blocker = blocker,
+                canMake = blocker == null && capabilities != null,
                 onMake = onMake,
                 onStop = onStop,
                 onPlay = onPlay,
-                onUseSeed = viewModel::useSeed,
             )
         },
     ) { padding ->
@@ -128,6 +143,7 @@ fun MakeChartScreen(
                 if (model !is ModelState.Installed) {
                     ModelPanel(model, onDownload = onDownloadModel, onCancel = onCancelDownload, onRemove = {})
                 }
+                StatusCard(state, onUseSeed = viewModel::useSeed)
                 StarsCard(viewModel, capabilities, enabled = !making)
                 SeedField(viewModel, enabled = !making)
                 SectionsBlock(viewModel, capabilities, enabled = !making)
@@ -202,56 +218,84 @@ private fun SeedField(viewModel: MakeChartViewModel, enabled: Boolean) {
     )
 }
 
+/**
+ * What happened last, at the top of the screen: the phases while a chart is made, the chart with its seed, a stop or a
+ * failure. Nothing before the first Make chart.
+ */
 @Composable
-private fun MakeBar(
-    state: MakeState,
-    canMake: Boolean,
-    modelMissing: Boolean,
-    onMake: () -> Unit,
-    onStop: () -> Unit,
-    onPlay: (MadeChart) -> Unit,
-    onUseSeed: (ULong) -> Unit,
-) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
-        Column(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+private fun StatusCard(state: MakeState, onUseSeed: (ULong) -> Unit) {
+    if (state == MakeState.Idle) return
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             when (state) {
-                MakeState.Idle -> {
-                    if (modelMissing) {
-                        Text(stringResource(R.string.make_needs_model), style = MaterialTheme.typography.bodySmall)
-                    }
-                    ActionButton(stringResource(R.string.make_chart), onMake, icon = R.drawable.ic_auto_awesome, enabled = canMake, modifier = Modifier.fillMaxWidth())
-                }
-                is MakeState.Making -> {
-                    Phases(state.phase)
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
-                        Icon(painterResource(R.drawable.ic_stop), contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text(stringResource(R.string.make_stop), modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-                is MakeState.Made -> {
-                    Made(state.chart, onUseSeed)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(onClick = onMake, modifier = Modifier.weight(1f).height(56.dp)) {
-                            Text(stringResource(R.string.make_another))
-                        }
-                        ActionButton(stringResource(R.string.make_play), { onPlay(state.chart) }, icon = R.drawable.ic_play, modifier = Modifier.weight(1.4f))
-                    }
-                }
-                is MakeState.Stopped -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(painterResource(R.drawable.ic_stop), contentDescription = null, modifier = Modifier.size(20.dp))
-                        Text(stringResource(R.string.make_stopped), style = MaterialTheme.typography.bodyMedium)
-                    }
-                    ActionButton(stringResource(R.string.make_chart), onMake, icon = R.drawable.ic_auto_awesome, enabled = canMake, modifier = Modifier.fillMaxWidth())
+                MakeState.Idle -> Unit
+                is MakeState.Making -> Phases(state.phase)
+                is MakeState.Made -> Made(state.chart, onUseSeed)
+                is MakeState.Stopped -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(R.drawable.ic_stop), contentDescription = null, modifier = Modifier.size(20.dp))
+                    Text(stringResource(R.string.make_stopped), style = MaterialTheme.typography.bodyMedium)
                 }
                 is MakeState.Failed -> {
                     Problem(stringResource(R.string.make_failed))
                     Text(state.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    ActionButton(stringResource(R.string.make_try_again), onMake, icon = R.drawable.ic_refresh, enabled = canMake, modifier = Modifier.fillMaxWidth())
+                }
+            }
+        }
+    }
+}
+
+/** The screen's actions, always in the same place: Make chart, Stop, or Play. */
+@Composable
+private fun MakeBar(
+    state: MakeState,
+    @StringRes blocker: Int?,
+    canMake: Boolean,
+    onMake: () -> Unit,
+    onStop: () -> Unit,
+    onPlay: (MadeChart) -> Unit,
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 3.dp) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max = 640.dp).fillMaxWidth().navigationBarsPadding().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when (state) {
+                    is MakeState.Making -> {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Icon(painterResource(R.drawable.ic_stop), contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(stringResource(R.string.make_stop), modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                    is MakeState.Made -> {
+                        val play: @Composable (Modifier) -> Unit = { modifier ->
+                            ActionButton(stringResource(R.string.make_play), { onPlay(state.chart) }, icon = R.drawable.ic_play, modifier = modifier)
+                        }
+                        val another: @Composable (Modifier) -> Unit = { modifier ->
+                            OutlinedButton(onClick = onMake, modifier = modifier.heightIn(min = 56.dp)) {
+                                Text(stringResource(R.string.make_another), textAlign = TextAlign.Center)
+                            }
+                        }
+                        // Side by side at normal text sizes; stacked at large ones, so neither label is cut.
+                        if (LocalDensity.current.fontScale <= 1.3f) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                another(Modifier.weight(1f))
+                                play(Modifier.weight(1.4f))
+                            }
+                        } else {
+                            play(Modifier.fillMaxWidth())
+                            another(Modifier.fillMaxWidth())
+                        }
+                    }
+                    else -> {
+                        if (blocker != null) {
+                            Text(stringResource(blocker), style = MaterialTheme.typography.bodySmall)
+                        }
+                        val label = if (state is MakeState.Failed) R.string.make_try_again else R.string.make_chart
+                        val icon = if (state is MakeState.Failed) R.drawable.ic_refresh else R.drawable.ic_auto_awesome
+                        ActionButton(stringResource(label), onMake, icon = icon, enabled = canMake, modifier = Modifier.fillMaxWidth())
+                    }
                 }
             }
         }

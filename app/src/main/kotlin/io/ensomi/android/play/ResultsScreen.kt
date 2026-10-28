@@ -33,6 +33,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -69,11 +70,12 @@ fun ResultsScreen(
         val notWired = LocalNotWired.current
         Box(Modifier.fillMaxSize().background(Brand.Plum), contentAlignment = Alignment.TopCenter) {
             Column(
+                // The insets pad the content inside the scroll, so it scrolls behind the system bars.
                 modifier = Modifier
                     .widthIn(max = 560.dp)
                     .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .verticalScroll(rememberScrollState())
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
@@ -98,10 +100,20 @@ fun ResultsScreen(
                     Text(stringResource(R.string.play_accuracy), style = MaterialTheme.typography.titleSmall, color = Brand.MutedText)
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    CountTile(stringResource(R.string.judgement_perfect), result.perfect, Brand.Perfect, Modifier.weight(1f))
-                    CountTile(stringResource(R.string.judgement_good), result.good, Brand.Good, Modifier.weight(1f))
-                    CountTile(stringResource(R.string.judgement_miss), result.miss, Brand.Miss, Modifier.weight(1f))
+                val counts = listOf(
+                    Triple(stringResource(R.string.judgement_perfect), result.perfect, Brand.Perfect),
+                    Triple(stringResource(R.string.judgement_good), result.good, Brand.Good),
+                    Triple(stringResource(R.string.judgement_miss), result.miss, Brand.Miss),
+                )
+                // Three tiles side by side at normal text sizes; one row per tier at large ones, so no word breaks.
+                if (LocalDensity.current.fontScale <= 1.3f) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        counts.forEach { (label, count, color) -> CountTile(label, count, color, Modifier.weight(1f)) }
+                    }
+                } else {
+                    Panel {
+                        counts.forEach { (label, count, color) -> CountRow(label, count, color) }
+                    }
                 }
 
                 Panel {
@@ -191,6 +203,19 @@ private fun CountTile(label: String, count: Int, color: Color, modifier: Modifie
                 color = Brand.Text,
             )
         }
+    }
+}
+
+@Composable
+private fun CountRow(label: String, count: Int, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = "$label $count" },
+    ) {
+        Box(Modifier.size(8.dp).background(color, CircleShape))
+        Text(label, style = MaterialTheme.typography.titleMedium, color = color, modifier = Modifier.weight(1f))
+        Text(count.toString(), style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), color = Brand.Text)
     }
 }
 
