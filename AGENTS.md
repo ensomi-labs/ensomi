@@ -25,6 +25,8 @@ other branches and shares no code or history with this one.
   replaces it once one exists.
 - Run blocking runtime calls through the runtime's `RuntimeWorker`, never on the main thread.
 - The logcat tag `EnsomiDiagnostics` carries only the Diagnostics JSON. Scripts read it.
+- `app/lint.xml` ignores lint findings that restate a decision, each with its reason. Fix other
+  findings, or list and judge them in the build report.
 
 ## Build and verify
 
