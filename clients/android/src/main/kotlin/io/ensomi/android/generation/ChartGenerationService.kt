@@ -6,6 +6,7 @@ import android.util.Log
 import io.ensomi.android.audio.AudioDecoder
 
 import io.ensomi.android.audio.DecodedAudio
+import uniffi.ensomi_runtime_ffi.Cancellation
 import uniffi.ensomi_runtime_ffi.Chart
 import uniffi.ensomi_runtime_ffi.ChartGenerator
 import uniffi.ensomi_runtime_ffi.ExecutionProvider
@@ -46,6 +47,14 @@ class ChartGenerationService(private val context: Context) {
     }.getOrNull()?.also { cachedRange = it }
 
     private var cachedRange: ClosedFloatingPointRange<Double>? = null
+
+    /** The run under way, so the page can stop it. */
+    @Volatile
+    private var activeCancellation: Cancellation? = null
+
+    fun cancel() {
+        activeCancellation?.cancel()
+    }
 
     fun generate(
         uri: Uri,
@@ -98,6 +107,7 @@ class ChartGenerationService(private val context: Context) {
         check(isModelInstalled()) { "the model is not installed in ${directory.absolutePath}" }
 
         val startedAtMs = System.currentTimeMillis()
+        val cancellation = Cancellation().also { activeCancellation = it }
         ChartGenerator.open(directory.absolutePath, GeneratorOptions(provider = ExecutionProvider.CPU)).use { generator ->
             // The accepted range comes from the model, not from the page: star is clamped into it rather
             // than guessed, and the value used is reported back.
@@ -125,7 +135,7 @@ class ChartGenerationService(private val context: Context) {
                         onPhase(phase)
                     }
                 },
-                cancellation = null,
+                cancellation = cancellation,
             )
 
             Log.i(

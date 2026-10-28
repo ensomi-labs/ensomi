@@ -150,7 +150,6 @@ fun PlayScene(
     val activity = LocalContext.current as? Activity
     DisposableEffect(view, activity) {
         view.keepScreenOn = true
-        val previousOrientation = activity?.requestedOrientation
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
         val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -174,7 +173,7 @@ fun PlayScene(
 
         onDispose {
             view.keepScreenOn = false
-            if (previousOrientation != null) activity?.requestedOrientation = previousOrientation
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             focusRequest?.let { audio?.abandonAudioFocusRequest(it) }
         }
     }

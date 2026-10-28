@@ -52,6 +52,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     // These are the newest versions whose AndroidX artifacts compile against SDK 36; the next
     // release of each requires platform 37, which this SDK installation does not have.
     implementation("androidx.activity:activity-compose:1.12.4")

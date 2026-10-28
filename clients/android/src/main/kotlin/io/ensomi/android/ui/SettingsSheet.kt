@@ -1,14 +1,20 @@
 package io.ensomi.android.ui
 
+import android.os.Handler
+import android.os.Looper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -19,29 +25,32 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import io.ensomi.android.RuntimeSelfCheck
+import io.ensomi.android.generation.ChartGenerationService
+import io.ensomi.android.library.LibraryScanner
+import io.ensomi.android.library.LibraryStore
 import io.ensomi.android.model.InstallProgress
 import io.ensomi.android.model.ModelDownloader
 import io.ensomi.android.model.ModelInstaller
-import android.os.Handler
-import android.os.Looper
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import io.ensomi.android.settings.EnsomiSettings
 import io.ensomi.android.settings.SettingsKeys
 
 /**
- * S5 Settings as a sheet. Keyboard and Inspector are absent because this build has no keys to bind and
- * no inspector; the chart model section installs the package the generator runs, and the probe entry
- * stands in for the developer surface the probe build needs.
+ * Settings, in the order a player needs it: how the game feels, then the two things that make it work (the
+ * chart model and the music folders), then the runtime checks a developer might want.
  */
 @Composable
 fun SettingsSheet(
     settings: EnsomiSettings,
+    library: LibraryStore,
+    scanner: LibraryScanner,
+    generation: ChartGenerationService,
+    onPickFolder: () -> Unit,
     onOpenProbe: () -> Unit,
+    onModelChanged: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -51,9 +60,9 @@ fun SettingsSheet(
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Gameplay", style = MaterialTheme.typography.titleSmall)
+                Section("Playing")
 
                 LabeledValue("Scroll speed", "%.1f".format(settings.scrollSpeed))
                 Slider(
@@ -62,26 +71,7 @@ fun SettingsSheet(
                     valueRange = SettingsKeys.MIN_SCROLL_SPEED..SettingsKeys.MAX_SCROLL_SPEED,
                 )
 
-                Text("Judge difficulty", style = MaterialTheme.typography.bodyMedium)
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    SettingsKeys.DIFFICULTIES.forEach { difficulty ->
-                        val selected = settings.judgeDifficulty == difficulty
-                        if (selected) {
-                            Button(onClick = { settings.updateJudgeDifficulty(difficulty) }) { Text(difficulty) }
-                        } else {
-                            OutlinedButton(onClick = { settings.updateJudgeDifficulty(difficulty) }) {
-                                Text(difficulty)
-                            }
-                        }
-                    }
-                }
-
-                Text("Sound and timing", style = MaterialTheme.typography.titleSmall)
-
-                LabeledValue("Music volume", "%.2f".format(settings.musicVolume))
+                LabeledValue("Music volume", "${(settings.musicVolume * 100).toInt()}%")
                 Slider(
                     value = settings.musicVolume,
                     onValueChange = { settings.updateMusicVolume(it) },
@@ -95,38 +85,45 @@ fun SettingsSheet(
                     valueRange = -500f..500f,
                 )
 
-                Text(
-                    "The audio offset is per output device and needs the calibration sheet, which needs " +
-                        "the engine; until then only the visual offset is stored.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text("Timing window", style = MaterialTheme.typography.bodyMedium)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SettingsKeys.DIFFICULTIES.forEach { difficulty ->
+                        FilterChip(
+                            selected = settings.judgeDifficulty == difficulty,
+                            onClick = { settings.updateJudgeDifficulty(difficulty) },
+                            label = { Text(difficulty) },
+                        )
+                    }
+                }
 
-                Text("Chart model", style = MaterialTheme.typography.titleSmall)
-                ChartModelSection()
+                Section("Chart model")
+                ChartModelSection(generation = generation, onChanged = onModelChanged)
 
-                Text("Runtime", style = MaterialTheme.typography.titleSmall)
+                Section("Music folders")
+                FolderSection(library = library, scanner = scanner, onPickFolder = onPickFolder)
+
+                Section("Developer")
                 RuntimeCheck()
-
-                Text("Developer", style = MaterialTheme.typography.titleSmall)
                 OutlinedButton(onClick = onOpenProbe) { Text("Open probe") }
             }
         },
     )
 }
 
+@Composable
+private fun Section(title: String) {
+    Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+}
+
 /**
- * Loads the packaged runtime and parses a beatmap the shell can spell out. It answers one question —
- * does the binding reach the native core on this device — and nothing about generation, which needs ONNX
- * Runtime and a model this build does not ship.
- */
-/**
- * S5's chart model controls: what is installed, where to install from, and how to remove it. The install
- * verifies every file against the manifest while copying, so a partial or edited package is refused
- * rather than half-used.
+ * The model the generator runs: what is installed, how to get it, and how to remove it. Downloading is the
+ * path a phone takes; installing from a folder stays for a package that arrived another way.
  */
 @Composable
-private fun ChartModelSection() {
+private fun ChartModelSection(generation: ChartGenerationService, onChanged: () -> Unit) {
     val context = LocalContext.current
     val installer = remember { ModelInstaller(context) }
     val downloader = remember { ModelDownloader(context) }
@@ -143,10 +140,8 @@ private fun ChartModelSection() {
                 }
                 main.post {
                     outcome
-                        .onSuccess { status = installer.status(); progress = null }
-                        .onFailure { error ->
-                            progress = InstallProgress(message = error.message ?: error::class.java.simpleName)
-                        }
+                        .onSuccess { status = installer.status(); progress = null; onChanged() }
+                        .onFailure { progress = InstallProgress(message = it.message ?: "install failed") }
                 }
             }, "ensomi-model-install").start()
         }
@@ -155,58 +150,93 @@ private fun ChartModelSection() {
     val installed = status.installed
     Text(
         if (installed == null) {
-            "Not installed. Choose the folder that holds ensomi-package.json."
+            "Not downloaded yet. The model is about 115 MB and is needed once."
         } else {
             "${installed.modelName} ${installed.version} - ${installed.fileCount} files, " +
                 "${installed.totalBytes / (1024 * 1024)} MB, ${installed.license}"
         },
         style = MaterialTheme.typography.bodySmall,
-        color = if (installed == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+        color = if (installed == null) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        } else {
+            MaterialTheme.colorScheme.primary
+        },
     )
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (installed == null) {
+            Button(
+                onClick = {
+                    progress = InstallProgress(running = true)
+                    Thread({
+                        val outcome = runCatching {
+                            downloader.download { update -> main.post { progress = update } }
+                        }
+                        main.post {
+                            outcome
+                                .onSuccess { status = installer.status(); progress = null; onChanged() }
+                                .onFailure { progress = InstallProgress(message = it.message ?: "download failed") }
+                        }
+                    }, "ensomi-model-download").start()
+                },
+                enabled = progress?.running != true,
+            ) { Text("Download model") }
+        } else {
+            OutlinedButton(
+                onClick = { installer.remove(); status = installer.status(); onChanged() },
+                enabled = progress?.running != true,
+            ) { Text("Remove model") }
+        }
+
         OutlinedButton(
             onClick = { picker.launch(null) },
             enabled = progress?.running != true,
-        ) { Text("Choose Model Folder...") }
-
-        OutlinedButton(
-            onClick = {
-                progress = InstallProgress(running = true)
-                Thread({
-                    val outcome = runCatching {
-                        downloader.download { update -> main.post { progress = update } }
-                    }
-                    main.post {
-                        outcome
-                            .onSuccess { status = installer.status(); progress = null }
-                            .onFailure { error ->
-                                progress = InstallProgress(
-                                    message = error.message ?: error::class.java.simpleName,
-                                )
-                            }
-                    }
-                }, "ensomi-model-download").start()
-            },
-            enabled = progress?.running != true && installed == null,
-        ) { Text("Download Model") }
-
-        OutlinedButton(
-            onClick = { installer.remove(); status = installer.status() },
-            enabled = installed != null && progress?.running != true,
-        ) { Text("Remove Download") }
+        ) { Text("Install from folder") }
     }
 
     progress?.let { update ->
         if (update.running) {
             Text(
-                "Installing ${update.copied} of ${update.total} files (${update.bytes / (1024 * 1024)} MB)",
+                "${update.copied} of ${update.total} files (${update.bytes / (1024 * 1024)} MB)",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         update.message?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+/** The folder source, for music the system index does not carry. */
+@Composable
+private fun FolderSection(library: LibraryStore, scanner: LibraryScanner, onPickFolder: () -> Unit) {
+    val index = library.index
+    val progress = scanner.progress
+
+    if (index.folders.isEmpty()) {
+        Text(
+            "Music from the system's own library is already listed. Add a folder only for files it does not index.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    } else {
+        index.folders.forEach { folder ->
+            Text(folder.displayName, style = MaterialTheme.typography.bodyMedium)
+        }
+        Text(
+            "${index.entries.size} songs indexed" + (progress.message?.let { " - $it" } ?: ""),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onPickFolder) { Text("Add folder") }
+        if (index.folders.isNotEmpty()) {
+            OutlinedButton(onClick = { scanner.scan() }, enabled = !progress.running) {
+                Text("Rescan")
+            }
         }
     }
 }
@@ -224,11 +254,7 @@ private fun RuntimeCheck() {
     ) { Text("Check runtime") }
 
     result?.let {
-        Text(
-            it,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

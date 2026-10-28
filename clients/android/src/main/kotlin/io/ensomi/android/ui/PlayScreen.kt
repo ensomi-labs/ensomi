@@ -3,48 +3,58 @@ package io.ensomi.android.ui
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import io.ensomi.android.audio.LibraryPlayer
-import io.ensomi.android.audio.PlayerState
-import io.ensomi.android.clock.AnchorAudioClock
-import io.ensomi.android.clock.AudioAnchor
+import androidx.compose.ui.unit.sp
 import io.ensomi.android.generation.ChartGenerationService
 import io.ensomi.android.generation.GeneratedChart
 import io.ensomi.android.library.LibraryEntry
-import io.ensomi.android.library.LibraryStore
 import io.ensomi.android.settings.EnsomiSettings
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.ensomi_runtime_ffi.Chart
@@ -52,37 +62,36 @@ import uniffi.ensomi_runtime_ffi.GenerationPhase
 import uniffi.ensomi_runtime_ffi.exportOsz
 
 /**
- * S3 Play setup. The audio side plays a library file and reports the position the audio clock hears; the
- * chart side runs the device engine, which needs the model package and says so when it is absent. Both
- * feed the play scene, which takes the generated chart when there is one.
+ * The Play tab, drawn the way the iOS client draws it: the brand's plum ground, an Ensomi header with a 4K
+ * badge, a Game Mode panel holding the audio, the stars and the seed, the chart's state under the fields,
+ * and a preview panel beside them.
  */
 @Composable
 fun PlayScreen(
-    library: LibraryStore,
+    songs: List<LibraryEntry>,
     settings: EnsomiSettings,
-    onPlayScene: (LibraryEntry, Chart?) -> Unit,
+    generation: ChartGenerationService,
+    onPlayScene: (LibraryEntry, Chart) -> Unit,
+    onPickAudioFile: () -> Unit,
 ) {
-    val entries = library.index.entries
-    var selectedUri by rememberSaveable { mutableStateOf<String?>(null) }
-    val selected = entries.firstOrNull { it.uri == selectedUri }
-
     val context = LocalContext.current
-    val player = remember { LibraryPlayer(context) }
-    val generation = remember { ChartGenerationService(context) }
-    val modelInstalled = remember { generation.isModelInstalled() }
     val main = remember { Handler(Looper.getMainLooper()) }
 
-    var clockPositionMs by remember { mutableStateOf<Double?>(null) }
+    var selectedUri by rememberSaveable { mutableStateOf<String?>(null) }
+    var pickedName by rememberSaveable { mutableStateOf<String?>(null) }
+    val selected = songs.firstOrNull { it.uri == selectedUri }
+
+    var choosing by remember { mutableStateOf(false) }
     var generating by remember { mutableStateOf(false) }
     var phase by remember { mutableStateOf<GenerationPhase?>(null) }
-    var generated by remember { mutableStateOf<GeneratedChart?>(null) }
-    var generationError by remember { mutableStateOf<String?>(null) }
-    var savedMessage by remember { mutableStateOf<String?>(null) }
-    var star by remember { mutableStateOf(2.0) }
+    var chart by remember { mutableStateOf<GeneratedChart?>(null) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var star by remember { mutableStateOf(3.5) }
     var seedText by remember { mutableStateOf("") }
     var starRange by remember { mutableStateOf<ClosedFloatingPointRange<Double>?>(null) }
+    val modelInstalled = remember { generation.isModelInstalled() }
 
-    // The range belongs to the model, so it is asked for once the page knows a model is installed.
     LaunchedEffect(modelInstalled) {
         if (modelInstalled) {
             withContext(Dispatchers.IO) { generation.starRange() }?.let { range ->
@@ -92,329 +101,340 @@ fun PlayScreen(
         }
     }
 
-    // S3 saves the chart as the .osu the other clients can open, and as the .osz archive the runtime
-    // builds so the bytes match what the Apple client writes for the same chart.
-    val saveOsz = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
-        val chart = generated
-        val entry = selected
-        if (destination != null && chart != null && entry != null) {
-            savedMessage = "packing the archive..."
+    val saveOsu = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { destination ->
+        val made = chart
+        if (destination != null && made != null) {
+            message = runCatching {
+                context.contentResolver.openOutputStream(destination)?.use { it.write(made.osu.toByteArray()) }
+                    ?: error("the file could not be written")
+                "Saved ${destination.lastPathSegment}"
+            }.getOrElse { "Could not save the chart: ${it.message}" }
+        }
+    }
+    val saveOsz = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
+    ) { destination ->
+        val made = chart
+        val song = selected
+        if (destination != null && made != null && song != null) {
+            message = "Saving the archive..."
             Thread({
                 val outcome = runCatching {
-                    val audio = context.contentResolver.openInputStream(Uri.parse(entry.uri))?.use { it.readBytes() }
-                        ?: error("the audio could not be read")
-                    val archive = exportOsz(chart.osu, audio, chart.receiptJson)
+                    val audio = context.contentResolver.openInputStream(Uri.parse(song.uri))?.use { it.readBytes() }
+                        ?: error("the song could not be read")
+                    val archive = exportOsz(made.osu, audio, made.receiptJson)
                     context.contentResolver.openOutputStream(destination)?.use { it.write(archive) }
-                        ?: error("the picker returned no stream")
-                    "saved ${destination.lastPathSegment} (${archive.size} bytes)"
+                        ?: error("the file could not be written")
+                    "Saved ${destination.lastPathSegment}"
                 }
-                main.post {
-                    savedMessage = outcome.getOrElse { "could not save: ${it.message}" }
-                }
+                main.post { message = outcome.getOrElse { "Could not save the chart: ${it.message}" } }
             }, "ensomi-osz").start()
         }
     }
-    val saveOsu = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
-        val chart = generated
-        if (destination != null && chart != null) {
-            savedMessage = runCatching {
-                context.contentResolver.openOutputStream(destination)?.use { stream ->
-                    stream.write(chart.osu.toByteArray())
-                } ?: error("the picker returned no stream")
-                "saved ${destination.lastPathSegment}"
-            }.getOrElse { "could not save: ${it.message}" }
-        }
-    }
 
-    DisposableEffect(Unit) {
-        onDispose { player.stop() }
-    }
-
-    // The displayed position is the audio clock's, not the player's last reading: between readings the
-    // clock extrapolates, which is what the session will do once it exists.
-    LaunchedEffect(player.state, selectedUri) {
-        clockPositionMs = null
-        if (player.state != PlayerState.PLAYING) return@LaunchedEffect
-        var clock: AnchorAudioClock? = null
-        while (currentCoroutineContext().isActive && player.isActive) {
-            val position = player.positionMs()
-            if (position != null) {
-                val now = SystemClock.elapsedRealtimeNanos()
-                clock = clock?.apply { onReading(AudioAnchor(position, now)) }
-                    ?: AnchorAudioClock(AudioAnchor(position, now))
-                clockPositionMs = clock.positionMsAt(SystemClock.elapsedRealtimeNanos())
-            }
-            delay(80)
-        }
-    }
-
-    fun startGeneration(entry: LibraryEntry) {
+    fun startGeneration() {
+        val song = selected ?: return
         if (generating) return
         generating = true
-        phase = null
-        generated = null
-        generationError = null
+        chart = null
+        failure = null
+        message = null
         Thread({
             val outcome = runCatching {
                 generation.generate(
-                    uri = Uri.parse(entry.uri),
+                    uri = Uri.parse(song.uri),
                     requestedStar = star,
-                    title = entry.displayTitle,
-                    artist = entry.artist,
-                    audioName = entry.name,
                     seed = seedText.trim().toULongOrNull() ?: 0uL,
+                    title = song.displayTitle,
+                    artist = song.artist,
+                    audioName = song.name,
                     onPhase = { reported -> main.post { phase = reported } },
                 )
             }
             main.post {
                 generating = false
                 phase = null
-                outcome
-                    .onSuccess { generated = it }
-                    .onFailure { generationError = it.message ?: it::class.java.simpleName }
+                outcome.onSuccess { chart = it }
+                outcome.onFailure { failure = it.message ?: "the chart could not be made" }
             }
         }, "ensomi-generate").start()
     }
 
     Column(
-        modifier = Modifier
+        Modifier
             .fillMaxSize()
+            .background(EnsomiStyle.backdrop)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Ensomi", style = MaterialTheme.typography.headlineSmall)
-                    Text("4K", style = MaterialTheme.typography.titleMedium)
-                }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ensomi", color = EnsomiStyle.textPrimary, fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 Text(
                     "Choose how you want to play",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = EnsomiStyle.textSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
+            Badge(
+                if (chart != null) "4K  Chart ready" else "4K",
+                if (chart != null) EnsomiStyle.ok else EnsomiStyle.border,
+            )
         }
 
-        if (entries.isEmpty()) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("No audio yet", style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.fillMaxWidth().panel(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            SectionTitle("Game Mode")
+
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .controlFill()
+                    .clickable { choosing = true }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(Icons.Filled.PlayArrow, null, tint = EnsomiStyle.accent)
+                Column(Modifier.weight(1f)) {
+                    Text("Audio", color = EnsomiStyle.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Add a music folder in Library, then rescan.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        pickedName ?: selected?.displayTitle ?: "Choose a song",
+                        color = EnsomiStyle.textPrimary,
+                        fontSize = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+                Text("Choose", color = EnsomiStyle.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
-            return@Column
-        }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Audio", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Generate a Chart - create a chart from a local song",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    selected?.let { "${it.displayTitle} - ${formatLength(it.durationMs)}" }
-                        ?: "Choose a song below",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            (selected?.durationMs ?: 0L).takeIf { it > 0 }?.let {
+                Text("Song length: ${formatSongLength(it)}", color = EnsomiStyle.textSecondary, fontSize = 12.sp)
+            }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (player.isActive) {
-                        OutlinedButton(onClick = { player.stop() }) { Text("Stop") }
-                    } else {
-                        Button(
-                            onClick = { selected?.let { player.play(Uri.parse(it.uri)) } },
-                            enabled = selected != null && selected.failure == null,
-                        ) { Text("Play") }
+            if (!modelInstalled) {
+                Text(
+                    "The chart model is missing. Download it in Settings; the model is about 115 MB and is needed once.",
+                    color = EnsomiStyle.warn,
+                    fontSize = 13.sp,
+                )
+            }
+
+            val low = (starRange?.start ?: 1.0).toFloat()
+            val high = (starRange?.endInclusive ?: 6.0).toFloat()
+            FieldLabel("osu!mania star difficulty")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { star = (star - 0.1).coerceIn(low.toDouble(), high.toDouble()); chart = null }) {
+                    Text("-", color = EnsomiStyle.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "%.1f".format(star) + (starRange?.let { "  (model %.1f-%.1f)".format(it.start, it.endInclusive) } ?: ""),
+                    color = EnsomiStyle.textPrimary,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { star = (star + 0.1).coerceIn(low.toDouble(), high.toDouble()); chart = null }) {
+                    Text("+", color = EnsomiStyle.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Slider(
+                value = star.toFloat().coerceIn(low, high),
+                onValueChange = { star = it.toDouble(); chart = null },
+                valueRange = low..high,
+                colors = SliderDefaults.colors(
+                    thumbColor = EnsomiStyle.accent,
+                    activeTrackColor = EnsomiStyle.accent,
+                    inactiveTrackColor = EnsomiStyle.control,
+                ),
+            )
+
+            FieldLabel("Seed")
+            OutlinedTextField(
+                value = seedText,
+                onValueChange = { typed -> seedText = typed.filter { it.isDigit() }.take(10) },
+                singleLine = true,
+                placeholder = { Text("Random", color = EnsomiStyle.textMuted) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = EnsomiStyle.borderStrong,
+                    unfocusedBorderColor = EnsomiStyle.border,
+                    focusedContainerColor = EnsomiStyle.control,
+                    unfocusedContainerColor = EnsomiStyle.control,
+                    focusedTextColor = EnsomiStyle.textPrimary,
+                    unfocusedTextColor = EnsomiStyle.textPrimary,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            HelpText("Blank makes a new chart each time. The same song, stars and seed make the same chart again.")
+
+            when {
+                generating -> PhaseList(current = phase)
+                chart != null -> ResultBlock(made = chart!!, onUseSeed = { seedText = chart!!.seed.toString() })
+                failure != null -> Text(
+                    failure!!,
+                    color = EnsomiStyle.error,
+                    fontSize = 13.sp,
+                )
+            }
+
+            when {
+                generating -> OutlinedButton(
+                    onClick = {
+                        generation.cancel()
+                        generating = false
+                        failure = "Stopped. No chart was made."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Stop", color = EnsomiStyle.textSecondary) }
+
+                chart != null -> {
+                    Button(
+                        onClick = { selected?.let { onPlayScene(it, chart!!.chart) } },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = EnsomiStyle.action,
+                            contentColor = EnsomiStyle.actionInk,
+                        ),
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, null)
+                        Spacer(Modifier.size(8.dp))
+                        Text("Play", fontWeight = FontWeight.Bold)
                     }
-                    Text(
-                        when (player.state) {
-                            PlayerState.IDLE -> "idle"
-                            PlayerState.LOADING -> "loading"
-                            PlayerState.PLAYING -> "playing"
-                            PlayerState.ENDED -> "ended"
-                            PlayerState.FAILED -> "failed"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { saveOsu.launch(osuName(selected?.displayTitle ?: "chart")) }) {
+                            Text("Save .osu...", color = EnsomiStyle.accent, fontSize = 13.sp)
+                        }
+                        TextButton(onClick = { saveOsz.launch(oszName(selected?.displayTitle ?: "chart")) }) {
+                            Text("Save .osz...", color = EnsomiStyle.accent, fontSize = 13.sp)
+                        }
+                        TextButton(onClick = { startGeneration() }) {
+                            Text("Generate Again", color = EnsomiStyle.textSecondary, fontSize = 13.sp)
+                        }
+                    }
                 }
 
-                Text(
-                    "Heard ${formatLength(clockPositionMs?.toLong())} - audio clock, not the decoder's position",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                player.failure?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
+                else -> Button(
+                    onClick = { startGeneration() },
+                    enabled = selected != null && modelInstalled,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EnsomiStyle.action,
+                        contentColor = EnsomiStyle.actionInk,
+                    ),
+                ) { Text("Generate", fontWeight = FontWeight.Bold) }
             }
+
+            message?.let { HelpText(it) }
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Songs", style = MaterialTheme.typography.titleMedium)
-                // A plain column: the page already scrolls, and a LazyColumn inside a vertical scroll
-                // is measured with an infinite height, which Compose refuses.
-                entries.forEach { entry ->
-                    SongRow(
-                        entry = entry,
-                        selected = entry.uri == selectedUri,
-                        onClick = {
-                            player.stop()
-                            selectedUri = entry.uri
-                            generated = null
-                            generationError = null
-                        },
-                    )
+        Column(Modifier.fillMaxWidth().panel(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle("Preview")
+            Row(
+                modifier = Modifier.fillMaxWidth().height(120.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(EnsomiStyle.tap, EnsomiStyle.accent, EnsomiStyle.warn, EnsomiStyle.tap).forEach { colour ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                            .background(EnsomiStyle.ground, RoundedCornerShape(6.dp)),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        Box(Modifier.fillMaxWidth().height(10.dp).background(colour.copy(alpha = 0.8f)))
+                    }
                 }
             }
+            HelpText(
+                if (chart != null) {
+                    "The chart is ready: ${chart!!.chart.objects.size} notes, seed ${chart!!.seed}."
+                } else {
+                    "The lanes will fill once the chart is ready."
+                },
+            )
         }
+    }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Chart", style = MaterialTheme.typography.titleMedium)
+    if (choosing) {
+        SongPickerDialog(
+            songs = songs,
+            onPick = { entry ->
+                selectedUri = entry.uri
+                pickedName = entry.displayTitle
+                chart = null
+                choosing = false
+            },
+            onPickFile = {
+                choosing = false
+                onPickAudioFile()
+            },
+            onDismiss = { choosing = false },
+        )
+    }
+}
 
-                if (!modelInstalled) {
-                    Text(
-                        "The model is not installed: put the R2 package in " +
-                            "Android/data/io.ensomi.android/files/model and reopen this page.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+/** The phases the iOS client lists under the field, with the one under way marked. */
+@Composable
+private fun PhaseList(current: GenerationPhase?) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        GenerationPhase.entries.forEach { phase ->
+            val done = current != null && phase.ordinal < current.ordinal
+            val running = phase == current
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (done) {
+                    Icon(Icons.Filled.CheckCircle, null, tint = EnsomiStyle.ok, modifier = Modifier.size(18.dp))
+                } else if (running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = EnsomiStyle.accent,
                     )
                 } else {
-                    Text(
-                        "osu!mania star difficulty %.1f".format(star) +
-                            (starRange?.let { " (model range %.1f - %.1f)".format(it.start, it.endInclusive) } ?: ""),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    Slider(
-                        value = (starRange?.let { star.coerceIn(it.start, it.endInclusive) } ?: star).toFloat(),
-                        onValueChange = { star = it.toDouble() },
-                        valueRange = starRange?.let { it.start.toFloat()..it.endInclusive.toFloat() } ?: 0.1f..10f,
-                        enabled = starRange != null && !generating,
-                    )
-
-                    OutlinedTextField(
-                        value = seedText,
-                        onValueChange = { seedText = it.filter(Char::isDigit) },
-                        label = { Text("Seed") },
-                        placeholder = { Text("Blank makes a new chart each time") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { selected?.let { startGeneration(it) } },
-                            enabled = selected != null && !generating,
-                        ) { Text(if (generating) "Generating" else "Generate") }
-
-                        OutlinedButton(
-                            onClick = { selected?.let { onPlayScene(it, generated?.chart) } },
-                            enabled = selected != null,
-                        ) { Text("Play scene") }
-
-                        OutlinedButton(
-                            onClick = {
-                                saveOsu.launch(osuName(selected?.displayTitle ?: "chart"))
-                            },
-                            enabled = generated != null,
-                        ) { Text("Save .osu...") }
-
-                        OutlinedButton(
-                            onClick = {
-                                generated?.let { saveOsz.launch(oszName(selected?.displayTitle ?: "chart")) }
-                            },
-                            enabled = generated != null && !generating,
-                        ) { Text("Save .osz...") }
-                    }
-
-                    if (generating) {
-                        Text(
-                            "Reading the audio, then " + (phase?.name?.lowercase() ?: "starting") + "...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    generationError?.let {
-                        Text(
-                            "The chart could not be made: $it",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-
-                    savedMessage?.let { message ->
-                        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    generated?.let {
-                        Text(
-                            "Chart ready - ${it.chart.objects.size} notes " +
-                                "(${it.taps} taps, ${it.holds} long), seed ${it.seed}, " +
-                                "star %.1f".format(it.star),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    Text(
-                        "The engine runs on the device: it decodes the file, runs the model's graphs and " +
-                            "returns the chart the scene plays.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Box(Modifier.size(14.dp).background(EnsomiStyle.textMuted, CircleShape))
                 }
-            }
-        }
-
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Session", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Scroll speed %.1f - judge %s".format(settings.scrollSpeed, settings.judgeDifficulty),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    phaseTitle(phase),
+                    color = if (done || running) EnsomiStyle.textPrimary else EnsomiStyle.textMuted,
+                    fontSize = 14.sp,
                 )
             }
         }
     }
+}
+
+/** The iOS client's phase titles, in a player's words. */
+private fun phaseTitle(phase: GenerationPhase): String = when (phase) {
+    GenerationPhase.LOADING -> "Loading the audio"
+    GenerationPhase.TIMING -> "Finding the beat"
+    GenerationPhase.ROWS -> "Placing the notes"
+    GenerationPhase.ARRANGEMENT -> "Laying out the lanes"
+    GenerationPhase.EXPORT -> "Writing the chart"
 }
 
 @Composable
-private fun SongRow(entry: LibraryEntry, selected: Boolean, onClick: () -> Unit) {
-    val label = "${entry.displayTitle} - ${formatLength(entry.durationMs)}"
-    if (selected) {
-        Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
+private fun ResultBlock(made: GeneratedChart, onUseSeed: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().controlFill().padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Filled.CheckCircle, null, tint = EnsomiStyle.ok, modifier = Modifier.size(18.dp))
+            Text("Chart ready", color = EnsomiStyle.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Text(
+            "${made.chart.objects.size} notes: ${made.taps} taps, ${made.holds} long notes",
+            color = EnsomiStyle.textPrimary,
+            fontSize = 14.sp,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Seed ${made.seed}", color = EnsomiStyle.textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            TextButton(onClick = onUseSeed) {
+                Text("Use Seed", color = EnsomiStyle.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
-}
-
-/** The archive keeps the song's name, so it sits beside the .osu in a folder of charts. */
-internal fun oszName(title: String): String =
-    title.replace(Regex("[^A-Za-z0-9 _-]"), "_").trim().ifBlank { "chart" } + " (Ensomi).osz"
-
-/** A file name the picker accepts: characters the platform dislikes become underscores. */
-internal fun osuName(title: String): String =
-    title.replace(Regex("[^A-Za-z0-9 _-]"), "_").trim().ifBlank { "chart" } + " (Ensomi).osu"
-
-/** The `m:ss` the setup shows, and "unknown" when the file would not read. */
-internal fun formatLength(durationMs: Long?): String {
-    if (durationMs == null || durationMs <= 0) return "unknown"
-    val totalSeconds = durationMs / 1000
-    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }

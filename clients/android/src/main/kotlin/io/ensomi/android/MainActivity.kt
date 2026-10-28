@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import io.ensomi.android.ui.EnsomiTheme
 import io.ensomi.android.ui.Workbench
+import io.ensomi.android.library.LibraryEntry
 import io.ensomi.android.ui.WorkbenchState
 import io.ensomi.android.ui.folderFromUri
 
@@ -23,6 +24,33 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
                 addFolder(uri)
+            }
+        }
+
+    /** A single audio file, for music the platform's index does not carry. */
+    private val audioPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                runCatching {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                val name = uri.lastPathSegment?.substringAfterLast('/') ?: "song"
+                state.library.addFile(
+                    LibraryEntry(
+                        uri = uri.toString(),
+                        name = name,
+                        treeUri = "file",
+                        sizeBytes = 0,
+                        durationMs = null,
+                        title = name.substringBeforeLast('.').ifBlank { name },
+                        artist = null,
+                        album = null,
+                        indexedAtMs = System.currentTimeMillis(),
+                    ),
+                )
             }
         }
 
@@ -51,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 Workbench(
                     state = state,
                     onPickFolder = { folderPicker.launch(null) },
+                    onPickAudioFile = { audioPicker.launch(arrayOf("audio/*")) },
                     onOpenProbe = { startActivity(Intent(this, ProbeActivity::class.java)) },
                 )
             }

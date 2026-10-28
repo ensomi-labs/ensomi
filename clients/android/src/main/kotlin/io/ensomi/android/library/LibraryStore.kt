@@ -17,6 +17,11 @@ class LibraryStore(context: Context) {
     var index by mutableStateOf(load())
         private set
 
+    /** Keeps one audio file the user picked, beside the folders the scan owns. */
+    fun addFile(entry: LibraryEntry) {
+        update { index -> index.copy(entries = index.entries.filterNot { it.uri == entry.uri } + entry) }
+    }
+
     fun addFolder(folder: LibraryFolder) {
         if (index.folders.any { it.treeUri == folder.treeUri }) return
         update { it.copy(folders = it.folders + folder) }
