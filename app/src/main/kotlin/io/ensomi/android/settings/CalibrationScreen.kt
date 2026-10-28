@@ -122,7 +122,7 @@ fun CalibrationScreen(
                         }
                     }
                     when (step) {
-                        CalibrationStep.SOUND -> SoundStep(settings, route)
+                        CalibrationStep.SOUND -> SoundStep(settings, route, wide)
                         CalibrationStep.PICTURE -> PictureStep(settings, wide, onChange)
                     }
                 }
@@ -132,12 +132,12 @@ fun CalibrationScreen(
 }
 
 @Composable
-private fun SoundStep(settings: PlaySettings, route: OutputRoute) {
+private fun SoundStep(settings: PlaySettings, route: OutputRoute, wide: Boolean) {
     val notWired = LocalNotWired.current
     val taps = SAMPLE_TAP_ERRORS_MS
     val median = taps.sorted().let { (it[it.size / 2 - 1] + it[it.size / 2]) / 2.0 }
     val suggestion = settings.audioOffsetMs - median.roundToInt()
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val info: @Composable () -> Unit = {
         Text(stringResource(R.string.calibration_sound_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
         Text(
             stringResource(R.string.calibration_for_output, route.name, PlaySettings.formatOffset(settings.audioOffsetMs)),
@@ -161,17 +161,19 @@ private fun SoundStep(settings: PlaySettings, route: OutputRoute) {
             )
         }
         TapStrip(taps)
-        // The pad: the real one is a View, so taps carry their MotionEvent time to the nanosecond.
+    }
+    // The pad: the real one is a View, so taps carry their MotionEvent time to the nanosecond.
+    val pad: @Composable (Modifier) -> Unit = { modifier ->
         Box(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f)
+            modifier
                 .background(Brand.Panel, RoundedCornerShape(28.dp))
                 .border(BorderStroke(1.dp, Brand.PanelBorder), RoundedCornerShape(28.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Text(stringResource(R.string.calibration_tap_here), style = MaterialTheme.typography.titleLarge, color = Brand.MutedText)
         }
+    }
+    val actions: @Composable () -> Unit = {
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -186,6 +188,22 @@ private fun SoundStep(settings: PlaySettings, route: OutputRoute) {
                 icon = R.drawable.ic_check_circle,
                 modifier = Modifier.weight(1f),
             )
+        }
+    }
+    // Wider than tall: the pad beside the readings, so it keeps its size in landscape.
+    if (wide) {
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                info()
+                actions()
+            }
+            pad(Modifier.weight(1f).fillMaxHeight().padding(bottom = 12.dp))
+        }
+    } else {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            info()
+            pad(Modifier.fillMaxWidth().weight(1f))
+            actions()
         }
     }
 }
