@@ -86,6 +86,10 @@ class PlayController(
     @Volatile
     var visualOffsetMs: Double = timing.visualOffsetMs
 
+    /** The settings' playfield preview moves this while it runs; play keeps the game's value. */
+    @Volatile
+    var scrollTimeMs: Double = timing.scrollTimeMs
+
     private var scriptIndex = 0
     private var anyJudgement = false
     private var lastScore: Score? = null
@@ -125,12 +129,13 @@ class PlayController(
         val presentSong = clock.songTimeMs(presentNanos) ?: songNow
         val renderMs = presentSong + timing.audioOffsetMs + visualOffsetMs
         val uiMs = presentNanos / 1e6
+        val scrollMs = scrollTimeMs
         val frame = PlayFrame(
             gameplayMs = gameplayMs,
             renderMs = renderMs,
-            scrollTimeMs = timing.scrollTimeMs,
+            scrollTimeMs = scrollMs,
             durationMs = chart.durationMs.toDouble(),
-            visible = session.visibleObjects(renderMs - VISIBLE_BEFORE_MS, renderMs + timing.scrollTimeMs + VISIBLE_AFTER_MS),
+            visible = session.visibleObjects(renderMs - VISIBLE_BEFORE_MS, renderMs + scrollMs + VISIBLE_AFTER_MS),
             brightness = List(PlayfieldGeometry.LANES) { feedback.laneBrightness(it.toUInt(), uiMs) },
             batches = feedback.judgementEventBatches(),
             presentation = feedback.judgementPresentation(gameplayMs),

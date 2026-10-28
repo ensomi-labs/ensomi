@@ -46,12 +46,48 @@ class PlayfieldView @JvmOverloads constructor(
             updateGeometry(width, height)
         }
 
+    /**
+     * How far the lanes lean, as the far end's width over the line's (1 for none), when the surface is wider than tall
+     * and when it is not; the surface's shape picks one, so a large screen that keeps its own orientation still gets
+     * the matching lean. Either can change while the view runs.
+     */
+    var landscapeFarScale = 1f
+        set(value) {
+            field = value
+            updateGeometry(width, height)
+        }
+    var portraitFarScale = 1f
+        set(value) {
+            field = value
+            updateGeometry(width, height)
+        }
+
+    /**
+     * A preview draws a whole screen of [previewSize] pixels (the phone's own, in the orientation play will use) into
+     * a surface buffer of that size, which the system scales down to the view; so the preview is the game's layout,
+     * only smaller. A preview takes no touches.
+     */
+    var previewSize: Pair<Int, Int>? = null
+        set(value) {
+            field = value
+            if (value != null) holder.setFixedSize(value.first, value.second) else holder.setSizeFromLayout()
+            updateGeometry(width, height)
+        }
+
     /** Overrides the game's visual offset while the playfield runs: the calibration's slider. */
     @Volatile
     var visualOffsetMs: Double? = null
         set(value) {
             field = value
             if (value != null) controller?.visualOffsetMs = value
+        }
+
+    /** Overrides the game's scroll time while the playfield runs: the settings' preview follows the speed slider. */
+    @Volatile
+    var scrollTimeMs: Double? = null
+        set(value) {
+            field = value
+            if (value != null) controller?.scrollTimeMs = value
         }
 
     var reduceMotion = false
@@ -103,10 +139,13 @@ class PlayfieldView @JvmOverloads constructor(
         updateGeometry(w, h)
     }
 
-    private fun updateGeometry(w: Int, h: Int) {
+    private fun updateGeometry(viewWidth: Int, viewHeight: Int) {
+        val (w, h) = previewSize ?: (viewWidth to viewHeight)
         if (w <= 0 || h <= 0) return
+        val (top, bottom) = if (previewSize != null) 0f to 0f else insets
         geometry = PlayfieldGeometry.of(
-            w.toFloat(), h.toFloat(), resources.displayMetrics.density, insets.first, insets.second, hudHeightDp,
+            w.toFloat(), h.toFloat(), resources.displayMetrics.density, top, bottom, hudHeightDp,
+            if (w > h) landscapeFarScale else portraitFarScale,
         )
     }
 
@@ -141,6 +180,7 @@ class PlayfieldView @JvmOverloads constructor(
      */
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (previewSize != null) return false
         val g = geometry ?: return true
         val target = controller ?: return true
         val nanos = eventNanos(event)
@@ -199,6 +239,7 @@ class PlayfieldView @JvmOverloads constructor(
             playController.start(System.nanoTime())
             if (pausePending) playController.clock.pause(System.nanoTime())
             visualOffsetMs?.let { playController.visualOffsetMs = it }
+            scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
             val choreographer = Choreographer.getInstance()
             val stats = FrameStats(refreshRateHz = display?.refreshRate ?: 60f)
