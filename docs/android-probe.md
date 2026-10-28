@@ -321,6 +321,11 @@ list form boxes one object per sample, about 1.3 million of them for a minute of
 a full song. A device test generates from the same samples both ways and asserts the same `.osu`, so the
 cheaper transport does not change the chart.
 
+`LongGenerationTest` measures a full-length song on the device: three minutes of audio
+(15,964,200 bytes of samples) generate 317 notes in 15.2 s on the K80, about twelve
+times faster than the song plays. The app's own runs log the same shape of number
+under the `EnsomiGenerate` tag.
+
 ## Building and installing
 
 ```

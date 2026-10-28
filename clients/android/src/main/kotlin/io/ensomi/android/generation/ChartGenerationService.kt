@@ -2,6 +2,7 @@ package io.ensomi.android.generation
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import io.ensomi.android.audio.AudioDecoder
 import io.ensomi.android.audio.toLeBytes
 import uniffi.ensomi_runtime_ffi.Chart
@@ -57,6 +58,7 @@ class ChartGenerationService(private val context: Context) {
         val directory = modelDirectory()
         check(isModelInstalled()) { "the model is not installed in ${directory.absolutePath}" }
 
+        val startedAtMs = System.currentTimeMillis()
         ChartGenerator.open(directory.absolutePath, GeneratorOptions(provider = ExecutionProvider.CPU)).use { generator ->
             // The accepted range comes from the model, not from the page: star is clamped into it rather
             // than guessed, and the value used is reported back.
@@ -85,6 +87,12 @@ class ChartGenerationService(private val context: Context) {
                     }
                 },
                 cancellation = null,
+            )
+
+            Log.i(
+                "EnsomiGenerate",
+                "generated ${result.chart.objects.size} notes from ${audio.durationMs} ms of audio in " +
+                    "${System.currentTimeMillis() - startedAtMs} ms (star %.1f, seed %d)".format(star, result.receipt.seed),
             )
 
             return GeneratedChart(
