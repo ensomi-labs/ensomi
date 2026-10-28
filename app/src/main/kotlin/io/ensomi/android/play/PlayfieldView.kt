@@ -205,9 +205,7 @@ class PlayfieldView @JvmOverloads constructor(
             val callback = object : Choreographer.VsyncCallback {
                 override fun onVsync(data: Choreographer.FrameData) {
                     if (!running) return
-                    val start = System.nanoTime()
-                    drawFrame(playController, data.preferredFrameTimeline.expectedPresentationTimeNanos)
-                    stats.record(data.frameTimeNanos, System.nanoTime() - start)
+                    drawFrame(playController, data.preferredFrameTimeline.expectedPresentationTimeNanos, data.frameTimeNanos, stats)
                     choreographer.postVsyncCallback(this)
                 }
             }
@@ -216,9 +214,11 @@ class PlayfieldView @JvmOverloads constructor(
             playController.close()
         }
 
-        private fun drawFrame(playController: PlayController, presentNanos: Long) {
+        private fun drawFrame(playController: PlayController, presentNanos: Long, vsyncNanos: Long, stats: FrameStats) {
             val g = geometry ?: return
-            val frame = playController.frame(System.nanoTime(), presentNanos)
+            val start = System.nanoTime()
+            val frame = playController.frame(start, presentNanos)
+            val runtimeDone = System.nanoTime()
             val canvas = try {
                 surfaceHolder.lockHardwareCanvas()
             } catch (failure: IllegalStateException) {
@@ -230,6 +230,7 @@ class PlayfieldView @JvmOverloads constructor(
             } finally {
                 surfaceHolder.unlockCanvasAndPost(canvas)
             }
+            stats.record(vsyncNanos, runtimeDone - start, System.nanoTime() - runtimeDone)
         }
 
         fun quitAndJoin() {
@@ -246,42 +247,54 @@ class PlayfieldView @JvmOverloads constructor(
 }
 
 /**
- * The render thread's own account of pacing, logged under `EnsomiPlayfield` every 240 frames: vsyncs that came more
- * than 1.5 refresh intervals after the previous one (frames the thread missed), and the time each frame's work took
- * (inputs, advance, runtime reads and drawing, up to posting the canvas). The start of plan step 9's frame logs.
+ * The render thread's own account of pacing, logged under `EnsomiPlayfield` every two seconds: frames drawn, vsyncs
+ * that came more than 1.5 refresh intervals after the previous one (frames the thread missed), and the time each
+ * frame spent in the runtime (inputs, advance, reads) and in drawing (lock, draw, post). The start of plan step 9's
+ * frame logs.
  */
 private class FrameStats(refreshRateHz: Float) {
     private val intervalNanos = (1e9 / refreshRateHz).toLong()
+    private var windowStartNanos = 0L
     private var frames = 0
     private var missed = 0
     private var lastVsyncNanos = 0L
-    private var workSumNanos = 0L
-    private var workMaxNanos = 0L
+    private var runtimeSumNanos = 0L
+    private var runtimeMaxNanos = 0L
+    private var drawSumNanos = 0L
+    private var drawMaxNanos = 0L
 
-    fun record(vsyncNanos: Long, workNanos: Long) {
+    fun record(vsyncNanos: Long, runtimeNanos: Long, drawNanos: Long) {
+        if (windowStartNanos == 0L) windowStartNanos = vsyncNanos
         if (lastVsyncNanos != 0L && vsyncNanos - lastVsyncNanos > intervalNanos * 3 / 2) missed++
         lastVsyncNanos = vsyncNanos
         frames++
-        workSumNanos += workNanos
-        workMaxNanos = maxOf(workMaxNanos, workNanos)
-        if (frames == WINDOW) {
+        runtimeSumNanos += runtimeNanos
+        runtimeMaxNanos = maxOf(runtimeMaxNanos, runtimeNanos)
+        drawSumNanos += drawNanos
+        drawMaxNanos = maxOf(drawMaxNanos, drawNanos)
+        val elapsed = vsyncNanos - windowStartNanos
+        if (elapsed >= WINDOW_NANOS) {
             Log.i(
                 "EnsomiPlayfield",
                 String.format(
                     Locale.ROOT,
-                    "frames=%d refresh=%.1fHz missed=%d work_avg=%.2fms work_max=%.2fms",
-                    frames, 1e9 / intervalNanos, missed, workSumNanos / 1e6 / frames, workMaxNanos / 1e6,
+                    "fps=%.1f frames=%d refresh=%.1fHz missed=%d runtime_avg=%.2fms runtime_max=%.2fms draw_avg=%.2fms draw_max=%.2fms",
+                    frames * 1e9 / elapsed, frames, 1e9 / intervalNanos, missed,
+                    runtimeSumNanos / 1e6 / frames, runtimeMaxNanos / 1e6, drawSumNanos / 1e6 / frames, drawMaxNanos / 1e6,
                 ),
             )
+            windowStartNanos = vsyncNanos
             frames = 0
             missed = 0
-            workSumNanos = 0
-            workMaxNanos = 0
+            runtimeSumNanos = 0
+            runtimeMaxNanos = 0
+            drawSumNanos = 0
+            drawMaxNanos = 0
         }
     }
 
     private companion object {
-        const val WINDOW = 240
+        const val WINDOW_NANOS = 2_000_000_000L
     }
 }
 

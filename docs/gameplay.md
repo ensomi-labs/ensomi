@@ -221,8 +221,8 @@ heads) for the output used, when it is at least 3 ms.
   120 Hz; the thread, pacing, clock and frame order stay.
 - Measured with per-frame logs on the render thread and Perfetto's FrameTimeline, which records expected and actual
   presentation and jank per layer ([FrameTimeline](https://perfetto.dev/docs/data-sources/frametimeline)). The
-  prototype's render thread already logs, every 240 frames under the tag `EnsomiPlayfield`, the vsyncs it missed and
-  its average and longest frame work.
+  prototype's render thread already logs, every two seconds under the tag `EnsomiPlayfield`, its frame rate, the
+  vsyncs it missed, and its average and longest time per frame in the runtime and in drawing.
 
 ## What the emulator can and cannot show
 
