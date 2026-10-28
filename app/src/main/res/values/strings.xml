@@ -190,6 +190,17 @@
     <string name="settings_scroll_speed_help">Notes take %1$s s to fall to the line.</string>
     <string name="settings_judge">Judge difficulty</string>
     <string name="settings_judge_help">How wide the timing windows are, from A, the widest, to E. C is the default.</string>
+    <string name="settings_playfield">Playfield</string>
+    <string name="settings_orientation">Orientation</string>
+    <string name="settings_orientation_landscape">Landscape</string>
+    <string name="settings_orientation_portrait">Portrait</string>
+    <string name="settings_orientation_help">The way play turns the phone, until you leave the results. Portrait gives the longest lanes. Tablets keep the window’s own orientation.</string>
+    <string name="settings_lean_landscape">Lane lean in landscape</string>
+    <string name="settings_lean_portrait">Lane lean in portrait</string>
+    <string name="settings_lean_flat">Flat</string>
+    <string name="settings_lean_value">%1$d°</string>
+    <string name="settings_lean_help">Tilts the lanes back, so notes come out of the distance, smaller and slower, and speed up near the line. They reach it at the same time at any lean, and the keys stay where they are.</string>
+    <string name="settings_playfield_preview_description">Playfield preview: %1$s, lane lean %2$s</string>
     <string name="settings_touch">Touch</string>
     <string name="settings_vibrate">Vibrate on lane touch</string>
     <string name="settings_vibrate_help">A short tick when a finger lands on a lane. Off by default: many phones vibrate late.</string>

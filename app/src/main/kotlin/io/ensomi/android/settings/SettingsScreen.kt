@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -68,8 +70,11 @@ fun SettingsScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onRemoveModel: () -> Unit,
+    /** The item the list opens at: [PLAYFIELD_SETTINGS] opens it at the playfield section (prototype scenarios). */
+    firstItem: Int = 0,
 ) {
     val notWired = LocalNotWired.current
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = firstItem)
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -86,8 +91,14 @@ fun SettingsScreen(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            // Landscape puts the navigation bar or a cutout at a side: the list keeps clear of it.
+            val direction = LocalLayoutDirection.current
             LazyColumn(
-                modifier = Modifier.widthIn(max = 640.dp).fillMaxSize(),
+                state = listState,
+                modifier = Modifier
+                    .padding(start = padding.calculateStartPadding(direction), end = padding.calculateEndPadding(direction))
+                    .widthIn(max = 640.dp)
+                    .fillMaxSize(),
                 contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
             ) {
                 item { Header(R.string.settings_gameplay, first = true) }
@@ -125,6 +136,44 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                // Keep PLAYFIELD_SETTINGS the index of this header.
+                item { Header(R.string.settings_playfield) }
+                item {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.settings_orientation), style = MaterialTheme.typography.bodyLarge)
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            PlayOrientation.entries.forEachIndexed { index, orientation ->
+                                SegmentedButton(
+                                    selected = settings.orientation == orientation,
+                                    onClick = { onChange { it.copy(orientation = orientation) } },
+                                    shape = SegmentedButtonDefaults.itemShape(index, PlayOrientation.entries.size),
+                                    icon = {},
+                                ) { Text(stringResource(orientation.label)) }
+                            }
+                        }
+                        Text(
+                            stringResource(R.string.settings_orientation_help),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                item {
+                    // The lean of the orientation chosen above; each orientation keeps its own.
+                    val orientation = settings.orientation
+                    SliderSetting(
+                        title = stringResource(
+                            if (orientation == PlayOrientation.LANDSCAPE) R.string.settings_lean_landscape else R.string.settings_lean_portrait,
+                        ),
+                        valueText = leanText(settings.lean),
+                        supporting = stringResource(R.string.settings_lean_help),
+                        value = settings.lean.toFloat(),
+                        range = PlaySettings.LEANS.first.toFloat()..PlaySettings.LEANS.last.toFloat(),
+                        steps = PlaySettings.LEANS.last - PlaySettings.LEANS.first - 1,
+                    ) { value -> onChange { it.withLean(orientation, PlaySettings.snapLean(value)) } }
+                }
+                item { PlayfieldPreview(settings, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) }
 
                 item { Header(R.string.settings_touch) }
                 item {
@@ -239,6 +288,15 @@ fun SettingsScreen(
         }
     }
 }
+
+/** The index of the playfield section's header in the settings list. */
+const val PLAYFIELD_SETTINGS = 3
+
+private val PlayOrientation.label: Int
+    get() = when (this) {
+        PlayOrientation.LANDSCAPE -> R.string.settings_orientation_landscape
+        PlayOrientation.PORTRAIT -> R.string.settings_orientation_portrait
+    }
 
 @Composable
 private fun Header(@StringRes title: Int, first: Boolean = false) {

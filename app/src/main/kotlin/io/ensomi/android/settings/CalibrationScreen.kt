@@ -243,6 +243,9 @@ private fun PictureStep(settings: PlaySettings, onChange: ((PlaySettings) -> Pla
                 update = {
                     it.reduceMotion = reduceMotion
                     it.visualOffsetMs = settings.visualOffsetMs.toDouble()
+                    // The player's lean, so notes cross the line as they will in play.
+                    it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
+                    it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
                 },
             )
         }
