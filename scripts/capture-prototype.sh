@@ -3,10 +3,14 @@
 # every scenario of app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt in light and dark mode,
 # a few at 200 % font size and in landscape, UI hierarchy dumps, and a recording of the playfield preview.
 #
-#   scripts/capture-prototype.sh OUT_DIR
+#   scripts/capture-prototype.sh OUT_DIR [GROUP...]
+#
+# GROUP is any of screens, game, font, landscape, dumps, recording; all of them when none is given.
 set -euo pipefail
 
-OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR}
+OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
+shift
+GROUPS_WANTED=${*:-screens game font landscape dumps recording}
 mkdir -p "$OUT"
 PKG=io.ensomi.android
 ACTIVITY=$PKG/.MainActivity
@@ -16,6 +20,7 @@ launch() { # scenario [extra am args...]
   adb shell am start -W -n "$ACTIVITY" --es prototype "$@" >/dev/null
 }
 shot() { adb exec-out screencap -p >"$OUT/$1.png"; echo "$1.png"; }
+wanted() { case " $GROUPS_WANTED " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 swipe_up() { adb shell input swipe 540 1900 540 700 500; sleep 1.5; }
 
 # scenario:seconds to wait before the screenshot
@@ -64,6 +69,7 @@ adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 0
 adb shell settings put system font_scale 1.0
 
+if wanted screens; then
 for mode in light dark; do
   if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
   sleep 2
@@ -88,7 +94,9 @@ for mode in light dark; do
 done
 adb shell cmd uimode night no
 sleep 2
+fi
 
+if wanted game; then
 # The first game after install: Android's "Viewing full screen" prompt holds the game at the start of its lead-in.
 adb shell settings delete secure immersive_mode_confirmations
 launch play
@@ -106,7 +114,16 @@ sleep 8; shot play-3
 sleep 16; shot play-end-results
 launch play-paused; sleep 15; shot play-paused
 launch play-countdown; sleep 15; shot play-countdown
+# Results in both modes, so the game screens' system bars can be checked.
+for mode in light dark; do
+  if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
+  sleep 2
+  launch results; sleep 3; shot "$mode-results"; swipe_up; shot "$mode-results-scrolled"
+done
+adb shell cmd uimode night no
+fi
 
+if wanted font; then
 # Larger text: Android's font size at 200 %.
 adb shell settings put system font_scale 2.0
 sleep 2
@@ -115,7 +132,9 @@ for name in library make-chart make-chart-made settings results; do
 done
 adb shell settings put system font_scale 1.0
 sleep 2
+fi
 
+if wanted landscape; then
 # Landscape: the chrome follows the phone; play asks for portrait.
 adb shell settings put system user_rotation 1
 sleep 2
@@ -124,14 +143,18 @@ for name in library make-chart-made settings; do
 done
 adb shell settings put system user_rotation 0
 sleep 2
+fi
 
+if wanted dumps; then
 # What TalkBack reads: the UI hierarchy of a few screens.
 for name in library make-chart-made play-paused results; do
   launch "$name"
   if [ "$name" = play-paused ]; then sleep 15; else sleep 3; fi
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/window-$name.xml" >/dev/null || echo "no dump for $name"
 done
+fi
 
+if wanted recording; then
 # The playfield preview in motion, 15 seconds, at a size the emulator's encoder keeps up with; then the render
 # thread's own frame log.
 adb logcat -c
@@ -142,5 +165,6 @@ adb pull /sdcard/playfield-preview.mp4 "$OUT/playfield-preview.mp4" >/dev/null
 echo playfield-preview.mp4
 adb logcat -d -s EnsomiPlayfield:I >"$OUT/frame-stats.txt" || true
 adb shell dumpsys SurfaceFlinger --list >"$OUT/surfaceflinger-layers.txt" || true
+fi
 
 adb shell am force-stop "$PKG"
