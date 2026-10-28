@@ -111,19 +111,26 @@ fun PlayScreen(
 
         BackHandler(enabled = phase != PlayPhase.PAUSED) { pause() }
         LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { pause() }
-        // The lead-in starts once the window has focus, so a system prompt over the first game (Android's "Viewing
-        // full screen") holds the game instead of eating its start. After that, another window taking focus (the
-        // notification shade, a dialog, split screen) pauses.
+        // The lead-in runs only while the window has had focus for a moment, so a system prompt over the first game
+        // (Android's "Viewing full screen", which comes a little after the bars hide) holds the lead-in instead of
+        // eating it: losing focus before the song has started holds it without the pause panel. Once the song has
+        // started, another window taking focus (the notification shade, a dialog, split screen) pauses.
         val focused = LocalWindowInfo.current.isWindowFocused
         var started by remember(restarts) { mutableStateOf(false) }
         LaunchedEffect(focused, view) {
             val current = view ?: return@LaunchedEffect
+            if (phase != PlayPhase.PLAYING) return@LaunchedEffect
             when {
-                !started && focused && phase == PlayPhase.PLAYING -> {
+                focused && !started -> {
+                    delay(FOCUS_SETTLE_MS)
                     current.resume()
                     started = true
                 }
-                started && !focused -> pause()
+                !focused && started && current.inLeadIn() -> {
+                    current.pause()
+                    started = false
+                }
+                !focused && started -> pause()
             }
         }
         if (autoPauseAfterMs != null) {
@@ -344,3 +351,6 @@ fun JudgeDifficulty.toRuntime(): Judge = when (this) {
 }
 
 private const val COUNT_IN_BEAT_MS = 500L
+
+/** How long the window keeps focus before the lead-in runs. */
+private const val FOCUS_SETTLE_MS = 400L

@@ -90,6 +90,9 @@ class PlayfieldView @JvmOverloads constructor(
         tracker.cancel()
     }
 
+    /** Whether the song has not started yet: the lead-in, or before the render thread has begun. */
+    fun inLeadIn(): Boolean = (controller?.clock?.songTimeMs(System.nanoTime()) ?: -1.0) < 0
+
     fun resume() {
         pausePending = false
         controller?.clock?.resume(System.nanoTime())

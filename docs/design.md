@@ -140,13 +140,13 @@ One screen per song. The top app bar has Back and the song's title; under it, th
 ### Play
 
 Full screen: the system bars hidden with `WindowInsetsController` and `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`
-([Immersive mode](https://developer.android.com/develop/ui/views/layout/immersive)), the screen kept on, portrait. Over
-the top of the playfield, without a panel of its own, the HUD row: the song's title and its stars and judge on the
-left, accuracy on the right, then a Pause button. The playfield itself, its look and its timing are in
+([Immersive mode](https://developer.android.com/develop/ui/views/layout/immersive)), the screen kept on, portrait.
+Over the top of the playfield, without a panel of its own, the HUD row: the song's title and its stars and judge on
+the left, accuracy on the right, then a Pause button. The playfield itself, its look and its timing are in
 [gameplay.md](gameplay.md). A game starts with two seconds of lead-in before the song's first frame, so the hands can
-reach the lanes, and the lead-in starts only once the play window has focus: the first time an app hides the system
-bars, Android shows its "Viewing full screen" prompt, which takes focus, and the game waits for it instead of losing
-its start.
+reach the lanes. The lead-in runs only while the play window has focus: the first time an app hides the system bars,
+Android shows its "Viewing full screen" prompt, which takes focus a moment later, so losing focus before the song has
+started holds the lead-in, without the pause panel, until the prompt is dismissed.
 
 The game pauses by itself whenever the player cannot be playing:
 
