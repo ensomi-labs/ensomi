@@ -5,6 +5,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -71,116 +73,134 @@ fun ResultsScreen(
         DarkSystemBars()
         val notWired = LocalNotWired.current
         Box(Modifier.fillMaxSize().background(Brand.Plum), contentAlignment = Alignment.TopCenter) {
-            Column(
-                // The insets pad the content inside the scroll, so it scrolls behind the system bars.
-                modifier = Modifier
-                    .widthIn(max = 560.dp)
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        stringResource(R.string.results_title),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Brand.Lavender,
-                        modifier = Modifier.semantics { heading() },
-                    )
-                    Text(result.title, style = MaterialTheme.typography.headlineSmall, color = Brand.Text)
-                    Text(result.detail, style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        formatAccuracy(result.accuracy),
-                        style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
-                        fontWeight = FontWeight.Bold,
-                        color = Brand.Text,
-                    )
-                    Text(stringResource(R.string.play_accuracy), style = MaterialTheme.typography.titleSmall, color = Brand.MutedText)
-                }
-
-                val counts = listOf(
-                    Triple(stringResource(R.string.judgement_perfect), result.perfect, Brand.Perfect),
-                    Triple(stringResource(R.string.judgement_good), result.good, Brand.Good),
-                    Triple(stringResource(R.string.judgement_miss), result.miss, Brand.Miss),
-                )
-                // Three tiles side by side at normal text sizes; one row per tier at large ones, so no word breaks.
-                if (LocalDensity.current.fontScale <= 1.3f) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        counts.forEach { (label, count, color) -> CountTile(label, count, color, Modifier.weight(1f)) }
-                    }
-                } else {
-                    Panel {
-                        counts.forEach { (label, count, color) -> CountRow(label, count, color) }
-                    }
-                }
-
-                Panel {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            // Wider than tall (the game's landscape, which the results keep): two columns, the score on the left and
+            // the timing and actions on the right, so the actions stay on the first screen.
+            BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                val wide = maxWidth > maxHeight && maxWidth >= 600.dp
+                val score: @Composable ColumnScope.() -> Unit = {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            stringResource(R.string.results_max_combo),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Brand.MutedText,
-                            modifier = Modifier.weight(1f),
+                            stringResource(R.string.results_title),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Brand.Lavender,
+                            modifier = Modifier.semantics { heading() },
                         )
+                        Text(result.title, style = MaterialTheme.typography.headlineSmall, color = Brand.Text)
+                        Text(result.detail, style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            result.maxCombo.toString(),
-                            style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                            formatAccuracy(result.accuracy),
+                            style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
+                            fontWeight = FontWeight.Bold,
                             color = Brand.Text,
                         )
+                        Text(stringResource(R.string.play_accuracy), style = MaterialTheme.typography.titleSmall, color = Brand.MutedText)
                     }
-                }
 
-                Panel {
-                    Text(stringResource(R.string.results_timing), style = MaterialTheme.typography.titleSmall, color = Brand.Text)
-                    Text(timingSummary(result.meanOffsetMs), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
-                    TimingHistogram(result.histogram, Modifier.fillMaxWidth().height(72.dp).padding(top = 8.dp))
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.results_early), style = MaterialTheme.typography.labelSmall, color = Brand.Lavender, modifier = Modifier.weight(1f))
-                        Text(stringResource(R.string.results_late), style = MaterialTheme.typography.labelSmall, color = Brand.Rose, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
-                    }
-                }
-
-                val adjustment = result.suggestedAdjustmentMs
-                if (adjustment != null && abs(adjustment) >= MIN_SUGGESTION_MS) {
-                    Panel {
-                        val proposed = settings.audioOffsetMs + adjustment
-                        Text(
-                            stringResource(
-                                R.string.results_offset_suggestion,
-                                route.name,
-                                PlaySettings.formatOffset(settings.audioOffsetMs),
-                                PlaySettings.formatOffset(proposed),
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Brand.Text,
-                        )
-                        TextButton(onClick = { notWired("Applying the suggested offset (plan step 1)") }) {
-                            Text(stringResource(R.string.results_offset_apply), color = Brand.Lavender)
+                    val counts = listOf(
+                        Triple(stringResource(R.string.judgement_perfect), result.perfect, Brand.Perfect),
+                        Triple(stringResource(R.string.judgement_good), result.good, Brand.Good),
+                        Triple(stringResource(R.string.judgement_miss), result.miss, Brand.Miss),
+                    )
+                    // Three tiles side by side at normal text sizes; one row per tier at large ones, so no word breaks.
+                    if (LocalDensity.current.fontScale <= 1.3f) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            counts.forEach { (label, count, color) -> CountTile(label, count, color, Modifier.weight(1f)) }
+                        }
+                    } else {
+                        Panel {
+                            counts.forEach { (label, count, color) -> CountRow(label, count, color) }
                         }
                     }
-                }
 
-                if (result.sample) {
-                    Text(stringResource(R.string.results_sample_note), style = MaterialTheme.typography.bodySmall, color = Brand.MutedText)
-                }
+                    Panel {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                stringResource(R.string.results_max_combo),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Brand.MutedText,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                result.maxCombo.toString(),
+                                style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                                color = Brand.Text,
+                            )
+                        }
+                    }
 
-                Spacer(Modifier.height(4.dp))
-                ActionButton(stringResource(R.string.results_play_again), onClick = onPlayAgain, icon = R.drawable.ic_refresh, modifier = Modifier.fillMaxWidth())
-                OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                    Text(stringResource(R.string.results_done), color = Brand.Text)
+                }
+                val after: @Composable ColumnScope.() -> Unit = {
+                    Panel {
+                        Text(stringResource(R.string.results_timing), style = MaterialTheme.typography.titleSmall, color = Brand.Text)
+                        Text(timingSummary(result.meanOffsetMs), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+                        TimingHistogram(result.histogram, Modifier.fillMaxWidth().height(72.dp).padding(top = 8.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.results_early), style = MaterialTheme.typography.labelSmall, color = Brand.Lavender, modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.results_late), style = MaterialTheme.typography.labelSmall, color = Brand.Rose, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                        }
+                    }
+
+                    val adjustment = result.suggestedAdjustmentMs
+                    if (adjustment != null && abs(adjustment) >= MIN_SUGGESTION_MS) {
+                        Panel {
+                            val proposed = settings.audioOffsetMs + adjustment
+                            Text(
+                                stringResource(
+                                    R.string.results_offset_suggestion,
+                                    route.name,
+                                    PlaySettings.formatOffset(settings.audioOffsetMs),
+                                    PlaySettings.formatOffset(proposed),
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Brand.Text,
+                            )
+                            TextButton(onClick = { notWired("Applying the suggested offset (plan step 1)") }) {
+                                Text(stringResource(R.string.results_offset_apply), color = Brand.Lavender)
+                            }
+                        }
+                    }
+
+                    if (result.sample) {
+                        Text(stringResource(R.string.results_sample_note), style = MaterialTheme.typography.bodySmall, color = Brand.MutedText)
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    ActionButton(stringResource(R.string.results_play_again), onClick = onPlayAgain, icon = R.drawable.ic_refresh, modifier = Modifier.fillMaxWidth())
+                    OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                        Text(stringResource(R.string.results_done), color = Brand.Text)
+                    }
+                }
+                Column(
+                    // The insets pad the content inside the scroll, so it scrolls behind the system bars.
+                    modifier = Modifier
+                        .widthIn(max = if (wide) 960.dp else 560.dp)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    if (wide) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), content = score)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), content = after)
+                        }
+                    } else {
+                        score()
+                        after()
+                    }
                 }
             }
-            // The content scrolls behind the status bar; a plum band keeps the clock and icons readable over it.
+            // The content scrolls behind the status bar; an opaque plum band hides it there, under the clock and icons.
             Box(
                 Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .windowInsetsTopHeight(WindowInsets.statusBars)
-                    .background(Brand.Plum.copy(alpha = 0.94f)),
+                    .background(Brand.Plum),
             )
         }
     }

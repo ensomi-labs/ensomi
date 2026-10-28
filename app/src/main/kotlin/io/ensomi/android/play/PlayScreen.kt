@@ -12,9 +12,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,8 +63,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.text.style.TextOverflow
 import io.ensomi.android.R
 import io.ensomi.android.settings.JudgeDifficulty
+import io.ensomi.android.settings.PlayOrientation
 import io.ensomi.android.settings.PlaySettings
 import io.ensomi.android.ui.ActionButton
 import io.ensomi.android.ui.theme.Brand
@@ -94,7 +98,7 @@ fun PlayScreen(
     holdCountdown: Boolean = false,
 ) {
     GameTheme {
-        ImmersivePortrait()
+        Immersive()
         val density = LocalDensity.current
         val cutoutTop = WindowInsets.displayCutout.getTop(density).toFloat()
         val gestureBottom = WindowInsets.mandatorySystemGestures.getBottom(density).toFloat()
@@ -172,6 +176,8 @@ fun PlayScreen(
                     },
                     update = {
                         it.insets = cutoutTop to gestureBottom
+                        it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
+                        it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
                         it.reduceMotion = reduceMotion
                         // A view made while the game is paused (after a configuration change) starts paused.
                         if (phase != PlayPhase.PLAYING) it.pause()
@@ -206,9 +212,15 @@ fun PlayScreen(
     }
 }
 
-/** Title, chart and accuracy on the left and right of the top edge, and the pause button: no panel of their own. */
+/**
+ * Title, chart and accuracy on the left and right of the top edge, and the pause button: no panel of their own. In
+ * portrait they are a row above the lanes; in landscape they sit in the top corners beside the lanes, the title kept
+ * to the room left of the lanes' far end.
+ */
 @Composable
-private fun PlayHudRow(title: String, detail: String, accuracy: Double, paused: Boolean, onPause: () -> Unit) {
+private fun PlayHudRow(title: String, detail: String, accuracy: Double, paused: Boolean, onPause: () -> Unit) = BoxWithConstraints {
+    val landscape = maxWidth > maxHeight
+    val beside = (maxWidth - PlayfieldGeometry.lineWidth(maxWidth.value, 1f, landscape = true).dp) / 2
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -218,10 +230,11 @@ private fun PlayHudRow(title: String, detail: String, accuracy: Double, paused: 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = Brand.Text, maxLines = 1)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = Brand.MutedText, maxLines = 1)
+        Column(if (landscape) Modifier.widthIn(max = (beside - 32.dp).coerceAtLeast(0.dp)) else Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = Brand.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = Brand.MutedText, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        if (landscape) Spacer(Modifier.weight(1f))
         val accuracyText = formatAccuracy(accuracy)
         val accuracyLabel = stringResource(R.string.play_accuracy)
         Column(
@@ -319,24 +332,38 @@ private fun Countdown(reduceMotion: Boolean, hold: Boolean, onDone: () -> Unit) 
     }
 }
 
-/** Hides the status and navigation bars while playing (a swipe from an edge shows them for a moment), and keeps the
- * phone in portrait, where the lanes are tallest. Android 16 ignores the orientation request on large screens, where
- * the playfield is centred instead. */
-@SuppressLint("SourceLockedOrientationActivity")
+/** Hides the status and navigation bars while playing (a swipe from an edge shows them for a moment). The
+ * orientation is held by [GameOrientation], over the results too. */
 @Composable
-private fun ImmersivePortrait() {
+private fun Immersive() {
     val view = LocalView.current
     DisposableEffect(view) {
-        val activity = view.context as? Activity
-        val controller = activity?.window?.insetsController
+        val controller = (view.context as? Activity)?.window?.insetsController
         controller?.hide(PlatformWindowInsets.Type.systemBars())
         controller?.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        val orientation = activity?.requestedOrientation
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
-        onDispose {
-            controller?.show(PlatformWindowInsets.Type.systemBars())
-            if (activity != null && orientation != null) activity.requestedOrientation = orientation
+        onDispose { controller?.show(PlatformWindowInsets.Type.systemBars()) }
+    }
+}
+
+/**
+ * Holds the phone in the play orientation while [orientation] is set: through the count-in, play, pause and the
+ * results, so the end of a song does not turn the screen under the player's hands. `USER_LANDSCAPE` and
+ * `USER_PORTRAIT` let the phone take either side of that orientation, as its sensor and the player's rotation setting
+ * allow. When it is cleared the phone returns to its own orientation. Android 16 ignores the request on large screens
+ * (at least 600 dp wide), where the playfield takes the window's orientation instead.
+ */
+@SuppressLint("SourceLockedOrientationActivity")
+@Composable
+fun GameOrientation(orientation: PlayOrientation?) {
+    val activity = LocalView.current.context as? Activity ?: return
+    DisposableEffect(activity, orientation) {
+        if (orientation == null) return@DisposableEffect onDispose {}
+        val previous = activity.requestedOrientation
+        activity.requestedOrientation = when (orientation) {
+            PlayOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+            PlayOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         }
+        onDispose { activity.requestedOrientation = previous }
     }
 }
 

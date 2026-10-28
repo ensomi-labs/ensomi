@@ -31,6 +31,7 @@ import io.ensomi.android.chart.MakeChartScreen
 import io.ensomi.android.chart.MakeChartViewModel
 import io.ensomi.android.diagnostics.DiagnosticsScreen
 import io.ensomi.android.library.LibraryScreen
+import io.ensomi.android.play.GameOrientation
 import io.ensomi.android.play.PlayScreen
 import io.ensomi.android.play.ResultsScreen
 import io.ensomi.android.prototype.AppGraph
@@ -56,6 +57,10 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val model by graph.model.state.collectAsStateWithLifecycle()
     val settings by graph.settings.settings.collectAsStateWithLifecycle()
     val route by graph.settings.route.collectAsStateWithLifecycle()
+
+    // The game, from the count-in to the results, holds the play orientation; the other screens follow the phone.
+    val inGame = backStack.lastOrNull().let { it is Play || it is Results }
+    GameOrientation(if (inGame) settings.orientation else null)
 
     CompositionLocalProvider(LocalNotWired provides notWired) {
         Box(Modifier.fillMaxSize()) {
@@ -130,6 +135,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                             onDownloadModel = { notWired("Downloading the model (plan step 4)") },
                             onCancelDownload = { notWired("Cancelling the download (plan step 4)") },
                             onRemoveModel = { notWired("Removing the model (plan step 4)") },
+                            firstItem = scenario.settingsItem,
                         )
                     }
                     entry<Calibration> {
