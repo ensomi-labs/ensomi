@@ -10,6 +10,8 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -98,6 +100,9 @@ fun PlayScene(
     var started by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
     var presentation by remember { mutableStateOf<JudgementPresentation?>(null) }
+    // The last judgement a press produced. The core reports misses as it advances, so the newest event is
+    // usually a miss; the word over the field should answer "what did my press do", not "what just expired".
+    var lastHit by remember { mutableStateOf<Pair<Tier, Long>?>(null) }
     val feedback = remember { GameplayFeedback() }
 
     val clock = remember { AnchorAudioClock(AudioAnchor(0.0, SystemClock.elapsedRealtimeNanos())) }
@@ -199,6 +204,9 @@ fun PlayScene(
                     if (started && !paused) {
                         val pressTime = timeline.chartTimeMs(down.uptimeMillis)
                         session.input(InputEvent(lane.toUInt(), Phase.PRESS, pressTime))
+                            .filter { it.tier != Tier.M }
+                            .maxByOrNull { it.tier.ordinal }
+                            ?.let { lastHit = it.tier to SystemClock.uptimeMillis() }
                     }
                     down.consume()
 
@@ -223,7 +231,7 @@ fun PlayScene(
             val lineY = (size.height - keyArea).coerceAtLeast(size.height * 0.4f)
             val scrollTimeMs = 11_485.0 / scrollSpeed
             val tapHeight = 10.dp.toPx()
-            val noteInset = 4.dp.toPx()
+            val noteInset = 8.dp.toPx()
             val capInset = 10.dp.toPx()
 
             for (lane in 0 until 4) {
@@ -296,7 +304,7 @@ fun PlayScene(
                     )
 
                     is Geometry.Hold -> {
-                        val bodyWidth = width * 0.72f
+                        val bodyWidth = width * 0.56f
                         val bodyX = left + (width - bodyWidth) / 2
                         drawRoundRect(
                             color = EnsomiStyle.holdBody.copy(alpha = 0.6f),
@@ -397,36 +405,38 @@ fun PlayScene(
             }
             Text("${(score.accuracy * 100).toInt()}%", color = EnsomiStyle.textPrimary, fontSize = 16.sp)
             Text("x${score.combo}", color = EnsomiStyle.textPrimary, fontSize = 16.sp)
-            OutlinedButton(
+            HudPill(
+                label = if (paused) "Resume" else "Pause",
                 onClick = {
                     paused = !paused
                     if (paused) player.pause() else player.resume()
                 },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = EnsomiStyle.accent),
-            ) { Text(if (paused) "Resume" else "Pause", fontSize = 13.sp) }
-            OutlinedButton(
-                onClick = { player.stop(); onExit() },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = EnsomiStyle.textSecondary),
-            ) { Text("Quit", fontSize = 13.sp) }
+                tint = EnsomiStyle.accent,
+            )
+            HudPill(label = "Quit", onClick = { player.stop(); onExit() }, tint = EnsomiStyle.textSecondary)
         }
         }
 
-        presentation?.let { shown ->
-            val alpha = shown.opacity.toFloat().coerceIn(0f, 1f)
-            if (alpha > 0.05f) {
-                Box(
-                    Modifier
-                        .align(Alignment.Center)
-                        .padding(bottom = 60.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        judgementWord(shown.event.tier),
-                        color = judgementColour(shown.event.tier).copy(alpha = alpha),
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+        val hit = lastHit?.takeIf { SystemClock.uptimeMillis() - it.second < 500L }
+        val shownTier = hit?.first ?: presentation?.event?.tier
+        val shownAlpha = if (hit != null) {
+            (1f - (SystemClock.uptimeMillis() - hit!!.second) / 500f).coerceIn(0f, 1f)
+        } else {
+            presentation?.opacity?.toFloat()?.coerceIn(0f, 1f) ?: 0f
+        }
+        if (shownTier != null && shownAlpha > 0.05f) {
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = 60.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    judgementWord(shownTier),
+                    color = judgementColour(shownTier).copy(alpha = shownAlpha),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
 
@@ -473,6 +483,20 @@ fun PlayScene(
                 ) { Text("Back to Setup") }
             }
         }
+    }
+}
+
+/** The HUD's capsule button, as the iOS client's `Mania4KHUDBar` draws them. */
+@Composable
+private fun HudPill(label: String, onClick: () -> Unit, tint: Color) {
+    Box(
+        Modifier
+            .background(EnsomiStyle.control, RoundedCornerShape(50))
+            .border(1.dp, EnsomiStyle.borderStrong, RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Text(label, color = tint, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
