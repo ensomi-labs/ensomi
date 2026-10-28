@@ -78,6 +78,8 @@ for mode in light dark; do
         swipe_up; shot "$mode-$name-scrolled" ;;
       settings)
         swipe_up; shot "$mode-$name-2"; swipe_up; shot "$mode-$name-3"; swipe_up; shot "$mode-$name-4" ;;
+      settings-downloading)
+        swipe_up; swipe_up; shot "$mode-$name-model" ;;
     esac
   done
   # The wallpaper's colours instead of the brand's, for comparison.
@@ -130,12 +132,15 @@ for name in library make-chart-made play-paused results; do
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/window-$name.xml" >/dev/null || echo "no dump for $name"
 done
 
-# The playfield preview in motion, 15 seconds.
+# The playfield preview in motion, 15 seconds, at a size the emulator's encoder keeps up with; then the render
+# thread's own frame log.
+adb logcat -c
 launch play-preview
 sleep 1
-adb shell screenrecord --time-limit 15 /sdcard/playfield-preview.mp4
+adb shell screenrecord --time-limit 15 --size 720x1616 --bit-rate 8000000 /sdcard/playfield-preview.mp4
 adb pull /sdcard/playfield-preview.mp4 "$OUT/playfield-preview.mp4" >/dev/null
 echo playfield-preview.mp4
+adb logcat -d -s EnsomiPlayfield:I >"$OUT/frame-stats.txt" || true
 adb shell dumpsys SurfaceFlinger --list >"$OUT/surfaceflinger-layers.txt" || true
 
 adb shell am force-stop "$PKG"

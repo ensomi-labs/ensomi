@@ -12,6 +12,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import io.ensomi.android.R
+import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -197,10 +198,13 @@ class PlayfieldView @JvmOverloads constructor(
             visualOffsetMs?.let { playController.visualOffsetMs = it }
             ready.countDown()
             val choreographer = Choreographer.getInstance()
+            val stats = FrameStats(refreshRateHz = display?.refreshRate ?: 60f)
             val callback = object : Choreographer.VsyncCallback {
                 override fun onVsync(data: Choreographer.FrameData) {
                     if (!running) return
+                    val start = System.nanoTime()
                     drawFrame(playController, data.preferredFrameTimeline.expectedPresentationTimeNanos)
+                    stats.record(data.frameTimeNanos, System.nanoTime() - start)
                     choreographer.postVsyncCallback(this)
                 }
             }
@@ -235,6 +239,46 @@ class PlayfieldView @JvmOverloads constructor(
 
     private companion object {
         const val TAG = "EnsomiPlayfield"
+    }
+}
+
+/**
+ * The render thread's own account of pacing, logged under `EnsomiPlayfield` every 240 frames: vsyncs that came more
+ * than 1.5 refresh intervals after the previous one (frames the thread missed), and the time each frame's work took
+ * (inputs, advance, runtime reads and drawing, up to posting the canvas). The start of plan step 9's frame logs.
+ */
+private class FrameStats(refreshRateHz: Float) {
+    private val intervalNanos = (1e9 / refreshRateHz).toLong()
+    private var frames = 0
+    private var missed = 0
+    private var lastVsyncNanos = 0L
+    private var workSumNanos = 0L
+    private var workMaxNanos = 0L
+
+    fun record(vsyncNanos: Long, workNanos: Long) {
+        if (lastVsyncNanos != 0L && vsyncNanos - lastVsyncNanos > intervalNanos * 3 / 2) missed++
+        lastVsyncNanos = vsyncNanos
+        frames++
+        workSumNanos += workNanos
+        workMaxNanos = maxOf(workMaxNanos, workNanos)
+        if (frames == WINDOW) {
+            Log.i(
+                "EnsomiPlayfield",
+                String.format(
+                    Locale.ROOT,
+                    "frames=%d refresh=%.1fHz missed=%d work_avg=%.2fms work_max=%.2fms",
+                    frames, 1e9 / intervalNanos, missed, workSumNanos / 1e6 / frames, workMaxNanos / 1e6,
+                ),
+            )
+            frames = 0
+            missed = 0
+            workSumNanos = 0
+            workMaxNanos = 0
+        }
+    }
+
+    private companion object {
+        const val WINDOW = 240
     }
 }
 
