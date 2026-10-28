@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ensomi</string>
+
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="diagnostics_copy_json">Copy JSON</string>
+    <string name="diagnostics_clip_label">Ensomi diagnostics</string>
+    <string name="diagnostics_loading">Reading the device</string>
+    <string name="diagnostics_failed">Diagnostics failed: %1$s</string>
+
+    <string name="value_yes">Yes</string>
+    <string name="value_no">No</string>
+    <string name="value_unknown">Unknown</string>
+
+    <string name="section_device">Device</string>
+    <string name="section_runtime">Runtime</string>
+    <string name="section_memory">Memory</string>
+    <string name="section_display">Display</string>
+    <string name="section_audio">Audio</string>
+    <string name="section_thermal">Thermal</string>
+    <string name="section_cpu">CPU</string>
+
+    <string name="label_manufacturer">Manufacturer</string>
+    <string name="label_model">Model</string>
+    <string name="label_soc_manufacturer">SoC manufacturer</string>
+    <string name="label_soc_model">SoC model</string>
+    <string name="label_android">Android</string>
+    <string name="label_vendor_os">Vendor OS</string>
+
+    <string name="label_runtime_loaded">Native library loaded</string>
+    <string name="label_runtime_init">Load time</string>
+    <string name="label_runtime_notice_files">Notice files, no model</string>
+    <string name="label_runtime_check_package">Package check, empty manifest</string>
+    <string name="label_runtime_error">Error</string>
+
+    <string name="label_page_size">Page size</string>
+    <string name="label_total_ram">Total RAM</string>
+    <string name="label_advertised_ram">Advertised RAM</string>
+
+    <string name="label_current_mode">Current mode</string>
+    <string name="label_mode">Mode %1$d</string>
+
+    <string name="label_low_latency">Low-latency audio</string>
+    <string name="label_pro_audio">Pro audio</string>
+    <string name="label_output_sample_rate">Output sample rate</string>
+    <string name="label_frames_per_buffer">Output frames per buffer</string>
+    <string name="label_unprocessed_capture">Unprocessed capture</string>
+
+    <string name="label_thermal_status">Status</string>
+    <string name="label_thermal_headroom">Headroom in 10 s</string>
+
+    <string name="label_cores">Cores</string>
+    <string name="label_core">Core %1$d max</string>
+</resources>

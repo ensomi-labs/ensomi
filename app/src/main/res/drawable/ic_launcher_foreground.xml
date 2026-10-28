@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Four lanes with a note in each, inside the adaptive icon's 66 dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M30,56h6a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-6a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M44,42h6a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-6a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M58,50h6a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-6a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M72,36h6a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h-6a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2z" />
+    <path
+        android:fillAlpha="0.5"
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M28,68h52v2h-52z" />
+</vector>
