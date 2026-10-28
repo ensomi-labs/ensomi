@@ -23,6 +23,8 @@ launch() { # scenario [extra am args...]
 shot() { adb exec-out screencap -p >"$OUT/$1.png"; echo "$1.png"; }
 wanted() { case " $GROUPS_WANTED " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 swipe_up() { adb shell input swipe 540 1900 540 700 500; sleep 1.5; }
+# The results keep the game's landscape: scroll their left column.
+swipe_up_landscape() { adb shell input swipe 700 850 700 300 500; sleep 1.5; }
 
 # scenario:seconds to wait before the screenshot
 SCENARIOS=(
@@ -82,8 +84,10 @@ for mode in light dark; do
     sleep "${entry##*:}"
     shot "$mode-$name"
     case "$name" in
-      make-chart-sections|make-chart-made|results|calibration-sound)
+      make-chart-sections|make-chart-made|calibration-sound)
         swipe_up; shot "$mode-$name-scrolled" ;;
+      results)
+        swipe_up_landscape; shot "$mode-$name-scrolled" ;;
       settings)
         swipe_up; shot "$mode-$name-2"; swipe_up; shot "$mode-$name-3"; swipe_up; shot "$mode-$name-4" ;;
       settings-downloading)
@@ -120,7 +124,7 @@ launch play-countdown; sleep 15; shot play-countdown
 for mode in light dark; do
   if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
   sleep 2
-  launch results; sleep 3; shot "$mode-results"; swipe_up; shot "$mode-results-scrolled"
+  launch results; sleep 3; shot "$mode-results"; swipe_up_landscape; shot "$mode-results-scrolled"
 done
 adb shell cmd uimode night no
 fi
