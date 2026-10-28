@@ -7,6 +7,8 @@ import uniffi.ensomi_runtime_ffi.Chart
 import uniffi.ensomi_runtime_ffi.ChartGenerator
 import uniffi.ensomi_runtime_ffi.ExecutionProvider
 import uniffi.ensomi_runtime_ffi.GenerateChartRequest
+import uniffi.ensomi_runtime_ffi.GenerationListener
+import uniffi.ensomi_runtime_ffi.GenerationPhase
 import uniffi.ensomi_runtime_ffi.GeneratorOptions
 import java.io.File
 
@@ -49,6 +51,7 @@ class ChartGenerationService(private val context: Context) {
         title: String? = null,
         artist: String? = null,
         audioName: String? = null,
+        onPhase: (GenerationPhase) -> Unit = {},
     ): GeneratedChart {
         val directory = modelDirectory()
         check(isModelInstalled()) { "the model is not installed in ${directory.absolutePath}" }
@@ -73,7 +76,11 @@ class ChartGenerationService(private val context: Context) {
                     artist = artist,
                     audioName = audioName,
                 ),
-                listener = null,
+                listener = object : GenerationListener {
+                    override fun `progress`(phase: GenerationPhase) {
+                        onPhase(phase)
+                    }
+                },
                 cancellation = null,
             )
 
