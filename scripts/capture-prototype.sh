@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Captures the prototype's screens on the one booted emulator or device, with the debug APK installed:
 # every scenario of app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt in light and dark mode,
-# a few at 200 % font size and in landscape, UI hierarchy dumps, and a recording of the playfield preview.
+# the game at each lean and in both orientations, a few screens at 200 % font size and with the phone in landscape,
+# UI hierarchy dumps, and a recording of the playfield preview (landscape, the default lean).
 #
 #   scripts/capture-prototype.sh OUT_DIR [GROUP...]
 #
-# GROUP is any of screens, game, font, landscape, dumps, recording; all of them when none is given.
+# GROUP is any of screens, game, lean, font, landscape, dumps, recording; all of them when none is given.
 set -euo pipefail
 
 OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
 shift
-GROUPS_WANTED=${*:-screens game font landscape dumps recording}
+GROUPS_WANTED=${*:-screens game lean font landscape dumps recording}
 mkdir -p "$OUT"
 PKG=io.ensomi.android
 ACTIVITY=$PKG/.MainActivity
@@ -28,7 +29,8 @@ SCENARIOS=(
   first-run:3 downloading:3 download-stopped:3 no-space:3 library:3
   make-chart:3 make-chart-sections:3 make-chart-section-problem:3 make-chart-no-model:3
   make-chart-making:3 make-chart-made:3 make-chart-stopped:3 make-chart-failed:3
-  results:3 settings:3 settings-downloading:3 calibration-sound:3 calibration-picture:5 diagnostics:6
+  results:3 settings:3 settings-playfield:4 settings-playfield-portrait:4 settings-downloading:3
+  calibration-sound:3 calibration-picture:5 diagnostics:6
 )
 
 # A freshly booted emulator under load can show "System UI isn't responding" over every screen. Keep error
@@ -123,6 +125,23 @@ done
 adb shell cmd uimode night no
 fi
 
+if wanted lean; then
+# The lanes at no lean, the default and the most, in landscape (the phones' default) and portrait; then the settings'
+# live preview at no lean and the most, in both modes. Each game is shot once notes are falling.
+for name in play-flat play play-lean-max play-portrait play-portrait-lean; do
+  launch "$name"; sleep 8; shot "lean-$name"
+done
+for mode in light dark; do
+  if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
+  sleep 2
+  for name in settings-playfield-flat settings-playfield settings-playfield-max; do
+    launch "$name"; sleep 4; shot "$mode-$name"
+  done
+done
+adb shell cmd uimode night no
+sleep 2
+fi
+
 if wanted font; then
 # Larger text: Android's font size at 200 %.
 adb shell settings put system font_scale 2.0
@@ -135,10 +154,10 @@ sleep 2
 fi
 
 if wanted landscape; then
-# Landscape: the chrome follows the phone; play asks for portrait.
+# The phone turned to landscape: the chrome follows it. (Play turns it to landscape by itself.)
 adb shell settings put system user_rotation 1
 sleep 2
-for name in library make-chart-made settings; do
+for name in library make-chart-made settings settings-playfield calibration-picture; do
   launch "$name"; sleep 3; shot "landscape-$name"
 done
 adb shell settings put system user_rotation 0
@@ -155,12 +174,12 @@ done
 fi
 
 if wanted recording; then
-# The playfield preview in motion, 15 seconds, at a size the emulator's encoder keeps up with; then the render
-# thread's own frame log.
+# The playfield preview in motion, 15 seconds, in landscape at the default lean, at a size the emulator's encoder
+# keeps up with; then the render thread's own frame log.
 adb logcat -c
 launch play-preview
-sleep 1
-adb shell screenrecord --time-limit 15 --size 720x1616 --bit-rate 8000000 /sdcard/playfield-preview.mp4
+sleep 2
+adb shell screenrecord --time-limit 15 --size 1616x720 --bit-rate 8000000 /sdcard/playfield-preview.mp4
 adb pull /sdcard/playfield-preview.mp4 "$OUT/playfield-preview.mp4" >/dev/null
 echo playfield-preview.mp4
 adb logcat -d -s EnsomiPlayfield:I >"$OUT/frame-stats.txt" || true

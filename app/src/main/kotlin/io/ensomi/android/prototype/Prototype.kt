@@ -22,6 +22,8 @@ import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
 import io.ensomi.android.model.SampleChartModelStore
 import io.ensomi.android.play.SAMPLE_RESULT
+import io.ensomi.android.settings.PLAYFIELD_SETTINGS
+import io.ensomi.android.settings.PlayOrientation
 import io.ensomi.android.settings.CalibrationStep
 import io.ensomi.android.settings.InMemoryPlaySettingsStore
 import io.ensomi.android.settings.PlaySettings
@@ -51,12 +53,15 @@ data class Scenario(
     val holdCountdown: Boolean = false,
     val calibrationStep: CalibrationStep = CalibrationStep.SOUND,
     val dynamicColor: Boolean = false,
+    val settings: PlaySettings = PlaySettings(),
+    /** Opens Settings scrolled to this item: [PLAYFIELD_SETTINGS] for the playfield section. */
+    val settingsItem: Int = 0,
 ) {
     fun graph(): AppGraph = AppGraph(
         songs = SampleSongLibrary(if (withSongs) SampleSongLibrary.SONGS else emptyList()),
         model = SampleChartModelStore(model),
         charts = SampleChartMaker(make, SampleChartMaker.CAPABILITIES.takeIf { model is ModelState.Installed }),
-        settings = InMemoryPlaySettingsStore(PlaySettings(), InMemoryPlaySettingsStore.SPEAKER),
+        settings = InMemoryPlaySettingsStore(settings, InMemoryPlaySettingsStore.SPEAKER),
     )
 
     companion object {
@@ -66,6 +71,10 @@ data class Scenario(
         private val ONE_SECTION = listOf(SectionDraft(id = 1, start = "00:32", end = "00:48", kind = SectionKind.JUMPSTREAM))
 
         val DEFAULT = Scenario(backStack = listOf(Library))
+
+        private val FLAT = PlaySettings(landscapeLean = 0)
+        private val MOST_LEAN = PlaySettings(landscapeLean = PlaySettings.LEANS.last)
+        private val PORTRAIT = PlaySettings(orientation = PlayOrientation.PORTRAIT)
 
         val ALL: Map<String, Scenario> = mapOf(
             "first-run" to Scenario(listOf(Library), model = ModelState.Absent(PACKAGE, FREE), withSongs = false),
@@ -101,6 +110,13 @@ data class Scenario(
                 make = MakeState.Failed(SONG, "star_out_of_range: star must be in [2, 6)"),
             ),
             "play" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false))),
+            "play-flat" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = FLAT),
+            "play-lean-max" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = MOST_LEAN),
+            "play-portrait" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = PORTRAIT),
+            "play-portrait-lean" to Scenario(
+                listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
+                settings = PORTRAIT.copy(portraitLean = PlaySettings.DEFAULT_LANDSCAPE_LEAN),
+            ),
             "play-preview" to Scenario(listOf(Library, Settings, Play(null, loop = true))),
             "play-paused" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), pauseAfterMs = 12_400),
             "play-countdown" to Scenario(
@@ -110,6 +126,10 @@ data class Scenario(
             ),
             "results" to Scenario(listOf(Library, MakeChart(SONG), Results(SONG, SAMPLE_RESULT))),
             "settings" to Scenario(listOf(Library, Settings)),
+            "settings-playfield" to Scenario(listOf(Library, Settings), settingsItem = PLAYFIELD_SETTINGS),
+            "settings-playfield-flat" to Scenario(listOf(Library, Settings), settings = FLAT, settingsItem = PLAYFIELD_SETTINGS),
+            "settings-playfield-max" to Scenario(listOf(Library, Settings), settings = MOST_LEAN, settingsItem = PLAYFIELD_SETTINGS),
+            "settings-playfield-portrait" to Scenario(listOf(Library, Settings), settings = PORTRAIT, settingsItem = PLAYFIELD_SETTINGS),
             "settings-downloading" to Scenario(listOf(Library, Settings), model = ModelState.Downloading(50_600_000, PACKAGE)),
             "calibration-sound" to Scenario(listOf(Library, Settings, Calibration)),
             "calibration-picture" to Scenario(listOf(Library, Settings, Calibration), calibrationStep = CalibrationStep.PICTURE),
