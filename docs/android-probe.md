@@ -281,6 +281,12 @@ produced `373 notes (303 taps, 70 long)` at star 2.0 in about ten seconds, and t
 chart rather than the demo pattern. Decoding resamples to 22 050 Hz in Kotlin on purpose: the core's own
 resampler needs the model's `resample-*` tables, and the client does not ship them.
 
+**Saving the chart.** The setup writes the generated beatmap through the platform's create-document
+picker. The picker enforces the extension its MIME type implies, so `text/plain` produced
+`… (Ensomi).osu.txt`; `application/octet-stream` writes the name as typed, and the saved file starts with
+`osu file format v14`, `Mode:3`, `Creator:Ensomi`, `Version:Ensomi r2 s0` — 390 lines, 10 780 bytes for the
+test track, and it parses back through `parse_osu`.
+
 **The same input gives the same chart.** `ChartDeterminismTest` runs on the device with a synthesized
 signal and the installed model: two generations with the same star and seed produce the same `.osu` bytes,
 the same object count and the same seed, and the generated beatmap survives `parse_osu` — the parser the
