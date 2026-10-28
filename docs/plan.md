@@ -34,9 +34,10 @@ model download to continue in the background.
 None is needed for this design; every call it makes exists in the runtime's Kotlin bindings today. Two may become
 useful and are listed, not made:
 
-- **One call for every visible note's geometry.** The renderer calls `noteGeometry` once per visible note. If step 9
-  shows the per-call cost through JNA is too high at 120 Hz, a call that takes the visible objects and returns all
-  their positions would remove it.
+- **One call per frame.** A frame makes about ten runtime calls plus one `noteGeometry` per visible note, each through
+  JNA. On the emulator they took 17 to 24 ms per frame (debug build, CPU renderer); the phone measures the release
+  build in step 9. If they cost more than about 1 ms there, one call that advances the session and returns the
+  visible notes with their positions, lane brightness, recent batches, presentation and score would replace them.
 - **Phases from the scheduler.** A whole-chart scheduler reports no phases, so "Placing notes" and "Arranging lanes"
   cannot be told apart, as in the Swift app. A listener on the scheduler would let the bar show both.
 

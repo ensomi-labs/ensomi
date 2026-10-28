@@ -210,10 +210,14 @@ heads) for the output used, when it is at least 3 ms.
   the switch is seamless. The system may refuse (battery saver; HyperOS may cap apps); positions are computed from
   time, so the game is right at any rate it gets.
 - The render thread's work is the four steps above. The Swift app measured the runtime's frame (advance, visible
-  objects, lane states) at 0.05 ms through its bindings; through JNA each call costs more, and `noteGeometry` is one
-  call per visible note (about 70 in a dense frame). That cost is the first thing the phone measures. If it is too
-  high, the fix is one runtime call that returns every visible note's geometry: a runtime change, listed in plan.md and
-  not made.
+  objects, lane states) at 0.05 ms through its bindings. Through UniFFI's Kotlin bindings every call goes through JNA,
+  which marshals structures by reflection, and a frame makes about ten calls plus one `noteGeometry` per visible note
+  (up to about 70 in a dense frame). On the emulator the runtime calls took 17 to 24 ms per frame on average (a debug
+  build, with a CPU renderer competing for the cores), which says nothing about a phone but is too large to assume
+  away. It is the first thing the phone measures, in a release build. If it stays above about 1 ms, the fix is one
+  runtime call per frame that returns the visible notes with their positions, lane brightness, the recent batches,
+  the presentation and the score: a runtime change, listed in plan.md and not made. The prototype already asks only
+  what changed (the score after events, the tier words once).
 - The renderer allocates nothing per frame; the bindings return new lists each call (`visibleObjects`, batches), so
   garbage collection pauses are watched in the traces.
 - Drawing is a hardware canvas (HWUI's GPU renderer) of about 150 rounded rectangles, gradients and two text runs, with
@@ -226,7 +230,9 @@ heads) for the output used, when it is at least 3 ms.
 
 ## What the emulator can and cannot show
 
-The arm64 AVD `ensomi-36` runs the app natively on the Mac, at 1080 × 2424.
+The arm64 AVD `ensomi-36` runs the app natively on the Mac, at 1080 × 2424. Headless, it draws with SwiftShader, a
+CPU renderer: the render thread logged 5 to 14 frames per second, with 35 to 140 ms per frame in drawing and 17 to
+24 ms in runtime calls. Its recordings show the look of the playfield, not the smoothness of its motion.
 
 | It shows | It cannot show |
 | --- | --- |
