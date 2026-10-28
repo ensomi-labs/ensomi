@@ -281,6 +281,13 @@ produced `373 notes (303 taps, 70 long)` at star 2.0 in about ten seconds, and t
 chart rather than the demo pattern. Decoding resamples to 22 050 Hz in Kotlin on purpose: the core's own
 resampler needs the model's `resample-*` tables, and the client does not ship them.
 
+**The same input gives the same chart.** `ChartDeterminismTest` runs on the device with a synthesized
+signal and the installed model: two generations with the same star and seed produce the same `.osu` bytes,
+the same object count and the same seed, and the generated beatmap survives `parse_osu` — the parser the
+other clients read it with. One nuance came out of it: the parsed duration comes back 19 ms shorter than
+the in-memory chart's, because the parser derives it from the beatmap's timed content, so the test compares
+it with a tolerance instead of byte for byte.
+
 The PCM crosses the binding as a `List<Float>`, which boxes one float per sample — about 1.3 million
 objects for a minute of audio. It works, but a buffer-shaped parameter is the right fix if generation ever
 runs on full-length songs.
