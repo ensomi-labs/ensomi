@@ -156,6 +156,7 @@ private fun ValueRow(row: DiagnosticsRow) {
         is DiagnosticsValue.Text -> rowValue.text
         is DiagnosticsValue.Problem -> rowValue.text
         is DiagnosticsValue.Flag -> stringResource(if (rowValue.on) R.string.value_yes else R.string.value_no)
+        DiagnosticsValue.None -> stringResource(R.string.value_none)
         DiagnosticsValue.Unknown -> stringResource(R.string.value_unknown)
     }
     val valueColor = when (row.value) {
@@ -163,26 +164,37 @@ private fun ValueRow(row: DiagnosticsRow) {
         DiagnosticsValue.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> MaterialTheme.colorScheme.onSurface
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {}
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = value,
-            // Tabular figures keep numbers aligned from row to row.
-            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
-            color = valueColor,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1.2f),
-        )
+    val labelStyle = MaterialTheme.typography.bodyMedium
+    // Tabular figures keep numbers aligned from row to row.
+    val valueStyle = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum")
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .semantics(mergeDescendants = true) {}
+        .padding(horizontal = 16.dp, vertical = 12.dp)
+    if (value.length > STACK_AFTER_CHARS) {
+        // A message reads better as a paragraph under its label than as a narrow right-aligned column.
+        Column(modifier = rowModifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(text = label, style = labelStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = value, style = valueStyle, color = valueColor)
+        }
+    } else {
+        Row(modifier = rowModifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                text = label,
+                style = labelStyle,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = value,
+                style = valueStyle,
+                color = valueColor,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1.2f),
+            )
+        }
     }
 }
+
+/** Values longer than this go under their label instead of beside it. */
+private const val STACK_AFTER_CHARS = 28

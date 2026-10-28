@@ -11,6 +11,7 @@
     <string name="value_yes">Yes</string>
     <string name="value_no">No</string>
     <string name="value_unknown">Unknown</string>
+    <string name="value_none">None</string>
 
     <string name="section_device">Device</string>
     <string name="section_runtime">Runtime</string>
@@ -18,7 +19,7 @@
     <string name="section_display">Display</string>
     <string name="section_audio">Audio</string>
     <string name="section_thermal">Thermal</string>
-    <string name="section_cpu">CPU</string>
+    <string name="section_cpu">CPU max frequency</string>
 
     <string name="label_manufacturer">Manufacturer</string>
     <string name="label_model">Model</string>
@@ -49,6 +50,5 @@
     <string name="label_thermal_status">Status</string>
     <string name="label_thermal_headroom">Headroom in 10 s</string>
 
-    <string name="label_cores">Cores</string>
-    <string name="label_core">Core %1$d max</string>
+    <string name="label_core">Core %1$d</string>
 </resources>

@@ -23,6 +23,9 @@ sealed interface DiagnosticsValue {
     /** Text shown as an error. */
     data class Problem(val text: String) : DiagnosticsValue
 
+    /** An empty list. */
+    data object None : DiagnosticsValue
+
     data object Unknown : DiagnosticsValue
 }
 
@@ -47,12 +50,7 @@ fun DiagnosticsReport.sections(): List<DiagnosticsSection> = listOf(
         buildList {
             add(DiagnosticsRow(R.string.label_runtime_loaded, DiagnosticsValue.Flag(runtime.loaded)))
             add(DiagnosticsRow(R.string.label_runtime_init, text(runtime.initMillis?.let(Format::millis))))
-            add(
-                DiagnosticsRow(
-                    R.string.label_runtime_notice_files,
-                    text(runtime.noticeFiles?.joinToString(prefix = "[", postfix = "]")),
-                ),
-            )
+            add(DiagnosticsRow(R.string.label_runtime_notice_files, list(runtime.noticeFiles)))
             add(DiagnosticsRow(R.string.label_runtime_check_package, text(runtime.checkPackage)))
             runtime.error?.let { add(DiagnosticsRow(R.string.label_runtime_error, DiagnosticsValue.Problem(it))) }
         },
@@ -62,7 +60,7 @@ fun DiagnosticsReport.sections(): List<DiagnosticsSection> = listOf(
         listOf(
             DiagnosticsRow(R.string.label_page_size, text(Format.bytes(memory.pageSizeBytes))),
             DiagnosticsRow(R.string.label_total_ram, text(Format.bytes(memory.totalRamBytes))),
-            DiagnosticsRow(R.string.label_advertised_ram, text(memory.advertisedRamBytes?.let(Format::bytes))),
+            DiagnosticsRow(R.string.label_advertised_ram, text(memory.advertisedRamBytes?.let(Format::gigabytes))),
         ),
     ),
     DiagnosticsSection(
@@ -83,21 +81,29 @@ fun DiagnosticsReport.sections(): List<DiagnosticsSection> = listOf(
     DiagnosticsSection(
         R.string.section_thermal,
         listOf(
-            DiagnosticsRow(R.string.label_thermal_status, text(thermal.status)),
+            DiagnosticsRow(
+                R.string.label_thermal_status,
+                text(thermal.status.replaceFirstChar { it.titlecase(Locale.ROOT) }),
+            ),
             DiagnosticsRow(R.string.label_thermal_headroom, text(thermal.headroom10s?.let(Format::headroom))),
         ),
     ),
     DiagnosticsSection(
         R.string.section_cpu,
-        listOf(DiagnosticsRow(R.string.label_cores, text(cpu.cores.size.toString()))) +
-            cpu.cores.map { core ->
-                DiagnosticsRow(R.string.label_core, text(core.maxFreqKHz?.let(Format::frequency)), core.index)
-            },
+        cpu.cores.map { core ->
+            DiagnosticsRow(R.string.label_core, text(core.maxFreqKHz?.let(Format::frequency)), core.index)
+        },
     ),
 )
 
 private fun text(value: String?): DiagnosticsValue =
     if (value.isNullOrBlank()) DiagnosticsValue.Unknown else DiagnosticsValue.Text(value)
+
+private fun list(values: List<String>?): DiagnosticsValue = when {
+    values == null -> DiagnosticsValue.Unknown
+    values.isEmpty() -> DiagnosticsValue.None
+    else -> DiagnosticsValue.Text(values.joinToString())
+}
 
 /** Value formatting for the screen; the JSON keeps raw numbers. */
 object Format {
@@ -113,12 +119,18 @@ object Format {
         else -> "$bytes B"
     }
 
-    fun frequency(kiloHertz: Long): String =
-        if (kiloHertz >= 1_000_000) {
-            String.format(Locale.ROOT, "%.2f GHz", kiloHertz / 1e6)
-        } else {
-            "${(kiloHertz / 1e3).roundToInt()} MHz"
-        }
+    /** Advertised memory is a retail figure, so it is shown in decimal gigabytes ("8 GB"). */
+    fun gigabytes(bytes: Long): String {
+        val gigabytes = bytes / 1e9
+        val whole = gigabytes.roundToInt()
+        return if (abs(gigabytes - whole) < 0.05) "$whole GB" else String.format(Locale.ROOT, "%.1f GB", gigabytes)
+    }
+
+    fun frequency(kiloHertz: Long): String = when {
+        kiloHertz >= 1_000_000 -> String.format(Locale.ROOT, "%.2f GHz", kiloHertz / 1e6)
+        kiloHertz >= 1_000 -> "${(kiloHertz / 1e3).roundToInt()} MHz"
+        else -> "$kiloHertz kHz"
+    }
 
     /** "1080 × 2424, 120 Hz"; a rate within 0.05 Hz of a whole number is shown whole. */
     fun mode(mode: DisplayMode): String = "${mode.width} × ${mode.height}, ${refreshRate(mode.refreshRateHz)} Hz"

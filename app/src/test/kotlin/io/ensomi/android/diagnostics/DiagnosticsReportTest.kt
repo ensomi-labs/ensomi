@@ -40,8 +40,13 @@ class DiagnosticsReportTest {
         val sections = report.sections()
         val cpu = sections.single { it.title == R.string.section_cpu }
         assertEquals(DiagnosticsRow(R.string.label_core, DiagnosticsValue.Unknown, 1), cpu.rows.last())
+        assertEquals(2, cpu.rows.size)
         val runtime = sections.single { it.title == R.string.section_runtime }
         assertTrue(runtime.rows.none { it.label == R.string.label_runtime_error })
+        assertEquals(
+            DiagnosticsValue.None,
+            runtime.rows.single { it.label == R.string.label_runtime_notice_files }.value,
+        )
         val failed = report.copy(runtime = RuntimeFacts(false, null, null, null, "java.lang.UnsatisfiedLinkError: x"))
             .sections().single { it.title == R.string.section_runtime }
         assertEquals(DiagnosticsValue.Problem("java.lang.UnsatisfiedLinkError: x"), failed.rows.last().value)
@@ -54,6 +59,10 @@ class DiagnosticsReportTest {
         assertEquals("7.5 GiB", Format.bytes(8_053_063_680))
         assertEquals("3.30 GHz", Format.frequency(3_302_400))
         assertEquals("800 MHz", Format.frequency(800_000))
+        assertEquals("2 kHz", Format.frequency(2))
+        assertEquals("8 GB", Format.gigabytes(8_000_000_000))
+        assertEquals("8 GB", Format.gigabytes(8_011_000_000))
+        assertEquals("7.5 GB", Format.gigabytes(7_500_000_000))
         assertEquals("1080 × 2424, 120 Hz", Format.mode(DisplayMode(2, 1080, 2424, 120.00001f)))
         assertEquals("59.94", Format.refreshRate(59.94f))
     }
