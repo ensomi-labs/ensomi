@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -33,6 +35,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -44,16 +47,16 @@ import io.ensomi.android.R
 import kotlinx.coroutines.launch
 
 @Composable
-fun DiagnosticsScreen(modifier: Modifier = Modifier) {
+fun DiagnosticsScreen(modifier: Modifier = Modifier, onBack: (() -> Unit)? = null) {
     val appContext = LocalContext.current.applicationContext
     val viewModel = viewModel { DiagnosticsViewModel(DiagnosticsCollector(appContext)) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    DiagnosticsContent(uiState, modifier)
+    DiagnosticsContent(uiState, modifier, onBack)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiagnosticsContent(uiState: DiagnosticsUiState, modifier: Modifier = Modifier) {
+fun DiagnosticsContent(uiState: DiagnosticsUiState, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val clipLabel = stringResource(R.string.diagnostics_clip_label)
@@ -63,6 +66,13 @@ fun DiagnosticsContent(uiState: DiagnosticsUiState, modifier: Modifier = Modifie
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = stringResource(R.string.action_back))
+                        }
+                    }
+                },
                 title = { Text(stringResource(R.string.diagnostics_title)) },
                 actions = {
                     // Android shows its own confirmation when the clipboard changes.
