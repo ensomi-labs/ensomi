@@ -321,10 +321,16 @@ list form boxes one object per sample, about 1.3 million of them for a minute of
 a full song. A device test generates from the same samples both ways and asserts the same `.osu`, so the
 cheaper transport does not change the chart.
 
-`LongGenerationTest` measures a full-length song on the device: three minutes of audio
-(15,964,200 bytes of samples) generate 317 notes in 15.2 s on the K80, about twelve
-times faster than the song plays. The app's own runs log the same shape of number
-under the `EnsomiGenerate` tag.
+Two device tests measure a full-length song. `LongGenerationTest` sends three minutes of
+synthesized audio (15,964,200 bytes of samples) straight to the generator: 317 notes in
+15.2 s. `LongSongServiceTest` takes the path the app takes - decode a real three-minute
+mp3, mix it to mono, resample it into the transport, generate - and reports 1157 notes
+(804 taps, 353 holds) for a 179,999 ms chart in 30.5 s, with all five phases reaching
+the page. The app logs the same shape of number under `EnsomiGenerate` for every run it
+performs.
+
+The decoder writes little-endian `f32` bytes as it resamples, so a full song holds the
+source samples and the bytes rather than a float mix and a resampled copy beside them.
 
 ## Building and installing
 

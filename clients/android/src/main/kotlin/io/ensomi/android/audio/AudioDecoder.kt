@@ -1,15 +1,22 @@
 package io.ensomi.android.audio
 
 import android.content.Context
+import android.os.ParcelFileDescriptor
+import java.io.File
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
 
-/** Mono PCM at the rate the generator asked for, as `generate` takes it. */
-data class DecodedAudio(val samples: FloatArray, val sampleRate: Int) {
+/**
+ * Mono PCM at the rate the generator asked for, already in the transport it takes: little-endian `f32` bytes.
+ * The decoder writes those bytes as it resamples, so a full song never holds a float copy beside them.
+ */
+data class DecodedAudio(val leBytes: ByteArray, val sampleRate: Int) {
     val durationMs: Long
-        get() = if (sampleRate == 0) 0 else samples.size * 1000L / sampleRate
+        get() = if (sampleRate == 0) 0 else frameCount * 1000L / sampleRate
+
+    val frameCount: Int get() = leBytes.size / 4
 }
 
 /**
@@ -35,10 +42,19 @@ object AudioDecoder {
     /** The rate the R2 pipeline reads; the model's own tables are built for it. */
     const val TARGET_RATE = 22_050
 
+    /** The same decode for a file the app already holds. */
+    fun decodeMono(file: File, targetRate: Int = TARGET_RATE): DecodedAudio {
+        val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        return decodeDescriptor(descriptor, targetRate)
+    }
+
     fun decodeMono(context: Context, uri: Uri, targetRate: Int = TARGET_RATE): DecodedAudio {
         val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
             ?: error("the file could not be opened")
+        return decodeDescriptor(descriptor, targetRate)
+    }
 
+    private fun decodeDescriptor(descriptor: ParcelFileDescriptor, targetRate: Int): DecodedAudio {
         var extractor: MediaExtractor? = null
         var codec: MediaCodec? = null
         try {
@@ -107,8 +123,7 @@ object AudioDecoder {
             }
 
             check(pcm.sampleRate > 0 && pcm.channelCount > 0) { "the decoder reported no audio format" }
-            val mono = pcm.monoFloats()
-            return DecodedAudio(resample(mono, pcm.sampleRate, targetRate), targetRate)
+            return DecodedAudio(pcm.toLeBytes(targetRate), targetRate)
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
@@ -118,8 +133,9 @@ object AudioDecoder {
     }
 
     /**
-     * Decodes 16-bit PCM at the source rate and keeps one channel as floats. The generator wants mono, so a
-     * stereo file is mixed down rather than dropping a channel.
+     * Decodes 16-bit PCM at the source rate, mixes it to mono and resamples it into the generator's transport
+     * in one pass. The mix and the resample share a loop so a full song holds the source samples and the
+     * bytes, not a float copy of both.
      */
     private class ShortCollector {
         private val samples = ShortList()
@@ -133,36 +149,39 @@ object AudioDecoder {
             samples.addAll(chunk)
         }
 
-        fun monoFloats(): FloatArray {
+        /** One frame, mixed to mono and scaled to [-1, 1]. */
+        private fun frameAt(frame: Int, channels: Int): Float {
+            var sum = 0f
+            for (channel in 0 until channels) {
+                sum += samples[frame * channels + channel] / 32_768f
+            }
+            return sum / channels
+        }
+
+        fun toLeBytes(targetRate: Int): ByteArray {
             val channels = channelCount.coerceAtLeast(1)
             val frames = samples.size / channels
-            val out = FloatArray(frames)
-            for (frame in 0 until frames) {
-                var sum = 0f
-                for (channel in 0 until channels) {
-                    sum += samples[frame * channels + channel] / 32_768f
-                }
-                out[frame] = sum / channels
+            val ratio = sampleRate.toDouble() / targetRate
+            val outFrames = (frames / ratio).toInt()
+            val bytes = ByteArray(outFrames * 4)
+            val lastFrame = (frames - 1).coerceAtLeast(0)
+            for (index in 0 until outFrames) {
+                val position = index * ratio
+                val left = position.toInt().coerceAtMost(lastFrame)
+                val right = (left + 1).coerceAtMost(lastFrame)
+                val fraction = (position - left).toFloat()
+                val value = frameAt(left, channels) * (1 - fraction) + frameAt(right, channels) * fraction
+                val bits = value.toRawBits()
+                val offset = index * 4
+                bytes[offset] = (bits and 0xFF).toByte()
+                bytes[offset + 1] = ((bits shr 8) and 0xFF).toByte()
+                bytes[offset + 2] = ((bits shr 16) and 0xFF).toByte()
+                bytes[offset + 3] = ((bits shr 24) and 0xFF).toByte()
             }
-            return out
+            return bytes
         }
     }
 
-    /** Linear interpolation is enough here: the generator resamples internally when it needs to. */
-    private fun resample(input: FloatArray, from: Int, to: Int): FloatArray {
-        if (from == to) return input
-        val ratio = from.toDouble() / to
-        val length = (input.size / ratio).toInt()
-        val out = FloatArray(length)
-        for (index in 0 until length) {
-            val position = index * ratio
-            val left = position.toInt().coerceIn(0, input.lastIndex)
-            val right = (left + 1).coerceAtMost(input.lastIndex)
-            val fraction = (position - left).toFloat()
-            out[index] = input[left] * (1 - fraction) + input[right] * fraction
-        }
-        return out
-    }
 
     private class ShortList {
         private var data = ShortArray(1 shl 16)

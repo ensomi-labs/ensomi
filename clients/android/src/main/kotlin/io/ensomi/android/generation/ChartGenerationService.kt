@@ -4,7 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import io.ensomi.android.audio.AudioDecoder
-import io.ensomi.android.audio.toLeBytes
+
+import io.ensomi.android.audio.DecodedAudio
 import uniffi.ensomi_runtime_ffi.Chart
 import uniffi.ensomi_runtime_ffi.ChartGenerator
 import uniffi.ensomi_runtime_ffi.ExecutionProvider
@@ -54,7 +55,45 @@ class ChartGenerationService(private val context: Context) {
         artist: String? = null,
         audioName: String? = null,
         onPhase: (GenerationPhase) -> Unit = {},
+    ): GeneratedChart = generate(
+        open = { AudioDecoder.decodeMono(context, uri) },
+        requestedStar = requestedStar,
+        seed = seed,
+        title = title,
+        artist = artist,
+        audioName = audioName,
+        onPhase = onPhase,
+    )
+
+    /** Generates from a file the app can already read, which is what a cached take or a test holds. */
+    fun generate(
+        file: File,
+        requestedStar: Double,
+        seed: ULong = 0uL,
+        title: String? = null,
+        artist: String? = null,
+        audioName: String? = null,
+        onPhase: (GenerationPhase) -> Unit = {},
+    ): GeneratedChart = generate(
+        open = { AudioDecoder.decodeMono(file) },
+        requestedStar = requestedStar,
+        seed = seed,
+        title = title,
+        artist = artist,
+        audioName = audioName,
+        onPhase = onPhase,
+    )
+
+    private fun generate(
+        open: () -> DecodedAudio,
+        requestedStar: Double,
+        seed: ULong,
+        title: String?,
+        artist: String?,
+        audioName: String?,
+        onPhase: (GenerationPhase) -> Unit,
     ): GeneratedChart {
+        val audio = open()
         val directory = modelDirectory()
         check(isModelInstalled()) { "the model is not installed in ${directory.absolutePath}" }
 
@@ -68,11 +107,11 @@ class ChartGenerationService(private val context: Context) {
                 Math.nextDown(capabilities.maxStarExclusive),
             )
 
-            val audio = AudioDecoder.decodeMono(context, uri)
-            // The samples travel as little-endian bytes: a List<Float> would box one object per sample,
-            // which is four seconds of audio per megabyte of heap on a full song.
+            // The decoder already produced little-endian bytes: a List<Float> would box one object per
+            // sample, which is four seconds of audio per megabyte of heap, and a FloatArray beside the bytes
+            // would double the peak on a full song.
             val result = generator.generatePcmF32(
-                pcmLeBytes = audio.samples.toLeBytes(),
+                pcmLeBytes = audio.leBytes,
                 sampleRate = audio.sampleRate.toDouble(),
                 request = GenerateChartRequest(
                     star = star,
@@ -92,7 +131,7 @@ class ChartGenerationService(private val context: Context) {
             Log.i(
                 "EnsomiGenerate",
                 "generated ${result.chart.objects.size} notes from ${audio.durationMs} ms of audio in " +
-                    "${System.currentTimeMillis() - startedAtMs} ms (star %.1f, seed %d)".format(star, result.receipt.seed),
+                    "${System.currentTimeMillis() - startedAtMs} ms (star %.1f, seed %d)".format(star, result.receipt.seed.toLong()),
             )
 
             return GeneratedChart(
