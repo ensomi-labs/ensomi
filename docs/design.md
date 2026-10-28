@@ -140,9 +140,11 @@ One screen per song. The top app bar has Back and the song's title; under it, th
 ### Play
 
 Full screen: the system bars hidden with `WindowInsetsController` and `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`
-([Immersive mode](https://developer.android.com/develop/ui/views/layout/immersive)), the screen kept on, portrait.
-Over the top of the playfield, without a panel of its own, the HUD row: the song's title and its stars and judge on
-the left, accuracy on the right, then a Pause button. The playfield itself, its look and its timing are in
+([Immersive mode](https://developer.android.com/develop/ui/views/layout/immersive)), the screen kept on, and the phone
+turned to the play orientation: **landscape** by default, with the lanes leaning back; portrait is a setting (see
+Phone sizes and orientation). Without a panel of its own, the HUD: the song's title and its stars and judge on the
+left, accuracy on the right, then a Pause button; in landscape these sit in the top corners beside the lanes' far
+end, in portrait in a row above the lanes. The playfield itself, its look and its timing are in
 [gameplay.md](gameplay.md). A game starts with two seconds of lead-in before the song's first frame, so the hands can
 reach the lanes. The lead-in runs only while the play window has focus: the first time an app hides the system bars,
 Android shows its "Viewing full screen" prompt, which takes focus a moment later, so losing focus before the song has
@@ -172,12 +174,15 @@ session never moves back in time, so the game cannot rewind instead.
 
 ### Results
 
-In the game's dark presentation, replacing the game: the song with its stars and seed; accuracy, large; Perfect, Good
+In the game's dark presentation, replacing the game, and still in the play orientation, so the end of a song does not
+turn the screen under the player's hands: the song with its stars and seed; accuracy, large; Perfect, Good
 and Miss counts, each named and coloured (three tiles, or three rows at large text sizes); the longest combo; a timing
 chart of how early or late the hits were, with the mean in words ("Your hits were 6 ms late on average."). When the
 runtime's score suggests an audio offset change of 3 ms or more, a line offers it for the output that was used:
 "Suggested audio offset for Phone speaker: −6 ms (now 0 ms)." with **Use suggested offset**. Then **Play again**
-(primary) and Back to song.
+(primary) and Back to song. In landscape the screen has two columns, the score on the left and the timing, the
+suggestion and the actions on the right, so Play again is on the first screen. Content scrolls behind an opaque band
+under the status bar.
 
 ### Settings
 
@@ -185,6 +190,12 @@ A Material list in sections:
 
 - **Gameplay**: scroll speed (a slider from 1.0× to 40.0× in 0.5 steps, with the fall time in seconds: "Notes take
   0.46 s to fall to the line."), judge difficulty (segmented A to E, C by default).
+- **Playfield**: orientation (segmented Landscape and Portrait, Landscape by default); **Lane lean** for the
+  orientation chosen (a slider from Flat to 55° in whole degrees; 40° in landscape and Flat in portrait by default:
+  each orientation keeps its own); and a **live preview** under them: the sample chart playing itself on the game's own
+  renderer, at the phone's full-screen proportions in the chosen orientation, scaled into the list. The preview follows
+  the lean and the scroll speed while their sliders are dragged, so the player sees what a change does before playing.
+  For the full-size look, About › Playfield preview opens the same sample as a game.
 - **Touch**: Vibrate on lane touch (off by default; see Haptics).
 - **Sound and timing**: music volume (a fraction of the song's own level), audio offset for the current output
   ("Audio offset for Phone speaker"), visual offset, both with −/+ steppers in 1 ms steps; Calibrate timing.
@@ -200,8 +211,8 @@ In the game's dark presentation, two steps on a segmented control:
 1. **Sound.** A click every half second. The player taps a large pad on each click, eyes closed if they like. A strip
    shows the last taps from early to late; after enough taps the screen suggests the audio offset for the current
    output (named on the screen) from the median of the last 16, with Use and Start over.
-2. **Picture.** The clicks go on and a note falls onto the line with each one, drawn by the play renderer. The player
-   moves the visual offset slider until the notes cross the line on the click. There is no tapping in this step, so
+2. **Picture.** The clicks go on and a note falls onto the line with each one, drawn by the play renderer with the
+   player's lane lean. The player moves the visual offset slider until the notes cross the line on the click. There is no tapping in this step, so
    touch latency cannot leak into the visual offset.
 
 How the click is timed and why this separates the offsets is in gameplay.md.
@@ -287,7 +298,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
   the lanes.
 - **Touch targets** are Material's 48 dp minimum
   ([large controls](https://developer.android.com/guide/topics/ui/accessibility/apps#large-controls)); lanes are about
-  100 dp wide on a phone.
+  148 dp wide at the line on a phone in landscape and 99 dp in portrait, and a lane's touch zone is its whole column.
 - **Contrast and colour**: above; every tier is named in words as well as coloured.
 - **Reduced motion**: above.
 
@@ -295,13 +306,29 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 
 - **Compact width first** (360 to 430 dp, phones in portrait). Content is one column; on wider windows it is centred at
   640 dp at most rather than stretched.
-- **Landscape**: the chrome follows the phone and reflows. Play asks for portrait (`SCREEN_ORIENTATION_USER_PORTRAIT`)
-  for its duration, because portrait gives the tallest lanes and the longest read of the notes; the phone returns to
-  its own orientation after the game.
+- **Play is landscape by default**, the owner's choice, following the convention of Malody's key mode on phones:
+  landscape play with the lanes leaning back in perspective, portrait an option (the evidence and the geometry are in
+  gameplay.md, The playfield on a phone). Portrait stays a setting because the convention keeps it (Malody added
+  portrait play as an option in both its generations), because it gives the longest lanes, and because some players
+  hold the phone in one hand or are used to portrait 4K games.
+- **The game holds its orientation** from the count-in through pause and the results, with
+  `SCREEN_ORIENTATION_USER_LANDSCAPE` or `SCREEN_ORIENTATION_USER_PORTRAIT`, which let the phone take either side of
+  that orientation as its sensor and the player's rotation setting allow
+  ([`ActivityInfo`](https://developer.android.com/reference/android/content/pm/ActivityInfo#SCREEN_ORIENTATION_USER_LANDSCAPE)).
+  Leaving the results (Back to song) releases it and the phone returns to its own orientation. Holding through the
+  results means the end of a song, and Play again, never turn the screen under the player's hands.
+- **The chrome follows the phone** and reflows in landscape: lists stay one column centred at 640 dp at most and pad for
+  a side navigation bar or cutout; Results take two columns. Rotation does not recreate the activity
+  (`android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"`): Compose recomposes with the new
+  size, and the playfield's `SurfaceView` resizes in place instead of being rebuilt as the game turns to landscape.
+  Android's guidance recommends handling the change directly in Compose-only apps, and warns that it is not a
+  substitute for saving state, which the app still does
+  ([configuration changes](https://developer.android.com/guide/topics/resources/runtime-changes)).
 - **Large screens**: for apps targeting API 36, Android 16 ignores orientation requests on displays at least 600 dp
   wide ([Android 16 behaviour changes](https://developer.android.com/about/versions/16/behavior-changes-16)). There the
-  playfield is centred at its 440 dp maximum in whatever orientation the window has. (Declaring the app a game with
-  `android:appCategory` would exempt it; that is not needed for phones and is not proposed.)
+  playfield takes whatever shape the window has: the landscape layout and lean when it is wider than tall, the
+  portrait ones otherwise. (Declaring the app a game with `android:appCategory` would exempt it; that is not needed
+  for phones and is not proposed.)
 - **Edge to edge**: required for API 36 (same source). Chrome pads for the system bars; the playfield keeps its HUD
   below the display cutout and its key tray above the system's mandatory gesture area (gameplay.md).
 - **Split screen and short windows**: losing focus pauses; a window too short to play in says so instead of drawing a
@@ -315,12 +342,12 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 | Model install from Hugging Face at the pinned tag, `checkPackage`, per-file SHA-256, Range resume, install record, update on start | Free space checked and reserved with `StorageManager`; files under `noBackupFilesDir`; no "Choose Folder" (the runtime needs a file path, and a tree URI is not one; a development install by `adb push` replaces it) |
 | Music folders as the library | Songs picked one by one with the system picker: no permission, nothing scanned |
 | Generation states, phase names, Stop, the core's message on failure, Use Seed | A state bar at the bottom of a phone screen instead of a two-panel setup; no Session tiles or lane preview; no chart-server engine (out of scope); the last chart kept on disk |
-| The play look: brand palette, notes by kind, coral line, hit flash and miss tint, "Ready", combo from 2, Reduce Motion rules | Drawn on a `SurfaceView` canvas instead of Metal; touch lanes instead of key caps with letters; immersive full screen in portrait; a lead-in and a count-in after pause; Restart in the pause panel |
+| The play look: brand palette, notes by kind, coral line, hit flash and miss tint, "Ready", combo from 2, Reduce Motion rules | Drawn on a `SurfaceView` canvas instead of Metal; touch lanes instead of key caps with letters; immersive full screen in landscape with leaning lanes (new: the owner's choice, after Malody), portrait as a setting; a lead-in and a count-in after pause; Restart in the pause panel |
 | The timing contract: event timestamps, a 100 ms input allowance, frames drawn for their presentation time, offsets applied once | Android's clocks (`AudioTrack` timestamps, `getEventTimeNanos`, `FrameTimeline`), all on `CLOCK_MONOTONIC` (gameplay.md) |
 | Audio offset per output device, one visual offset, the scroll-speed scale, judge C, music volume 0.8 | Offsets default to 0 until the phones are measured (the Swift −15 ms was tuned on a Mac); the output keyed by `AudioDeviceInfo` type and name |
 | Calibration: clicks every 500 ms after 1 s, median of 16 taps | Two steps; the visual step has no taps |
 | Results: accuracy, max combo, misses | Its own screen with all three tiers, a timing chart and the runtime's offset suggestion |
-| Settings sections: gameplay, sound and timing, chart model | Touch section; About with the playfield preview and Diagnostics |
+| Settings sections: gameplay, sound and timing, chart model | Playfield section (orientation, lane lean, live preview); Touch section; About with the playfield preview and Diagnostics |
 
 Not carried over in this round: Listen & Play, recognition, the Chart Inspector, the chart server, key bindings, saving
 `.osu` and `.osz`.
@@ -340,6 +367,8 @@ every action that is not built yet shows a snackbar saying so ("Not built yet: D
   taps, and the chart played: a fixed 27-second chart on a clock without sound, pressed by an autoplay with fixed early
   and late offsets so every judgement shows. Play from a song plays this sample chart and says "Sample chart · no
   sound"; its results are the runtime's real score of that game.
+- **Lean and orientation**: the play settings, the landscape layout, the leaning lanes, the game held in its
+  orientation through the results, and the live preview in Settings are real; the settings are held in memory.
 - **For screenshots only**: a debuggable build opens in any sample state from a launch extra
   (`adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made`);
   `scripts/capture-prototype.sh` drives them all.

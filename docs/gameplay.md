@@ -25,39 +25,116 @@ Each has a check below; those that need a phone are marked.
 
 ## The playfield on a phone
 
-The geometry, in dp, from `PlayfieldGeometry`:
+### Landscape, with the lanes leaning: the convention
 
-| Part | Size and place |
+Phones play in **landscape** by default, with the lanes **leaning** back in perspective; portrait is a setting, with
+flat lanes by default. This follows the convention of Malody's key mode on phones, which the owner chose. Ensomi takes
+the convention, not Malody's art, names or skins. What public sources show (old Malody to 4.3.7, and Malody V):
+
+| Malody's key mode on phones | Source |
 | --- | --- |
-| Lanes | Four, touching, alternating `#1D1627` and `#191220`; the screen's width less 8 dp margins, at most 440 dp (about 99 dp per lane on a 411 dp wide phone) |
-| HUD row | 64 dp at the top, below any display cutout: title and chart on the left, accuracy and Pause on the right, no panel |
-| Song progress | A 3 dp coral bar along the top edge of the lanes |
-| Judgement line | 3 dp coral, at the top of the key tray |
-| Key tray | 88 dp, rounded at the bottom, with one 68 dp key cap per lane; its bottom sits above the system's mandatory gesture inset (at least 16 dp from the edge) |
-| Fall distance | From the top of the lanes to the line: about 750 dp on a 923 dp tall phone |
+| Landscape by default; portrait play added later, as an option, in both generations ("Support portrait play mode (Optional)", 1.14.1; "Enabled portrait mode for 4K playing", Malody V 6.6.12, 2025) | [release log](https://m.mugzone.net/wiki/127); [Malody V on the App Store](https://apps.apple.com/us/app/malody-v/id1566873256) |
+| The lean is a true perspective tilt of the lane plane: a trapezoid with straight edges, narrow at the top, the four lanes equal at each height, notes shrinking with distance in width and in thickness | official store screenshots ([Malody V](https://apps.apple.com/us/app/malody-v/id1566873256), [Malody](https://apps.apple.com/us/app/malody/id989630809)) |
+| At the top edge of the screen the lanes are about 0.29 (Malody V) and 0.21 (old Malody) of their width at the line; there is no horizon: notes enter at the top edge | the same screenshots, measured |
+| A switch ("3D column") and an angle in degrees: up to 50° in old Malody, 55° in Malody V's key mode; players mostly set 40° | release log 1.13.5 and 1.17.1; player posts on TapTap and guides (Chinese) |
+| The judgement line about 80 to 85 % down the screen; the field centred and, at the line, about 65 % (Malody V) to 79 % (old Malody) of the screen's width, with a lane-width setting | screenshots, measured; skin documentation |
+| Touch zones are the skin's: old Malody's default skin puts four pads under the line inside the leaning lanes, with a "full width virtual keyboard" option | release log 1.10.1 and 3.3.6; screenshot |
 
-**Notes** follow the Swift play screen. Taps are rose `#EAA0B7`, 20 dp tall, inset 5 dp from the lane edges, 7 dp
-corners, no glow. Holds have lavender `#B5B3EF` heads and tails and a purple `#9562D7` body at 72 % of the note width,
-60 % opaque, 85 % while held; a held head stays on the line with a soft halo. A note the runtime resolves as hit
+Not confirmed from public sources: Malody's default angle and whether the tilt is on after a fresh install (the
+official screenshots show it on); Malody V's default touch zones; whether its tilt applies in portrait (one portrait
+player describes his set-up as "no depth"); what its "3D motion" and "3D thickness" compensation settings do exactly.
+Chinese video and forum sites mostly refused automated reading, so videos were checked only through store
+screenshots and thumbnails.
+
+### Geometry
+
+From `PlayfieldGeometry`, in dp; the numbers in brackets are for the 1080 × 2424 px emulator (923 × 411 dp in
+landscape) with a 24 dp gesture area.
+
+| Part | Landscape (the default) | Portrait |
+| --- | --- | --- |
+| Lanes at the line | 64 % of the width, at most 640 dp (591 dp, 148 dp per lane) | The width less 8 dp margins, at most 440 dp (395 dp, 99 dp per lane) |
+| HUD | In the top corners beside the lanes' far end: title and chart on the left, accuracy and Pause on the right | A 64 dp row at the top, below any display cutout |
+| Far end of the lanes | 6 dp under the top edge | Under the HUD row |
+| Judgement line | 3 dp coral, at the top of the key tray (79 % down the screen) | The same (88 % down) |
+| Key tray | 64 dp, one 44 dp cap per lane | 88 dp, one 68 dp cap per lane |
+| Under the tray | The system's mandatory gesture inset, at least 10 dp | The same, at least 16 dp |
+| Lanes' height on the screen | 317 dp | About 750 dp |
+| Lean by default | 40° | Flat |
+
+The lanes alternate `#1D1627` and `#191220`, and their far end fades into the ground over 8 % of their height on the
+screen, so notes come out of the distance instead of appearing at an edge. A 3 dp song progress bar runs along the far
+end.
+
+### The lean
+
+**The model.** The lanes are a flat strip tilted back by the lean angle θ about the judgement line, seen from an eye
+level with the strip's far end and 0.36 of the lanes' screen height in front of the screen. The far end stays at the top
+whatever the angle, and is `k = 1 / (1 + tan θ / 0.36)` of the line's width: 0.67 at 10°, 0.50 at 20°, 0.38 at 30°,
+**0.30 at 40°** (the default, close to Malody V's look), 0.20 at 55° (the most). 0° is flat, so the lean needs no
+separate switch. The eye distance was chosen so that 40° looks like the convention; it is one constant.
+
+**Lane space.** Everything on the lanes (lanes, lights, notes, hit feedback) is drawn as on the flat strip, in lane
+space: x as on the screen at the line, y from the far end to the line over a length `H = h / k`, where h is the lanes'
+height on the screen. One perspective `android.graphics.Matrix`, which `PlayfieldGeometry` computes and the renderer
+applies with `Canvas.concat`, tilts it onto the screen. With L the line's y, c the field's centre x and a = (1 − k) / k:
+
+```text
+| 1   −c·a/H        c·a·L/H  |
+| 0   1 − a·L/H     a·L²/H   |
+| 0   −a/H          1 + a·L/H |
+```
+
+Lane space and the screen agree exactly along the line, so the line and everything at it is drawn at its design size;
+with no lean the matrix is the identity and the drawing is the flat field.
+
+**A note's place and size.** The runtime's `noteGeometry` places a note along H linearly in its time, as for flat
+lanes. On the screen, a note a fraction d of the way from the line to the far end is drawn at `s = k / (k + (1 − k)·d)`
+of its size at the line, `h·d / (k + (1 − k)·d)` above it. So it appears at the far end at the same moment at any lean,
+crosses the line at its time, and moves slowly far away and fast near the line: at the line 1/k times as fast as flat
+lanes of the same height (3.3 times at 40°), at the far end k times. Perspective narrows a note by s but flattens it by
+s², which would thin far notes to slivers; taps and hold ends are therefore stretched in lane space so that they keep
+their shape and only shrink (Malody V offers a "thickness compensation" setting for the same problem). Hold bodies
+follow the lane, since their length is time.
+
+**What does not lean.** Drawn on the screen as it is: the ground, the key tray and its caps, the judgement line, the
+progress bar, and the judgement word and combo, which stay upright and sharp at 42 % of the lanes' height on the screen.
+The line, the tray and the touch zones are the same at every lean.
+
+**Notes** follow the Swift play screen. Taps are rose `#EAA0B7`, 20 dp tall at the line, inset 5 dp from the lane edges,
+7 dp corners, no glow. Holds have lavender `#B5B3EF` heads and tails and a purple `#9562D7` body at 72 % of the note
+width, 60 % opaque, 85 % while held; a held head stays on the line with a soft halo. A note the runtime resolves as hit
 disappears; one judged a miss while still on screen is greyed (`#8F7DAB` at half opacity). A note centred on the line
-is drawn whole, then slips under the top edge of its key cap. Positions come from the runtime's `noteGeometry`.
+is drawn whole, then slips under the top edge of its key cap. Nothing on the lanes is clipped: a clip under a
+perspective matrix is no longer a rectangle, so notes are cut to the lanes by hand.
 
 **Hit feedback** is drawn only from the judgement events the runtime reports (`GameplayFeedback.judgementEventBatches`),
 aged from the chart time each batch was recorded at: a hit lights the line in its lane in the tier's colour and a flare
 rises for 200 ms; a miss tints 96 dp of the lane above the line and marks the line for 360 ms. Lane and cap lights come
-from `laneBrightness` at the frame's presentation time. The judgement word and the combo sit at 42 % of the fall
-distance; the word's opacity, scale and drift come from `judgementPresentation`; a Good shows an arrow for early (up,
+from `laneBrightness` at the frame's presentation time; a lane's light rises 45 % of the lanes' screen height at any
+lean. The word's opacity, scale and drift come from `judgementPresentation`; a Good shows an arrow for early (up,
 lavender) or late (down, rose); the combo shows from 2; "Ready" holds the place until the first judgement.
 
-**Touch zones** are the whole lane columns, from the top of the screen to the bottom, so a finger never needs to aim
-at the small cap; a touch left or right of the field belongs to the nearest lane. The caps mark where the thumbs rest.
+**Touch zones** are the lanes at the line, extended up and down the whole screen as columns; a touch left or right of
+the field belongs to the nearest lane, so in landscape the outer lanes reach the screen's edges. They do not follow the
+lean: changing it never moves a lane under the thumbs, and a thumb that lands a little high is still in its lane
+(Malody's default pads under the line drew a player's complaint that they sit too low). The caps mark where the thumbs
+rest.
 
-**Scroll speed** keeps the Swift app's scale: a note takes `11485 / speed` ms to fall from the top of the lanes to the
-line, whatever the screen's height; the default 25 is 459 ms. On a phone the distance is similar to the Swift play
-window's, so a speed means about the same physical speed too (about 1.6 dp per ms at 25).
+**Scroll speed** keeps the Swift app's scale: a note takes `11485 / speed` ms to travel the lanes, whatever the screen,
+the orientation and the lean; the default 25 is 459 ms. So the reading time is the same everywhere; what changes is the
+speed on the screen near the line: about 1.6 dp per ms in portrait, 0.7 in landscape without lean, 2.3 in landscape at
+40°. Malody V lets players reshape this with a "3D motion compensation" setting; Ensomi keeps plain perspective and
+offers no such setting in this round.
 
 **Scroll direction** is down only: notes fall towards the thumbs, and the hands at the bottom never cover incoming
 notes. An upscroll would put the line at the top of the screen, out of reach, with the hands covering the notes.
+
+**Previewing the lean.** Settings shows the game's own renderer playing the sample chart under the orientation and
+lean sliders, on a surface buffer the size of the phone's screen in that orientation, which the system scales into the
+list (`SurfaceHolder.setFixedSize`; the
+[hardware scaler](https://android-developers.googleblog.com/2013/09/using-hardware-scaler-for-performance.html)). The
+preview takes the new lean and scroll speed on the next frame while a slider moves.
 
 ## The clock: song time from the audio being heard
 
@@ -125,10 +202,11 @@ does, not every frame. The judgement word and combo are drawn by the render thre
 
 ## Input
 
-**Lanes.** A pointer's lane is where it went down: `floor((x − fieldLeft) / laneWidth)`, clamped to 0..3. It keeps that
-lane until it lifts; sliding into the next lane does nothing, like a key. A lane is pressed while any pointer holds it,
-so the press goes to the runtime with the first finger and the release with the last. Chords are separate pointers and
-separate presses, each with its own time.
+**Lanes.** A pointer's lane is where it went down: `floor((x − lineLeft) / laneWidth)` with the lanes as they are at the
+line, clamped to 0..3, at any height and any lean. It keeps that lane until it lifts; sliding into the next lane does
+nothing, like a key. A lane is pressed while any pointer holds it, so the press goes to the runtime with the first
+finger and the release with the last. Chords are separate pointers and separate presses, each with its own time; in
+landscape the two thumbs usually take two lanes each, and nothing limits the pointers to two.
 
 **Times.** Each press or release carries the event's own time: `MotionEvent.getEventTimeNanos()` from API 34,
 `getEventTime()` in milliseconds on API 33 (the test phones run Android 16), not the time the app handled it. Android
@@ -153,7 +231,10 @@ logs.
   not affected; a finger that slides at an edge could be. Play is immersive, which makes a bottom swipe first show the
   bars; the key tray sits above the mandatory gesture inset, which apps cannot opt out of; and during play the app
   excludes the lower part of the outer lanes from the back gesture with `setSystemGestureExclusionRects`, which the
-  same page allows games "during gameplay".
+  same page allows games "during gameplay". In landscape the outer lanes reach the screen's edges, so this matters
+  more there. The system caps how much of each edge an app may exclude (`View.setSystemGestureExclusionRects`), so
+  only the lower part of each outer lane is asked for; whether the cap leaves enough on a landscape phone is a check
+  for the phone.
 
 ## Judgements through the runtime
 
@@ -181,6 +262,10 @@ the visual offset moves only the drawn notes; scroll speed changes only how far 
   unreported output latency does; judgement cannot tell them apart, so both live in the audio offset. Because the
   phone is fixed and the output varies, keeping the offset per output is enough. The visual offset is calibrated
   without taps, so touch latency cannot leak into it.
+- **The lean moves no offset.** It changes where a note is drawn, not when: a note crosses the line at its time at any
+  lean and in either orientation, so neither offset depends on them. Near the line a leaning note moves faster, so a
+  given visual error shows as a larger gap; the picture step therefore draws with the player's own lean, so the visual
+  offset is set on the field that is played.
 - **Defaults are 0 ms** for both until the phones are measured; the Swift app's −15 ms was tuned on a Mac with a
   keyboard. The phone measurements may give per-route defaults.
 

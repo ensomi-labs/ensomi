@@ -19,7 +19,8 @@ UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gamep
   - One package per feature (`library/`, `model/`, `chart/`, `play/`, `settings/`, `diagnostics/`), holding
     its screens, ViewModels and data sources.
   - `play/`: the playfield, a `SurfaceView` drawn by its own render thread; every runtime call of a game
-    happens on that thread.
+    happens on that thread. What lies on the lanes is drawn in lane space and tilted by the lean's perspective
+    matrix (`PlayfieldGeometry`); touch zones come from the lanes at the line and never lean.
   - `prototype/`: sample states for screenshots, opened by a launch extra in debuggable builds. Sample
     implementations say in their comments that they are not wired, and unbuilt actions say so on screen.
   - `ui/`: shared components and the Material 3 theme. `json/`: a small JSON encoder.

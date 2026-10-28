@@ -7,7 +7,8 @@ code or history with the Swift app, which is the reference for what it does.
 
 The app is in development and is not distributed. It holds a prototype of drop-in play: the library, making a
 chart, play, results, settings and timing calibration, on sample data. The playfield is real (a `SurfaceView`
-render thread with the runtime judging) and plays a sample chart without sound. Diagnostics, under Settings,
+render thread with the runtime judging) and plays a sample chart without sound, in landscape with the lanes leaning
+back by default; the orientation and the lean are settings with a live preview. Diagnostics, under Settings,
 shows what the device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the
 runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
@@ -62,8 +63,9 @@ listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
 adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made
 ```
 
-`scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, some at 200 % font size and in
-landscape, and records the playfield preview, on the one booted emulator or device.
+`scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
+orientations, some screens at 200 % font size and with the phone in landscape, and records the playfield preview, on
+the one booted emulator or device.
 
 ## Diagnostics output
 
