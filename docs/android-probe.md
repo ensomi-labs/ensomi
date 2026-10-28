@@ -162,8 +162,8 @@ reached from Settings, because it is a developer surface and S5 gives Android no
 | --- | --- | --- |
 | S2 Library | Implemented | The system folder picker, a persisted grant per folder, an automatic scan on add, the four counts, last scan, rescan, and removal that leaves files on disk |
 | S5 Settings | Implemented in part | Scroll speed (1–40), judge difficulty (A–E), music volume, visual offset, all stored under the `mania4k.*` keys; the audio offset needs the calibration sheet, which needs the engine |
-| S3 Play setup | Up to the audio choice | A library song can be chosen and its length read; the star control, sections and Generate report that the device engine is not linked instead of pretending |
-| S4 Play scene | Contracts only | The audio clock and the input timestamp mapping are implemented and tested (`clock/`, `input/`); the renderer, the decoder and the session wait for the runtime binding |
+| S3 Play setup | Up to the star target | A library song can be chosen, played through `MediaCodec` into an `AudioTrack`, and its heard position read back through the audio clock; the star control, sections and Generate report that the device engine is not linked instead of pretending |
+| S4 Play scene | Contracts and a player | `AnchorAudioClock` and `InputTimeline` are implemented and tested; the decoder-to-`AudioTrack` path plays a library file and its `AudioTrack.getTimestamp` is the clock's reading. The renderer, judgement and session wait for the runtime binding |
 
 Two storage decisions are temporary and should not spread. The library document is `filesDir/library.json`
 rather than the app core's SQLite, because the app core does not exist on Android yet; the settings share
@@ -177,6 +177,12 @@ assuming 1:1, and ignores a reading that arrives late or moves backwards. `Input
 pointer event's `uptimeMillis` to `elapsedRealtimeNanos` by the measured offset between the two clocks,
 then asks the audio clock for the song time: a press is placed where it happened, not where the frame
 that handled it landed.
+
+`LibraryPlayer` completes the audible half: `MediaExtractor` → `MediaCodec` → `AudioTrack`, with the
+position taken from `AudioTrack.getTimestamp` and never from the decoder's read-ahead. On this API the
+timestamp call returns a boolean rather than the status code the older documentation describes, and the
+extractor's file descriptor has to outlive `setDataSource` or the first read fails; both cost a build
+and a run to discover.
 
 The bottom bar is lifted above the gesture strip: on this ROM the last few dp of the window belong to the
 system home gesture, and a tab row flush with the bottom edge is untappable rather than merely low. The
