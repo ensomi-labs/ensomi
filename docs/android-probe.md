@@ -112,26 +112,39 @@ which is the report's acceptance condition:
 The probes and the rule set are unit-tested on the JVM (`:android:test`), because the rules are plain
 Kotlin and the value of a rule is that it says the same thing off the device.
 
+### Direct recognition, confirmed on the device
+
+A window captured by this phone answers the `audio/match` endpoint. With the source playing at 50,
+100 and 180 s and a 5 s capture starting three seconds later, the endpoint returned song id `22765943`
+with `startTime` of `52180`, `103040` and `183160` ms.
+
+- **`startTime` is the capture window's start, not its end.** Each value sits where the capture began,
+  not five seconds later; the residual is under 0.2 s. That moves `PositionSemantics` off `UNKNOWN`
+  for this recording, but one song is not a calibration.
+- **The window length is part of the request.** A 5.0 s capture answers when asked for 6 s and returns
+  nothing for 5 s or 10 s. Whether the server requires at least 6 s, or the encoder needs samples past
+  the end, is not separated yet.
+- **The acoustic path needs level.** The same capture measured −2.9 dB peak; at −20 dB the app's own
+  recognizer failed on the same music. A capture probe that reports RMS is measuring the right thing.
+
 ### What the client may not do yet
 
-- **No fingerprinter.** The direct `audio/match` request needs the shazam-v2 fingerprint, which is not
-  implemented; the app currently reaches recognition through `orpheus://identify` (ladder level 3).
-- **No download trigger.** Enqueueing an authorized download from inside the NetEase process is the
-  report's open question and is not attempted here.
-- **No position semantics.** `startTime` is not read at all yet; the shared `RecognitionResult` carries
-  `PositionSemantics.UNKNOWN` until the calibration experiment decides otherwise.
+- **No fingerprinter in the app.** The fingerprint comes from the reference `afp.wasm` on a build
+  machine; `clients/android` still reaches recognition through `orpheus://identify` (ladder level 3).
+- **No download trigger.** Tapping the player's download control opened a playlist sheet, not a
+  download; enqueueing one from inside the NetEase process is still the report's open question.
+- **One recording measured.** Three offsets of one song; other songs, live versions and the start of
+  a track are not measured.
 - **All-files access.** Watching a directory by path needs `MANAGE_EXTERNAL_STORAGE` on the demo device.
   It is a probe affordance; a product client would take a persisted SAF grant instead.
 
 ### Where the next slice starts
 
-The two public implementations the report cites are JavaScript, not Kotlin: both
-`MelodyYuuka/NeteaseCloudMusic-Audio-Recognize` and `userZheng686/wyySongIdentify` ship the same 231 KB
-`afp.wasm` and call it from a web page, so porting means either writing the spectral-peak fingerprint
-from scratch or running that module on the device. Their request side is small and readable: the
-`rawdata` parameter is the fingerprint, and the response is the shape the report quotes. The next
-experiment is still the report's first one — post a captured window and see whether the correct song id
-comes back — followed by reading `startTime` against known source positions.
+The request side is settled and reproducible: a form post with `algorithmCode=shazam_v2`, `sessionId`,
+`duration`, `rawdata`, `times=2`, `decrypt=1`. What is missing is computing `rawdata` on the device.
+The reference implementation ships the same 231 KB `afp.wasm` and calls it from JavaScript, so the next
+step is either running that module on Android or writing the spectral-peak fingerprint from Kotlin, and
+then checking it against the three captures already on disk.
 
 ## Building and installing
 
