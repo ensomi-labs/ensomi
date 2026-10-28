@@ -48,6 +48,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.ensomi_runtime_ffi.Chart
+import uniffi.ensomi_runtime_ffi.osz
 
 /**
  * S3 Play setup. The audio side plays a library file and reports the position the audio clock hears; the
@@ -89,7 +90,28 @@ fun PlayScreen(
         }
     }
 
-    // S3 saves the chart as the .osu the other clients can open; the picker is the platform's.
+    // S3 saves the chart as the .osu the other clients can open, and as the .osz archive the runtime
+    // builds so the bytes match what the Apple client writes for the same chart.
+    val saveOsz = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
+        val chart = generated
+        val entry = selected
+        if (destination != null && chart != null && entry != null) {
+            savedMessage = "packing the archive..."
+            Thread({
+                val outcome = runCatching {
+                    val audio = context.contentResolver.openInputStream(Uri.parse(entry.uri))?.use { it.readBytes() }
+                        ?: error("the audio could not be read")
+                    val archive = osz(chart.osu, audio, chart.receiptJson)
+                    context.contentResolver.openOutputStream(destination)?.use { it.write(archive) }
+                        ?: error("the picker returned no stream")
+                    "saved ${destination.lastPathSegment} (${archive.size} bytes)"
+                }
+                main.post {
+                    savedMessage = outcome.getOrElse { "could not save: ${it.message}" }
+                }
+            }, "ensomi-osz").start()
+        }
+    }
     val saveOsu = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
         val chart = generated
         if (destination != null && chart != null) {
@@ -305,6 +327,13 @@ fun PlayScreen(
                             },
                             enabled = generated != null,
                         ) { Text("Save .osu...") }
+
+                        OutlinedButton(
+                            onClick = {
+                                generated?.let { saveOsz.launch(oszName(selected?.displayTitle ?: "chart")) }
+                            },
+                            enabled = generated != null && !generating,
+                        ) { Text("Save .osz...") }
                     }
 
                     generationError?.let {
@@ -361,6 +390,10 @@ private fun SongRow(entry: LibraryEntry, selected: Boolean, onClick: () -> Unit)
         OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
     }
 }
+
+/** The archive keeps the song's name, so it sits beside the .osu in a folder of charts. */
+internal fun oszName(title: String): String =
+    title.replace(Regex("[^A-Za-z0-9 _-]"), "_").trim().ifBlank { "chart" } + " (Ensomi).osz"
 
 /** A file name the picker accepts: characters the platform dislikes become underscores. */
 internal fun osuName(title: String): String =

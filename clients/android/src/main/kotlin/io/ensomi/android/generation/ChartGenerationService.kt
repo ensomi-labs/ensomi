@@ -14,6 +14,7 @@ import java.io.File
 data class GeneratedChart(
     val chart: Chart,
     val osu: String,
+    val receiptJson: String,
     val seed: ULong,
     val star: Double,
 ) {
@@ -79,6 +80,7 @@ class ChartGenerationService(private val context: Context) {
             return GeneratedChart(
                 chart = result.chart,
                 osu = result.osu,
+                receiptJson = result.receipt.receiptJson,
                 seed = result.receipt.seed,
                 star = result.receipt.star,
             )
