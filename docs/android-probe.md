@@ -243,17 +243,24 @@ API version `ort 2.0.0-rc.11` expects) beside the runtime library. Both are buil
 and neither links `libc++_shared`, so the APK carries no extra C++ runtime.
 
 **The model package.** The published R2 package is the `onnx/` directory of `sed-i/ensomi-r2` at
-`r2-1.0.1`: 35 files, 119.2 MB, MIT as its card states. `huggingface.co` is unreachable from this
-machine and `hf-mirror.com` serves the same revision, so the files were fetched from the mirror and
-pushed to the app's external files directory:
+`r2-1.0.1`. `huggingface.co` is unreachable from this machine and `hf-mirror.com` serves the same
+revision, so the files were fetched from the mirror; nothing about the app depends on that.
 
-```
-adb push <onnx/>. /sdcard/Android/data/io.ensomi.android/files/model/
+The client installs a package by itself: Settings → Chart model → **Choose Model Folder...** takes the
+folder that holds `ensomi-package.json`, and `ModelInstaller` copies what the manifest lists. The manifest
+check is the runtime's `checkPackage`, not a second implementation, and every file's SHA-256 is verified
+while it is copied, so an edited or truncated package is refused instead of half-used. What it wrote on the
+K80:
+
+```json
+{"modelId":"ensomi-r2","modelName":"Ensomi R2","version":"r2-1.0","license":"MIT",
+ "fileCount":30,"totalBytes":120377244}
 ```
 
-The app opens the generator on `getExternalFilesDir("model")`. When the install flow exists, the same
-directory is where `ensomi-install.json` and `checkPackage` belong; until then the model is a side load,
-and the build says so rather than pretending a download happened.
+That matches the package format's own count — 30 files and 120 377 244 bytes — and Settings reads the
+record back as `Ensomi R2 r2-1.0 - 30 files, 114 MB, MIT`. **Remove Download** deletes only the model
+directory. A generation run against this install still produces the same chart, so the installer and the
+generator agree on what a package is.
 
 The runtime's own conformance case runs on the device too. `:android:connectedDebugAndroidTest` installs
 both APKs and runs `GameplayConformanceTest` — the fixture `early_press_ignored.json`, written out in

@@ -20,15 +20,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import io.ensomi.android.RuntimeSelfCheck
+import io.ensomi.android.model.InstallProgress
+import io.ensomi.android.model.ModelInstaller
+import android.os.Handler
+import android.os.Looper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.settings.EnsomiSettings
 import io.ensomi.android.settings.SettingsKeys
 
 /**
- * S5 Settings as a sheet. Keyboard, Developer and the chart model are absent because this build has no
- * keys to bind, no inspector and no engine; the probe entry stands in for the developer surface the
- * probe build needs.
+ * S5 Settings as a sheet. Keyboard and Inspector are absent because this build has no keys to bind and
+ * no inspector; the chart model section installs the package the generator runs, and the probe entry
+ * stands in for the developer surface the probe build needs.
  */
 @Composable
 fun SettingsSheet(
@@ -94,6 +101,9 @@ fun SettingsSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                Text("Chart model", style = MaterialTheme.typography.titleSmall)
+                ChartModelSection()
+
                 Text("Runtime", style = MaterialTheme.typography.titleSmall)
                 RuntimeCheck()
 
@@ -109,6 +119,75 @@ fun SettingsSheet(
  * does the binding reach the native core on this device — and nothing about generation, which needs ONNX
  * Runtime and a model this build does not ship.
  */
+/**
+ * S5's chart model controls: what is installed, where to install from, and how to remove it. The install
+ * verifies every file against the manifest while copying, so a partial or edited package is refused
+ * rather than half-used.
+ */
+@Composable
+private fun ChartModelSection() {
+    val context = LocalContext.current
+    val installer = remember { ModelInstaller(context) }
+    val main = remember { Handler(Looper.getMainLooper()) }
+    var status by remember { mutableStateOf(installer.status()) }
+    var progress by remember { mutableStateOf<InstallProgress?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            progress = InstallProgress(running = true)
+            Thread({
+                val outcome = runCatching {
+                    installer.install(uri, source = "folder") { update -> main.post { progress = update } }
+                }
+                main.post {
+                    outcome
+                        .onSuccess { status = installer.status(); progress = null }
+                        .onFailure { error ->
+                            progress = InstallProgress(message = error.message ?: error::class.java.simpleName)
+                        }
+                }
+            }, "ensomi-model-install").start()
+        }
+    }
+
+    val installed = status.installed
+    Text(
+        if (installed == null) {
+            "Not installed. Choose the folder that holds ensomi-package.json."
+        } else {
+            "${installed.modelName} ${installed.version} - ${installed.fileCount} files, " +
+                "${installed.totalBytes / (1024 * 1024)} MB, ${installed.license}"
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (installed == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+    )
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = { picker.launch(null) },
+            enabled = progress?.running != true,
+        ) { Text("Choose Model Folder...") }
+
+        OutlinedButton(
+            onClick = { installer.remove(); status = installer.status() },
+            enabled = installed != null && progress?.running != true,
+        ) { Text("Remove Download") }
+    }
+
+    progress?.let { update ->
+        if (update.running) {
+            Text(
+                "Installing ${update.copied} of ${update.total} files (${update.bytes / (1024 * 1024)} MB)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        update.message?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
 @Composable
 private fun RuntimeCheck() {
     var result by remember { mutableStateOf<String?>(null) }
