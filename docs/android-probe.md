@@ -232,9 +232,28 @@ the module compiles without a Rust toolchain and only a runtime check fails with
 
 **What the device proved.** The packaged library loads through JNA, and `parse_osu` on a one-note mania
 beatmap returns `1 objects, 1000 ms` — the binding, the native core and the transport all work on the
-phone. Generation is not wired: `ensomi-generate-ort` links ONNX Runtime dynamically, so a generation
-request needs an `onnxruntime` shared library for arm64 and a model package, neither of which this build
-ships.
+phone. `ChartGenerator.open` then reaches ONNX Runtime: with the model package installed it answers
+`generator opened`, and without it the error names the first missing file (`runtime.json`), which is how
+the two halves were told apart. Generation itself is the next step: the package is in place, but no chord
+has been generated on the phone yet.
+
+**ONNX Runtime.** `ensomi-generate-ort` loads ONNX Runtime dynamically, so the client ships
+`libonnxruntime.so` from `com.microsoft.onnxruntime:onnxruntime-android:1.23.2` (18.5 MB, matching the
+API version `ort 2.0.0-rc.11` expects) beside the runtime library. Both are build products in `jniLibs`
+and neither links `libc++_shared`, so the APK carries no extra C++ runtime.
+
+**The model package.** The published R2 package is the `onnx/` directory of `sed-i/ensomi-r2` at
+`r2-1.0.1`: 35 files, 119.2 MB, MIT as its card states. `huggingface.co` is unreachable from this
+machine and `hf-mirror.com` serves the same revision, so the files were fetched from the mirror and
+pushed to the app's external files directory:
+
+```
+adb push <onnx/>. /sdcard/Android/data/io.ensomi.android/files/model/
+```
+
+The app opens the generator on `getExternalFilesDir("model")`. When the install flow exists, the same
+directory is where `ensomi-install.json` and `checkPackage` belong; until then the model is a side load,
+and the build says so rather than pretending a download happened.
 
 The runtime's own conformance case runs on the device too. `:android:connectedDebugAndroidTest` installs
 both APKs and runs `GameplayConformanceTest` — the fixture `early_press_ignored.json`, written out in

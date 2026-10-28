@@ -1,17 +1,37 @@
 package io.ensomi.android
 
+import uniffi.ensomi_runtime_ffi.ChartGenerator
+import uniffi.ensomi_runtime_ffi.ExecutionProvider
+import uniffi.ensomi_runtime_ffi.GeneratorOptions
 import uniffi.ensomi_runtime_ffi.parseOsu
+import java.io.File
 
 /**
- * Answers one question on the device: does the packaged runtime binding reach the native core? It
- * parses a beatmap the shell spells out, which needs no model and no ONNX Runtime, so a failure here is
- * the binding or the packaged library, not the generator.
+ * Answers two questions on the device: does the packaged runtime binding reach the native core, and can
+ * the generator find ONNX Runtime behind it? Parsing needs neither a model nor ONNX Runtime, so a failure
+ * there is the binding or the packaged library; the generator check names whichever of the two is missing.
  */
 object RuntimeSelfCheck {
     fun run(): Result<String> = runCatching {
         val beatmap = parseOsu(BEATMAP)
         "parse_osu ok: \"${beatmap.title ?: "untitled"}\" by ${beatmap.artist ?: "unknown"}, " +
             "${beatmap.chart.objects.size} objects, ${beatmap.chart.durationMs} ms"
+    }
+
+    /** Whether the packaged ONNX Runtime can be loaded at all, before any model is involved. */
+    fun loadOnnxRuntime(): Result<String> = runCatching {
+        System.loadLibrary("onnxruntime")
+        "onnxruntime loaded"
+    }
+
+    /**
+     * Opens the generator against its model directory. With the package absent the error says whether ONNX
+     * Runtime was reachable and the model was not; with the package installed it opens.
+     */
+    fun openGenerator(directory: File): Result<String> = runCatching {
+        ChartGenerator.open(directory.absolutePath, GeneratorOptions(provider = ExecutionProvider.CPU)).use {
+            "generator opened"
+        }
     }
 
     /** The smallest chart that still exercises the parser: one note, one timing point. */

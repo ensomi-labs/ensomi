@@ -30,10 +30,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         state = WorkbenchState(this)
 
-        // One line in logcat says whether the packaged runtime reaches the core on this build.
+        // Three lines in logcat say how far the packaged runtime reaches on this build: the binding, the
+        // ONNX Runtime behind the generator, and the generator's state without a model installed.
         RuntimeSelfCheck.run()
             .onSuccess { Log.i("EnsomiRuntime", it) }
             .onFailure { Log.w("EnsomiRuntime", "parse_osu failed", it) }
+        RuntimeSelfCheck.loadOnnxRuntime()
+            .onSuccess { Log.i("EnsomiRuntime", it) }
+            .onFailure { Log.w("EnsomiRuntime", "onnxruntime load failed", it) }
+        RuntimeSelfCheck.openGenerator(getExternalFilesDir("model") ?: java.io.File(filesDir, "model"))
+            .onSuccess { Log.i("EnsomiRuntime", "generator: $it") }
+            .onFailure { Log.i("EnsomiRuntime", "generator without a model: ${it.message}") }
 
         setContent {
             EnsomiTheme {
