@@ -17,6 +17,20 @@ data class DecodedAudio(val samples: FloatArray, val sampleRate: Int) {
  * core to: the core's resampler needs the model's `resample-*` tables, and the Android build does not
  * ship them, so decoding to the rate the generator wants keeps that dependency out of the client.
  */
+/** The generator takes its samples as little-endian `f32` bytes, not as one boxed object per sample. */
+fun FloatArray.toLeBytes(): ByteArray {
+    val bytes = ByteArray(size * 4)
+    for (index in indices) {
+        val bits = this[index].toRawBits()
+        val offset = index * 4
+        bytes[offset] = (bits and 0xFF).toByte()
+        bytes[offset + 1] = ((bits shr 8) and 0xFF).toByte()
+        bytes[offset + 2] = ((bits shr 16) and 0xFF).toByte()
+        bytes[offset + 3] = ((bits shr 24) and 0xFF).toByte()
+    }
+    return bytes
+}
+
 object AudioDecoder {
     /** The rate the R2 pipeline reads; the model's own tables are built for it. */
     const val TARGET_RATE = 22_050

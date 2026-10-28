@@ -3,6 +3,7 @@ package io.ensomi.android.generation
 import android.content.Context
 import android.net.Uri
 import io.ensomi.android.audio.AudioDecoder
+import io.ensomi.android.audio.toLeBytes
 import uniffi.ensomi_runtime_ffi.Chart
 import uniffi.ensomi_runtime_ffi.ChartGenerator
 import uniffi.ensomi_runtime_ffi.ExecutionProvider
@@ -66,8 +67,10 @@ class ChartGenerationService(private val context: Context) {
             )
 
             val audio = AudioDecoder.decodeMono(context, uri)
-            val result = generator.generate(
-                pcm = audio.samples.toList(),
+            // The samples travel as little-endian bytes: a List<Float> would box one object per sample,
+            // which is four seconds of audio per megabyte of heap on a full song.
+            val result = generator.generatePcmF32(
+                pcmLeBytes = audio.samples.toLeBytes(),
                 sampleRate = audio.sampleRate.toDouble(),
                 request = GenerateChartRequest(
                     star = star,

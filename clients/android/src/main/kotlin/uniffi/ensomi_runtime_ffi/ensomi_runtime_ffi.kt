@@ -718,6 +718,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_generate(
     ): Int
+    external fun uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_generate_pcm_f32(
+    ): Int
     external fun uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_prepare(
     ): Int
     external fun uniffi_ensomi_runtime_ffi_checksum_method_generationlistener_progress(
@@ -844,6 +846,8 @@ external fun uniffi_ensomi_runtime_ffi_fn_constructor_chartgenerator_open(`model
 external fun uniffi_ensomi_runtime_ffi_fn_method_chartgenerator_capabilities(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_ensomi_runtime_ffi_fn_method_chartgenerator_generate(`ptr`: Long,`pcm`: RustBuffer.ByValue,`sampleRate`: Double,`request`: RustBuffer.ByValue,`listener`: RustBuffer.ByValue,`cancellation`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_ensomi_runtime_ffi_fn_method_chartgenerator_generate_pcm_f32(`ptr`: Long,`pcmLeBytes`: RustBuffer.ByValue,`sampleRate`: Double,`request`: RustBuffer.ByValue,`listener`: RustBuffer.ByValue,`cancellation`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_ensomi_runtime_ffi_fn_method_chartgenerator_prepare(`ptr`: Long,`pcm`: RustBuffer.ByValue,`sampleRate`: Double,`cancellation`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Long
@@ -1112,7 +1116,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_generate() != 63973) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_prepare() != 22134) {
+    if (lib.uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_generate_pcm_f32() != 34907) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_ensomi_runtime_ffi_checksum_method_chartgenerator_prepare() != 23267) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ensomi_runtime_ffi_checksum_method_generationlistener_progress() != 30631) {
@@ -1964,7 +1971,13 @@ public interface ChartGeneratorInterface {
      * Runs the stages that read only the audio of mono PCM at `sample_rate`: PCM preparation, the spectrogram,
      * BeatThis, the features and the beat grid. Blocks until they are done; `cancellation` stops them at the next
      * step, and a cancelled `prepare` returns `GeneratorError::Cancelled` and keeps nothing.
+     * Generates from mono PCM supplied as little-endian `f32` bytes.
+     *
+     * A client that already holds a byte buffer should not box one object per sample to reach the
+     * generator: the conversion happens here, where the samples end up in a flat `Vec<f32>` either way.
      */
+    fun `generatePcmF32`(`pcmLeBytes`: kotlin.ByteArray, `sampleRate`: kotlin.Double, `request`: GenerateChartRequest, `listener`: GenerationListener?, `cancellation`: Cancellation?): ChartResult
+    
     fun `prepare`(`pcm`: List<kotlin.Float>, `sampleRate`: kotlin.Double, `cancellation`: Cancellation?): Prepared
     
     companion object
@@ -2107,7 +2120,25 @@ open class ChartGenerator: Disposable, AutoCloseable, ChartGeneratorInterface
      * Runs the stages that read only the audio of mono PCM at `sample_rate`: PCM preparation, the spectrogram,
      * BeatThis, the features and the beat grid. Blocks until they are done; `cancellation` stops them at the next
      * step, and a cancelled `prepare` returns `GeneratorError::Cancelled` and keeps nothing.
+     * Generates from mono PCM supplied as little-endian `f32` bytes.
+     *
+     * A client that already holds a byte buffer should not box one object per sample to reach the
+     * generator: the conversion happens here, where the samples end up in a flat `Vec<f32>` either way.
      */
+    @Throws(GeneratorException::class)override fun `generatePcmF32`(`pcmLeBytes`: kotlin.ByteArray, `sampleRate`: kotlin.Double, `request`: GenerateChartRequest, `listener`: GenerationListener?, `cancellation`: Cancellation?): ChartResult {
+            return FfiConverterTypeChartResult.lift(
+    callWithHandle {
+    uniffiRustCallWithError(GeneratorException) { _status ->
+    UniffiLib.uniffi_ensomi_runtime_ffi_fn_method_chartgenerator_generate_pcm_f32(
+        it,
+        FfiConverterByteArray.lower(`pcmLeBytes`),FfiConverterDouble.lower(`sampleRate`),FfiConverterTypeGenerateChartRequest.lower(`request`),FfiConverterOptionalTypeGenerationListener.lower(`listener`),FfiConverterOptionalTypeCancellation.lower(`cancellation`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(GeneratorException::class)override fun `prepare`(`pcm`: List<kotlin.Float>, `sampleRate`: kotlin.Double, `cancellation`: Cancellation?): Prepared {
             return FfiConverterTypePrepared.lift(
     callWithHandle {

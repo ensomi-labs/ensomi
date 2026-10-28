@@ -1,0 +1,30 @@
+﻿diff --git a/crates/ffi/src/generator.rs b/crates/ffi/src/generator.rs
+index 6cd5aad..8ddbfcf 100644
+--- a/crates/ffi/src/generator.rs
++++ b/crates/ffi/src/generator.rs
+@@ -456,6 +456,25 @@ impl ChartGenerator {
+     /// Runs the stages that read only the audio of mono PCM at `sample_rate`: PCM preparation, the spectrogram,
+     /// BeatThis, the features and the beat grid. Blocks until they are done; `cancellation` stops them at the next
+     /// step, and a cancelled `prepare` returns `GeneratorError::Cancelled` and keeps nothing.
++    /// Generates from mono PCM supplied as little-endian `f32` bytes.
++    ///
++    /// A client that already holds a byte buffer should not box one object per sample to reach the
++    /// generator: the conversion happens here, where the samples end up in a flat `Vec<f32>` either way.
++    pub fn generate_pcm_f32(
++        &self,
++        pcm_le_bytes: Vec<u8>,
++        sample_rate: f64,
++        request: GenerateChartRequest,
++        listener: Option<Arc<dyn GenerationListener>>,
++        cancellation: Option<Arc<Cancellation>>,
++    ) -> Result<ChartResult, GeneratorError> {
++        let pcm = pcm_le_bytes
++            .chunks_exact(4)
++            .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
++            .collect();
++        self.generate(pcm, sample_rate, request, listener, cancellation)
++    }
++
+     pub fn prepare(&self, pcm: Vec<f32>, sample_rate: f64, cancellation: Option<Arc<Cancellation>>) -> Result<Arc<Prepared>, GeneratorError> {
+         let audio = self.audio(pcm, sample_rate)?;
+         let cancelled = || cancellation.as_ref().is_some_and(|c| c.is_cancelled());

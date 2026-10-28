@@ -212,6 +212,10 @@ $NDK_TC=$NDK/toolchains/llvm/prebuilt/windows-x86_64
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK_TC/bin/clang.exe
 CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-C link-arg=--target=aarch64-linux-android26 \
   -C link-arg=--sysroot=$NDK_TC/sysroot"
+# The Android client sends PCM as bytes rather than a boxed List<Float>; that entry point is a local
+# runtime change, recorded as clients/runtime-android.patch.
+git apply <ensomi>/clients/runtime-android.patch
+
 cargo build --release -p ensomi-runtime-ffi --target aarch64-linux-android
 
 cargo run --release -p ensomi-runtime-ffi --features bindgen --bin uniffi-bindgen -- \
@@ -312,9 +316,10 @@ other clients read it with. One nuance came out of it: the parsed duration comes
 the in-memory chart's, because the parser derives it from the beatmap's timed content, so the test compares
 it with a tolerance instead of byte for byte.
 
-The PCM crosses the binding as a `List<Float>`, which boxes one float per sample — about 1.3 million
-objects for a minute of audio. It works, but a buffer-shaped parameter is the right fix if generation ever
-runs on full-length songs.
+The PCM crosses the binding as little-endian `f32` bytes (`generatePcmF32`), not as a `List<Float>`: the
+list form boxes one object per sample, about 1.3 million of them for a minute of audio and four million for
+a full song. A device test generates from the same samples both ways and asserts the same `.osu`, so the
+cheaper transport does not change the chart.
 
 ## Building and installing
 

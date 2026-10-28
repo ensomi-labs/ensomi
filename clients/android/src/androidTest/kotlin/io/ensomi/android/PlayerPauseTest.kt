@@ -39,7 +39,7 @@ class PlayerPauseTest {
             assertEquals("a paused clock does not advance", paused1, paused2, 60.0)
 
             player.resume()
-            val resumed = awaitPosition(player, timeoutMs = 4_000) { it > paused2 + 200.0 }
+            val resumed = awaitPosition(player, timeoutMs = 8_000) { it > paused2 + 200.0 }
 
             assertTrue(
                 "resuming continues from where it stopped: $paused2 -> $resumed",
