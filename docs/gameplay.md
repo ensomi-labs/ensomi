@@ -328,8 +328,8 @@ its default renderer it draws with SwiftShader on the CPU, at 5 to 14 frames per
 draws on the Mac's GPU, and the flat portrait playfield then held 59.5 to 60 frames per second, with 0.8 to 2.9 ms
 of drawing and 1.0 to 1.5 ms of runtime calls per frame on average. The captures use the host GPU. Its recordings show
 the look and the motion of the playfield, not a phone's frame cost. The lean cost nothing it could measure: with the
-Mac busy, 20 seconds of each, one after the other, gave the same median rate (32.5 to 34.9 frames per second) and
-drawing time (14.7 to 15.9 ms) for flat landscape lanes, 40°, 55° and flat portrait lanes. The slowness was the Mac's:
+Mac busy, 20 seconds of each, one after the other, gave the same median rate (32 to 35 frames per second) and
+drawing time (14 to 16 ms) for flat landscape lanes, 40°, 55° and flat portrait lanes. The slowness was the Mac's:
 the runtime calls, which draw nothing, took about three times as long as on a quiet Mac too.
 
 | It shows | It cannot show |
