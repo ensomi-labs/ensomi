@@ -49,8 +49,10 @@ import kotlinx.coroutines.isActive
 import uniffi.ensomi_runtime_ffi.Chart
 import uniffi.ensomi_runtime_ffi.ChartObject
 import uniffi.ensomi_runtime_ffi.GameplaySession
+import uniffi.ensomi_runtime_ffi.GameplayFeedback
 import uniffi.ensomi_runtime_ffi.Geometry
 import uniffi.ensomi_runtime_ffi.InputEvent
+import uniffi.ensomi_runtime_ffi.JudgementPresentation
 import uniffi.ensomi_runtime_ffi.Judge
 import uniffi.ensomi_runtime_ffi.Phase
 import uniffi.ensomi_runtime_ffi.Ruleset
@@ -84,6 +86,9 @@ fun PlayScene(
     var score by remember { mutableStateOf(session.score()) }
     var resolved by remember { mutableStateOf(false) }
     var started by remember { mutableStateOf(false) }
+    var paused by remember { mutableStateOf(false) }
+    var presentation by remember { mutableStateOf<JudgementPresentation?>(null) }
+    val feedback = remember { GameplayFeedback() }
 
     val clock = remember { AnchorAudioClock(AudioAnchor(0.0, SystemClock.elapsedRealtimeNanos())) }
     val timeline = remember {
@@ -94,25 +99,34 @@ fun PlayScene(
         )
     }
 
-    // The scene's time is the audio clock's, so the notes and the judgements share one timeline.
+    // The scene's time is the audio clock's, so the notes and the judgements share one timeline. A
+    // paused scene neither advances nor judges: the loop stops reading the clock, which is what makes
+    // the pause real rather than a visual state.
     LaunchedEffect(entry.uri) {
         player.play(android.net.Uri.parse(entry.uri))
         while (currentCoroutineContext().isActive) {
-            val position = player.positionMs()
-            if (position != null) {
-                val host = SystemClock.elapsedRealtimeNanos()
-                clock.onReading(AudioAnchor(position, host))
-                val heard = clock.positionMsAt(SystemClock.elapsedRealtimeNanos())
-                nowMs = heard
-                started = true
-                session.advance(heard)
-                score = session.score()
-                resolved = session.isResolved()
+            if (!paused) {
+                val position = player.positionMs()
+                if (position != null) {
+                    val host = SystemClock.elapsedRealtimeNanos()
+                    clock.onReading(AudioAnchor(position, host))
+                    val heard = clock.positionMsAt(SystemClock.elapsedRealtimeNanos())
+                    nowMs = heard
+                    started = true
+                    val events = session.advance(heard)
+                    feedback.recordJudgementEvents(events, heard)
+                    feedback.advanceJudgementTime(heard)
+                    score = session.score()
+                    resolved = session.isResolved()
+                    presentation = feedback.judgementPresentation(heard)
+                }
             }
             if (player.state == PlayerState.ENDED || player.state == PlayerState.FAILED) {
-                session.advance(nowMs + 5_000.0)
-                score = session.score()
-                resolved = session.isResolved()
+                if (!paused) {
+                    session.advance(nowMs + 5_000.0)
+                    score = session.score()
+                    resolved = session.isResolved()
+                }
                 break
             }
             delay(16)
@@ -161,17 +175,23 @@ fun PlayScene(
                 }
                 Text("${(score.accuracy * 100).toInt()}%", color = Color.White)
                 Text("x${score.combo}", color = Color.White)
+                OutlinedButton(
+                    onClick = {
+                        paused = !paused
+                        if (paused) player.pause() else player.resume()
+                    },
+                ) { Text(if (paused) "Resume" else "Pause") }
                 OutlinedButton(onClick = { player.stop(); onExit() }) { Text("Quit") }
             }
 
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(entry.uri) {
+                    .pointerInput(entry.uri, paused) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val lane = laneOf(down.position.x, size.width)
-                            if (started) {
+                            if (started && !paused) {
                                 val pressTime = timeline.chartTimeMs(down.uptimeMillis)
                                 session.input(InputEvent(lane.toUInt(), Phase.PRESS, pressTime))
                             }
@@ -181,7 +201,7 @@ fun PlayScene(
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 if (event.type == PointerEventType.Release || !change.pressed) {
-                                    if (started) {
+                                    if (started && !paused) {
                                         val releaseTime = timeline.chartTimeMs(change.uptimeMillis)
                                         session.input(InputEvent(lane.toUInt(), Phase.RELEASE, releaseTime))
                                     }
@@ -247,6 +267,43 @@ fun PlayScene(
                         }
                     }
                 }
+
+                // The core's own presentation of the last judgement: its lane, its tier colour and the
+                // opacity it has left. The scene draws it; it does not decide how a hit looked.
+                presentation?.let { shown ->
+                    val alpha = shown.opacity.toFloat().coerceIn(0f, 1f)
+                    if (alpha > 0.02f) {
+                        val laneIndex = shown.event.lane.toInt().coerceIn(0, 3)
+                        val color = tierColor(shown.event.tier).copy(alpha = alpha)
+                        drawRoundRect(
+                            color = color,
+                            topLeft = Offset(
+                                laneIndex * laneWidth + laneWidth * 0.2f,
+                                receptorY - 34.dp.toPx() + shown.verticalOffset.toFloat(),
+                            ),
+                            size = Size(laneWidth * 0.6f, 8.dp.toPx()),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx()),
+                        )
+                        drawRect(
+                            color = color.copy(alpha = alpha * 0.35f),
+                            topLeft = Offset(laneIndex * laneWidth, receptorY - 10.dp.toPx()),
+                            size = Size(laneWidth, 20.dp.toPx()),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (paused && !resolved) {
+            Card(Modifier.align(Alignment.Center).padding(24.dp)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Paused", style = MaterialTheme.typography.headlineSmall)
+                    Text("Resume when you're ready.")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { paused = false; player.resume() }) { Text("Resume") }
+                        OutlinedButton(onClick = { player.stop(); onExit() }) { Text("Quit") }
+                    }
+                }
             }
         }
 
@@ -294,8 +351,7 @@ private fun demoChart(durationMs: Long): Chart {
     return Chart(durationMs = durationMs.toUInt().coerceAtMost(600_000u), objects = objects)
 }
 
-/** A judgement tier as the HUD would colour it. Unused tiers exist so the mapping stays total. */
-@Suppress("unused")
+/** A judgement tier as the scene colours it. */
 private fun tierColor(tier: Tier): Color = when (tier) {
     Tier.BIG_P -> Color(0xFF7C6BFF)
     Tier.P1 -> Color(0xFF52C7D9)

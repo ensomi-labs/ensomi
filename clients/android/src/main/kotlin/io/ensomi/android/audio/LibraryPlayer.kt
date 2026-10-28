@@ -34,6 +34,9 @@ class LibraryPlayer(private val context: Context) {
     @Volatile
     private var stopped = false
 
+    @Volatile
+    private var paused = false
+
     private var thread: Thread? = null
     private var track: AudioTrack? = null
     private var sampleRate = 0
@@ -51,8 +54,22 @@ class LibraryPlayer(private val context: Context) {
         thread = Thread({ pump(uri) }, "ensomi-player").also { it.start() }
     }
 
+    /** Holds the output where it is: the audio clock stops advancing, so the session must too. */
+    fun pause() {
+        if (!isActive) return
+        paused = true
+        runCatching { track?.pause() }
+    }
+
+    fun resume() {
+        if (!isActive) return
+        paused = false
+        runCatching { track?.play() }
+    }
+
     fun stop() {
         stopped = true
+        paused = false
         thread?.interrupt()
         thread = null
         releaseTrack()
