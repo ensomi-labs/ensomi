@@ -1,0 +1,22 @@
+# Gradle and Kotlin
+.gradle/
+.kotlin/
+build/
+
+# Machine-specific settings: sdk.dir and ensomi.runtime.aar
+local.properties
+
+# Android Studio and IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Build outputs and run artifacts (screenshots, logs)
+*.apk
+*.aab
+artifacts/
+
+# macOS
+.DS_Store
