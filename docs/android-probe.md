@@ -214,9 +214,6 @@ CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-C link-arg=--target=aarch64-linux
   -C link-arg=--sysroot=$NDK_TC/sysroot"
 cargo build --release -p ensomi-runtime-ffi --target aarch64-linux-android
 
-# The Android client also needs the `.osz` entry point, which the runtime does not export yet.
-git apply <ensomi>/clients/runtime-android.patch
-
 cargo run --release -p ensomi-runtime-ffi --features bindgen --bin uniffi-bindgen -- \
   generate --library target/aarch64-linux-android/release/libensomi_runtime_ffi.so \
   --language kotlin --out-dir ../ensomi/clients/android/src/main/kotlin --no-format

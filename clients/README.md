@@ -18,7 +18,6 @@ windows/                 the Windows client
 android/                 the Android client and the probe build behind Settings
 win-audio/               a Rust spike that measures the WASAPI clock, not part of Gradle
 runtime-windows.patch    the local runtime changes a Windows build needs
-runtime-android.patch    the local runtime changes an Android build needs (the `.osz` entry point)
 ```
 
 ## Build and run

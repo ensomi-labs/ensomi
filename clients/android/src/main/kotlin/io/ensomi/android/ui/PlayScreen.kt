@@ -49,7 +49,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.ensomi_runtime_ffi.Chart
 import uniffi.ensomi_runtime_ffi.GenerationPhase
-import uniffi.ensomi_runtime_ffi.osz
+import uniffi.ensomi_runtime_ffi.exportOsz
 
 /**
  * S3 Play setup. The audio side plays a library file and reports the position the audio clock hears; the
@@ -103,7 +103,7 @@ fun PlayScreen(
                 val outcome = runCatching {
                     val audio = context.contentResolver.openInputStream(Uri.parse(entry.uri))?.use { it.readBytes() }
                         ?: error("the audio could not be read")
-                    val archive = osz(chart.osu, audio, chart.receiptJson)
+                    val archive = exportOsz(chart.osu, audio, chart.receiptJson)
                     context.contentResolver.openOutputStream(destination)?.use { it.write(archive) }
                         ?: error("the picker returned no stream")
                     "saved ${destination.lastPathSegment} (${archive.size} bytes)"

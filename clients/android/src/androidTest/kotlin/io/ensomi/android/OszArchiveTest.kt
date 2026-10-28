@@ -10,7 +10,7 @@ import uniffi.ensomi_runtime_ffi.ChartGenerator
 import uniffi.ensomi_runtime_ffi.ExecutionProvider
 import uniffi.ensomi_runtime_ffi.GenerateChartRequest
 import uniffi.ensomi_runtime_ffi.GeneratorOptions
-import uniffi.ensomi_runtime_ffi.osz
+import uniffi.ensomi_runtime_ffi.exportOsz
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.util.zip.ZipInputStream
@@ -46,7 +46,7 @@ class OszArchiveTest {
             )
 
             val audio = ByteArray(4_096) { (it % 251).toByte() }
-            val archive = osz(result.osu, audio, result.receipt.receiptJson)
+            val archive = exportOsz(result.osu, audio, result.receipt.receiptJson)
 
             assertTrue("an archive starts with the zip signature", archive.size > 4 && archive[0] == 'P'.code.toByte() && archive[1] == 'K'.code.toByte())
 
@@ -75,7 +75,7 @@ class OszArchiveTest {
             assertTrue("the receipt is inside", entries.containsKey("receipt.json"))
 
             // The archive is deterministic: the same inputs give the same bytes.
-            val again = osz(result.osu, audio, result.receipt.receiptJson)
+            val again = exportOsz(result.osu, audio, result.receipt.receiptJson)
             assertTrue("two builds of the same inputs agree", archive.contentEquals(again))
         }
     }

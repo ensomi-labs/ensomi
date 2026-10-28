@@ -662,8 +662,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_ensomi_runtime_ffi_checksum_func_note_y_position(
     ): Int
-    external fun uniffi_ensomi_runtime_ffi_checksum_func_osz(
-    ): Int
     external fun uniffi_ensomi_runtime_ffi_checksum_func_parse_osu(
     ): Int
     external fun uniffi_ensomi_runtime_ffi_checksum_func_tier_judgement(
@@ -893,8 +891,6 @@ external fun uniffi_ensomi_runtime_ffi_fn_func_note_geometry(`object`: RustBuffe
 ): RustBuffer.ByValue
 external fun uniffi_ensomi_runtime_ffi_fn_func_note_y_position(`objectTimeMs`: Double,`renderTimeMs`: Double,`scrollTimeMs`: Double,`receptorY`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): Double
-external fun uniffi_ensomi_runtime_ffi_fn_func_osz(`osu`: RustBuffer.ByValue,`audio`: RustBuffer.ByValue,`receiptJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
 external fun uniffi_ensomi_runtime_ffi_fn_func_parse_osu(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_ensomi_runtime_ffi_fn_func_tier_judgement(`tier`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1030,9 +1026,6 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ensomi_runtime_ffi_checksum_func_note_y_position() != 7172) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_ensomi_runtime_ffi_checksum_func_osz() != 32013) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_ensomi_runtime_ffi_checksum_func_parse_osu() != 25651) {
@@ -7367,22 +7360,6 @@ public object FfiConverterSequenceTypeVisibleObject: FfiConverterRustBuffer<List
     UniffiLib.uniffi_ensomi_runtime_ffi_fn_func_note_y_position(
     
         FfiConverterDouble.lower(`objectTimeMs`),FfiConverterDouble.lower(`renderTimeMs`),FfiConverterDouble.lower(`scrollTimeMs`),FfiConverterDouble.lower(`receptorY`),_status)
-}
-    )
-    }
-    
-
-        /**
-         * Builds the `.osz` archive the clients save: `generated.osu`, the song's audio and the receipt.
-         *
-         * The archive is byte-for-byte the one the other clients write for the same inputs, because the zip is
-         * built here rather than by each client's own zip library.
-         */ fun `osz`(`osu`: kotlin.String, `audio`: kotlin.ByteArray, `receiptJson`: kotlin.String): kotlin.ByteArray {
-            return FfiConverterByteArray.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_ensomi_runtime_ffi_fn_func_osz(
-    
-        FfiConverterString.lower(`osu`),FfiConverterByteArray.lower(`audio`),FfiConverterString.lower(`receiptJson`),_status)
 }
     )
     }
