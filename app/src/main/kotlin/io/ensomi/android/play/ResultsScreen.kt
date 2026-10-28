@@ -93,7 +93,8 @@ fun ResultsScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
                         Text(
                             formatAccuracy(result.accuracy),
-                            style = MaterialTheme.typography.displayMedium.copy(fontFeatureSettings = "tnum"),
+                            style = (if (wide) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium)
+                                .copy(fontFeatureSettings = "tnum"),
                             fontWeight = FontWeight.Bold,
                             color = Brand.Text,
                         )
@@ -181,13 +182,13 @@ fun ResultsScreen(
                             .widthIn(max = 1000.dp)
                             .fillMaxSize()
                             .windowInsetsPadding(WindowInsets.safeDrawing)
-                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                             Column(
                                 Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
                                 header()
                                 // Accuracy and the longest combo side by side, so the score fits the short side.
@@ -196,7 +197,7 @@ fun ResultsScreen(
                                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                                         Text(
                                             result.maxCombo.toString(),
-                                            style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
+                                            style = MaterialTheme.typography.headlineLarge.copy(fontFeatureSettings = "tnum"),
                                             color = Brand.Text,
                                         )
                                         Text(stringResource(R.string.results_max_combo), style = MaterialTheme.typography.titleSmall, color = Brand.MutedText)
@@ -206,7 +207,7 @@ fun ResultsScreen(
                             }
                             Column(
                                 Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) { details() }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
