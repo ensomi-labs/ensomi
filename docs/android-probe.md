@@ -66,8 +66,9 @@ filtered per caller, so a count is only meaningful with the caller that produced
 
 ## What the probe harness does
 
-`clients/android` is a probe build, not the product client. Its job is to run the report's high-value
-experiments on a device and leave a trace that can be compared later.
+`clients/android` opens on the client's workbench; the probe is the developer screen behind
+Settings. The probe's job is to run the report's high-value experiments on a device and leave a trace
+that can be compared later.
 
 | Screen section | Experiment it serves |
 | --- | --- |
@@ -150,6 +151,29 @@ The request side is settled and reproducible: a form post with `algorithmCode=sh
 The reference implementation ships the same 231 KB `afp.wasm` and calls it from JavaScript, so the next
 step is either running that module on Android or writing the spectral-peak fingerprint from Kotlin, and
 then checking it against the three captures already on disk.
+
+## The client shell
+
+The app opens on the workbench the screen specification calls S1: a bottom bar over Library and Play,
+and a Settings action in the top bar. The probe is no longer the entry point; it is a private activity
+reached from Settings, because it is a developer surface and S5 gives Android no Developer section.
+
+| Screen | State | What is real today |
+| --- | --- | --- |
+| S2 Library | Implemented | The system folder picker, a persisted grant per folder, an automatic scan on add, the four counts, last scan, rescan, and removal that leaves files on disk |
+| S5 Settings | Implemented in part | Scroll speed (1–40), judge difficulty (A–E), music volume, visual offset, all stored under the `mania4k.*` keys; the audio offset needs the calibration sheet, which needs the engine |
+| S3 Play setup | Up to the audio choice | A library song can be chosen and its length read; the star control, sections and Generate report that the device engine is not linked instead of pretending |
+| S4 Play scene | Not started | Needs the runtime binding and the audio clock |
+
+Two storage decisions are temporary and should not spread. The library document is `filesDir/library.json`
+rather than the app core's SQLite, because the app core does not exist on Android yet; the settings share
+the Apple keys so a value still means the same thing across clients. The library and settings rules are
+unit-tested on the JVM, as the probe's rules are.
+
+The bottom bar is lifted above the gesture strip: on this ROM the last few dp of the window belong to the
+system home gesture, and a tab row flush with the bottom edge is untappable rather than merely low. The
+first version of S3 also crashed the app by nesting a `LazyColumn` in a vertically scrolling column; the
+list is a plain column now, which is what a page this size wants anyway.
 
 ## Building and installing
 

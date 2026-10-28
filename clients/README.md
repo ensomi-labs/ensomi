@@ -15,7 +15,7 @@ slice — the probe harness and what it proved on the target device — is
 settings.gradle.kts      the Gradle root: repositories and the module list
 shared/                  the take manifest, the recognition contracts and the trace format
 windows/                 the Windows client
-android/                 the Android probe build
+android/                 the Android client and the probe build behind Settings
 win-audio/               a Rust spike that measures the WASAPI clock, not part of Gradle
 runtime-windows.patch    the local runtime changes a Windows build needs
 ```
@@ -105,6 +105,6 @@ two-line change, not a restructure.
 - One conformance case runs; the rest of `conformance/gameplay` needs a JSON reader in
   the test module.
 - The clock in `win-audio` is not bound to Kotlin yet.
-- Android is a probe harness: it freezes the device, resolves and starts deep links,
-  watches a download directory and records a window, but it has no library, no play screen
-  and no fingerprinter. [The Android probe](../docs/android-probe.md) lists what it proved.
+- Android has the workbench (Library, Settings) and the Play setup down to choosing
+  audio; the runtime binding, the star range and generation are still missing, and
+  [the Android probe](../docs/android-probe.md) lists what the probe established.

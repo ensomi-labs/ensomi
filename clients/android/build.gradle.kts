@@ -2,6 +2,7 @@ plugins {
     // AGP 9 compiles Kotlin itself, so `org.jetbrains.kotlin.android` must not be applied.
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -48,6 +49,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.12.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.documentfile:documentfile:1.1.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
