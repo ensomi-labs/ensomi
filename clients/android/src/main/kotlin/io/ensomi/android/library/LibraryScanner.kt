@@ -140,4 +140,19 @@ class LibraryScanner(
         context.contentResolver.persistedUriPermissions.any {
             it.isReadPermission && it.uri.toString() == treeUri
         }
+
+    /**
+     * Re-reads what the page reports without walking the folders: S2 gives "Refresh Status" its own
+     * action, and a revoked grant belongs in Library Error until the folder is removed or granted again.
+     */
+    fun refreshStatus() {
+        val revoked = store.index.folders.filterNot { hasGrant(it.treeUri) }
+        progress = progress.copy(
+            message = if (revoked.isEmpty()) {
+                null
+            } else {
+                "Access to ${revoked.joinToString { it.displayName }} was revoked. Remove it or grant it again."
+            },
+        )
+    }
 }

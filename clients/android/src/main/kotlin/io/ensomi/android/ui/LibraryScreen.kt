@@ -33,6 +33,7 @@ fun LibraryScreen(
     scanner: LibraryScanner,
     onPickFolder: () -> Unit,
     onRescan: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
     val index = library.index
     val progress = scanner.progress
@@ -108,7 +109,7 @@ fun LibraryScreen(
                     Button(onClick = onRescan, enabled = index.folders.isNotEmpty() && !progress.running) {
                         Text("Rescan Library")
                     }
-                    OutlinedButton(onClick = onRescan, enabled = index.folders.isNotEmpty() && !progress.running) {
+                    OutlinedButton(onClick = onRefresh, enabled = index.folders.isNotEmpty() && !progress.running) {
                         Text("Refresh Status")
                     }
                 }
@@ -153,6 +154,7 @@ private fun StatRow(label: String, value: String) {
 /** The path S2 truncates in the middle, because the tail is what identifies a SAF tree. */
 internal fun middleTruncate(value: String, max: Int): String {
     if (value.length <= max) return value
-    val half = (max - 1) / 2
+    if (max <= 3) return value.take(max)
+    val half = (max - 3) / 2
     return value.take(half) + "..." + value.takeLast(half)
 }

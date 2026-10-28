@@ -86,6 +86,7 @@ fun Workbench(
                     scanner = state.scanner,
                     onPickFolder = onPickFolder,
                     onRescan = { state.scanner.scan() },
+                    onRefresh = { state.scanner.refreshStatus() },
                 )
 
                 Destination.PLAY -> PlayScreen(
