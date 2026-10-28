@@ -163,12 +163,20 @@ reached from Settings, because it is a developer surface and S5 gives Android no
 | S2 Library | Implemented | The system folder picker, a persisted grant per folder, an automatic scan on add, the four counts, last scan, rescan, and removal that leaves files on disk |
 | S5 Settings | Implemented in part | Scroll speed (1–40), judge difficulty (A–E), music volume, visual offset, all stored under the `mania4k.*` keys; the audio offset needs the calibration sheet, which needs the engine |
 | S3 Play setup | Up to the audio choice | A library song can be chosen and its length read; the star control, sections and Generate report that the device engine is not linked instead of pretending |
-| S4 Play scene | Not started | Needs the runtime binding and the audio clock |
+| S4 Play scene | Contracts only | The audio clock and the input timestamp mapping are implemented and tested (`clock/`, `input/`); the renderer, the decoder and the session wait for the runtime binding |
 
 Two storage decisions are temporary and should not spread. The library document is `filesDir/library.json`
 rather than the app core's SQLite, because the app core does not exist on Android yet; the settings share
 the Apple keys so a value still means the same thing across clients. The library and settings rules are
 unit-tested on the JVM, as the probe's rules are.
+
+The two platform-shell contracts that do not need the engine are implemented as well, so the session has
+somewhere to plug in. `AnchorAudioClock` takes the output device's readings and answers both directions —
+audio time at a host time, host time at an audio time — measures the drift from two readings instead of
+assuming 1:1, and ignores a reading that arrives late or moves backwards. `InputTimeline` converts a
+pointer event's `uptimeMillis` to `elapsedRealtimeNanos` by the measured offset between the two clocks,
+then asks the audio clock for the song time: a press is placed where it happened, not where the frame
+that handled it landed.
 
 The bottom bar is lifted above the gesture strip: on this ROM the last few dp of the window belong to the
 system home gesture, and a tab row flush with the bottom edge is untappable rather than merely low. The
