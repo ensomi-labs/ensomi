@@ -297,17 +297,24 @@ heads) for the output used, when it is at least 3 ms.
 - The render thread's work is the four steps above. The Swift app measured the runtime's frame (advance, visible
   objects, lane states) at 0.05 ms through its bindings. Through UniFFI's Kotlin bindings every call goes through JNA,
   which marshals structures by reflection, and a frame makes about ten calls plus one `noteGeometry` per visible note
-  (up to about 70 in a dense frame). On the emulator the runtime calls took 17 to 24 ms per frame on average (a debug
-  build, with a CPU renderer competing for the cores), which says nothing about a phone but is too large to assume
-  away. It is the first thing the phone measures, in a release build. If it stays above about 1 ms, the fix is one
+  (up to about 70 in a dense frame). On the emulator with the host's GPU the runtime calls took 1.0 to 1.5 ms per
+  frame on average (a debug build; longest frames 3 to 18 ms), which says little about a phone but is too large to
+  assume away. It is the first thing the phone measures, in a release build. If it stays above about 1 ms, the fix is one
   runtime call per frame that returns the visible notes with their positions, lane brightness, the recent batches,
   the presentation and the score: a runtime change, listed in plan.md and not made. The prototype already asks only
   what changed (the score after events, the tier words once).
 - The renderer allocates nothing per frame; the bindings return new lists each call (`visibleObjects`, batches), so
   garbage collection pauses are watched in the traces.
 - Drawing is a hardware canvas (HWUI's GPU renderer) of about 150 rounded rectangles, gradients and two text runs, with
-  additive blending for lights. GLES with instanced quads replaces only the draw step if the canvas misses frames at
-  120 Hz; the thread, pacing, clock and frame order stay.
+  additive blending for lights. With a lean, the lanes and notes are drawn through one perspective matrix
+  (`Canvas.concat`): the GPU projects them, and the CPU does no more work than for flat lanes. Hardware canvases have
+  supported perspective transforms for a long time (Android's
+  [hardware acceleration](https://developer.android.com/develop/ui/views/graphics/hardware-accel) page lists even
+  `clipRect()` under rotation or perspective as supported from API 18); what a phone must show is their cost, since
+  rounded shapes under perspective can take a slower path in the GPU renderer than flat ones. If they do, the first
+  fallback keeps the canvas: project each note's corners on the CPU and draw all notes of a colour as quads in one
+  `Canvas.drawVertices` call (hardware-accelerated from API 29, same page). GLES with instanced quads replaces only
+  the draw step if the canvas still misses frames at 120 Hz; the thread, pacing, clock and frame order stay.
 - Measured with per-frame logs on the render thread and Perfetto's FrameTimeline, which records expected and actual
   presentation and jank per layer ([FrameTimeline](https://perfetto.dev/docs/data-sources/frametimeline)). The
   prototype's render thread already logs, every two seconds under the tag `EnsomiPlayfield`, its frame rate, the
@@ -315,9 +322,11 @@ heads) for the output used, when it is at least 3 ms.
 
 ## What the emulator can and cannot show
 
-The arm64 AVD `ensomi-36` runs the app natively on the Mac, at 1080 × 2424. Headless, it draws with SwiftShader, a
-CPU renderer: the render thread logged 5 to 14 frames per second, with 35 to 140 ms per frame in drawing and 17 to
-24 ms in runtime calls. Its recordings show the look of the playfield, not the smoothness of its motion.
+The arm64 AVD `ensomi-36` runs the app natively on the Mac, at 1080 × 2424 (923 × 411 dp in landscape). Headless with
+its default renderer it draws with SwiftShader on the CPU, at 5 to 14 frames per second; started with `-gpu host` it
+draws on the Mac's GPU, and the flat portrait playfield then held 59.5 to 60 frames per second, with 0.8 to 2.9 ms
+of drawing and 1.0 to 1.5 ms of runtime calls per frame on average. The captures use the host GPU. Its recordings show
+the look and the motion of the playfield, not a phone's frame cost.
 
 | It shows | It cannot show |
 | --- | --- |
@@ -339,7 +348,8 @@ where it applies:
 | Unreported output latency | The calibration's sound step, three runs per output; for speaker and wired also an external recording of a click against the logged clock | Runs within 5 ms of each other; gives each output's default offset |
 | Touch stamp | Event time against handling time for every touch of a game; the runtime's `lateInputs` | `lateInputs` 0 in normal play; handling delay p99 well under 100 ms |
 | Touch to light | 240 fps video of a finger tapping a lane | The light within two refreshes of the finger landing |
-| Frame pacing | Perfetto FrameTimeline over a 60 s autoplay of the densest sample, at 120 Hz | Under 0.5 % of frames late; render-thread work p99 under 3 ms |
+| Frame pacing | Perfetto FrameTimeline over a 60 s autoplay of the densest sample, at 120 Hz, at no lean, 40° and 55° | Under 0.5 % of frames late; render-thread work p99 under 3 ms at every lean |
+| The lean in hand | Players who know 4K on phones play the samples in landscape at 0°, 40° and 55°, and in portrait | 40° reads at speed; far notes are big enough; thumbs land in their lanes; the HUD never covers a lane |
 | Refresh rate | `Display.getRefreshRate()` during play after `setFrameRate` | 120 Hz on the Xiaomi unless battery saver is on |
 | Multi-touch | Four-finger chords and holds with real hands, presses and releases counted | Every press has its release; no lane stays lit |
 | Haptics | 240 fps video with Vibrate on lane touch | Its delay known, to say whether to offer it |

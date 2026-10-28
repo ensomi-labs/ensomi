@@ -36,7 +36,7 @@ None is needed for this design; every call it makes exists in the runtime's Kotl
 useful and are listed, not made:
 
 - **One call per frame.** A frame makes about ten runtime calls plus one `noteGeometry` per visible note, each through
-  JNA. On the emulator they took 17 to 24 ms per frame (debug build, CPU renderer); the phone measures the release
+  JNA. On the emulator with the host GPU they took 1.0 to 1.5 ms per frame on average (debug build); the phone measures the release
   build in step 9. If they cost more than about 1 ms there, one call that advances the session and returns the
   visible notes with their positions, lane brightness, recent batches, presentation and score would replace them.
 - **Phases from the scheduler.** A whole-chart scheduler reports no phases, so "Placing notes" and "Arranging lanes"

@@ -192,8 +192,9 @@ A Material list in sections:
   0.46 s to fall to the line."), judge difficulty (segmented A to E, C by default).
 - **Playfield**: orientation (segmented Landscape and Portrait, Landscape by default); **Lane lean** for the
   orientation chosen (a slider from Flat to 55° in whole degrees; 40° in landscape and Flat in portrait by default:
-  each orientation keeps its own); and a **live preview** under them: the sample chart playing itself on the game's own
-  renderer, at the phone's full-screen proportions in the chosen orientation, scaled into the list. The preview follows
+  each orientation keeps its own); and a **live preview**: the sample chart playing itself on the game's own renderer,
+  at the phone's full-screen proportions in the chosen orientation, scaled into the list, under the sliders on a phone
+  held upright and beside them in landscape, so it stays in sight while a slider moves. The preview follows
   the lean and the scroll speed while their sliders are dragged, so the player sees what a change does before playing.
   For the full-size look, About › Playfield preview opens the same sample as a game.
 - **Touch**: Vibrate on lane touch (off by default; see Haptics).
@@ -212,7 +213,8 @@ In the game's dark presentation, two steps on a segmented control:
    shows the last taps from early to late; after enough taps the screen suggests the audio offset for the current
    output (named on the screen) from the median of the last 16, with Use and Start over.
 2. **Picture.** The clicks go on and a note falls onto the line with each one, drawn by the play renderer with the
-   player's lane lean. The player moves the visual offset slider until the notes cross the line on the click. There is no tapping in this step, so
+   player's lane lean. The player moves the visual offset slider until the notes cross the line on the click. In
+   landscape the notes sit beside the slider, so the field keeps its height. There is no tapping in this step, so
    touch latency cannot leak into the visual offset.
 
 How the click is timed and why this separates the offsets is in gameplay.md.
