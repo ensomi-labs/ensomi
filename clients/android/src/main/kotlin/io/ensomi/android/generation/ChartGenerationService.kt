@@ -31,6 +31,16 @@ class ChartGenerationService(private val context: Context) {
 
     fun isModelInstalled(): Boolean = File(modelDirectory(), "ensomi-package.json").isFile
 
+    /** The star range the model accepts, read once: opening the generator is not free. */
+    fun starRange(): ClosedFloatingPointRange<Double>? = cachedRange ?: runCatching {
+        ChartGenerator.open(modelDirectory().absolutePath, GeneratorOptions(provider = ExecutionProvider.CPU)).use {
+            val capabilities = it.capabilities()
+            capabilities.minStar..Math.nextDown(capabilities.maxStarExclusive)
+        }
+    }.getOrNull()?.also { cachedRange = it }
+
+    private var cachedRange: ClosedFloatingPointRange<Double>? = null
+
     fun generate(
         uri: Uri,
         requestedStar: Double,
