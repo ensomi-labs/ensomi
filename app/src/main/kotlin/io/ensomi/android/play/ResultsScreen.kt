@@ -210,8 +210,9 @@ fun ResultsScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                             ) { details() }
                         }
+                        // Under the right column; across the screen at large text sizes, so the labels fit.
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Spacer(Modifier.weight(1f))
+                            if (LocalDensity.current.fontScale <= 1.3f) Spacer(Modifier.weight(1f))
                             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 done(Modifier.weight(1f))
                                 playAgain(Modifier.weight(1f))
