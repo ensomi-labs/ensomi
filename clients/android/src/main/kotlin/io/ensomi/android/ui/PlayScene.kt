@@ -33,6 +33,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import android.app.Activity
+import android.content.Context
+import android.content.pm.ActivityInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -137,11 +144,45 @@ fun PlayScene(
         onDispose { player.stop() }
     }
 
-    // S4 keeps the screen on while a run is in progress.
+    // S4 keeps the screen on and plays in landscape while a run is in progress, and offers its audio to
+    // the system: a call or another player takes the focus, and the run pauses instead of talking over it.
     val view = LocalView.current
-    DisposableEffect(view) {
+    val activity = LocalContext.current as? Activity
+    DisposableEffect(view, activity) {
         view.keepScreenOn = true
-        onDispose { view.keepScreenOn = false }
+        val previousOrientation = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val focusRequest = audio?.let {
+            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                .setOnAudioFocusChangeListener { change ->
+                    if (change <= AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        paused = true
+                        player.pause()
+                    }
+                }
+                .build()
+        }
+        focusRequest?.let { audio?.requestAudioFocus(it) }
+
+        onDispose {
+            view.keepScreenOn = false
+            if (previousOrientation != null) activity?.requestedOrientation = previousOrientation
+            focusRequest?.let { audio?.abandonAudioFocusRequest(it) }
+        }
+    }
+
+    // A back gesture pauses the run rather than leaving it: the stage is not lost by touching Back.
+    BackHandler(enabled = !resolved) {
+        paused = true
+        player.pause()
     }
 
     val scrollSpeed by rememberUpdatedState(settings.scrollSpeed)

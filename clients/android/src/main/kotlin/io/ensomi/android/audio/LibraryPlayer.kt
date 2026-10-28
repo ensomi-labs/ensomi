@@ -88,25 +88,33 @@ class LibraryPlayer(private val context: Context) {
     }
 
     /** The audio time heard, in milliseconds, or null before the track has played anything. */
-    fun positionMs(): Double? {
-        val audioTrack = track ?: return null
-        if (sampleRate == 0) return null
+    fun positionMs(): Double? = runCatching {
+        val audioTrack = track ?: return@runCatching null
+        if (sampleRate == 0) return@runCatching null
         val stamp = AudioTimestamp()
         // On API 36 this returns whether the device could answer, not a status code.
         val available = audioTrack.getTimestamp(stamp)
         val frames = if (available) stamp.framePosition else audioTrack.playbackHeadPosition.toLong()
-        return frames.toDouble() * 1000.0 / sampleRate
-    }
+        frames.toDouble() * 1000.0 / sampleRate
+    }.getOrNull()
 
     private fun pump(uri: Uri?, file: File?) {
         var extractor: MediaExtractor? = null
         var codec: MediaCodec? = null
         // The extractor reads from the descriptor while the loop runs, so it must outlive setDataSource.
-        val descriptor = if (file != null) {
-            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        } else {
-            context.contentResolver.openFileDescriptor(uri ?: error("no source"), "r")
-                ?: error("the file could not be opened")
+        val descriptor = try {
+            if (file != null) {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            } else {
+                context.contentResolver.openFileDescriptor(uri ?: error("no source"), "r")
+                    ?: error("the file could not be opened")
+            }
+        } catch (error: Throwable) {
+            if (!stopped) {
+                failure = "this file cannot be opened any more: ${error.message}"
+                state = PlayerState.FAILED
+            }
+            return
         }
         try {
             extractor = MediaExtractor()

@@ -42,6 +42,10 @@ class MainActivity : ComponentActivity() {
             .onSuccess { Log.i("EnsomiRuntime", "generator: $it") }
             .onFailure { Log.i("EnsomiRuntime", "generator without a model: ${it.message}") }
 
+        // A reinstall loses the persisted grants while the library keeps its folders, so the page says so
+        // at once instead of failing when a song is played.
+        state.scanner.refreshStatus()
+
         setContent {
             EnsomiTheme {
                 Workbench(
