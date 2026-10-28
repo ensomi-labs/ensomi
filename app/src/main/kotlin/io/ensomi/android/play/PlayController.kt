@@ -88,6 +88,8 @@ class PlayController(
 
     private var scriptIndex = 0
     private var anyJudgement = false
+    private var lastScore: Score? = null
+    private var scoreChanged = true
     private val hitOffsets = ArrayList<Double>()
 
     fun start(nanoTime: Long) {
@@ -113,7 +115,11 @@ class PlayController(
             record(session.advance(gameplayMs - INPUT_ALLOWANCE_MS), gameplayMs)
         }
         feedback.advanceJudgementTime(gameplayMs)
-        val score = session.score()
+        // The score changes only when events are decided; each call through the bindings costs time.
+        val score = lastScore?.takeIf { !scoreChanged } ?: session.score().also {
+            lastScore = it
+            scoreChanged = false
+        }
         publishHud(score, songNow)
 
         val presentSong = clock.songTimeMs(presentNanos) ?: songNow
@@ -166,13 +172,14 @@ class PlayController(
     private fun record(events: List<JudgementEvent>, chartMs: Double) {
         if (events.isEmpty()) return
         anyJudgement = true
+        scoreChanged = true
         feedback.recordJudgementEvents(events, chartMs)
         events.forEach { event -> event.offsetMs?.let { hitOffsets += it } }
     }
 
     /** The game ends when every object is decided and the song has played to its end, as in the Swift app. */
     private fun publishHud(score: Score, songNow: Double) {
-        val over = !loop && session.isResolved() && songNow >= chart.durationMs
+        val over = !loop && songNow >= chart.durationMs && session.isResolved()
         val finished = if (over) score else null
         val next = PlayHud(
             accuracy = score.accuracy,
@@ -190,6 +197,8 @@ class PlayController(
         feedback = GameplayFeedback()
         scriptIndex = 0
         anyJudgement = false
+        lastScore = null
+        scoreChanged = true
         hitOffsets.clear()
         queue.clear()
         pending.clear()

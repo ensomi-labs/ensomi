@@ -14,6 +14,7 @@ import androidx.core.graphics.withSave
 import androidx.core.graphics.withTranslation
 import io.ensomi.runtime.Geometry
 import io.ensomi.runtime.Judgement
+import io.ensomi.runtime.Tier
 import io.ensomi.runtime.VisibleState
 import io.ensomi.runtime.noteGeometry
 import io.ensomi.runtime.tierJudgement
@@ -88,6 +89,9 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
     private val fadeUpShaders = HashMap<Int, LinearGradient>()
 
     var reduceMotion = false
+
+    /** The runtime's word for each tier (`tierJudgement`), asked once rather than per event and frame. */
+    private val judgementOf: Map<Tier, Judgement> by lazy { Tier.entries.associateWith { tierJudgement(it) } }
 
     fun draw(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry) {
         drawGround(canvas, g)
@@ -240,7 +244,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             if (age < 0) continue
             for (event in batch.events) {
                 val laneX = g.laneLeft(event.lane.toInt())
-                val judgement = tierJudgement(event.tier)
+                val judgement = judgementOf.getValue(event.tier)
                 val color = PlayPalette.judgement(judgement)
                 if (judgement == Judgement.MISS) {
                     if (age >= MISS_FEEDBACK_MS) continue
@@ -293,7 +297,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             wordPaint.color = PlayPalette.MUTED_TEXT
             canvas.drawText(words.ready, centerX, wordY, wordPaint)
         } else if (presentation != null) {
-            val judgement = tierJudgement(presentation.event.tier)
+            val judgement = judgementOf.getValue(presentation.event.tier)
             val scale = if (reduceMotion) 1f else presentation.scale.toFloat()
             val drift = if (reduceMotion) 0f else g.dp(presentation.verticalOffset.toFloat())
             val word = when (judgement) {
