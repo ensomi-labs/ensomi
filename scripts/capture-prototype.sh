@@ -24,7 +24,7 @@ shot() { adb exec-out screencap -p >"$OUT/$1.png"; echo "$1.png"; }
 wanted() { case " $GROUPS_WANTED " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 swipe_up() { adb shell input swipe 540 1900 540 700 500; sleep 1.5; }
 # The results keep the game's landscape: scroll their left column.
-swipe_up_landscape() { adb shell input swipe 700 850 700 300 500; sleep 1.5; }
+swipe_up_landscape() { adb shell input swipe 700 700 700 250 500; sleep 1.5; }
 
 # scenario:seconds to wait before the screenshot
 SCENARIOS=(

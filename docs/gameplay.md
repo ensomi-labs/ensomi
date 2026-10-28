@@ -62,8 +62,8 @@ landscape) with a 24 dp gesture area.
 | Lanes' height on the screen | 317 dp | About 750 dp |
 | Lean by default | 40° | Flat |
 
-The lanes alternate `#1D1627` and `#191220`, and their far end fades into the ground over 8 % of their height on the
-screen, so notes come out of the distance instead of appearing at an edge. A 3 dp song progress bar runs along the far
+The lanes alternate `#1D1627` and `#191220` between two 2 dp `#2A2036` side edges, which show the lean's shape
+against the ground, and their far end fades into the ground over 8 % of their height on the screen, so notes come out of the distance instead of appearing at an edge. A 3 dp song progress bar runs along the far
 end.
 
 ### The lean
@@ -98,7 +98,8 @@ their shape and only shrink (Malody V offers a "thickness compensation" setting 
 follow the lane, since their length is time.
 
 **What does not lean.** Drawn on the screen as it is: the ground, the key tray and its caps, the judgement line, the
-progress bar, and the judgement word and combo, which stay upright and sharp at 42 % of the lanes' height on the screen.
+progress bar, and the judgement word and combo, which stay upright and sharp at 42 % of the lanes' height on the screen
+(a fifth smaller in landscape, where the field is short).
 The line, the tray and the touch zones are the same at every lean.
 
 **Notes** follow the Swift play screen. Taps are rose `#EAA0B7`, 20 dp tall at the line, inset 5 dp from the lane edges,
@@ -197,7 +198,7 @@ renderMs   = songMs(expectedPresentation) + audioOffset + visualOffset
 ```
 
 A frame that misses its deadline is not redrawn late; the next vsync draws for its own time, so motion never stalls or
-jumps backwards. The HUD row in Compose observes only accuracy and the end of the game, which change when a judgement
+jumps backwards. The HUD in Compose observes only accuracy and the end of the game, which change when a judgement
 does, not every frame. The judgement word and combo are drawn by the render thread, on the same timeline as the notes.
 
 ## Input
