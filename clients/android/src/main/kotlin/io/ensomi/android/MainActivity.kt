@@ -1,6 +1,7 @@
 package io.ensomi.android
 
 import android.content.Intent
+import android.util.Log
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,6 +29,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         state = WorkbenchState(this)
+
+        // One line in logcat says whether the packaged runtime reaches the core on this build.
+        RuntimeSelfCheck.run()
+            .onSuccess { Log.i("EnsomiRuntime", it) }
+            .onFailure { Log.w("EnsomiRuntime", "parse_osu failed", it) }
 
         setContent {
             EnsomiTheme {

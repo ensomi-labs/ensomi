@@ -24,3 +24,6 @@ local.properties
 
 # Built native libraries of the runtime core
 clients/windows/libs/
+
+# Built Android native library of the runtime core
+clients/android/src/main/jniLibs/

@@ -31,6 +31,11 @@ android {
             isMinifyEnabled = false
         }
     }
+
+    packaging {
+        // JNA opens the packaged libraries by path, so they have to be extracted from the APK.
+        jniLibs.useLegacyPackaging = true
+    }
 }
 
 dependencies {
@@ -50,6 +55,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
+
+    // The runtime core's UniFFI bindings load the packaged libensomi_runtime_ffi.so through JNA.
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

@@ -31,7 +31,8 @@ cd clients
 ./gradlew :shared:test          # the take manifest, the recognition contracts and the trace format
 ```
 
-The Android module uses the SDK named in `local.properties` (ignored, so each machine writes its own):
+The Android module uses the SDK named in `local.properties` (ignored, so each machine writes its own)
+and the runtime library built in the runtime checkout beside this repository:
 
 ```
 cd clients
@@ -39,6 +40,11 @@ cd clients
 ./gradlew :android:test         # the download correlation rules
 adb install -r android/build/outputs/apk/debug/android-debug.apk
 ```
+
+The arm64 `libensomi_runtime_ffi.so` is built with the NDK and is not committed; Settings → Check runtime
+reports whether the packaged library reaches the core. [The Android
+probe](../docs/android-probe.md#the-runtime-binding) has the build commands and the one edit the generated
+binding needs.
 
 `win-audio` builds with Cargo: `cargo run --release --manifest-path win-audio/Cargo.toml`.
 

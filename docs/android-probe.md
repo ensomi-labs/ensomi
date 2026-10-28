@@ -189,6 +189,43 @@ system home gesture, and a tab row flush with the bottom edge is untappable rath
 first version of S3 also crashed the app by nesting a `LazyColumn` in a vertically scrolling column; the
 list is a plain column now, which is what a page this size wants anyway.
 
+## The runtime binding
+
+The Android client links the same Rust core as the Apple and Windows clients. The library is built in the
+runtime checkout beside this repository and is not committed, as the Windows DLL is not:
+
+```
+runtime/                       the runtime checkout beside this repository
+$NDK=/path/to/android-ndk-r29
+$NDK_TC=$NDK/toolchains/llvm/prebuilt/windows-x86_64
+
+CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK_TC/bin/clang.exe
+CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-C link-arg=--target=aarch64-linux-android26 \
+  -C link-arg=--sysroot=$NDK_TC/sysroot"
+cargo build --release -p ensomi-runtime-ffi --target aarch64-linux-android
+
+cargo run --release -p ensomi-runtime-ffi --features bindgen --bin uniffi-bindgen -- \
+  generate --library target/aarch64-linux-android/release/libensomi_runtime_ffi.so \
+  --language kotlin --out-dir ../ensomi/clients/android/src/main/kotlin --no-format
+
+cp target/aarch64-linux-android/release/libensomi_runtime_ffi.so \
+   ../ensomi/clients/android/src/main/jniLibs/arm64-v8a/
+```
+
+Two details decide whether that works. The NDK's linker wrappers are `.cmd` files, which cargo on Windows
+cannot execute, so the linker is `clang.exe` with `--target` and `--sysroot` passed as link arguments. And
+the generated exceptions carry a field named `message`, which clashes with `Throwable.message`; rename the
+two constructor properties and the two interpolations to `messageText`, as the Windows binding needs.
+
+`jniLibs` is ignored: the shared library is a build product. The generated Kotlin binding is committed, so
+the module compiles without a Rust toolchain and only a runtime check fails without the library.
+
+**What the device proved.** The packaged library loads through JNA, and `parse_osu` on a one-note mania
+beatmap returns `1 objects, 1000 ms` — the binding, the native core and the transport all work on the
+phone. Generation is not wired: `ensomi-generate-ort` links ONNX Runtime dynamically, so a generation
+request needs an `onnxruntime` shared library for arm64 and a model package, neither of which this build
+ships.
+
 ## Building and installing
 
 ```

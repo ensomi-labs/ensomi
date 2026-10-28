@@ -15,6 +15,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import io.ensomi.android.RuntimeSelfCheck
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.settings.EnsomiSettings
@@ -89,11 +94,40 @@ fun SettingsSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                Text("Runtime", style = MaterialTheme.typography.titleSmall)
+                RuntimeCheck()
+
                 Text("Developer", style = MaterialTheme.typography.titleSmall)
                 OutlinedButton(onClick = onOpenProbe) { Text("Open probe") }
             }
         },
     )
+}
+
+/**
+ * Loads the packaged runtime and parses a beatmap the shell can spell out. It answers one question —
+ * does the binding reach the native core on this device — and nothing about generation, which needs ONNX
+ * Runtime and a model this build does not ship.
+ */
+@Composable
+private fun RuntimeCheck() {
+    var result by remember { mutableStateOf<String?>(null) }
+
+    OutlinedButton(
+        onClick = {
+            result = RuntimeSelfCheck.run().getOrElse { error ->
+                "failed: ${error::class.java.simpleName}: ${error.message}"
+            }
+        },
+    ) { Text("Check runtime") }
+
+    result?.let {
+        Text(
+            it,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 @Composable
