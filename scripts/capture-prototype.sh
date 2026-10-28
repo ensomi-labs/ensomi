@@ -6,12 +6,12 @@
 #
 #   scripts/capture-prototype.sh OUT_DIR [GROUP...]
 #
-# GROUP is any of screens, game, lean, font, landscape, dumps, recording; all of them when none is given.
+# GROUP is any of screens, game, lean, font, landscape, dumps, pacing, recording; all of them when none is given.
 set -euo pipefail
 
 OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
 shift
-GROUPS_WANTED=${*:-screens game lean font landscape dumps recording}
+GROUPS_WANTED=${*:-screens game lean font landscape dumps pacing recording}
 mkdir -p "$OUT"
 PKG=io.ensomi.android
 ACTIVITY=$PKG/.MainActivity
@@ -161,7 +161,7 @@ if wanted landscape; then
 # The phone turned to landscape: the chrome follows it. (Play turns it to landscape by itself.)
 adb shell settings put system user_rotation 1
 sleep 2
-for name in library make-chart-made settings settings-playfield calibration-picture; do
+for name in library make-chart-made settings settings-playfield calibration-sound calibration-picture; do
   launch "$name"; sleep 3; shot "landscape-$name"
 done
 adb shell settings put system user_rotation 0
@@ -174,6 +174,17 @@ for name in library make-chart-made play-paused results; do
   launch "$name"
   if [ "$name" = play-paused ]; then sleep 15; else sleep 3; fi
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/window-$name.xml" >/dev/null || echo "no dump for $name"
+done
+fi
+
+if wanted pacing; then
+# The render thread's own frame log for 20 seconds of the game at each lean, landscape and portrait, one after
+# the other under the same conditions: pacing-NAME.txt.
+for name in play-flat play play-lean-max play-portrait; do
+  adb logcat -c
+  launch "$name"; sleep 22
+  adb logcat -d -s EnsomiPlayfield:I >"$OUT/pacing-$name.txt" || true
+  echo "pacing-$name.txt"
 done
 fi
 
