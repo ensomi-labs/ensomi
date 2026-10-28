@@ -47,7 +47,7 @@ class SampleSongLibrary(initial: List<Song>) : SongLibrary {
     companion object {
         /** Made-up songs; the prototype has no audio. */
         val SONGS = listOf(
-            Song("lantern-walk", "Lantern Walk", "Mira Sato", 222_000, "lantern-walk.mp3", chartCount = 2),
+            Song("lantern-walk", "Lantern Walk", "Mira Sato", 222_000, "lantern-walk.mp3", chartCount = 1),
             Song("northbound", "Northbound", "The Quiet Hours", 245_000, "northbound.flac"),
             Song("small-hours", "Small Hours", "Aoi", 178_000, "small-hours.m4a", chartCount = 1),
             Song("glass-garden", "Glass Garden", "Ren & Kei", 201_000, "Glass Garden.mp3"),

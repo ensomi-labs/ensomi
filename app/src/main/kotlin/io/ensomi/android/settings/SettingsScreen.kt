@@ -49,7 +49,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * Settings, reached from the library and the song screens, never during a game, so nothing here changes while one is
+ * Settings, reached from the library, never during a game, so nothing here changes while one is
  * in progress. Sections: gameplay, touch, sound and timing (with calibration), the chart model, and about (the
  * playfield preview and Diagnostics).
  */
