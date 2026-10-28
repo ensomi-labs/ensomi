@@ -15,6 +15,9 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        // The conformance check runs against the real core on a device, so it is an instrumented test.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -64,4 +67,9 @@ dependencies {
     // The correlation rules are plain Kotlin, so they run as JVM unit tests on the build machine.
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.4.21")
     testImplementation("junit:junit:4.13.2")
+
+    // The conformance case needs the packaged core, so it runs on the device that has it.
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("net.java.dev.jna:jna:5.17.0@aar")
 }

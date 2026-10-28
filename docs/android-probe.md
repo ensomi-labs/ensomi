@@ -226,6 +226,26 @@ phone. Generation is not wired: `ensomi-generate-ort` links ONNX Runtime dynamic
 request needs an `onnxruntime` shared library for arm64 and a model package, neither of which this build
 ships.
 
+The runtime's own conformance case runs on the device too. `:android:connectedDebugAndroidTest` installs
+both APKs and runs `GameplayConformanceTest` — the fixture `early_press_ignored.json`, written out in
+Kotlin as on Windows — and it passes with the same judgement, tier, time, score and accuracy the fixture
+expects:
+
+```
+io.ensomi.android.GameplayConformanceTest:.
+OK (1 test)
+```
+
+That ROM intercepts an APK install with its own confirmation dialog, which the connected-test runner does
+not answer, so it reports `INSTALL_FAILED_USER_RESTRICTED` and then a misleading `BUILD SUCCESSFUL`. The
+same test runs from the shell when the dialog is accepted:
+
+```
+adb install -r android/build/outputs/apk/debug/android-debug.apk
+adb install -r android/build/outputs/apk/androidTest/debug/android-debug-androidTest.apk
+adb shell am instrument -w io.ensomi.android.test/androidx.test.runner.AndroidJUnitRunner
+```
+
 ## Building and installing
 
 ```
