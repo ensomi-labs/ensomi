@@ -145,13 +145,21 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         canvas.drawPath(diagonal, fill)
     }
 
-    /** Lane space. Each lane's light rises 45 % of the lanes' height on the screen, whatever the lean. */
+    /**
+     * Lane space. A thin edge on each side of the field shows the lean's shape against the ground. Each lane's light
+     * rises 45 % of the lanes' height on the screen, whatever the lean.
+     */
     private fun drawLanes(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry) {
         for (lane in 0 until PlayfieldGeometry.LANES) {
             fill.color = if (lane % 2 == 0) PlayPalette.LANE_A else PlayPalette.LANE_B
             val left = g.laneLeft(lane)
             canvas.drawRect(left, g.laneTop, left + g.laneWidth, g.lineY, fill)
         }
+        val edge = g.dp(EDGE_DP)
+        val right = g.lineLeft + g.lineWidth
+        fill.color = PlayPalette.SURFACE
+        canvas.drawRect(g.lineLeft - edge, g.laneTop, g.lineLeft, g.lineY, fill)
+        canvas.drawRect(right, g.laneTop, right + edge, g.lineY, fill)
         val brightness = frame?.brightness ?: return
         val lightTop = g.laneY(g.lineY - g.screenFall * 0.45f)
         for (lane in 0 until PlayfieldGeometry.LANES) {
@@ -289,7 +297,8 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         farFade.setLocalMatrix(matrix)
         fade.shader = farFade
         fade.alpha = 255
-        canvas.drawRect(g.lineLeft, g.laneTop, g.lineLeft + g.lineWidth, end, fade)
+        val edge = g.dp(EDGE_DP)
+        canvas.drawRect(g.lineLeft - edge, g.laneTop, g.lineLeft + g.lineWidth + edge, end, fade)
         fade.shader = null
     }
 
@@ -356,7 +365,9 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         val centerX = g.centerX
         val wordY = g.fieldTop + g.screenFall * 0.42f
         val presentation = frame.presentation
-        wordPaint.textSize = g.dp(34f)
+        // The landscape field is short: the words are a fifth smaller there, so they cover less of it.
+        val text = if (g.landscape) g.density * 0.8f else g.density
+        wordPaint.textSize = 34f * text
         if (!frame.anyJudgement) {
             wordPaint.color = PlayPalette.MUTED_TEXT
             canvas.drawText(words.ready, centerX, wordY, wordPaint)
@@ -377,10 +388,10 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             // A Good says whether it was early (up, lavender) or late (down, rose); a Perfect stays quiet.
             val offset = presentation.event.offsetMs
             if (judgement == Judgement.GOOD && offset != null && offset != 0.0) {
-                val arrowX = wordPaint.measureText(word) / 2 + g.dp(16f)
+                val arrowX = wordPaint.measureText(word) / 2 + 16f * text
                 labelPaint.color = if (offset < 0) PlayPalette.EARLY else PlayPalette.LATE
                 labelPaint.alpha = wordPaint.alpha
-                labelPaint.textSize = g.dp(26f)
+                labelPaint.textSize = 26f * text
                 canvas.drawText(if (offset < 0) "↑" else "↓", arrowX, 0f, labelPaint)
             }
             }
@@ -389,13 +400,13 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         if (frame.combo >= 2) {
             comboPaint.color = PlayPalette.TEXT
             comboPaint.alpha = 230
-            comboPaint.textSize = g.dp(46f)
-            val comboY = wordY + g.dp(56f)
+            comboPaint.textSize = 46f * text
+            val comboY = wordY + 56f * text
             canvas.drawText(frame.combo.toString(), centerX, comboY, comboPaint)
             labelPaint.color = PlayPalette.MUTED_TEXT
             labelPaint.alpha = 255
-            labelPaint.textSize = g.dp(15f)
-            canvas.drawText(words.combo, centerX, comboY + g.dp(22f), labelPaint)
+            labelPaint.textSize = 15f * text
+            canvas.drawText(words.combo, centerX, comboY + 22f * text, labelPaint)
         }
     }
 
@@ -423,5 +434,8 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
 
         /** The part of the lanes' screen height, at the far end, over which they fade into the ground. */
         const val FAR_FADE = 0.08f
+
+        /** The width of the field's side edges at the line. */
+        const val EDGE_DP = 2f
     }
 }

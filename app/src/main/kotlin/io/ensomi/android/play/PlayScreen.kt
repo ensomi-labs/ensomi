@@ -191,7 +191,14 @@ fun PlayScreen(
                 onFinished(PlayResult.of(title, detail, score, hud.hitOffsetsMs, sample = true))
             }
 
-            PlayHudRow(title, detail, hud.accuracy, paused = phase != PlayPhase.PLAYING, onPause = ::pause)
+            PlayHudRow(
+                title,
+                detail,
+                hud.accuracy,
+                paused = phase != PlayPhase.PLAYING,
+                onPause = ::pause,
+                landscapeFarScale = PlaySettings.farScale(settings.landscapeLean),
+            )
 
             when (phase) {
                 PlayPhase.PLAYING -> Unit
@@ -218,9 +225,20 @@ fun PlayScreen(
  * to the room left of the lanes' far end.
  */
 @Composable
-private fun PlayHudRow(title: String, detail: String, accuracy: Double, paused: Boolean, onPause: () -> Unit) = BoxWithConstraints {
+private fun PlayHudRow(
+    title: String,
+    detail: String,
+    accuracy: Double,
+    paused: Boolean,
+    onPause: () -> Unit,
+    landscapeFarScale: Float,
+) = BoxWithConstraints {
     val landscape = maxWidth > maxHeight
-    val beside = (maxWidth - PlayfieldGeometry.lineWidth(maxWidth.value, 1f, landscape = true).dp) / 2
+    // The room left of the lanes where the HUD row ends, in dp: wider the more the lanes lean.
+    val beside = remember(maxWidth, maxHeight, landscapeFarScale) {
+        val g = PlayfieldGeometry.of(maxWidth.value, maxHeight.value, 1f, 0f, 0f, farScale = landscapeFarScale)
+        g.project(g.lineLeft, g.laneY(g.fieldTop + PlayfieldGeometry.HUD_HEIGHT_DP))[0].dp
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
