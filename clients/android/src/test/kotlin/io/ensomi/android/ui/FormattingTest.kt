@@ -26,4 +26,12 @@ class FormattingTest {
     fun `a path that fits is untouched`() {
         assertEquals("content://x", middleTruncate("content://x", 40))
     }
+
+    @Test
+    fun `the saved chart is named after the song`() {
+        assertEquals("fish long (Ensomi).osu", osuName("fish long"))
+        assertEquals("fish long_ (Ensomi).osu", osuName("fish long!"))
+        assertEquals("chart (Ensomi).osu", osuName("   "))
+        assertEquals("fish long (Ensomi).osz", oszName("fish long"))
+    }
 }
