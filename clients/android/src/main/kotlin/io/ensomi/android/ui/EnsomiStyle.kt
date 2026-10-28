@@ -35,6 +35,9 @@ object EnsomiStyle {
 
     val accent = Color(0xFFB5B3EF)
     val tap = Color(0xFFEAA0B7)
+    val hold = Color(0xFFB5B3EF)
+    val holdBody = Color(0xFF9562D7)
+    val missedNote = Color(0xFF8F7DAB)
     val action = Color(0xFFFF879F)
     val actionStart = Color(0xFFF39AAF)
     val actionEnd = Color(0xFFFF708F)
