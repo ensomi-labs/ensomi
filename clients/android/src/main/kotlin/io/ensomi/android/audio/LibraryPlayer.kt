@@ -9,6 +9,8 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import java.io.File
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -51,7 +53,16 @@ class LibraryPlayer(private val context: Context) {
         stopped = false
         failure = null
         state = PlayerState.LOADING
-        thread = Thread({ pump(uri) }, "ensomi-player").also { it.start() }
+        thread = Thread({ pump(uri, null) }, "ensomi-player").also { it.start() }
+    }
+
+    /** Plays a file the app already holds, which is what a test harness and a cached take need. */
+    fun play(file: File) {
+        if (isActive) return
+        stopped = false
+        failure = null
+        state = PlayerState.LOADING
+        thread = Thread({ pump(null, file) }, "ensomi-player").also { it.start() }
     }
 
     /** Holds the output where it is: the audio clock stops advancing, so the session must too. */
@@ -87,12 +98,16 @@ class LibraryPlayer(private val context: Context) {
         return frames.toDouble() * 1000.0 / sampleRate
     }
 
-    private fun pump(uri: Uri) {
+    private fun pump(uri: Uri?, file: File?) {
         var extractor: MediaExtractor? = null
         var codec: MediaCodec? = null
         // The extractor reads from the descriptor while the loop runs, so it must outlive setDataSource.
-        val descriptor = context.contentResolver.openFileDescriptor(uri, "r")
-            ?: error("the file could not be opened")
+        val descriptor = if (file != null) {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        } else {
+            context.contentResolver.openFileDescriptor(uri ?: error("no source"), "r")
+                ?: error("the file could not be opened")
+        }
         try {
             extractor = MediaExtractor()
             extractor.setDataSource(descriptor.fileDescriptor)
@@ -141,6 +156,11 @@ class LibraryPlayer(private val context: Context) {
                     MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
 
                     else -> if (outputIndex >= 0) {
+                        // A raw PCM track may never announce an output format, so the first buffer
+                        // decides the output when nothing has yet.
+                        if (track == null) {
+                            startTrack(runCatching { codec.outputFormat }.getOrDefault(format))
+                        }
                         val buffer = codec.getOutputBuffer(outputIndex)
                         if (buffer != null && info.size > 0 && track != null) {
                             buffer.position(info.offset)
