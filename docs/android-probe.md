@@ -191,8 +191,9 @@ result — `Accuracy 0%`, `Max combo 0`, `Misses 8` — which is the session res
 pressed, not the page counting anything. Presses enter through `InputTimeline`, so the timestamp is the
 pointer event's, mapped through the audio clock.
 
-The chart is the one thing the scene invents: a tap every half second, rotating through the lanes, because
-the generator needs ONNX Runtime and a model. The subtitle says so on screen.
+The scene plays the chart the setup generated. Until a setup has made one it falls back to a tap every half
+second, rotating through the lanes, and the subtitle says so on screen: the fallback is labelled rather
+than passed off as generated.
 
 The bottom bar is lifted above the gesture strip: on this ROM the last few dp of the window belong to the
 system home gesture, and a tab row flush with the bottom edge is untappable rather than merely low. The
@@ -332,14 +333,47 @@ performs.
 The decoder writes little-endian `f32` bytes as it resamples, so a full song holds the
 source samples and the bytes rather than a float mix and a resampled copy beside them.
 
-## Building and installing
-
-```
-cd clients
-./gradlew :android:assembleDebug
-adb install -r android/build/outputs/apk/debug/android-debug.apk
-./gradlew :android:test
-```
+## Building
 
 `clients/local.properties` holds the SDK path and is ignored; the JDK is the same 22 the JVM modules use,
-and the Android module compiles to Java 17 bytecode.
+and the Android module compiles to Java 17 bytecode. The commands, and what to run afterwards, are in
+[verifying a build](#verifying-a-build).
+
+## Verifying a build
+
+Two suites stand behind the client. The JVM tests cover the rules that need no device (the clock, the input
+timeline, the library and settings rules, the save names, the model record); the instrumented tests cover
+what only the device can answer (the runtime binding, the model, the generator, the archive, the player).
+
+```sh
+cd clients
+./gradlew :android:testDebugUnitTest          # the JVM suite
+./gradlew :android:assembleDebug :android:assembleDebugAndroidTest
+adb install -r android/build/outputs/apk/debug/android-debug.apk
+adb install -r android/build/outputs/apk/androidTest/debug/android-debug-androidTest.apk
+adb shell am instrument -w io.ensomi.android.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+The instrumented suite, and what each test is for:
+
+| Test | What it holds |
+| --- | --- |
+| `GameplayConformanceTest` | The same chart, the same presses and the same tiers as the other clients |
+| `ChartDeterminismTest` | One seed gives one `.osu`; another seed gives another; the star the request asked for is the one the receipt records |
+| `OszArchiveTest` | The archive holds the chart, the audio and the receipt, and two builds of the same inputs agree |
+| `PlayerPauseTest` | A pause freezes the heard position; a resume continues from it |
+| `GenerationProgressTest` | The phases reach the listener, in pipeline order, from loading to export |
+| `PcmBytesPathTest` | Sending samples as bytes gives the chart the boxed list gives |
+| `LongGenerationTest` | Three minutes of audio generate a chart, with the cost printed |
+| `LongSongServiceTest` | A real three-minute mp3 decodes and charts through the service the app uses |
+
+`connectedDebugAndroidTest` is not the reliable path on the target: the installer's confirmation dialog makes
+the Gradle task fail silently, and a manual `adb install` of both APKs followed by `am instrument` is what
+actually runs.
+
+### What is not built
+
+S2's Library Tools disclosure is not ported: manual resolution needs a resolver, and the fixture recorder
+behind it is Apple-only. S5's audio-offset calibration is missing for the same reason it needs the engine.
+The app core's SQLite store does not exist on Android, so the library lives in `filesDir/library.json`, and
+there is no cross-device library.
