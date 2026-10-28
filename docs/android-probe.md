@@ -155,7 +155,10 @@ then checking it against the three captures already on disk.
 ## The client shell
 
 The app opens on the workbench the screen specification calls S1: a bottom bar over Library and Play,
-and a Settings action in the top bar. The probe is no longer the entry point; it is a private activity
+and a Settings action in the top bar. Its launcher icon is the supplied mark: an adaptive icon whose
+background is the artwork's own colour (`#2F2639`) and whose foreground is the mark alone, with square and
+round bitmaps at each density for launchers that do not read adaptive icons. The artwork is kept at
+`clients/android/artwork/launcher-icon.jpg`. The probe is no longer the entry point; it is a private activity
 reached from Settings, because it is a developer surface and S5 gives Android no Developer section.
 
 | Screen | State | What is real today |
