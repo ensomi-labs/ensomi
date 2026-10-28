@@ -4,8 +4,10 @@ commit: 3000fc33f58e067d52ccc1d7b55cc26a13350ad8
 
 # Windows and Android clients: proposed design
 
-This document proposes clients for Windows and Android. None of it is implemented, and the
-repository still builds only `EnsomiMac` and `EnsomiIOS`; their behavior is described in
+This document proposes clients for Windows and Android. The repository still builds `EnsomiMac` and
+`EnsomiIOS` for release; the Android probe is the first implemented slice of this proposal and
+[the Android probe](android-probe.md) records what it established on the target device. The Apple
+clients' behavior is described in
 [architecture](architecture.md) and their presentation in [design guidelines](design-guidelines.md).
 The Apple clients are the reference: Windows takes the macOS feature set, Android takes the iOS
 one. HarmonyOS is out of scope, including its layout, its toolchain and its bindings.

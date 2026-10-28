@@ -1,17 +1,21 @@
 ---
-commit: ba1c0d5
+commit: eecff2b
 ---
 
 # Clients
 
-The Windows and Android clients, on the branch `dev/windows`. The Apple clients in
+The Windows and Android clients, on the branches `dev/windows` and `dev/android`. The Apple clients in
 `Apps/` and `Sources/` are built by XcodeGen and are not part of this Gradle build;
 [the client design](../docs/platform-clients.md) and [the screen
-specification](../docs/platform-screens.md) describe what these clients are.
+specification](../docs/platform-screens.md) describe what these clients are. The Android module's first
+slice — the probe harness and what it proved on the target device — is
+[the Android probe](../docs/android-probe.md).
 
 ```
 settings.gradle.kts      the Gradle root: repositories and the module list
+shared/                  the take manifest, the recognition contracts and the trace format
 windows/                 the Windows client
+android/                 the Android probe build
 win-audio/               a Rust spike that measures the WASAPI clock, not part of Gradle
 runtime-windows.patch    the local runtime changes a Windows build needs
 ```
@@ -24,6 +28,16 @@ JDK 22 and the wrapper. `./gradlew` is committed so no global Gradle is needed.
 cd clients
 ./gradlew :windows:run          # opens the window
 ./gradlew :windows:test         # the gameplay conformance check
+./gradlew :shared:test          # the take manifest, the recognition contracts and the trace format
+```
+
+The Android module uses the SDK named in `local.properties` (ignored, so each machine writes its own):
+
+```
+cd clients
+./gradlew :android:assembleDebug
+./gradlew :android:test         # the download correlation rules
+adb install -r android/build/outputs/apk/debug/android-debug.apk
 ```
 
 `win-audio` builds with Cargo: `cargo run --release --manifest-path win-audio/Cargo.toml`.
@@ -36,6 +50,9 @@ cd clients
 | Kotlin | 2.4.21 |
 | Compose Multiplatform | 1.12.2 |
 | Compose Material 3 | 1.9.0 |
+| Compose BOM (Android) | 2026.06.01 |
+| Android Gradle Plugin | 9.4.1 |
+| Android compileSdk / minSdk | 36 / 26 |
 | JNA | 5.17.0 |
 | JDK | 22, the toolchain every module targets |
 
@@ -71,6 +88,8 @@ classes. Rename the two constructor properties and the two interpolations to
 generator runs it also needs ONNX Runtime: point `ORT_DYLIB_PATH` at an `onnxruntime.dll`
 of a matching version (the Python wheel for Windows carries one).
 
+The Android module does not link the Rust core yet; the probe does not need it.
+
 ## Why the mirrors come first
 
 `settings.gradle.kts` lists `maven.aliyun.com` before Maven Central. The network this
@@ -86,4 +105,6 @@ two-line change, not a restructure.
 - One conformance case runs; the rest of `conformance/gameplay` needs a JSON reader in
   the test module.
 - The clock in `win-audio` is not bound to Kotlin yet.
-- Android has no module yet.
+- Android is a probe harness: it freezes the device, resolves and starts deep links,
+  watches a download directory and records a window, but it has no library, no play screen
+  and no fingerprinter. [The Android probe](../docs/android-probe.md) lists what it proved.
