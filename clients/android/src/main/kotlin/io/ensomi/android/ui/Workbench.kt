@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.ensomi.android.library.LibraryEntry
+import uniffi.ensomi_runtime_ffi.Chart
 import io.ensomi.android.library.LibraryFolder
 import io.ensomi.android.library.LibraryScanner
 import io.ensomi.android.library.LibraryStore
@@ -54,11 +55,16 @@ fun Workbench(
 ) {
     var destination by rememberSaveable { mutableStateOf(Destination.LIBRARY) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var scene by remember { mutableStateOf<LibraryEntry?>(null) }
+    var scene by remember { mutableStateOf<Pair<LibraryEntry, Chart?>?>(null) }
 
     val playing = scene
     if (playing != null) {
-        PlayScene(entry = playing, settings = state.settings, onExit = { scene = null })
+        PlayScene(
+            entry = playing.first,
+            chart = playing.second,
+            settings = state.settings,
+            onExit = { scene = null },
+        )
         return
     }
 
@@ -101,7 +107,7 @@ fun Workbench(
                 Destination.PLAY -> PlayScreen(
                     library = state.library,
                     settings = state.settings,
-                    onPlayScene = { scene = it },
+                    onPlayScene = { entry, chart -> scene = entry to chart },
                 )
             }
         }

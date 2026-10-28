@@ -162,8 +162,8 @@ reached from Settings, because it is a developer surface and S5 gives Android no
 | --- | --- | --- |
 | S2 Library | Implemented | The system folder picker, a persisted grant per folder, an automatic scan on add, the four counts, last scan, rescan, and removal that leaves files on disk |
 | S5 Settings | Implemented in part | Scroll speed (1–40), judge difficulty (A–E), music volume, visual offset, all stored under the `mania4k.*` keys; the audio offset needs the calibration sheet, which needs the engine |
-| S3 Play setup | Up to the star target | A library song can be chosen, played through `MediaCodec` into an `AudioTrack`, and its heard position read back through the audio clock; the star control, sections and Generate report that the device engine is not linked instead of pretending |
-| S4 Play scene | Renderer and session | `PlayScene` draws the four lanes from the core's `visibleObjects` and `noteGeometry`, advances a `GameplaySession` on the audio clock, feeds presses through `InputTimeline`, and shows the core's own score when the run resolves. The chart is a demo pattern until the generator is linked, and the page says so |
+| S3 Play setup | Complete for the device engine | A library song is decoded to mono PCM, the model generates a chart on the phone, and the setup reports the note counts, seed and star. The star is clamped to the range the model reports rather than a value the page invents |
+| S4 Play scene | Renderer and session | `PlayScene` draws the four lanes from the core's `visibleObjects` and `noteGeometry`, advances a `GameplaySession` on the audio clock, feeds presses through `InputTimeline`, and shows the core's own score when the run resolves. It plays the generated chart when the setup made one and a labelled demo pattern otherwise |
 
 Two storage decisions are temporary and should not spread. The library document is `filesDir/library.json`
 rather than the app core's SQLite, because the app core does not exist on Android yet; the settings share
@@ -274,6 +274,16 @@ adb install -r android/build/outputs/apk/debug/android-debug.apk
 adb install -r android/build/outputs/apk/androidTest/debug/android-debug-androidTest.apk
 adb shell am instrument -w io.ensomi.android.test/androidx.test.runner.AndroidJUnitRunner
 ```
+
+**Generation on the phone.** `ChartGenerationService` decodes the chosen file to mono PCM, clamps the star
+into the range `capabilities()` reports, and asks the generator for a chart. A sixty-second test track
+produced `373 notes (303 taps, 70 long)` at star 2.0 in about ten seconds, and the scene then drew that
+chart rather than the demo pattern. Decoding resamples to 22 050 Hz in Kotlin on purpose: the core's own
+resampler needs the model's `resample-*` tables, and the client does not ship them.
+
+The PCM crosses the binding as a `List<Float>`, which boxes one float per sample — about 1.3 million
+objects for a minute of audio. It works, but a buffer-shaped parameter is the right fix if generation ever
+runs on full-length songs.
 
 ## Building and installing
 

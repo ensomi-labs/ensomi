@@ -70,13 +70,14 @@ import uniffi.ensomi_runtime_ffi.noteGeometry
 @Composable
 fun PlayScene(
     entry: LibraryEntry,
+    chart: Chart? = null,
     settings: EnsomiSettings,
     onExit: () -> Unit,
 ) {
     val context = LocalContext.current
     val player = remember { LibraryPlayer(context) }
-    val session = remember(entry.uri) {
-        GameplaySession(demoChart(entry.durationMs ?: DEFAULT_DURATION_MS), Ruleset(judge = Judge.C))
+    val session = remember(entry.uri, chart) {
+        GameplaySession(chart ?: demoChart(entry.durationMs ?: DEFAULT_DURATION_MS), Ruleset(judge = Judge.C))
     }
 
     var nowMs by remember { mutableStateOf(0.0) }
@@ -152,7 +153,8 @@ fun PlayScene(
                         maxLines = 1,
                     )
                     Text(
-                        "demo chart, ${formatLength(entry.durationMs)} - the generator is not linked",
+                        if (chart == null) "demo chart, ${formatLength(entry.durationMs)} - the generator is not linked"
+                        else "generated chart, ${chart.objects.size} notes",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFFA8A2B8),
                     )
