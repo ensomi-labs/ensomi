@@ -1,0 +1,339 @@
+# Ensomi for Android: UI and UX design, drop-in play
+
+This is the design of the app's first real round, for review before it is built. The gameplay side (playfield, clock,
+input, judgement, offsets, frame pacing) is in [gameplay.md](gameplay.md); the order of work is in [plan.md](plan.md).
+The app already holds a static prototype of these screens (the last section says what it shows and what it does not).
+
+The Swift app on `dev/swift` (at `623feaa`) is the reference for what to build: its features, flows, look and timing
+care. This document designs how, with Android's own conventions and APIs; it ports no Swift code.
+
+## Who it is for and the core loop
+
+Ensomi is for someone who plays 4-key rhythm games (osu!mania 4K and the like) and wants to play their own music. They
+have songs on their phone and no charts for them. Ensomi makes the chart on the phone, from the song, with the R2
+model, and they play it with their fingers on the glass.
+
+The loop: **pick a song → make a chart → play → see the result → play again or make another.** Everything else
+(installing the model, adding songs, settings, calibration) serves that loop and stays out of its way.
+
+This round is drop-in play only: install the model, add songs, make a chart with the settings the Swift app offers,
+play it with the runtime's judgements, pause, results, offsets and calibration. Not in it: Listen & Play (microphone
+sync), recognition, the Chart Inspector, any network service, and saving `.osu`/`.osz` files.
+
+## Information architecture and navigation
+
+One activity, one back stack of Navigation 3 keys (the shell's pattern). Library is home; everything else is pushed
+on top of it and Back pops.
+
+| Screen | Reached from | Back goes to |
+| --- | --- | --- |
+| Library (home) | launch | leaves the app |
+| Make chart (one song) | a song in Library | Library |
+| Play | Play on Make chart | pauses first; from the pause panel, Make chart |
+| Results | the end of a game (replaces Play) | Make chart |
+| Settings | the gear in Library's top app bar | Library |
+| Timing calibration | Settings | Settings |
+| Playfield preview | Settings › About | Settings |
+| Diagnostics | Settings › About | Settings |
+
+- **No navigation bar.** Material's navigation bar is for three to five top-level destinations
+  ([M3 navigation bar](https://m3.material.io/components/navigation-bar/guidelines)); this app has one place to be,
+  the library, and a settings screen. The Swift iOS app's Library and Play tabs collapse into one flow on Android,
+  because play always starts from a song.
+- **Settings is a screen, not a sheet**, as Android apps do it, and it is not reachable during a game. So nothing
+  needs locking while a game is in progress (the Swift app disables sound and timing settings during play because its
+  Settings window can open at any time).
+- **Results replace the game** on the back stack, so Back from results goes to the song, never into a finished game.
+- **Predictive back.** Apps targeting API 36 get the system's predictive back animations by default
+  ([Android 16 behaviour changes](https://developer.android.com/about/versions/16/behavior-changes-16)). The play
+  screen intercepts Back to pause instead; a second Back, from the pause panel, leaves.
+
+## Screens and states
+
+### Library
+
+A top app bar ("Ensomi", the Settings gear), the songs as a Material list (title; artist and length; how many charts
+are kept for it), and an extended floating action button, **Add songs**. Tapping a song opens Make chart.
+
+- **First run.** Until the model is installed, a card at the top of the list carries it (below). Under it, an empty
+  state card says how songs get in and has its own Add songs button. The first screen therefore reads as two steps,
+  get the model and add songs, and both can happen at once.
+- **A song whose file has gone** (moved, deleted, its permission revoked) stays in the list with "File not found",
+  and offers Find again (pick it anew) and Remove. Removing a song forgets it; the file stays where it is.
+
+### Getting the chart model
+
+The model is the published Ensomi R2 package: the `onnx/` directory of `sed-i/ensomi-r2` on Hugging Face at the pinned
+tag `r2-1.0.1`, 30 files and about 120 MB by its manifest. The app installs it the way the Swift app's solo-device
+mode does: fetch `ensomi-package.json`, check it with the runtime's `checkPackage`, fetch exactly the files it lists,
+check each one's size and SHA-256, and only then move the directory into place with an `ensomi-install.json` record of
+the tag. It never reads `main`.
+
+| State | What the card says | Actions |
+| --- | --- | --- |
+| Not installed | What the model is, that it is a one-time download of 120 MB, that songs never leave the phone; "Needs 120 MB. 18.4 GB free." | **Download model** (the screen's primary action) |
+| Not enough space | "Not enough space: the model needs 120 MB, and 80 MB is free." with a warning symbol | Try again; Free up space (the system's storage screen) |
+| Downloading | Progress bar, percent, megabytes of total; "You can add songs while it downloads." | Cancel |
+| Stopped | "The download stopped at 50.6 of 120.4 MB." and the reason; "Resume continues from the files already here." | Resume download |
+| Installed (Settings only) | "Ensomi R2 r2-1.0", package tag and size | Download again; Remove |
+| Update pending (Settings only) | The installed tag, the pinned one, and that the installed model stays in use until the update arrives | Download again |
+
+- Free space comes from `StorageManager.getAllocatableBytes`, which counts what the system can free from caches, and
+  the download reserves it with `allocateBytes`
+  ([StorageManager](https://developer.android.com/reference/android/os/storage/StorageManager)).
+- Files live in app-specific storage under `noBackupFilesDir`, as the runtime's own resampler tables do, so they are
+  never backed up (the app's data extraction rules already exclude everything). A stopped download keeps its files
+  and resumes with HTTP Range requests; there is no automatic retry.
+- In this round the download runs in the app's process while the app is open. Whether it should go on in the
+  background, under a notification, is an open question for the owner (review packet).
+- Settings also shows the model's licence (from its manifest), a link to the model card, and the notice texts of
+  BeatThis and ONNX Runtime (the AAR's `onnxRuntimeLicenseAssets`).
+
+### Adding songs
+
+**Add songs** opens the system document picker (`ACTION_OPEN_DOCUMENT` for `audio/*`, several at once). The app takes
+a persistable read permission on each pick
+([Access documents](https://developer.android.com/training/data-storage/shared/documents-files)), so it needs no
+storage or media permission and sees only what the player chose, from local storage, Downloads or a cloud provider. The
+photo picker has no audio mode (stack report §2.6). The library keeps each song's URI, file name, length and, when the
+file has them, its title and artist tags; it copies nothing. Cancelling the picker is not an error and says nothing.
+
+Browsing the whole music collection instead (MediaStore with `READ_MEDIA_AUDIO`,
+[Android 13 granular media permissions](https://developer.android.com/about/versions/13/behavior-changes-13#granular-media-permissions))
+is an open question for the owner: it would show every song at once, at the price of a permission prompt.
+
+### Making a chart
+
+One screen per song. The top app bar has Back and the song's title; under it, the artist, length and file name.
+
+- **Stars**: a slider in 0.1 steps over the model's range `[min_star, max_star_exclusive)` (2.0 to 5.9 for R2), the
+  value beside it, and a line naming the model and its range.
+- **Seed**: a number field with the placeholder "Random" and the Swift app's explanation ("Blank makes a new chart
+  each time. The same song, stars, sections and seed make the same chart again."). Anything but a 64-bit unsigned
+  number shows its error under the field.
+- **Sections**, collapsed by default ("Optional. Without any, the whole song follows the stars."). Expanded, each
+  section is a card: start and end in `mm:ss`, a kind menu from the model's capabilities (experimental kinds labelled,
+  kinds marked not working left out, the capability's note under the menu), then a strength slider from 0 to 1 or, for
+  a star target, a star slider. Problems show under the section in words with a symbol, with the runtime's own rules:
+  8 to 32 seconds, inside the song, no overlap (sections may touch).
+- **The bar at the bottom carries the state**, so the primary action is always in the same place:
+
+| State | Bar |
+| --- | --- |
+| Ready | **Make chart**, enabled when the model is installed and every field is valid; "Install the chart model first." otherwise |
+| Making | The five phases (Loading audio, Finding the beat, Placing notes, Arranging lanes, Finishing), each done, under way or to come, in words and a symbol; an indeterminate progress bar; **Stop** |
+| Stopped | "Stopped. No chart was made."; Make chart |
+| Failed | "The chart could not be made." with a warning symbol, the runtime's message under it; Try again |
+| Ready to play | "Chart ready", "1,229 notes: 999 taps, 230 long notes", the seed with **Use seed**; **Play** (primary) and Make another |
+
+- The runtime reports phases, not fractions, so the bar is indeterminate rather than a guessed percentage.
+- Choosing a song starts the runtime's `prepare` (the audio stages, most of the work) in the background, as the Swift
+  app does, so Make chart often has only the chart stages left.
+- The fields are disabled while a chart is being made. Stop signals the runtime's `Cancellation` from another thread;
+  the runtime stops at its next graph run.
+- The last chart made for a song is kept in app storage (its `.osu` and receipt), so a game can be played again after
+  the app was closed. The Swift app keeps it in memory only; on Android the process can be killed in the background at
+  any time.
+
+### Play
+
+Full screen: the system bars hidden with `WindowInsetsController` and `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`
+([Immersive mode](https://developer.android.com/develop/ui/views/layout/immersive)), the screen kept on, portrait. Over
+the top of the playfield, without a panel of its own, the HUD row: the song's title and its stars and judge on the
+left, accuracy on the right, then a Pause button. The playfield itself, its look and its timing are in
+[gameplay.md](gameplay.md). A game starts with two seconds of lead-in before the song's first frame, so the hands can
+reach the lanes.
+
+The game pauses by itself whenever the player cannot be playing:
+
+| Event | API |
+| --- | --- |
+| Pause button, or Back | `OnBackPressedDispatcher` through Compose's `BackHandler` |
+| The app leaves the foreground | lifecycle `ON_PAUSE` |
+| Another window takes focus (notification shade, a dialog, split screen) | window focus |
+| Another app takes audio focus (a call, a voice assistant) | `AudioManager` focus loss ([audio focus](https://developer.android.com/media/optimize/audio-focus)) |
+| Headphones unplugged or disconnected | `ACTION_AUDIO_BECOMING_NOISY` ([output devices](https://developer.android.com/media/platform/output)) |
+| The output device changes | `AudioTrack.addOnRoutingChangedListener` |
+
+### Pause
+
+The playfield stays visible, dimmed and frozen. A panel in the brand's card shape says "Paused" and "Resume when
+you're ready", with **Resume** (primary), Restart and Quit. When the output changed, the panel also says so: "Sound
+moved to Pixel Buds. Its audio offset applies from the next game." (the game keeps its offsets from start to end, as in
+the Swift app).
+
+**Resume counts in**: three beats over 1.5 seconds ("3, 2, 1" with "Get ready"), then the music goes on from where it
+stopped. The Swift app resumes at once, which suits a keyboard; on a phone the hands left the glass. The runtime's
+session never moves back in time, so the game cannot rewind instead.
+
+### Results
+
+In the game's dark presentation, replacing the game: the song with its stars and seed; accuracy, large; Perfect, Good
+and Miss counts, each named and coloured; the longest combo; a timing chart of how early or late the hits were, with
+the mean in words ("Your hits were 6 ms late on average."). When the runtime's score suggests an audio offset change
+of 3 ms or more, a line offers it for the output that was used: "Suggested audio offset for Phone speaker: −6 ms (now
+0 ms)." with **Use suggested offset**. Then **Play again** (primary) and Back to song.
+
+### Settings
+
+A Material list in sections:
+
+- **Gameplay**: scroll speed (a slider from 1.0× to 40.0× in 0.5 steps, with the fall time in seconds: "Notes take
+  0.46 s to fall to the line."), judge difficulty (segmented A to E, C by default).
+- **Touch**: Vibrate on lane touch (off by default; see Haptics).
+- **Sound and timing**: music volume (a fraction of the song's own level), audio offset for the current output
+  ("Audio offset for Phone speaker"), visual offset, both with −/+ steppers in 1 ms steps; Calibrate timing.
+- **Chart model**: the model panel above, its licence, the model card, the notices.
+- **About**: the playfield preview (a sample chart playing itself), Diagnostics, the version.
+
+Settings are stored with Jetpack DataStore; the audio offset is kept per output device (gameplay.md, Offsets).
+
+### Timing calibration
+
+In the game's dark presentation, two steps on a segmented control:
+
+1. **Sound.** A click every half second. The player taps a large pad on each click, eyes closed if they like. A strip
+   shows the last taps from early to late; after enough taps the screen suggests the audio offset for the current
+   output (named on the screen) from the median of the last 16, with Use and Start over.
+2. **Picture.** The clicks go on and a note falls onto the line with each one, drawn by the play renderer. The player
+   moves the visual offset slider until the notes cross the line on the click. There is no tapping in this step, so
+   touch latency cannot leak into the visual offset.
+
+How the click is timed and why this separates the offsets is in gameplay.md.
+
+### Diagnostics
+
+The shell's Diagnostics screen, unchanged, now reached from Settings › About with an Up button.
+
+## Visual language
+
+Application chrome and the game presentation are kept apart, as the Swift app's design guidelines ask.
+
+**Chrome** (Library, Make chart, Settings) is Material 3 with stock components: top app bars, lists, cards, sliders,
+segmented buttons, text fields, the extended FAB, snackbars. It follows the system's light or dark theme. Its colour
+scheme is built from the brand: lavender `#B5B3EF` as primary on dark, a deeper `#5D58A8` on light, rose as tertiary,
+plum neutrals (`#130E1A` ground and `#2A2036` containers on dark), assigned to Material's colour roles
+([M3 colour roles](https://m3.material.io/styles/color/roles)).
+
+- **Brand colour, not dynamic colour, by default.** Android 12+ can theme apps from the wallpaper
+  ([Dynamic colour](https://developer.android.com/develop/ui/views/theming/dynamic-colors)), and the shell did. The
+  design uses the brand scheme instead because the play screen is always the brand's plum and coral, and a chrome in
+  the wallpaper's greens or blues makes every move into play a jump between two apps. Dynamic colour remains one
+  switch in the theme; the owner decides (review packet).
+- **The coral action** (`#F39AAF → #FF708F`, dark ink `#2B0F1E`) marks one thing per screen: the primary action (Download
+  model, Make chart, Play, Resume, Play again). Everything else is a Material button. In play, coral is the judgement
+  line and song progress only, as in the Swift app.
+- **Type** is the system's sans-serif with Material's type scale, and tabular figures wherever numbers change. The Swift play screen uses SF Pro Rounded; Android has no system rounded face, and bundling one is not worth
+  it for this round.
+- **Icons** are Material icons, kept as vector drawables in the app (Material 3 no longer pulls in an icon library).
+- **Failures** are always words with a warning symbol, never colour alone; cancelling a picker is not a failure.
+
+**Game presentation** (Play, Pause, Results, Calibration) is always dark plum, whatever the system theme, with light
+system bar icons. Its palette is the Swift play screen's, which comes from the brand: ground `#130E1A` with the
+diagonal division `#1A1322`, alternating lanes `#1D1627` and `#191220`, rose taps `#EAA0B7`, lavender hold heads and
+tails `#B5B3EF`, purple hold bodies `#9562D7`, coral line and progress `#FF879F`, tiers Perfect `#F6F1FB`, Good
+`#F3C47E`, Miss `#FF9AA5`. Notes are coloured by kind, not by lane. Panels use the brand's card shape: round corners
+with a tighter one at the bottom left.
+
+Contrast of the main pairs (WCAG ratio): text on plum 17.1, muted text on plum 10.5, muted text on a panel 8.5, Good on
+plum 11.8, Miss on plum 9.4, dark ink on coral 6.7 to 8.4; in light chrome, text 16.4, secondary text 8.8, primary
+5.8, outline 4.2. All text pairs are above 4.5:1
+([Android accessibility: colour contrast](https://developer.android.com/guide/topics/ui/accessibility/apps#color-contrast)).
+
+## Motion
+
+- **Chrome** uses Material's motion: Navigation 3's default transitions between screens, the predictive back
+  animation, component state changes. Nothing else animates.
+- **Game**: motion marks what acted, as on the Swift play screen. A hit lights the line in its lane and a flare rises
+  for 200 ms; a miss tints the lane above the line for 360 ms; the judgement word pulses and drifts as the runtime's
+  `judgementPresentation` says; lane lights ease as `laneBrightness` says. The count-in after a pause steps once per
+  beat.
+- **Reduced motion.** With "Remove animations" on, `ValueAnimator.areAnimatorsEnabled()` is false
+  ([ValueAnimator](https://developer.android.com/reference/android/animation/ValueAnimator#areAnimatorsEnabled())).
+  The playfield then draws no flare, the line light only fades, the judgement word takes the runtime's opacity without
+  its scale or drift, and the count-in digits only change. Notes still scroll: that is the game, not decoration.
+
+## Haptics
+
+Haptics go through `View.performHapticFeedback`, which honours the player's touch-feedback setting and needs no
+`VIBRATE` permission ([Haptic feedback](https://developer.android.com/develop/ui/views/haptics/haptic-feedback)).
+
+- **Chrome**: Material components' own feedback; `CONFIRM` when a chart is ready and when a calibration is applied,
+  `REJECT` when a chart fails.
+- **Play**: off by default. "Vibrate on lane touch" adds a `VIRTUAL_KEY` tick per lane press. Off because the actuator
+  answers some milliseconds after the touch, a tick that feels late reads as a late hit, and a vibration can be heard
+  through the phone's speaker. The player may still like it with headphones; the phone measurements say how late it is.
+- **Calibration**: never. A tick would be a second cue competing with the click.
+
+## Accessibility
+
+- **TalkBack on chrome**: every control has a label (icon buttons included); section titles are headings; sliders
+  announce their value ("3.5", "25.0×"); the download progress, the generation phases and the chart result are polite
+  live regions; problems are text, not colour.
+- **TalkBack in play**: with touch exploration on, a single tap explores instead of touching, so the lanes cannot be
+  played. The play screen is one labelled element ("Playfield: four lanes. Touch a lane when its note reaches the
+  line."), the HUD values and the Pause button stay reachable, and when TalkBack is on the screen says before the game
+  starts that lanes need direct touch. Playing with TalkBack on is not a goal of this round.
+- **Font size**: chrome follows the system font size up to Android 14's 200 %
+  ([non-linear font scaling](https://developer.android.com/about/versions/14/features#non-linear-font-scaling)):
+  text wraps, steppers sit under their labels, nothing is truncated to fit. The HUD and the panels scale too; text
+  drawn inside the playfield (judgement word, combo) keeps a fixed size, like the Swift playfield, so it never covers
+  the lanes.
+- **Touch targets** are Material's 48 dp minimum
+  ([large controls](https://developer.android.com/guide/topics/ui/accessibility/apps#large-controls)); lanes are about
+  100 dp wide on a phone.
+- **Contrast and colour**: above; every tier is named in words as well as coloured.
+- **Reduced motion**: above.
+
+## Phone sizes and orientation
+
+- **Compact width first** (360 to 430 dp, phones in portrait). Content is one column; on wider windows it is centred at
+  640 dp at most rather than stretched.
+- **Landscape**: the chrome follows the phone and reflows. Play asks for portrait (`SCREEN_ORIENTATION_USER_PORTRAIT`)
+  for its duration, because portrait gives the tallest lanes and the longest read of the notes; the phone returns to
+  its own orientation after the game.
+- **Large screens**: for apps targeting API 36, Android 16 ignores orientation requests on displays at least 600 dp
+  wide ([Android 16 behaviour changes](https://developer.android.com/about/versions/16/behavior-changes-16)). There the
+  playfield is centred at its 440 dp maximum in whatever orientation the window has. (Declaring the app a game with
+  `android:appCategory` would exempt it; that is not needed for phones and is not proposed.)
+- **Edge to edge**: required for API 36 (same source). Chrome pads for the system bars; the playfield keeps its HUD
+  below the display cutout and its key tray above the system's mandatory gesture area (gameplay.md).
+- **Split screen and short windows**: losing focus pauses; a window too short to play in says so instead of drawing a
+  squashed playfield.
+
+## What comes from the Swift app, and what changes
+
+| Taken from the Swift app | Changed for Android, and why |
+| --- | --- |
+| The loop: model, song, generate with stars, seed and sections, play, results | One back stack from a song to its game; no tabs (one top-level place); Settings as a screen, not reachable during a game |
+| Model install from Hugging Face at the pinned tag, `checkPackage`, per-file SHA-256, Range resume, install record, update on start | Free space checked and reserved with `StorageManager`; files under `noBackupFilesDir`; no "Choose Folder" (the runtime needs a file path, and a tree URI is not one; a development install by `adb push` replaces it) |
+| Music folders as the library | Songs picked one by one with the system picker: no permission, nothing scanned |
+| Generation states, phase names, Stop, the core's message on failure, Use Seed | A state bar at the bottom of a phone screen instead of a two-panel setup; no Session tiles or lane preview; no chart-server engine (out of scope); the last chart kept on disk |
+| The play look: brand palette, notes by kind, coral line, hit flash and miss tint, "Ready", combo from 2, Reduce Motion rules | Drawn on a `SurfaceView` canvas instead of Metal; touch lanes instead of key caps with letters; immersive full screen in portrait; a lead-in and a count-in after pause; Restart in the pause panel |
+| The timing contract: event timestamps, a 100 ms input allowance, frames drawn for their presentation time, offsets applied once | Android's clocks (`AudioTrack` timestamps, `getEventTimeNanos`, `FrameTimeline`), all on `CLOCK_MONOTONIC` (gameplay.md) |
+| Audio offset per output device, one visual offset, the scroll-speed scale, judge C, music volume 0.8 | Offsets default to 0 until the phones are measured (the Swift −15 ms was tuned on a Mac); the output keyed by `AudioDeviceInfo` type and name |
+| Calibration: clicks every 500 ms after 1 s, median of 16 taps | Two steps; the visual step has no taps |
+| Results: accuracy, max combo, misses | Its own screen with all three tiers, a timing chart and the runtime's offset suggestion |
+| Settings sections: gameplay, sound and timing, chart model | Touch section; About with the playfield preview and Diagnostics |
+
+Not carried over in this round: Listen & Play, recognition, the Chart Inspector, the chart server, key bindings, saving
+`.osu` and `.osz`.
+
+## The prototype in the app
+
+The app now opens on the Library and every screen above is in it, in Compose, reading sample data through the same
+small interfaces the real implementation will fill: `SongLibrary`, `ChartModelStore`, `ChartMaker`,
+`PlaySettingsStore`. Each sample class says in its comment that it is not wired and which plan step builds it, and
+every action that is not built yet shows a snackbar saying so ("Not built yet: Downloading the model (plan step 4).").
+
+- **Real now**: navigation, the screens and their states, the section and seed checks, settings held in memory, and
+  the playfield: the `SurfaceView` render thread paced by `postVsyncCallback`, the runtime's `GameplaySession` judging,
+  its `GameplayFeedback` easing lights and the judgement word, `noteGeometry` placing notes, touches mapped to lanes
+  with their event times. Touches on the emulator are judged.
+- **Sample**: the songs, the model's state, the generation's state and its capabilities' notes, the calibration's
+  taps, and the chart played: a fixed 27-second chart on a clock without sound, pressed by an autoplay with fixed early
+  and late offsets so every judgement shows. Play from a song plays this sample chart and says "Sample chart · no
+  sound"; its results are the runtime's real score of that game.
+- **For screenshots only**: a debuggable build opens in any sample state from a launch extra
+  (`adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made`);
+  `scripts/capture-prototype.sh` drives them all.
