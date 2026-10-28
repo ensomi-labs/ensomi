@@ -123,6 +123,16 @@ Kotlin and the value of a rule is that it says the same thing off the device.
 - **All-files access.** Watching a directory by path needs `MANAGE_EXTERNAL_STORAGE` on the demo device.
   It is a probe affordance; a product client would take a persisted SAF grant instead.
 
+### Where the next slice starts
+
+The two public implementations the report cites are JavaScript, not Kotlin: both
+`MelodyYuuka/NeteaseCloudMusic-Audio-Recognize` and `userZheng686/wyySongIdentify` ship the same 231 KB
+`afp.wasm` and call it from a web page, so porting means either writing the spectral-peak fingerprint
+from scratch or running that module on the device. Their request side is small and readable: the
+`rawdata` parameter is the fingerprint, and the response is the shape the report quotes. The next
+experiment is still the report's first one — post a captured window and see whether the correct song id
+comes back — followed by reading `startTime` against known source positions.
+
 ## Building and installing
 
 ```
