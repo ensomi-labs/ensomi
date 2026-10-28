@@ -51,4 +51,180 @@
     <string name="label_thermal_headroom">Headroom in 10 s</string>
 
     <string name="label_core">Core %1$d</string>
+
+    <!-- Shared -->
+    <string name="action_back">Back</string>
+    <string name="action_expand">Expand</string>
+    <string name="action_collapse">Collapse</string>
+    <string name="not_wired">Not built yet: %1$s.</string>
+
+    <!-- Library -->
+    <string name="library_add_songs">Add songs</string>
+    <string name="library_songs">Songs</string>
+    <string name="library_song_detail">%1$s · %2$s</string>
+    <string name="library_empty_title">Add songs from your phone</string>
+    <string name="library_empty_body">Choose audio files with Android’s file picker. Ensomi reads only the files you choose and needs no access to the rest of your music.</string>
+    <plurals name="library_chart_count">
+        <item quantity="one">%d chart</item>
+        <item quantity="other">%d charts</item>
+    </plurals>
+
+    <!-- Chart model -->
+    <string name="model_get_title">Get the chart model</string>
+    <string name="model_get_body">Ensomi makes charts on this phone with the Ensomi R2 model, a one-time download of %1$s from Hugging Face. Your songs never leave the phone.</string>
+    <string name="model_space">Needs %1$s. %2$s free.</string>
+    <string name="model_download">Download model</string>
+    <string name="model_downloading">Downloading the Ensomi R2 model</string>
+    <string name="model_progress">%1$d%% · %2$s of %3$s</string>
+    <string name="model_cancel">Cancel</string>
+    <string name="model_downloading_hint">You can add songs while it downloads. Keep Ensomi open until it finishes.</string>
+    <string name="model_stopped">The download stopped at %1$s of %2$s.</string>
+    <string name="model_stopped_hint">Resume continues from the files already here.</string>
+    <string name="model_resume">Resume download</string>
+    <string name="model_no_space">Not enough space: the model needs %1$s, and %2$s is free.</string>
+    <string name="model_no_space_hint">Free up space on the phone, then try again.</string>
+    <string name="model_try_again">Try again</string>
+    <string name="model_installed_detail">Package %1$s · %2$s</string>
+    <string name="model_check_files">Download again</string>
+    <string name="model_remove">Remove</string>
+
+    <!-- Making a chart -->
+    <string name="make_stars">Stars</string>
+    <string name="make_stars_range">%1$s makes charts from %2$s to %3$s stars.</string>
+    <string name="make_stars_no_model">The star range comes from the model once it is installed.</string>
+    <string name="make_seed">Seed</string>
+    <string name="make_seed_random">Random</string>
+    <string name="make_seed_help">Blank makes a new chart each time. The same song, stars, sections and seed make the same chart again.</string>
+    <string name="make_seed_invalid">A seed is a whole number from 0 to 18446744073709551615, or blank.</string>
+    <string name="make_sections">Sections</string>
+    <string name="make_sections_none">Optional. Without any, the whole song follows the stars.</string>
+    <plurals name="make_sections_count">
+        <item quantity="one">%d section</item>
+        <item quantity="other">%d sections</item>
+    </plurals>
+    <string name="make_sections_help">A section lasts 8 to 32 seconds, stays inside the song and does not overlap another. Times are mm:ss.</string>
+    <string name="make_section_title">Section %1$d</string>
+    <string name="make_section_remove">Remove section %1$d</string>
+    <string name="make_section_start">Start</string>
+    <string name="make_section_end">End</string>
+    <string name="make_time_placeholder">mm:ss</string>
+    <string name="make_section_kind">Kind</string>
+    <string name="make_kind_experimental">%1$s (experimental)</string>
+    <string name="make_section_star">Stars</string>
+    <string name="make_section_strength">Strength</string>
+    <string name="make_add_section">Add section</string>
+    <string name="make_chart">Make chart</string>
+    <string name="make_needs_model">Install the chart model first.</string>
+    <string name="make_stop">Stop</string>
+    <string name="make_ready">Chart ready</string>
+    <string name="make_ready_notes">%1$s notes: %2$s taps, %3$s long notes</string>
+    <string name="make_ready_seed">Seed %1$s</string>
+    <string name="make_use_seed">Use seed</string>
+    <string name="make_another">Make another</string>
+    <string name="make_play">Play</string>
+    <string name="make_stopped">Stopped. No chart was made.</string>
+    <string name="make_failed">The chart could not be made.</string>
+    <string name="make_try_again">Try again</string>
+    <string name="make_phase_done">Done</string>
+    <string name="make_phase_to_come">To come</string>
+    <string name="phase_loading">Loading audio</string>
+    <string name="phase_timing">Finding the beat</string>
+    <string name="phase_rows">Placing notes</string>
+    <string name="phase_arrangement">Arranging lanes</string>
+    <string name="phase_export">Finishing</string>
+    <string name="kind_jumpstream">Jumpstream</string>
+    <string name="kind_chordstream">Chordstream</string>
+    <string name="kind_stream">Stream</string>
+    <string name="kind_jack">Jack</string>
+    <string name="kind_chordjack">Chordjack</string>
+    <string name="kind_star">Star target</string>
+    <string name="section_problem_time">Enter start and end as mm:ss, with seconds from 00 to 59.</string>
+    <string name="section_problem_order">The end must come after the start.</string>
+    <string name="section_problem_outside">Keep the section inside the song.</string>
+    <string name="section_problem_length">A section lasts 8 to 32 seconds.</string>
+    <string name="section_problem_star">Use stars within the model’s range.</string>
+    <string name="section_problem_overlap">Sections must not overlap. One may start where another ends.</string>
+
+    <!-- Play -->
+    <string name="play_ready">Ready</string>
+    <string name="play_combo">combo</string>
+    <string name="judgement_perfect">Perfect</string>
+    <string name="judgement_good">Good</string>
+    <string name="judgement_miss">Miss</string>
+    <string name="play_playfield_description">Playfield: four lanes. Touch a lane when its note reaches the line.</string>
+    <string name="play_accuracy">Accuracy</string>
+    <string name="play_pause">Pause</string>
+    <string name="play_paused">Paused</string>
+    <string name="play_paused_detail">Resume when you’re ready.</string>
+    <string name="play_resume">Resume</string>
+    <string name="play_restart">Restart</string>
+    <string name="play_quit">Quit</string>
+    <string name="play_get_ready">Get ready</string>
+    <string name="play_preview_title">Playfield preview</string>
+    <string name="play_sample_detail">Sample chart · no sound</string>
+
+    <!-- Results -->
+    <string name="results_title">Results</string>
+    <string name="results_max_combo">Longest combo</string>
+    <string name="results_timing">Timing</string>
+    <string name="results_timing_none">No hits to time.</string>
+    <string name="results_timing_centred">Your hits were centred on the notes.</string>
+    <string name="results_timing_early">Your hits were %1$s ms early on average.</string>
+    <string name="results_timing_late">Your hits were %1$s ms late on average.</string>
+    <string name="results_early">Early</string>
+    <string name="results_late">Late</string>
+    <string name="results_histogram_description">Hits by how early or late they were</string>
+    <string name="results_offset_suggestion">Suggested audio offset for %1$s: %3$s (now %2$s).</string>
+    <string name="results_offset_apply">Use suggested offset</string>
+    <string name="results_sample_note">This game used the sample chart. A chart of your song will show its own results here.</string>
+    <string name="results_play_again">Play again</string>
+    <string name="results_done">Back to song</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_gameplay">Gameplay</string>
+    <string name="settings_scroll_speed">Scroll speed</string>
+    <string name="settings_scroll_speed_help">Notes take %1$s s to fall to the line.</string>
+    <string name="settings_judge">Judge difficulty</string>
+    <string name="settings_judge_help">How wide the timing windows are, from A, the widest, to E. C is the default.</string>
+    <string name="settings_touch">Touch</string>
+    <string name="settings_vibrate">Vibrate on lane touch</string>
+    <string name="settings_vibrate_help">A short tick when a finger lands on a lane. Off by default: many phones vibrate late.</string>
+    <string name="settings_sound_timing">Sound and timing</string>
+    <string name="settings_music_volume">Music volume</string>
+    <string name="settings_music_volume_help">The song’s level in play, up to its own level.</string>
+    <string name="settings_audio_offset">Audio offset for %1$s</string>
+    <string name="settings_audio_offset_help">Moves judging and the notes together. Use it when hits feel early or late. Kept for each output.</string>
+    <string name="settings_visual_offset">Visual offset</string>
+    <string name="settings_visual_offset_help">Moves only the notes on screen. Use it when notes look early or late while the sound feels right. The same for every output.</string>
+    <string name="settings_offset_decrease">Decrease</string>
+    <string name="settings_offset_increase">Increase</string>
+    <string name="settings_calibrate">Calibrate timing</string>
+    <string name="settings_calibrate_help">Tap to clicks for the audio offset, then line notes up for the visual offset.</string>
+    <string name="settings_chart_model">Chart model</string>
+    <string name="settings_model_licence">Model licence: %1$s</string>
+    <string name="settings_model_card">The model card on Hugging Face says what each part covers.</string>
+    <string name="settings_notices">Licence notices</string>
+    <string name="settings_notices_help">BeatThis, which finds the beat, and ONNX Runtime, which runs the model.</string>
+    <string name="settings_model_footer">Ensomi makes charts on this phone with this model. Nothing is sent to a server.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_preview">Playfield preview</string>
+    <string name="settings_preview_help">A sample chart that plays itself, without sound.</string>
+    <string name="settings_diagnostics_help">What this phone is, and whether the runtime loads.</string>
+    <string name="settings_version">Version</string>
+
+    <!-- Calibration -->
+    <string name="calibration_title">Timing calibration</string>
+    <string name="calibration_sound">Sound</string>
+    <string name="calibration_picture">Picture</string>
+    <string name="calibration_sound_help">A click plays every half second. Tap the pad on each click; closing your eyes helps. Ensomi takes the middle of your last 16 taps.</string>
+    <string name="calibration_for_output">For %1$s. Its audio offset is now %2$s.</string>
+    <string name="calibration_suggested">Suggested audio offset</string>
+    <string name="calibration_taps">%1$d of %2$d taps</string>
+    <string name="calibration_strip_description">Your last taps, from early on the left to late on the right</string>
+    <string name="calibration_tap_here">Tap on the click</string>
+    <string name="calibration_start_over">Start over</string>
+    <string name="calibration_apply">Use %1$s</string>
+    <string name="calibration_picture_help">The clicks go on, and a note falls onto the line with each one. Move the slider until the notes cross the line on the click. No tapping.</string>
+    <string name="calibration_done">Done</string>
 </resources>
