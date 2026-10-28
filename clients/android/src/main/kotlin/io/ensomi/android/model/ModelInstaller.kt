@@ -46,14 +46,11 @@ data class InstallProgress(
 class ModelInstaller(private val context: Context) {
     fun directory(): File = File(context.getExternalFilesDir(null) ?: context.filesDir, "model")
 
-    private fun recordFile(): File = File(directory(), "ensomi-install.json")
+    private fun recordFile(): File = File(directory(), ModelRecords.FILE)
 
     fun status(): ModelStatus {
         val directory = directory()
-        val record = runCatching {
-            if (!recordFile().isFile) return@runCatching null
-            json.decodeFromString(InstalledModel.serializer(), recordFile().readText())
-        }.getOrNull()
+        val record = ModelRecords.read(directory)
         return ModelStatus(installed = record, directory = directory)
     }
 
@@ -116,7 +113,7 @@ class ModelInstaller(private val context: Context) {
             installedAtMs = System.currentTimeMillis(),
             source = source,
         )
-        recordFile().writeText(json.encodeToString(InstalledModel.serializer(), record))
+        ModelRecords.write(target, record)
         onProgress(InstallProgress(running = false, copied = copied, total = total, bytes = bytes))
         return record
     }

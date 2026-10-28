@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import io.ensomi.android.RuntimeSelfCheck
 import io.ensomi.android.model.InstallProgress
+import io.ensomi.android.model.ModelDownloader
 import io.ensomi.android.model.ModelInstaller
 import android.os.Handler
 import android.os.Looper
@@ -128,6 +129,7 @@ fun SettingsSheet(
 private fun ChartModelSection() {
     val context = LocalContext.current
     val installer = remember { ModelInstaller(context) }
+    val downloader = remember { ModelDownloader(context) }
     val main = remember { Handler(Looper.getMainLooper()) }
     var status by remember { mutableStateOf(installer.status()) }
     var progress by remember { mutableStateOf<InstallProgress?>(null) }
@@ -167,6 +169,27 @@ private fun ChartModelSection() {
             onClick = { picker.launch(null) },
             enabled = progress?.running != true,
         ) { Text("Choose Model Folder...") }
+
+        OutlinedButton(
+            onClick = {
+                progress = InstallProgress(running = true)
+                Thread({
+                    val outcome = runCatching {
+                        downloader.download { update -> main.post { progress = update } }
+                    }
+                    main.post {
+                        outcome
+                            .onSuccess { status = installer.status(); progress = null }
+                            .onFailure { error ->
+                                progress = InstallProgress(
+                                    message = error.message ?: error::class.java.simpleName,
+                                )
+                            }
+                    }
+                }, "ensomi-model-download").start()
+            },
+            enabled = progress?.running != true && installed == null,
+        ) { Text("Download Model") }
 
         OutlinedButton(
             onClick = { installer.remove(); status = installer.status() },

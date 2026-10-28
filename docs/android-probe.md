@@ -262,6 +262,17 @@ record back as `Ensomi R2 r2-1.0 - 30 files, 114 MB, MIT`. **Remove Download** d
 directory. A generation run against this install still produces the same chart, so the installer and the
 generator agree on what a package is.
 
+**Downloading it in the app.** **Download Model** fetches the package itself: the manifest first, judged by
+the same `checkPackage`, then every file it lists from
+`hf-mirror.com/sed-i/ensomi-r2/resolve/r2-1.0.1/onnx/`, each verified against the manifest's SHA-256 as it
+lands. A file already present at the right size is skipped, so a dropped connection costs only what it
+dropped; a file that times out is retried up to three times before the install is called failed.
+
+The first attempt reached 21 of 30 files and 102 MB before a socket read timeout stopped it, which the app
+reported as `timeout`. After the retry was added, the next run skipped those files and finished the rest:
+the record names the mirror as its source, and the determinism check passes against the downloaded
+package — so the download, the installer and the generator agree on one package.
+
 The runtime's own conformance case runs on the device too. `:android:connectedDebugAndroidTest` installs
 both APKs and runs `GameplayConformanceTest` — the fixture `early_press_ignored.json`, written out in
 Kotlin as on Windows — and it passes with the same judgement, tier, time, score and accuracy the fixture
