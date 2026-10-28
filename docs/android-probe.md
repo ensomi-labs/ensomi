@@ -131,8 +131,13 @@ with `startTime` of `52180`, `103040` and `183160` ms.
 
 - **No fingerprinter in the app.** The fingerprint comes from the reference `afp.wasm` on a build
   machine; `clients/android` still reaches recognition through `orpheus://identify` (ladder level 3).
-- **No download trigger.** Tapping the player's download control opened a playlist sheet, not a
-  download; enqueueing one from inside the NetEase process is still the report's open question.
+- **No download trigger.** `downLoadBtn` on the song detail page opens a playlist sheet in 9.2.45, and
+  the full-screen player exposes no download control. Reaching the real enqueue needs the detail-page
+  action row; enqueueing one from inside the NetEase process is still the report's open question.
+- **MediaSession is live while NetEase plays.** `dumpsys media_session` reports
+  `package=com.netease.cloudmusic`, `PLAYING`, `position=42268`, `speed=1.0` and an `updated` value on
+  the monotonic clock, with the track's title and artist in its metadata. That is a cross-check for a
+  song NetEase is playing, not a position for the ambient recording it recognized.
 - **One recording measured.** Three offsets of one song; other songs, live versions and the start of
   a track are not measured.
 - **All-files access.** Watching a directory by path needs `MANAGE_EXTERNAL_STORAGE` on the demo device.
