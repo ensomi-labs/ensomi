@@ -15,12 +15,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
+import io.ensomi.android.library.LibraryEntry
 import io.ensomi.android.library.LibraryFolder
 import io.ensomi.android.library.LibraryScanner
 import io.ensomi.android.library.LibraryStore
@@ -52,6 +54,13 @@ fun Workbench(
 ) {
     var destination by rememberSaveable { mutableStateOf(Destination.LIBRARY) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var scene by remember { mutableStateOf<LibraryEntry?>(null) }
+
+    val playing = scene
+    if (playing != null) {
+        PlayScene(entry = playing, settings = state.settings, onExit = { scene = null })
+        return
+    }
 
     Scaffold(
         modifier = Modifier.safeDrawingPadding(),
@@ -92,6 +101,7 @@ fun Workbench(
                 Destination.PLAY -> PlayScreen(
                     library = state.library,
                     settings = state.settings,
+                    onPlayScene = { scene = it },
                 )
             }
         }

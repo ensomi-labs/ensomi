@@ -44,7 +44,7 @@ import kotlinx.coroutines.isActive
  * which this build does not link yet, so those controls report why they are unavailable.
  */
 @Composable
-fun PlayScreen(library: LibraryStore, settings: EnsomiSettings) {
+fun PlayScreen(library: LibraryStore, settings: EnsomiSettings, onPlayScene: (LibraryEntry) -> Unit) {
     val entries = library.index.entries
     var selectedUri by rememberSaveable { mutableStateOf<String?>(null) }
     val selected = entries.firstOrNull { it.uri == selectedUri }
@@ -133,6 +133,10 @@ fun PlayScreen(library: LibraryStore, settings: EnsomiSettings) {
                             enabled = selected != null && selected.failure == null,
                         ) { Text("Play") }
                     }
+                    OutlinedButton(
+                        onClick = { selected?.let(onPlayScene) },
+                        enabled = selected != null && !player.isActive,
+                    ) { Text("Play scene") }
                     Text(
                         when (player.state) {
                             PlayerState.IDLE -> "idle"

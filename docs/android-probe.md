@@ -163,7 +163,7 @@ reached from Settings, because it is a developer surface and S5 gives Android no
 | S2 Library | Implemented | The system folder picker, a persisted grant per folder, an automatic scan on add, the four counts, last scan, rescan, and removal that leaves files on disk |
 | S5 Settings | Implemented in part | Scroll speed (1–40), judge difficulty (A–E), music volume, visual offset, all stored under the `mania4k.*` keys; the audio offset needs the calibration sheet, which needs the engine |
 | S3 Play setup | Up to the star target | A library song can be chosen, played through `MediaCodec` into an `AudioTrack`, and its heard position read back through the audio clock; the star control, sections and Generate report that the device engine is not linked instead of pretending |
-| S4 Play scene | Contracts and a player | `AnchorAudioClock` and `InputTimeline` are implemented and tested; the decoder-to-`AudioTrack` path plays a library file and its `AudioTrack.getTimestamp` is the clock's reading. The renderer, judgement and session wait for the runtime binding |
+| S4 Play scene | Renderer and session | `PlayScene` draws the four lanes from the core's `visibleObjects` and `noteGeometry`, advances a `GameplaySession` on the audio clock, feeds presses through `InputTimeline`, and shows the core's own score when the run resolves. The chart is a demo pattern until the generator is linked, and the page says so |
 
 Two storage decisions are temporary and should not spread. The library document is `filesDir/library.json`
 rather than the app core's SQLite, because the app core does not exist on Android yet; the settings share
@@ -183,6 +183,16 @@ position taken from `AudioTrack.getTimestamp` and never from the decoder's read-
 timestamp call returns a boolean rather than the status code the older documentation describes, and the
 extractor's file descriptor has to outlive `setDataSource` or the first read fails; both cost a build
 and a run to discover.
+
+**The scene.** `PlayScene` is S4 built on that clock: it asks the session which objects are visible in the
+render window, asks `noteGeometry` where each one sits, and draws the four lanes from those answers rather
+than from its own layout arithmetic. A run on the K80 finished the five-second clip with the core's own
+result — `Accuracy 0%`, `Max combo 0`, `Misses 8` — which is the session resolving eight notes that nobody
+pressed, not the page counting anything. Presses enter through `InputTimeline`, so the timestamp is the
+pointer event's, mapped through the audio clock.
+
+The chart is the one thing the scene invents: a tap every half second, rotating through the lanes, because
+the generator needs ONNX Runtime and a model. The subtitle says so on screen.
 
 The bottom bar is lifted above the gesture strip: on this ROM the last few dp of the window belong to the
 system home gesture, and a tab row flush with the bottom edge is untappable rather than merely low. The
