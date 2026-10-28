@@ -16,6 +16,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,8 +48,9 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val notWired = remember(context) {
-        NotWired { what -> scope.launch { snackbar.showSnackbar(context.getString(R.string.not_wired, what)) } }
+    val resources = LocalResources.current
+    val notWired = remember(resources) {
+        NotWired { what -> scope.launch { snackbar.showSnackbar(resources.getString(R.string.not_wired, what)) } }
     }
     val songs by graph.songs.songs.collectAsStateWithLifecycle()
     val model by graph.model.state.collectAsStateWithLifecycle()
@@ -88,6 +90,8 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                             onPlay = { backStack.add(Play(key.songId, loop = false)) },
                             onDownloadModel = { notWired("Downloading the model (plan step 4)") },
                             onCancelDownload = { notWired("Cancelling the download (plan step 4)") },
+                            onMake = { notWired("Making charts (plan steps 3 and 5)") },
+                            onStop = { notWired("Stopping a chart (plan step 5)") },
                         )
                     }
                     entry<Play> { key ->

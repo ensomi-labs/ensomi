@@ -4,6 +4,7 @@ import android.app.Activity
 import android.view.WindowInsetsController
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SliderColors
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -21,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -28,7 +32,6 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.clickable
 import io.ensomi.android.ui.theme.Brand
 
 /**
@@ -68,6 +71,18 @@ fun ActionButton(
         }
     }
 }
+
+/**
+ * Slider colours without step ticks: a slider with tens of steps (stars, scroll speed) would otherwise draw a row of
+ * dots along its track.
+ */
+@Composable
+fun sliderColorsWithoutTicks(): SliderColors = SliderDefaults.colors(
+    activeTickColor = Color.Transparent,
+    inactiveTickColor = Color.Transparent,
+    disabledActiveTickColor = Color.Transparent,
+    disabledInactiveTickColor = Color.Transparent,
+)
 
 /**
  * Says that an action of the prototype is not built yet. The app shows the message in a snackbar, so nothing in the

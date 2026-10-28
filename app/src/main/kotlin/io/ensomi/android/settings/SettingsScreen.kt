@@ -42,6 +42,7 @@ import io.ensomi.android.R
 import io.ensomi.android.model.ModelPanel
 import io.ensomi.android.model.ModelState
 import io.ensomi.android.ui.LocalNotWired
+import io.ensomi.android.ui.sliderColorsWithoutTicks
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -271,6 +272,7 @@ private fun SliderSetting(
             onValueChange = onChange,
             valueRange = range,
             steps = steps,
+            colors = sliderColorsWithoutTicks(),
             modifier = Modifier.semantics {
                 contentDescription = title
                 stateDescription = valueText

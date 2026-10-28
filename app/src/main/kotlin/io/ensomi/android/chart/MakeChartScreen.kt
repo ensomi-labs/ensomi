@@ -51,6 +51,7 @@ import io.ensomi.android.model.ModelPanel
 import io.ensomi.android.model.ModelState
 import io.ensomi.android.model.Problem
 import io.ensomi.android.ui.ActionButton
+import io.ensomi.android.ui.sliderColorsWithoutTicks
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -78,6 +79,9 @@ fun MakeChartScreen(
     onPlay: (MadeChart) -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    /** The maker's own [MakeChartViewModel.make] and [MakeChartViewModel.stop] once it is wired. */
+    onMake: () -> Unit = viewModel::make,
+    onStop: () -> Unit = viewModel::stop,
 ) {
     val capabilities by viewModel.capabilities.collectAsStateWithLifecycle()
     val makerState by viewModel.state.collectAsStateWithLifecycle()
@@ -100,8 +104,8 @@ fun MakeChartScreen(
                 state = state,
                 canMake = model is ModelState.Installed && viewModel.canMake(capabilities),
                 modelMissing = model !is ModelState.Installed,
-                onMake = viewModel::make,
-                onStop = viewModel::stop,
+                onMake = onMake,
+                onStop = onStop,
                 onPlay = onPlay,
                 onUseSeed = viewModel::useSeed,
             )
@@ -154,6 +158,7 @@ private fun StarsCard(viewModel: MakeChartViewModel, capabilities: ChartCapabili
                 onValueChange = { viewModel.stars = (it * 10).roundToInt() / 10.0 },
                 valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
                 steps = capabilities?.starSliderSteps ?: 0,
+                colors = sliderColorsWithoutTicks(),
                 enabled = enabled && capabilities != null,
                 modifier = Modifier.semantics {
                     contentDescription = starsLabel

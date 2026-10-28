@@ -26,13 +26,30 @@ SCENARIOS=(
   results:3 settings:3 settings-downloading:3 calibration-sound:3 calibration-picture:5 diagnostics:6
 )
 
+# A freshly booted emulator under load can show "System UI isn't responding" over every screen. Keep error
+# dialogs off for the capture (crashes still reach the crash log) and tap Wait on one already showing.
+dismiss_anr_dialog() {
+  local dump bounds
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || return 0
+  dump=$(adb shell cat /sdcard/ui.xml)
+  case "$dump" in *"t responding"*) ;; *) return 0 ;; esac
+  bounds=$(printf '%s' "$dump" | tr '>' '\n' | grep 'text="Wait"' | sed -E 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/' | head -1)
+  [ -n "$bounds" ] || return 0
+  set -- $bounds
+  adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+  sleep 2
+}
+
 restore() {
+  adb shell settings put global hide_error_dialogs 0 || true
   adb shell settings put system font_scale 1.0 || true
   adb shell settings put system user_rotation 0 || true
   adb shell cmd uimode night no || true
 }
 trap restore EXIT
 
+adb shell settings put global hide_error_dialogs 1
+dismiss_anr_dialog
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 0
 adb shell settings put system font_scale 1.0
@@ -40,6 +57,7 @@ adb shell settings put system font_scale 1.0
 for mode in light dark; do
   if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
   sleep 2
+  dismiss_anr_dialog
   for entry in "${SCENARIOS[@]}"; do
     name=${entry%%:*}
     launch "$name"

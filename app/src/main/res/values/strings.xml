@@ -220,7 +220,7 @@
     <string name="calibration_sound_help">A click plays every half second. Tap the pad on each click; closing your eyes helps. Ensomi takes the middle of your last 16 taps.</string>
     <string name="calibration_for_output">For %1$s. Its audio offset is now %2$s.</string>
     <string name="calibration_suggested">Suggested audio offset</string>
-    <string name="calibration_taps">%1$d of %2$d taps</string>
+    <string name="calibration_taps">Taps: %1$d/%2$d</string>
     <string name="calibration_strip_description">Your last taps, from early on the left to late on the right</string>
     <string name="calibration_tap_here">Tap on the click</string>
     <string name="calibration_start_over">Start over</string>

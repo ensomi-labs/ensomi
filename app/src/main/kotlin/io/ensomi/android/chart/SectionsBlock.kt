@@ -39,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
 import io.ensomi.android.model.Problem
+import io.ensomi.android.ui.sliderColorsWithoutTicks
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -223,6 +224,7 @@ private fun LabelledSlider(
             onValueChange = onChange,
             valueRange = range,
             steps = steps,
+            colors = sliderColorsWithoutTicks(),
             enabled = enabled,
             modifier = Modifier.semantics {
                 contentDescription = label

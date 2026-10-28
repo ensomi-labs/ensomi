@@ -1,6 +1,7 @@
 package io.ensomi.android.chart
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -17,7 +18,7 @@ class MakeChartViewModel(
     val capabilities: StateFlow<ChartCapabilities?> = maker.capabilities
     val state: StateFlow<MakeState> = maker.state
 
-    var stars by mutableStateOf(3.5)
+    var stars by mutableDoubleStateOf(3.5)
     var seedText by mutableStateOf("")
     var sections by mutableStateOf(initialSections)
         private set

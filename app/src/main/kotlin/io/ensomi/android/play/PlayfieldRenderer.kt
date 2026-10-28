@@ -9,6 +9,9 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import androidx.core.graphics.withClip
+import androidx.core.graphics.withSave
+import androidx.core.graphics.withTranslation
 import io.ensomi.runtime.Geometry
 import io.ensomi.runtime.Judgement
 import io.ensomi.runtime.VisibleState
@@ -134,8 +137,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
     private fun drawTray(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry) {
         val right = g.fieldLeft + g.fieldWidth
         val corner = g.dp(14f)
-        canvas.save()
-        canvas.clipRect(g.fieldLeft, g.lineY, right, g.trayBottom)
+        canvas.withClip(g.fieldLeft, g.lineY, right, g.trayBottom) {
         fill.color = PlayPalette.KEY_TRAY
         rect.set(g.fieldLeft, g.lineY - corner, right, g.trayBottom)
         canvas.drawRoundRect(rect, corner, corner, fill)
@@ -154,7 +156,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
                 canvas.drawRoundRect(rect, capCorner, capCorner, additive)
             }
         }
-        canvas.restore()
+        }
     }
 
     /** Notes hit are gone; a miss still on screen is greyed. A hold being held keeps its head on the line and glows. */
@@ -171,7 +173,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             val noteWidth = g.laneWidth - inset * 2
             val missed = obj.state == VisibleState.MISSED_BUT_VISIBLE
             val held = obj.state == VisibleState.HOLDING
-            canvas.save()
+            canvas.withSave {
             if (held) {
                 canvas.clipRect(laneX - g.dp(24f), g.fieldTop, laneX + g.laneWidth + g.dp(24f), clipBottom)
             } else {
@@ -222,7 +224,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
                     canvas.drawRoundRect(rect, corner, corner, fill)
                 }
             }
-            canvas.restore()
+            }
         }
         fill.alpha = 255
     }
@@ -301,8 +303,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             }
             wordPaint.color = PlayPalette.judgement(judgement)
             wordPaint.alpha = (255 * presentation.opacity.coerceIn(0.0, 1.0)).toInt()
-            canvas.save()
-            canvas.translate(centerX, wordY + drift)
+            canvas.withTranslation(centerX, wordY + drift) {
             canvas.scale(scale, scale)
             canvas.drawText(word, 0f, 0f, wordPaint)
             // A Good says whether it was early (up, lavender) or late (down, rose); a Perfect stays quiet.
@@ -314,7 +315,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
                 labelPaint.textSize = g.dp(26f)
                 canvas.drawText(if (offset < 0) "↑" else "↓", arrowX, 0f, labelPaint)
             }
-            canvas.restore()
+            }
             wordPaint.alpha = 255
         }
         if (frame.combo >= 2) {

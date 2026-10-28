@@ -319,7 +319,7 @@ private fun ImmersivePortrait() {
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
         onDispose {
             controller?.show(PlatformWindowInsets.Type.systemBars())
-            if (orientation != null) activity?.requestedOrientation = orientation
+            if (activity != null && orientation != null) activity.requestedOrientation = orientation
         }
     }
 }
