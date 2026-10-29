@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,8 +55,6 @@ import io.ensomi.android.prototype.AppGraph
 import io.ensomi.android.prototype.Scenario
 import io.ensomi.android.settings.CalibrationScreen
 import io.ensomi.android.settings.SettingsScreen
-import io.ensomi.android.ui.LocalNotWired
-import io.ensomi.android.ui.NotWired
 import kotlinx.coroutines.launch
 
 /** The app's navigation: one back stack of keys (Destinations.kt), each with its entry below. */
@@ -68,9 +65,6 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val resources = LocalResources.current
-    val notWired = remember(resources) {
-        NotWired { what -> scope.launch { snackbar.showSnackbar(resources.getString(R.string.not_wired, what)) } }
-    }
     val songs by graph.songs.songs.collectAsStateWithLifecycle()
     val addSongs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { documents ->
         // Cancelling the picker is not an error and says nothing.
@@ -113,132 +107,133 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val inGame = backStack.lastOrNull().let { it is Play || it is Results }
     GameOrientation(if (inGame) settings.orientation else null)
 
-    CompositionLocalProvider(LocalNotWired provides notWired) {
-        Box(Modifier.fillMaxSize()) {
-            NavDisplay(
-                backStack = backStack,
-                entryDecorators = listOf(
-                    rememberSaveableStateHolderNavEntryDecorator(),
-                    // Scopes each screen's ViewModel to its entry, cleared when the entry is popped.
-                    rememberViewModelStoreNavEntryDecorator(),
-                ),
-                entryProvider = entryProvider {
-                    entry<Library> {
-                        LibraryScreen(
-                            songs = songs,
-                            model = model,
-                            onAddSongs = { addSongs.launch(arrayOf(AUDIO)) },
-                            onOpenSong = { backStack.add(MakeChart(it.id)) },
-                            onFindAgain = { song ->
-                                findingSong = song.id
-                                findAgain.launch(arrayOf(AUDIO))
-                            },
-                            onRemoveSong = { graph.songs.remove(it.id) },
-                            onOpenSettings = { backStack.add(Settings) },
-                            onDownloadModel = graph.model::download,
-                            onCancelDownload = graph.model::cancel,
+    Box(Modifier.fillMaxSize()) {
+        NavDisplay(
+            backStack = backStack,
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator(),
+                // Scopes each screen's ViewModel to its entry, cleared when the entry is popped.
+                rememberViewModelStoreNavEntryDecorator(),
+            ),
+            entryProvider = entryProvider {
+                entry<Library> {
+                    LibraryScreen(
+                        songs = songs,
+                        model = model,
+                        onAddSongs = { addSongs.launch(arrayOf(AUDIO)) },
+                        onOpenSong = { backStack.add(MakeChart(it.id)) },
+                        onFindAgain = { song ->
+                            findingSong = song.id
+                            findAgain.launch(arrayOf(AUDIO))
+                        },
+                        onRemoveSong = { graph.songs.remove(it.id) },
+                        onOpenSettings = { backStack.add(Settings) },
+                        onDownloadModel = graph.model::download,
+                        onCancelDownload = graph.model::cancel,
+                    )
+                }
+                entry<MakeChart> { key ->
+                    val song = graph.songs.song(key.songId) ?: return@entry
+                    val viewModel = viewModel {
+                        MakeChartViewModel(
+                            song,
+                            graph.charts,
+                            scenario.sections,
+                            scenario.sectionsOpen,
+                            initialStars = graph.debug.stars,
+                            onClosed = { graph.playAudio?.drop(song.id) },
                         )
                     }
-                    entry<MakeChart> { key ->
-                        val song = graph.songs.song(key.songId) ?: return@entry
-                        val viewModel = viewModel {
-                            MakeChartViewModel(
-                                song,
-                                graph.charts,
-                                scenario.sections,
-                                scenario.sectionsOpen,
-                                initialStars = graph.debug.stars,
-                                onClosed = { graph.playAudio?.drop(song.id) },
-                            )
-                        }
-                        // The song's last chart, and its audio stages prepared in the background.
-                        LaunchedEffect(song.id) { graph.charts.open(song.id) }
-                        MakeChartScreen(
-                            viewModel = viewModel,
-                            model = model,
-                            onBack = { backStack.removeLastOrNull() },
-                            onPlay = { backStack.add(Play(key.songId, loop = false)) },
-                            onDownloadModel = graph.model::download,
-                            onCancelDownload = graph.model::cancel,
-                        )
-                    }
-                    entry<Play> { key ->
-                        val song = key.songId?.let(graph.songs::song)
-                        val playAudio = graph.playAudio
-                        if (song?.uri != null && playAudio != null && !key.loop) {
-                            SongPlay(song, graph, playAudio, settings, backStack)
-                        } else {
-                            PlayScreen(
-                                title = song?.title ?: stringResource(R.string.play_preview_title),
-                                detail = stringResource(R.string.play_sample_detail),
-                                settings = settings,
-                                loop = key.loop,
-                                onFinished = { result -> backStack.replaceLast(Results(key.songId, result)) },
-                                onQuit = { backStack.removeLastOrNull() },
-                                autoPauseAfterMs = scenario.pauseAfterMs,
-                                holdCountdown = scenario.holdCountdown,
-                            )
-                        }
-                    }
-                    entry<Results> { key ->
-                        ResultsScreen(
-                            result = key.result,
+                    // The song's last chart, and its audio stages prepared in the background.
+                    LaunchedEffect(song.id) { graph.charts.open(song.id) }
+                    MakeChartScreen(
+                        viewModel = viewModel,
+                        model = model,
+                        onBack = { backStack.removeLastOrNull() },
+                        onPlay = { backStack.add(Play(key.songId, loop = false)) },
+                        onDownloadModel = graph.model::download,
+                        onCancelDownload = graph.model::cancel,
+                    )
+                }
+                entry<Play> { key ->
+                    val song = key.songId?.let(graph.songs::song)
+                    val playAudio = graph.playAudio
+                    if (song?.uri != null && playAudio != null && !key.loop) {
+                        SongPlay(song, graph, playAudio, settings, backStack)
+                    } else {
+                        PlayScreen(
+                            title = song?.title ?: stringResource(R.string.play_preview_title),
+                            detail = stringResource(R.string.play_sample_detail),
                             settings = settings,
-                            route = route,
-                            onChange = graph.settings::update,
-                            onPlayAgain = { backStack.replaceLast(Play(key.songId, loop = false)) },
-                            onDone = { backStack.removeLastOrNull() },
+                            loop = key.loop,
+                            onFinished = { result -> backStack.replaceLast(Results(key.songId, result)) },
+                            onQuit = { backStack.removeLastOrNull() },
+                            autoPauseAfterMs = scenario.pauseAfterMs,
+                            holdCountdown = scenario.holdCountdown,
                         )
                     }
-                    entry<Settings> {
-                        SettingsScreen(
-                            settings = settings,
-                            route = route,
-                            model = model,
-                            versionName = versionName(context),
-                            onChange = graph.settings::update,
-                            onBack = { backStack.removeLastOrNull() },
-                            onCalibrate = { backStack.add(Calibration) },
-                            onPreview = { backStack.add(Play(null, loop = true)) },
-                            onDiagnostics = { backStack.add(Diagnostics) },
-                            onDownloadModel = graph.model::download,
-                            onCancelDownload = graph.model::cancel,
-                            onRemoveModel = graph.model::remove,
-                            onNotices = { backStack.add(Notices) },
-                            firstItem = scenario.settingsItem,
-                        )
-                    }
-                    entry<Calibration> {
-                        CalibrationScreen(
-                            settings = settings,
-                            route = route,
-                            initialStep = scenario.calibrationStep,
-                            onChange = graph.settings::update,
-                            onBack = { backStack.removeLastOrNull() },
-                        )
-                    }
-                    entry<Notices> {
-                        NoticesScreen(
-                            notices = graph.model.notices,
-                            onOpen = { backStack.add(NoticeText(it.path, it.asset)) },
-                            onBack = { backStack.removeLastOrNull() },
-                        )
-                    }
-                    entry<NoticeText> { key ->
-                        NoticeTextScreen(
-                            notice = Notice(key.path, key.asset),
-                            modelDirectory = graph.model.directory,
-                            onBack = { backStack.removeLastOrNull() },
-                        )
-                    }
-                    entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
-                },
-            )
-            SnackbarHost(
-                snackbar,
-                Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
-            )
-        }
+                }
+                entry<Results> { key ->
+                    ResultsScreen(
+                        result = key.result,
+                        settings = settings,
+                        route = route,
+                        onChange = graph.settings::update,
+                        onPlayAgain = { backStack.replaceLast(Play(key.songId, loop = false)) },
+                        onDone = { backStack.removeLastOrNull() },
+                    )
+                }
+                entry<Settings> {
+                    SettingsScreen(
+                        settings = settings,
+                        route = route,
+                        model = model,
+                        versionName = versionName(context),
+                        onChange = graph.settings::update,
+                        onBack = { backStack.removeLastOrNull() },
+                        onCalibrate = { backStack.add(Calibration) },
+                        onPreview = { backStack.add(Play(null, loop = true)) },
+                        onDiagnostics = { backStack.add(Diagnostics) },
+                        onDownloadModel = graph.model::download,
+                        onCancelDownload = graph.model::cancel,
+                        onRemoveModel = graph.model::remove,
+                        onNotices = { backStack.add(Notices) },
+                        firstItem = scenario.settingsItem,
+                    )
+                }
+                entry<Calibration> {
+                    CalibrationScreen(
+                        settings = settings,
+                        route = route,
+                        initialStep = scenario.calibrationStep,
+                        clicks = graph.clicks,
+                        onPlayingOn = graph.outputs::playingOn,
+                        onChange = graph.settings::update,
+                        onBack = { backStack.removeLastOrNull() },
+                        initialTapErrors = scenario.calibrationTaps,
+                    )
+                }
+                entry<Notices> {
+                    NoticesScreen(
+                        notices = graph.model.notices,
+                        onOpen = { backStack.add(NoticeText(it.path, it.asset)) },
+                        onBack = { backStack.removeLastOrNull() },
+                    )
+                }
+                entry<NoticeText> { key ->
+                    NoticeTextScreen(
+                        notice = Notice(key.path, key.asset),
+                        modelDirectory = graph.model.directory,
+                        onBack = { backStack.removeLastOrNull() },
+                    )
+                }
+                entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
+            },
+        )
+        SnackbarHost(
+            snackbar,
+            Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.navigationBars),
+        )
     }
 }
 

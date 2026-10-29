@@ -80,6 +80,11 @@ class PlayController(
     /** Starts again at the end instead of finishing: the preview from Settings and the calibration. */
     private val loop: Boolean = false,
     private val leadInMs: Double = LEAD_IN_MS,
+    /**
+     * Whether the game starts and closes [clock]. The calibration's clicks keep one clock for both its steps, so its
+     * playfield only reads it.
+     */
+    private val ownsClock: Boolean = true,
     private val hud: MutableStateFlow<PlayHud>,
     private val nextSequence: () -> Long,
 ) : AutoCloseable {
@@ -106,7 +111,7 @@ class PlayController(
     private val hitOffsets = ArrayList<Double>()
 
     fun start(nanoTime: Long) {
-        clock.start(nanoTime, fromMs = -leadInMs)
+        if (ownsClock) clock.start(nanoTime, fromMs = -leadInMs)
     }
 
     /** Queues an input for the next frame. Inputs while paused are dropped, as the session judges none then. */
@@ -160,7 +165,7 @@ class PlayController(
             judging = judging,
             paused = clock.isPaused,
         )
-        if (loop && songNow > chart.durationMs + LOOP_GAP_MS) restart(nowNanos)
+        if (loop && ownsClock && songNow > chart.durationMs + LOOP_GAP_MS) restart(nowNanos)
         return frame
     }
 
@@ -239,7 +244,7 @@ class PlayController(
         clockLog?.let { Log.i(TAG, "Clock: ${it.summary()}") }
         session.close()
         feedback.close()
-        clock.close()
+        if (ownsClock) clock.close()
         onClose()
     }
 

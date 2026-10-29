@@ -34,12 +34,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import android.view.HapticFeedbackConstants
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -94,6 +100,17 @@ fun MakeChartScreen(
     val state = makerState.takeIf { it.songId == viewModel.song.id } ?: MakeState.Idle
     val making = state is MakeState.Making
     val song = viewModel.song
+    // CONFIRM when a chart being made is ready, REJECT when it fails; a chart read back from storage says nothing.
+    val view = LocalView.current
+    var wasMaking by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        when {
+            state is MakeState.Making -> wasMaking = true
+            wasMaking && state is MakeState.Made -> view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            wasMaking && state is MakeState.Failed -> view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+        }
+        if (state !is MakeState.Making) wasMaking = false
+    }
     // Why Make chart is disabled, said next to it.
     val blocker = when {
         model !is ModelState.Installed -> R.string.make_needs_model
@@ -157,7 +174,9 @@ fun MakeChartScreen(
 private fun StarsCard(viewModel: MakeChartViewModel, capabilities: ChartCapabilities?, enabled: Boolean) {
     val range = capabilities?.selectableStars ?: DEFAULT_STARS
     val stars = viewModel.stars.coerceIn(range)
-    val starsText = String.format(Locale.ROOT, "%.1f", stars)
+    // The value sent, even outside the slider's range (a debug launch's --ef stars), so the screen never shows
+    // another number than the request carries.
+    val starsText = String.format(Locale.ROOT, "%.1f", viewModel.stars)
     val starsLabel = stringResource(R.string.make_stars)
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(Modifier.padding(16.dp)) {

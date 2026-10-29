@@ -1,8 +1,6 @@
 package io.ensomi.android.chart
 
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /** The five phases a generation reports, in order: the runtime's `GenerationPhase`. */
 enum class MakePhase { LOADING, TIMING, ROWS, ARRANGEMENT, EXPORT }
@@ -64,37 +62,4 @@ interface ChartMaker {
 
     /** The last chart made for the song, or null. Reads app storage: call it off the main thread. */
     fun lastChart(songId: String): LastChart? = null
-}
-
-/** Not wired: a fixed state for the prototype's scenarios. The app's maker is [RuntimeChartMaker]. */
-class SampleChartMaker(initial: MakeState, capabilities: ChartCapabilities?) : ChartMaker {
-    override val states: StateFlow<Map<String, MakeState>> =
-        MutableStateFlow(initial.songId?.let { mapOf(it to initial) }.orEmpty()).asStateFlow()
-    override val capabilities: StateFlow<ChartCapabilities?> = MutableStateFlow(capabilities).asStateFlow()
-
-    override fun make(songId: String, request: ChartRequest) = Unit
-
-    override fun stop(songId: String) = Unit
-
-    companion object {
-        /**
-         * Sample capabilities. The star range is R2's (`[2, 6)`); the statuses and notes stand in for what the model
-         * reports and are not R2's own.
-         */
-        val CAPABILITIES = ChartCapabilities(
-            modelName = "Ensomi R2 r2-1.0",
-            minStar = 2.0,
-            maxStarExclusive = 6.0,
-            kinds = listOf(
-                KindOption(SectionKind.JUMPSTREAM, experimental = false, note = "Sample note: jumps between streams."),
-                KindOption(SectionKind.CHORDSTREAM, experimental = false, note = "Sample note: chords between streams."),
-                KindOption(SectionKind.STREAM, experimental = false, note = "Sample note: single notes in a row."),
-                KindOption(SectionKind.JACK, experimental = true, note = "Sample note: repeated notes in one lane."),
-                KindOption(SectionKind.CHORDJACK, experimental = true, note = "Sample note: repeated chords."),
-                KindOption(SectionKind.STAR, experimental = false, note = "A star target for this span alone."),
-            ),
-        )
-
-        val MADE = MadeChart(noteCount = 1229, holdCount = 230, seed = 2914u, stars = 3.5, modelName = "Ensomi R2 r2-1.0")
-    }
 }

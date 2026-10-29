@@ -2,16 +2,21 @@
 # Captures the prototype's screens on the one booted emulator or device, with the debug APK installed:
 # every scenario of app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt in light and dark mode,
 # the game at each lean and in both orientations, a few screens at 200 % font size and with the phone in landscape,
-# UI hierarchy dumps, and a recording of the playfield preview (landscape, the default lean).
+# UI hierarchy dumps, the render thread's frame log and a Perfetto FrameTimeline trace at each lean, a recording of the
+# playfield preview (landscape, the default lean), and a real game on the app's own stores.
 #
 #   scripts/capture-prototype.sh OUT_DIR [GROUP...]
+#   REAL_SONG="Song title" scripts/capture-prototype.sh OUT_DIR real
 #
-# GROUP is any of screens, game, lean, font, landscape, dumps, pacing, recording; all of them when none is given.
+# GROUP is any of screens, game, lean, font, landscape, dumps, pacing, recording, real; all of them when none is given.
+# The real group plays REAL_SONG, a song in the library with a chart, by the autoplay (a debug launch extra), with the
+# settings the app has; it is skipped when REAL_SONG is not set.
 set -euo pipefail
 
 OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
 shift
-GROUPS_WANTED=${*:-screens game lean font landscape dumps pacing recording}
+GROUPS_WANTED=${*:-screens game lean font landscape dumps pacing recording real}
+HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 PKG=io.ensomi.android
 ACTIVITY=$PKG/.MainActivity
@@ -170,8 +175,9 @@ sleep 2
 fi
 
 if wanted dumps; then
-# What TalkBack reads: the UI hierarchy of a few screens.
-for name in library make-chart-made play-paused results; do
+# What TalkBack reads: the UI hierarchy of every kind of screen.
+for name in first-run library make-chart make-chart-made make-chart-failed play-paused results settings notices \
+  notice-text calibration-sound calibration-picture diagnostics; do
   launch "$name"
   if [ "$name" = play-paused ]; then sleep 15; else sleep 3; fi
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/window-$name.xml" >/dev/null || echo "no dump for $name"
@@ -179,14 +185,17 @@ done
 fi
 
 if wanted pacing; then
-# The render thread's own frame log for 20 seconds of the game at each lean, landscape and portrait, one after
-# the other under the same conditions: pacing-NAME.txt.
+# The render thread's own frame log and a 15-second Perfetto FrameTimeline trace of the game at each lean, landscape
+# and portrait, one after the other under the same conditions: pacing-NAME.txt, pacing-NAME.pftrace (and its summary).
 for name in play-flat play play-lean-max play-portrait; do
   adb logcat -c
-  launch "$name"; sleep 22
+  launch "$name"; sleep 4
+  "$HERE/capture-frame-timeline.sh" "$OUT" "pacing-$name" 15
+  sleep 3
   adb logcat -d -s EnsomiPlayfield:I >"$OUT/pacing-$name.txt" || true
   echo "pacing-$name.txt"
 done
+adb shell dumpsys SurfaceFlinger >"$OUT/surfaceflinger.txt" || true
 fi
 
 if wanted recording; then
@@ -200,6 +209,28 @@ adb pull /sdcard/playfield-preview.mp4 "$OUT/playfield-preview.mp4" >/dev/null
 echo playfield-preview.mp4
 adb logcat -d -s EnsomiPlayfield:I >"$OUT/frame-stats.txt" || true
 adb shell dumpsys SurfaceFlinger --list >"$OUT/surfaceflinger-layers.txt" || true
+fi
+
+if wanted real && [ -n "${REAL_SONG:-}" ]; then
+# A real game: the app's own stores, the song's stored chart on its own sound, played by the autoplay, to the results.
+adb shell am force-stop "$PKG"
+adb logcat -c
+adb shell am start -W -n "$ACTIVITY" --ez autoplay true >/dev/null
+sleep 3; shot real-library
+tap_text "$REAL_SONG"
+sleep 6; shot real-song
+tap_text "Play"
+sleep 10; shot real-play-1
+sleep 15; shot real-play-2
+# The results come when the song ends: look for Play again every 10 seconds, for up to 10 minutes.
+for _ in $(seq 60); do
+  sleep 10
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue
+  if adb shell cat /sdcard/ui.xml | grep -q 'text="Play again"'; then break; fi
+done
+shot real-results
+adb logcat -d -s EnsomiPlay:I EnsomiAudio:I EnsomiPlayfield:I >"$OUT/real-game.txt" || true
+echo real-game.txt
 fi
 
 adb shell am force-stop "$PKG"

@@ -2,10 +2,8 @@ package io.ensomi.android.library
 
 import android.net.Uri
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
@@ -50,39 +48,6 @@ interface SongLibrary {
 
     /** Shows the song [id] as missing: its file failed to open (`DecodeException.missing`). */
     fun markMissing(id: String)
-}
-
-/**
- * For the prototype's scenarios: fixed sample songs. [add] and [remove] change nothing. The app's library is
- * [DocumentSongLibrary].
- */
-class SampleSongLibrary(initial: List<Song>) : SongLibrary {
-    private val state = MutableStateFlow(initial)
-    override val songs: StateFlow<List<Song>> = state.asStateFlow()
-
-    override suspend fun add(documents: List<Uri>) = AddResult(0, 0, emptyList())
-
-    override suspend fun findAgain(id: String, document: Uri) = false
-
-    override fun remove(id: String) = Unit
-
-    override fun refresh() = Unit
-
-    override fun markMissing(id: String) = Unit
-
-    companion object {
-        /** Made-up songs; the prototype has no audio. */
-        val SONGS = listOf(
-            Song("lantern-walk", "Lantern Walk", "Mira Sato", 222_000, "lantern-walk.mp3", chartCount = 1),
-            Song("northbound", "Northbound", "The Quiet Hours", 245_000, "northbound.flac"),
-            Song("small-hours", "Small Hours", "Aoi", 178_000, "small-hours.m4a", chartCount = 1),
-            Song("glass-garden", "Glass Garden", "Ren & Kei", 201_000, "Glass Garden.mp3"),
-            Song("afterglow-run", "Afterglow Run", null, 312_000, "afterglow_run.ogg"),
-        )
-
-        /** The same songs with one whose file has gone. */
-        val WITH_MISSING = SONGS.map { if (it.id == "glass-garden") it.copy(missing = true) else it }
-    }
 }
 
 /**

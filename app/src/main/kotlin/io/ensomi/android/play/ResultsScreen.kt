@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.view.HapticFeedbackConstants
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -39,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -57,7 +59,6 @@ import io.ensomi.android.ui.theme.Brand
 import io.ensomi.android.ui.theme.GameTheme
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * The end of a game, in the game's dark presentation: accuracy, the judgement counts in words and colour, the longest
@@ -171,7 +172,13 @@ fun ResultsScreen(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = Brand.Text,
                                 )
-                                TextButton(onClick = { onChange { it.copy(audioOffsetMs = proposed) } }) {
+                                val view = LocalView.current
+                                TextButton(
+                                    onClick = {
+                                        onChange { it.copy(audioOffsetMs = proposed) }
+                                        view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                                    },
+                                ) {
                                     Text(stringResource(R.string.results_offset_apply), color = Brand.Lavender)
                                 }
                             }
@@ -344,18 +351,3 @@ private fun TimingHistogram(bins: List<Int>, modifier: Modifier = Modifier) {
 }
 
 private const val MIN_SUGGESTION_MS = 3
-
-/** Fixed numbers for the results scenario of the prototype. */
-val SAMPLE_RESULT = PlayResult(
-    title = "Lantern Walk",
-    detail = "Mira Sato · 3.5 stars · seed 2914",
-    accuracy = 0.9784,
-    perfect = 1102,
-    good = 119,
-    miss = 8,
-    maxCombo = 642,
-    histogram = listOf(0, 0, 0, 1, 1, 2, 4, 6, 11, 19, 33, 61, 98, 141, 170, 182, 160, 128, 92, 60, 37, 22, 12, 6, 3, 2, 1, 0, 0, 0),
-    meanOffsetMs = 6.4,
-    suggestedAdjustmentMs = (-6.4).roundToInt(),
-    sample = false,
-)

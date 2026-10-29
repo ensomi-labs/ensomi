@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.pm.ApplicationInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
@@ -77,6 +79,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -158,6 +161,7 @@ fun PlayScreen(
         val cutoutTop = WindowInsets.displayCutout.getTop(density).toFloat()
         val gestureBottom = WindowInsets.mandatorySystemGestures.getBottom(density).toFloat()
         val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
+        val debuggable = remember(context) { context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
         var phase by rememberSaveable { mutableStateOf(PlayPhase.PLAYING) }
         var restarts by remember { mutableIntStateOf(0) }
         var view by remember { mutableStateOf<PlayfieldView?>(null) }
@@ -186,9 +190,14 @@ fun PlayScreen(
         // started, another window taking focus (the notification shade, a dialog, split screen) pauses.
         val focused = LocalWindowInfo.current.isWindowFocused
         var started by remember(restarts) { mutableStateOf(false) }
-        LaunchedEffect(focused, view) {
+        // With TalkBack on, a tap on a lane explores instead of touching: before the game starts the screen says so,
+        // and the lead-in waits until the player starts anyway.
+        val touchExploration = rememberTouchExploration()
+        var talkBackNoticeSeen by rememberSaveable { mutableStateOf(false) }
+        val talkBackNotice = touchExploration && !talkBackNoticeSeen && !started
+        LaunchedEffect(focused, view, talkBackNotice) {
             val current = view ?: return@LaunchedEffect
-            if (phase != PlayPhase.PLAYING) return@LaunchedEffect
+            if (phase != PlayPhase.PLAYING || talkBackNotice) return@LaunchedEffect
             when {
                 focused && !started -> {
                     delay(FOCUS_SETTLE_MS)
@@ -270,7 +279,11 @@ fun PlayScreen(
             )
         }
 
-        Box(Modifier.fillMaxSize().background(Brand.Plum)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Brand.Plum)) {
+            // A window too small to play in (split screen, a small free-form window) pauses the game and says so
+            // instead of drawing a squashed playfield.
+            val tooSmall = maxHeight < MIN_PLAY_HEIGHT || maxWidth < MIN_PLAY_WIDTH
+            LaunchedEffect(tooSmall) { if (tooSmall) pause("the window is too small to play in") }
             // A new view on Restart: its controller starts the chart from the lead-in.
             androidx.compose.runtime.key(restarts) {
                 AndroidView(
@@ -278,6 +291,7 @@ fun PlayScreen(
                     factory = { viewContext ->
                         PlayfieldView(viewContext).apply {
                             keepScreenOn = true
+                            if (debuggable) frameLogFile = File(viewContext.filesDir, FRAME_LOG)
                             // Held at the start of the lead-in until the window has focus (above).
                             this.pause()
                             controllerFactory = ::controller
@@ -289,7 +303,8 @@ fun PlayScreen(
                         it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                         it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
                         it.reduceMotion = reduceMotion
-                        it.excludeBackGesture = phase == PlayPhase.PLAYING
+                        it.vibrateOnTouch = settings.vibrateOnTouch
+                        it.excludeBackGesture = phase == PlayPhase.PLAYING && !tooSmall
                         // A view made while the game is paused (after a configuration change) starts paused.
                         if (phase != PlayPhase.PLAYING) it.pause()
                     },
@@ -312,7 +327,7 @@ fun PlayScreen(
             )
 
             when (phase) {
-                PlayPhase.PLAYING -> Unit
+                PlayPhase.PLAYING -> if (talkBackNotice) TalkBackNotice(onStart = { talkBackNoticeSeen = true }, onBack = onQuit)
                 PlayPhase.PAUSED -> PausePanel(
                     movedTo = movedTo,
                     onResume = { phase = PlayPhase.COUNTDOWN },
@@ -334,6 +349,7 @@ fun PlayScreen(
                     }
                 }
             }
+            if (tooSmall) WindowTooSmall()
         }
     }
 }
@@ -385,13 +401,16 @@ class GameAudioFocus(private val audioManager: AudioManager, private val request
 }
 
 /**
- * Holds audio focus while the game is open: another app taking it (a call, a voice assistant) pauses the game. A
- * short sound that only ducks (a notification) does not: Android lowers the game's volume for it by itself.
+ * Holds audio focus while the game (or the calibration) is open: another app taking it (a call, a voice assistant)
+ * pauses it. A short sound that only ducks (a notification) does not: Android lowers the game's volume for it by
+ * itself. [onGained] hears focus come back after a loss for a while; a game stays paused then, the calibration's
+ * clicks go on.
  */
 @Composable
-private fun rememberAudioFocus(onLost: (String) -> Unit): GameAudioFocus {
+fun rememberAudioFocus(onLost: (String) -> Unit, onGained: () -> Unit = {}): GameAudioFocus {
     val context = LocalContext.current
     val lost by rememberUpdatedState(onLost)
+    val gained by rememberUpdatedState(onGained)
     val focus = remember(context) {
         val audioManager = context.getSystemService(AudioManager::class.java)
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -401,6 +420,7 @@ private fun rememberAudioFocus(onLost: (String) -> Unit): GameAudioFocus {
                     when (change) {
                         AudioManager.AUDIOFOCUS_LOSS -> lost("audio focus lost (AUDIOFOCUS_LOSS)")
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> lost("audio focus lost for a while (AUDIOFOCUS_LOSS_TRANSIENT)")
+                        AudioManager.AUDIOFOCUS_GAIN -> gained()
                     }
                 },
                 Handler(Looper.getMainLooper()),
@@ -510,7 +530,14 @@ private fun PlayHudRow(
     ) {
         Column(if (landscape) Modifier.widthIn(max = (beside - 32.dp).coerceAtLeast(0.dp)) else Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, color = Brand.Text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = Brand.MutedText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Beside flat landscape lanes the room is narrow: the detail takes a second line rather than being cut.
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = Brand.MutedText,
+                maxLines = if (landscape) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         if (landscape) Spacer(Modifier.weight(1f))
         val accuracyText = formatAccuracy(accuracy)
@@ -591,6 +618,77 @@ private fun PausePanel(movedTo: String?, onResume: () -> Unit, onRestart: () -> 
     }
 }
 
+/** Before the game starts with TalkBack on: the lanes need direct touch, which touch exploration takes over. */
+@Composable
+private fun TalkBackNotice(onStart: () -> Unit, onBack: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Brand.Plum.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
+        Surface(
+            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp, bottomEnd = 26.dp, bottomStart = 10.dp),
+            color = Brand.Panel,
+            border = BorderStroke(1.dp, Brand.PanelBorder),
+            modifier = Modifier.padding(24.dp).widthIn(max = 420.dp),
+        ) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    stringResource(R.string.play_talkback_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Brand.Text,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(stringResource(R.string.play_talkback_body), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+                ActionButton(
+                    stringResource(R.string.play_talkback_start),
+                    onClick = onStart,
+                    icon = R.drawable.ic_play,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.action_back))
+                }
+            }
+        }
+    }
+}
+
+/** The window is too small for the playfield: the game is paused behind this until the window grows. */
+@Composable
+private fun WindowTooSmall() {
+    Box(Modifier.fillMaxSize().background(Brand.Plum).padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.play_window_small_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = Brand.Text,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics {
+                    heading()
+                    liveRegion = LiveRegionMode.Polite
+                },
+            )
+            Text(
+                stringResource(R.string.play_window_small_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Brand.MutedText,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** Whether TalkBack (or another screen reader) explores by touch, as it changes. */
+@Composable
+private fun rememberTouchExploration(): Boolean {
+    val context = LocalContext.current
+    val manager = remember(context) { context.getSystemService(AccessibilityManager::class.java) }
+    var on by remember(manager) { mutableStateOf(manager.isTouchExplorationEnabled) }
+    DisposableEffect(manager) {
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { on = it }
+        manager.addTouchExplorationStateChangeListener(listener)
+        onDispose { manager.removeTouchExplorationStateChangeListener(listener) }
+    }
+    return on
+}
+
 /** Three beats before the music goes on, so the hands are back on the lanes. With reduced motion the digits only change. */
 @Composable
 private fun Countdown(reduceMotion: Boolean, hold: Boolean, onDone: () -> Unit) {
@@ -667,8 +765,15 @@ private const val COUNT_IN_BEAT_MS = 500L
 
 private const val TAG = "EnsomiPlay"
 
-/** Debug builds: the last game's frame times, in the app's files. */
+/** Debug builds: the last game's song and render time per frame, in the app's files. */
 private const val CLOCK_LOG = "clock-log.csv"
+
+/** Debug builds: the last playfield's vsync, presentation and work per frame (step 9's frame log). */
+private const val FRAME_LOG = "frame-log.csv"
+
+/** Smaller than this, the playfield would be squashed: the screen says so instead (design.md, short windows). */
+private val MIN_PLAY_HEIGHT = 280.dp
+private val MIN_PLAY_WIDTH = 280.dp
 
 /** How long the window keeps focus before the lead-in runs. */
 private const val FOCUS_SETTLE_MS = 400L

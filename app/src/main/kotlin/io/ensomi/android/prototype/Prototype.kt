@@ -17,23 +17,19 @@ import io.ensomi.android.audio.PlayAudioCache
 import io.ensomi.android.chart.ChartMaker
 import io.ensomi.android.chart.MakePhase
 import io.ensomi.android.chart.MakeState
-import io.ensomi.android.chart.SampleChartMaker
 import io.ensomi.android.chart.SectionDraft
 import io.ensomi.android.chart.SectionKind
-import io.ensomi.android.library.SampleSongLibrary
 import io.ensomi.android.library.SongLibrary
 import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
 import io.ensomi.android.model.ModelUpdate
 import io.ensomi.android.model.ONNX_RUNTIME_NOTICES
-import io.ensomi.android.model.SampleChartModelStore
-import io.ensomi.android.play.SAMPLE_RESULT
 import io.ensomi.android.settings.PLAYFIELD_SETTINGS
 import io.ensomi.android.settings.PlayOrientation
+import io.ensomi.android.settings.AudioClickTracks
 import io.ensomi.android.settings.CalibrationStep
-import io.ensomi.android.settings.FixedPlayOutputs
+import io.ensomi.android.settings.ClickTracks
 import io.ensomi.android.settings.PlayOutputs
-import io.ensomi.android.settings.InMemoryPlaySettingsStore
 import io.ensomi.android.settings.PlaySettings
 import io.ensomi.android.settings.PlaySettingsStore
 
@@ -48,6 +44,8 @@ class AppGraph(
     val settings: PlaySettingsStore,
     /** The device a game's sound plays on, for its audio offset. */
     val outputs: PlayOutputs,
+    /** The calibration's click track. */
+    val clicks: ClickTracks,
     /** The sound of the song last played; null in the scenarios, whose games are the sample chart without sound. */
     val playAudio: PlayAudioCache? = null,
     val debug: DebugOptions = DebugOptions(),
@@ -69,11 +67,11 @@ data class DebugOptions(
 /**
  * A state of the prototype to open in, for screenshots: the back stack and the sample data behind it. A debuggable
  * build reads it from the launch intent's `prototype` extra (`adb shell am start ... --es prototype make-chart-made`);
- * any other launch opens [DEFAULT]. Nothing here ships: once the stores are real, the scenarios go.
+ * any other launch opens [DEFAULT], the app's own stores. The scenarios run on the fakes in `Fakes.kt`.
  */
 data class Scenario(
     val backStack: List<NavKey>,
-    val model: ModelState = SampleChartModelStore.INSTALLED,
+    val model: ModelState = FakeChartModelStore.INSTALLED,
     val withSongs: Boolean = true,
     val make: MakeState = MakeState.Idle,
     val sections: List<SectionDraft> = emptyList(),
@@ -81,6 +79,8 @@ data class Scenario(
     val pauseAfterMs: Long? = null,
     val holdCountdown: Boolean = false,
     val calibrationStep: CalibrationStep = CalibrationStep.SOUND,
+    /** Taps the calibration starts with, as errors in milliseconds. */
+    val calibrationTaps: List<Double> = emptyList(),
     val dynamicColor: Boolean = false,
     val settings: PlaySettings = PlaySettings(),
     /** Opens Settings scrolled to this item: [PLAYFIELD_SETTINGS] for the playfield section. */
@@ -100,6 +100,7 @@ data class Scenario(
             charts = app.charts,
             settings = app.settings,
             outputs = app.route,
+            clicks = AudioClickTracks,
             playAudio = app.playAudio,
             debug = debug,
         )
@@ -108,23 +109,24 @@ data class Scenario(
     }
 
     private fun sampleGraph(): AppGraph = AppGraph(
-        songs = SampleSongLibrary(
+        songs = FakeSongLibrary(
             when {
                 !withSongs -> emptyList()
-                missingSong -> SampleSongLibrary.WITH_MISSING
-                else -> SampleSongLibrary.SONGS
+                missingSong -> FakeSongLibrary.WITH_MISSING
+                else -> FakeSongLibrary.SONGS
             },
         ),
-        model = SampleChartModelStore(model),
-        charts = SampleChartMaker(make, SampleChartMaker.CAPABILITIES.takeIf { model is ModelState.Installed }),
-        settings = InMemoryPlaySettingsStore(settings, InMemoryPlaySettingsStore.SPEAKER),
-        outputs = FixedPlayOutputs(InMemoryPlaySettingsStore.SPEAKER),
+        model = FakeChartModelStore(model),
+        charts = FakeChartMaker(make, FakeChartMaker.CAPABILITIES.takeIf { model is ModelState.Installed }),
+        settings = FakePlaySettingsStore(settings, FakePlaySettingsStore.SPEAKER),
+        outputs = FakePlayOutputs(FakePlaySettingsStore.SPEAKER),
+        clicks = SilentClickTracks,
     )
 
     companion object {
         private const val SONG = "lantern-walk"
         private const val FREE = 18_400_000_000L
-        private val PACKAGE = SampleChartModelStore.PACKAGE_BYTES
+        private val PACKAGE = FakeChartModelStore.PACKAGE_BYTES
         private val ONE_SECTION = listOf(SectionDraft(id = 1, start = "00:32", end = "00:48", kind = SectionKind.JUMPSTREAM))
 
         /** A normal launch: the app's own stores. */
@@ -160,7 +162,7 @@ data class Scenario(
             ),
             "make-chart-made" to Scenario(
                 listOf(Library, MakeChart(SONG)),
-                make = MakeState.Made(SONG, SampleChartMaker.MADE),
+                make = MakeState.Made(SONG, FakeChartMaker.MADE),
                 sections = ONE_SECTION,
             ),
             "make-chart-stopped" to Scenario(listOf(Library, MakeChart(SONG)), make = MakeState.Stopped(SONG)),
@@ -184,7 +186,7 @@ data class Scenario(
                 holdCountdown = true,
             ),
             "results" to Scenario(listOf(Library, MakeChart(SONG), Results(SONG, SAMPLE_RESULT))),
-            // The sample result over the app's own stores: Use writes the stored offset, before games are real (step 7).
+            // The sample result over the app's own stores: Use writes the stored offset.
             "results-stored" to Scenario(listOf(Library, Results(null, SAMPLE_RESULT)), real = true),
             "settings" to Scenario(listOf(Library, Settings)),
             "settings-playfield" to Scenario(listOf(Library, Settings), settingsItem = PLAYFIELD_SETTINGS),
@@ -199,12 +201,12 @@ data class Scenario(
                     revision = "r2-1.0",
                     sizeBytes = PACKAGE,
                     license = "MIT",
-                    update = ModelUpdate.Pending(SampleChartModelStore.PINNED_REVISION, "The connection was lost.", resumable = true),
+                    update = ModelUpdate.Pending(FakeChartModelStore.PINNED_REVISION, "The connection was lost.", resumable = true),
                 ),
             ),
             "notices" to Scenario(listOf(Library, Settings, Notices)),
             "notice-text" to Scenario(listOf(Library, Settings, Notices, NoticeText(ONNX_RUNTIME_NOTICES.last().path, asset = true))),
-            "calibration-sound" to Scenario(listOf(Library, Settings, Calibration)),
+            "calibration-sound" to Scenario(listOf(Library, Settings, Calibration), calibrationTaps = SAMPLE_TAP_ERRORS_MS),
             "calibration-picture" to Scenario(listOf(Library, Settings, Calibration), calibrationStep = CalibrationStep.PICTURE),
             "diagnostics" to Scenario(listOf(Library, Settings, Diagnostics)),
         )

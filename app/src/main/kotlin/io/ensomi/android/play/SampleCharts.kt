@@ -6,6 +6,7 @@ object SampleCharts {
     private const val EIGHTH = BEAT / 2
     private const val SIXTEENTH = BEAT / 4
     private const val BAR = BEAT * 4
+    private const val CALIBRATION_CLICKS = 3_600
 
     /**
      * About 30 seconds at 150 BPM that shows what the playfield draws: a stream with jumps, holds under taps, chords,
@@ -72,11 +73,14 @@ object SampleCharts {
         PlayChart("Sample chart", durationMs = t + 1_000, notes = notes.sortedWith(compareBy({ it.startMs }, { it.lane })))
     }
 
-    /** The calibration's picture step: a note in lane 1 on every click, 500 ms apart, from 1 s on for a minute. */
+    /**
+     * The calibration's picture step: a note in lane 1 on every click of the click track, 500 ms apart from 1 s on,
+     * for half an hour of clicks (the track goes on as long as the screen is open).
+     */
     val CALIBRATION: PlayChart = PlayChart(
         title = "Calibration",
-        durationMs = 62_000,
-        notes = (0 until 120).map { NoteSpec(lane = 1, startMs = 1_000 + it * 500) },
+        durationMs = 1_000 + CALIBRATION_CLICKS * 500 + 1_000,
+        notes = (0 until CALIBRATION_CLICKS).map { NoteSpec(lane = 1, startMs = 1_000 + it * 500) },
     )
 
     /** The first object of a lane that starts before the previous one of that lane has ended, or null. */

@@ -19,7 +19,8 @@ import kotlin.math.roundToLong
 /**
  * A game's sound: one `AudioTrack` (`ENCODING_PCM_FLOAT`, `MODE_STREAM`) fed by its own writer thread, first with
  * [leadInMs] of silence, then the song, then silence until the game closes it, so the output keeps reporting real
- * timestamps past the song's end. The music volume is the track's gain, which leaves frame positions alone.
+ * timestamps past the song's end. With [loopFromFrame] the song repeats from that frame instead of ending, as the
+ * calibration's click track does. The music volume is the track's gain, which leaves frame positions alone.
  *
  * The writer fills the track's buffer ([QUEUED_MS] or more) before [play] and blocks while it is full, so at least
  * 200 ms stay queued. [onRoute] hears the device the track plays on, on the main thread: once when it starts, and at
@@ -31,6 +32,8 @@ class GameAudio(
     leadInMs: Double,
     volume: Float,
     private val onRoute: (AudioDeviceInfo?) -> Unit,
+    /** Where the song starts again once it has played to its end; null to end it. */
+    private val loopFromFrame: Int? = null,
 ) : PlayOutput, AutoCloseable {
     val sampleRate: Int = song.sampleRate
     val leadInFrames: Long = (leadInMs * sampleRate / 1000).roundToLong()
@@ -117,8 +120,10 @@ class GameAudio(
             lead -= count
         }
         val samples = song.samples
+        val loopFrom = loopFromFrame?.let { it.coerceIn(0, song.frames - 1) * channels }
         var offset = 0
-        while (running && offset < samples.size) {
+        while (running) {
+            if (offset >= samples.size) offset = loopFrom ?: break
             val count = min(chunk, samples.size - offset)
             if (!writeAll(samples, offset, count)) return
             offset += count

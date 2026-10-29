@@ -19,12 +19,13 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -85,28 +86,27 @@ fun sliderColorsWithoutTicks(): SliderColors = SliderDefaults.colors(
 )
 
 /**
- * Says that an action of the prototype is not built yet. The app shows the message in a snackbar, so nothing in the
- * prototype pretends to work. Each call site names the step of docs/plan.md that builds it.
- */
-fun interface NotWired {
-    operator fun invoke(what: String)
-}
-
-val LocalNotWired = staticCompositionLocalOf { NotWired { } }
-
-/**
  * Light status and navigation bar icons while a dark game screen is shown, whatever the system theme; the previous
- * appearance comes back when the screen leaves.
+ * appearance comes back when the screen leaves. Applied again after each configuration change (the game's
+ * orientation, the font size), after which the window may set its bars back to the theme's.
  */
 @Composable
 fun DarkSystemBars() {
     val view = LocalView.current
-    DisposableEffect(view) {
-        val controller = (view.context as? Activity)?.window?.insetsController
-        val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-        val previous = controller?.systemBarsAppearance ?: 0
-        controller?.setSystemBarsAppearance(0, mask)
-        onDispose { controller?.setSystemBarsAppearance(previous and mask, mask) }
+    val configuration = LocalConfiguration.current
+    val controller = remember(view) { (view.context as? Activity)?.window?.insetsController }
+    val previous = remember(controller) { controller?.systemBarsAppearance ?: 0 }
+    DisposableEffect(controller, configuration) {
+        controller?.setSystemBarsAppearance(0, DARK_BARS_MASK)
+        // Once more after the next layout, which a rotation may end by restoring the theme's bars.
+        val again = Runnable { controller?.setSystemBarsAppearance(0, DARK_BARS_MASK) }
+        view.post(again)
+        onDispose { view.removeCallbacks(again) }
+    }
+    DisposableEffect(controller) {
+        onDispose { controller?.setSystemBarsAppearance(previous and DARK_BARS_MASK, DARK_BARS_MASK) }
     }
 }
+
+private const val DARK_BARS_MASK = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS

@@ -1,9 +1,7 @@
 package io.ensomi.android.model
 
 import java.io.File
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
 /** Where the chart model stands on this device. Sizes are bytes. */
 sealed interface ModelState {
@@ -72,28 +70,4 @@ interface ChartModelStore {
     fun cancel()
 
     fun remove()
-}
-
-/**
- * For the prototype's scenarios: a fixed state. The app's store is [DownloadingChartModelStore].
- */
-class SampleChartModelStore(initial: ModelState) : ChartModelStore {
-    private val mutableState = MutableStateFlow(initial)
-    override val state: StateFlow<ModelState> = mutableState.asStateFlow()
-    override val directory: File? = null
-    override val notices: List<Notice> = ONNX_RUNTIME_NOTICES
-
-    override fun download() = Unit
-
-    override fun cancel() = Unit
-
-    override fun remove() = Unit
-
-    companion object {
-        /** The package at the pinned tag: 30 files, 120.4 MB by its manifest. */
-        const val PACKAGE_BYTES = ModelSource.PACKAGE_BYTES
-        const val PINNED_REVISION = ModelSource.PINNED_REVISION
-
-        val INSTALLED = ModelState.Installed("Ensomi R2 r2-1.0", PINNED_REVISION, PACKAGE_BYTES, "MIT")
-    }
 }

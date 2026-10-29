@@ -27,7 +27,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
 import java.io.File
@@ -65,17 +64,13 @@ fun NoticesScreen(notices: List<Notice>, onOpen: (Notice) -> Unit, onBack: () ->
     }
 }
 
-/** One notice's text, read off the main thread, in paragraphs. */
+/** One notice's text, read off the main thread, in paragraphs that wrap to the screen ([NoticeText]). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoticeTextScreen(notice: Notice, modelDirectory: File?, onBack: () -> Unit) {
     val context = LocalContext.current
     val paragraphs by produceState<List<String>?>(initialValue = null, notice, modelDirectory) {
-        value = withContext(Dispatchers.IO) { readNotice(context, notice, modelDirectory) }
-            ?.replace("\r\n", "\n")
-            ?.split(Regex("\n\\s*\n"))
-            ?.map { it.trim('\n') }
-            ?.filter { it.isNotBlank() }
+        value = withContext(Dispatchers.IO) { readNotice(context, notice, modelDirectory)?.let(NoticeText::paragraphs) }
             ?: emptyList()
     }
     NoticeScaffold(noticeTitle(notice), onBack) { padding ->
@@ -99,8 +94,7 @@ fun NoticeTextScreen(notice: Notice, modelDirectory: File?, onBack: () -> Unit) 
                 items(shown.orEmpty()) { paragraph ->
                     Text(
                         paragraph,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }

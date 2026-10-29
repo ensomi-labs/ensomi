@@ -5,14 +5,18 @@ import android.content.Context
 import android.graphics.Rect
 import android.os.Build
 import android.os.Looper
+import android.os.Trace
 import android.util.AttributeSet
 import android.util.Log
 import android.view.Choreographer
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import io.ensomi.android.R
+import java.io.File
+import java.util.Arrays
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicLong
@@ -98,6 +102,13 @@ class PlayfieldView @JvmOverloads constructor(
             field = value
             renderer.reduceMotion = value
         }
+
+    /** "Vibrate on lane touch": a `VIRTUAL_KEY` tick as a finger lands on a lane, as the player's touch feedback allows. */
+    var vibrateOnTouch = false
+
+    /** Debug builds: where every frame's times go, as CSV, when the playfield closes ([FrameLog]); null for none. */
+    var frameLogFile: File? = null
+    private val frameLog = FrameLog()
 
     private val mutableHud = MutableStateFlow(PlayHud())
     val hud: StateFlow<PlayHud> = mutableHud.asStateFlow()
@@ -191,7 +202,14 @@ class PlayfieldView @JvmOverloads constructor(
         // The session and the sound are let go off the main thread; no frame uses them any more.
         val closing = controller ?: return
         controller = null
-        Thread({ closing.close() }, "EnsomiPlayfieldClose").start()
+        val logFile = frameLogFile
+        Thread({
+            closing.close()
+            if (logFile != null) {
+                Log.i(TAG, "Frames: ${frameLog.summary()}")
+                runCatching { logFile.writeText(frameLog.csv()) }
+            }
+        }, "EnsomiPlayfieldClose").start()
     }
 
     /**
@@ -199,8 +217,18 @@ class PlayfieldView @JvmOverloads constructor(
      * system may refuse, for example in battery saver; the game draws for whatever rate it gets.
      */
     private fun requestHighestFrameRate(surface: Surface) {
-        val highest = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: return
+        val shown = display ?: return
+        val modes = shown.supportedModes.map { it.refreshRate }.distinct().sorted()
+        val highest = modes.maxOrNull() ?: return
         surface.setFrameRate(highest, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT, Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS)
+        Log.i(
+            TAG,
+            String.format(
+                Locale.ROOT,
+                "Frame rate: asked for %.1f Hz (modes %s, only if seamless); the display runs at %.1f Hz",
+                highest, modes.joinToString { String.format(Locale.ROOT, "%.1f", it) }, shown.refreshRate,
+            ),
+        )
     }
 
     /**
@@ -220,6 +248,7 @@ class PlayfieldView @JvmOverloads constructor(
                 val lane = g.laneAt(event.getX(index))
                 if (tracker.down(event.getPointerId(index), lane)) {
                     target.enqueue(LaneInput(lane, press = true, nanos, sequence.incrementAndGet()))
+                    if (vibrateOnTouch) performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
@@ -274,11 +303,13 @@ class PlayfieldView @JvmOverloads constructor(
             scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
             val choreographer = Choreographer.getInstance()
-            val stats = FrameStats(refreshRateHz = display?.refreshRate ?: 60f)
+            val stats = FrameStats { display?.refreshRate ?: 60f }
+            val log = frameLog.takeIf { frameLogFile != null }
             val callback = object : Choreographer.VsyncCallback {
                 override fun onVsync(data: Choreographer.FrameData) {
                     if (!running) return
-                    drawFrame(playController, data.preferredFrameTimeline.expectedPresentationTimeNanos, data.frameTimeNanos, stats)
+                    val timeline = data.preferredFrameTimeline
+                    drawFrame(playController, timeline.expectedPresentationTimeNanos, timeline.deadlineNanos, data.frameTimeNanos, stats, log)
                     choreographer.postVsyncCallback(this)
                 }
             }
@@ -286,23 +317,51 @@ class PlayfieldView @JvmOverloads constructor(
             Looper.loop()
         }
 
-        private fun drawFrame(playController: PlayController, presentNanos: Long, vsyncNanos: Long, stats: FrameStats) {
+        /**
+         * One frame for [presentNanos], due at [deadlineNanos]. Its parts are trace sections (`EnsomiFrame`, with
+         * `EnsomiRuntime` and `EnsomiDraw` inside), so a Perfetto trace shows them beside the frame timeline.
+         */
+        private fun drawFrame(
+            playController: PlayController,
+            presentNanos: Long,
+            deadlineNanos: Long,
+            vsyncNanos: Long,
+            stats: FrameStats,
+            log: FrameLog?,
+        ) {
             val g = geometry ?: return
-            val start = System.nanoTime()
-            val frame = playController.frame(start, presentNanos)
-            val runtimeDone = System.nanoTime()
-            val canvas = try {
-                surfaceHolder.lockHardwareCanvas()
-            } catch (failure: IllegalStateException) {
-                Log.w(TAG, "Playfield surface not ready", failure)
-                null
-            } ?: return
+            Trace.beginSection("EnsomiFrame")
             try {
-                renderer.draw(canvas, frame, g)
+                val start = System.nanoTime()
+                Trace.beginSection("EnsomiRuntime")
+                val frame = try {
+                    playController.frame(start, presentNanos)
+                } finally {
+                    Trace.endSection()
+                }
+                val runtimeDone = System.nanoTime()
+                Trace.beginSection("EnsomiDraw")
+                try {
+                    val canvas = try {
+                        surfaceHolder.lockHardwareCanvas()
+                    } catch (failure: IllegalStateException) {
+                        Log.w(TAG, "Playfield surface not ready", failure)
+                        null
+                    } ?: return
+                    try {
+                        renderer.draw(canvas, frame, g)
+                    } finally {
+                        surfaceHolder.unlockCanvasAndPost(canvas)
+                    }
+                } finally {
+                    Trace.endSection()
+                }
+                val done = System.nanoTime()
+                stats.record(vsyncNanos, runtimeDone - start, done - runtimeDone, late = done > deadlineNanos)
+                log?.record(vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone)
             } finally {
-                surfaceHolder.unlockCanvasAndPost(canvas)
+                Trace.endSection()
             }
-            stats.record(vsyncNanos, runtimeDone - start, System.nanoTime() - runtimeDone)
         }
 
         fun quitAndJoin() {
@@ -322,26 +381,31 @@ class PlayfieldView @JvmOverloads constructor(
 }
 
 /**
- * The render thread's own account of pacing, logged under `EnsomiPlayfield` every two seconds: frames drawn, vsyncs
- * that came more than 1.5 refresh intervals after the previous one (frames the thread missed), and the time each
- * frame spent in the runtime (inputs, advance, reads) and in drawing (lock, draw, post). The start of plan step 9's
- * frame logs.
+ * The render thread's own account of pacing, logged under `EnsomiPlayfield` every two seconds: frames drawn, the
+ * display's refresh rate, vsyncs that came more than 1.5 refresh intervals after the previous one (frames the thread
+ * missed), frames finished after their deadline, the time each frame spent in the runtime (inputs, advance, reads) and
+ * in drawing (lock, draw, post) on average and at most, and the whole frame's work at the median and the 99th
+ * percentile (gameplay.md's target is 3 ms at p99). It allocates nothing per frame.
  */
-private class FrameStats(refreshRateHz: Float) {
-    private val intervalNanos = (1e9 / refreshRateHz).toLong()
+private class FrameStats(private val refreshRateHz: () -> Float) {
+    private var intervalNanos = (1e9 / refreshRateHz()).toLong()
     private var windowStartNanos = 0L
     private var frames = 0
     private var missed = 0
+    private var late = 0
     private var lastVsyncNanos = 0L
     private var runtimeSumNanos = 0L
     private var runtimeMaxNanos = 0L
     private var drawSumNanos = 0L
     private var drawMaxNanos = 0L
+    private val work = LongArray(MAX_FRAMES)
 
-    fun record(vsyncNanos: Long, runtimeNanos: Long, drawNanos: Long) {
+    fun record(vsyncNanos: Long, runtimeNanos: Long, drawNanos: Long, late: Boolean) {
         if (windowStartNanos == 0L) windowStartNanos = vsyncNanos
         if (lastVsyncNanos != 0L && vsyncNanos - lastVsyncNanos > intervalNanos * 3 / 2) missed++
         lastVsyncNanos = vsyncNanos
+        if (late) this.late++
+        if (frames < MAX_FRAMES) work[frames] = runtimeNanos + drawNanos
         frames++
         runtimeSumNanos += runtimeNanos
         runtimeMaxNanos = maxOf(runtimeMaxNanos, runtimeNanos)
@@ -349,18 +413,25 @@ private class FrameStats(refreshRateHz: Float) {
         drawMaxNanos = maxOf(drawMaxNanos, drawNanos)
         val elapsed = vsyncNanos - windowStartNanos
         if (elapsed >= WINDOW_NANOS) {
+            val counted = minOf(frames, MAX_FRAMES)
+            Arrays.sort(work, 0, counted)
+            val refresh = refreshRateHz()
             Log.i(
                 "EnsomiPlayfield",
                 String.format(
                     Locale.ROOT,
-                    "fps=%.1f frames=%d refresh=%.1fHz missed=%d runtime_avg=%.2fms runtime_max=%.2fms draw_avg=%.2fms draw_max=%.2fms",
-                    frames * 1e9 / elapsed, frames, 1e9 / intervalNanos, missed,
+                    "fps=%.1f frames=%d refresh=%.1fHz missed=%d late=%d runtime_avg=%.2fms runtime_max=%.2fms " +
+                        "draw_avg=%.2fms draw_max=%.2fms work_p50=%.2fms work_p99=%.2fms",
+                    frames * 1e9 / elapsed, frames, refresh, missed, this.late,
                     runtimeSumNanos / 1e6 / frames, runtimeMaxNanos / 1e6, drawSumNanos / 1e6 / frames, drawMaxNanos / 1e6,
+                    work[(counted - 1) / 2] / 1e6, work[((counted - 1) * 99) / 100] / 1e6,
                 ),
             )
+            intervalNanos = (1e9 / refresh).toLong()
             windowStartNanos = vsyncNanos
             frames = 0
             missed = 0
+            this.late = 0
             runtimeSumNanos = 0
             runtimeMaxNanos = 0
             drawSumNanos = 0
@@ -370,6 +441,51 @@ private class FrameStats(refreshRateHz: Float) {
 
     private companion object {
         const val WINDOW_NANOS = 2_000_000_000L
+
+        /** Two seconds at 240 Hz, with room. */
+        const val MAX_FRAMES = 1_024
+    }
+}
+
+/**
+ * Debug builds: every frame of a playfield, kept across surfaces, and written as CSV when it closes
+ * (`vsyncNanos,presentNanos,runtimeNanos,drawNanos`; README). [summary] goes to the log then.
+ */
+class FrameLog {
+    private var data = LongArray(4 * 8_192)
+    private var size = 0
+
+    @Synchronized
+    fun record(vsyncNanos: Long, presentNanos: Long, runtimeNanos: Long, drawNanos: Long) {
+        if (size + 4 > data.size) data = data.copyOf(data.size * 2)
+        data[size] = vsyncNanos
+        data[size + 1] = presentNanos
+        data[size + 2] = runtimeNanos
+        data[size + 3] = drawNanos
+        size += 4
+    }
+
+    /** Frames, and the whole frame's work at the median, the 99th percentile and the most. */
+    @Synchronized
+    fun summary(): String {
+        val frames = size / 4
+        if (frames == 0) return "frames=0"
+        val work = LongArray(frames) { data[it * 4 + 2] + data[it * 4 + 3] }.also { it.sort() }
+        return String.format(
+            Locale.ROOT,
+            "frames=%d work_p50=%.2fms work_p99=%.2fms work_max=%.2fms",
+            frames, work[(frames - 1) / 2] / 1e6, work[((frames - 1) * 99) / 100] / 1e6, work[frames - 1] / 1e6,
+        )
+    }
+
+    @Synchronized
+    fun csv(): String = buildString {
+        append("vsyncNanos,presentNanos,runtimeNanos,drawNanos\n")
+        var i = 0
+        while (i < size) {
+            append(data[i]).append(',').append(data[i + 1]).append(',').append(data[i + 2]).append(',').append(data[i + 3]).append('\n')
+            i += 4
+        }
     }
 }
 

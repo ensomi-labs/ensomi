@@ -4,10 +4,7 @@ import android.media.AudioDeviceInfo
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.tan
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
 /** The judge difficulties A to E: the runtime's `Judge`. */
 enum class JudgeDifficulty { A, B, C, D, E }
@@ -122,26 +119,4 @@ interface PlayOutputs {
 
     /** A game's track plays on [device] now: it is the output from then on. */
     fun playingOn(device: AudioDeviceInfo?)
-}
-
-/** For the prototype's scenarios: kept in memory only. The app's store is [DataStorePlaySettingsStore]. */
-class InMemoryPlaySettingsStore(initial: PlaySettings, route: OutputRoute) : PlaySettingsStore {
-    private val state = MutableStateFlow(initial)
-    override val settings: StateFlow<PlaySettings> = state.asStateFlow()
-    override val route: StateFlow<OutputRoute> = MutableStateFlow(route).asStateFlow()
-
-    override fun update(change: (PlaySettings) -> PlaySettings) = state.update(change)
-
-    override fun forRoute(route: OutputRoute): PlaySettings = state.value
-
-    companion object {
-        val SPEAKER = OutputRoute(key = "builtin-speaker", name = "Phone speaker")
-    }
-}
-
-/** For the prototype's scenarios: every game plays on [route]. */
-class FixedPlayOutputs(private val route: OutputRoute) : PlayOutputs {
-    override fun routeOf(device: AudioDeviceInfo?): OutputRoute = route
-
-    override fun playingOn(device: AudioDeviceInfo?) = Unit
 }

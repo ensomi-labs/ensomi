@@ -56,7 +56,6 @@
     <string name="action_back">Back</string>
     <string name="action_expand">Expand</string>
     <string name="action_collapse">Collapse</string>
-    <string name="not_wired">Not built yet: %1$s.</string>
 
     <!-- Library -->
     <string name="library_add_songs">Add songs</string>
@@ -182,6 +181,11 @@
     <string name="play_restart">Restart</string>
     <string name="play_quit">Quit</string>
     <string name="play_get_ready">Get ready</string>
+    <string name="play_talkback_title">TalkBack is on</string>
+    <string name="play_talkback_body">With TalkBack on, touching a lane reads it out instead of playing it: the lanes need direct touch. Turn TalkBack off to play, or start anyway.</string>
+    <string name="play_talkback_start">Start anyway</string>
+    <string name="play_window_small_title">This window is too small to play in</string>
+    <string name="play_window_small_body">Make it larger, or play full screen. The game is paused.</string>
     <string name="play_preview_title">Playfield preview</string>
     <string name="play_sample_detail">Sample chart · no sound</string>
     <string name="play_detail">%1$s stars · Judge %2$s</string>
@@ -285,4 +289,12 @@
     <string name="calibration_apply">Use %1$s</string>
     <string name="calibration_picture_help">The clicks go on, and a note falls onto the line with each one. Move the slider until the notes cross the line on the click. No tapping.</string>
     <string name="calibration_done">Done</string>
+    <string name="calibration_no_suggestion">—</string>
+    <string name="calibration_apply_none">Use the suggestion</string>
+    <string name="calibration_paused">Paused. Tap to go on.</string>
+    <string name="calibration_pad_description">Tap pad. %1$s</string>
+    <string name="calibration_strip_empty">No taps yet</string>
+    <string name="calibration_strip_on">The middle of your last taps is on the click</string>
+    <string name="calibration_strip_late">The middle of your last taps is %1$d ms late</string>
+    <string name="calibration_strip_early">The middle of your last taps is %1$d ms early</string>
 </resources>
