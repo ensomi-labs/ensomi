@@ -58,8 +58,12 @@ are kept for it), and an extended floating action button, **Add songs**. Tapping
 - **First run.** Until the model is installed, a card at the top of the list carries it (below). Under it, an empty
   state card says how songs get in and has its own Add songs button. The first screen therefore reads as two steps,
   get the model and add songs, and both can happen at once.
-- **A song whose file has gone** (moved, deleted, its permission revoked) stays in the list with "File not found",
-  and offers Find again (pick it anew) and Remove. Removing a song forgets it; the file stays where it is.
+- **A song whose file has gone** (moved, deleted, its permission revoked) stays in the list with "File not found"
+  and its file name, and offers Find again (pick it anew; the song and its charts stay) and Remove. Removing a song
+  forgets it and gives its permission back; the file stays where it is. The library looks again at each start and
+  each return to the app, by asking the provider for the document's name (a cloud file is not fetched), and a song
+  whose file fails to open is marked the same way.
+- The songs are listed by title as the phone's language sorts it; a song without a title tag shows its file name.
 
 ### Getting the chart model
 
@@ -76,14 +80,16 @@ the tag. It never reads `main`.
 | Downloading | Progress bar, percent, megabytes of total; "You can add songs while it downloads." | Cancel |
 | Stopped | "The download stopped at 50.6 of 120.4 MB." and the reason; "Resume continues from the files already here." | Resume download |
 | Installed (Settings only) | "Ensomi R2 r2-1.0", package tag and size | Download again; Remove |
-| Update pending (Settings only) | The installed tag, the pinned one, and that the installed model stays in use until the update arrives | Download again |
+| Updating (Settings only) | The installed model, and progress to the pinned tag, which it stays in use until | Cancel |
+| Update pending (Settings only) | The installed tag, the pinned one, and that the installed model stays in use until the update arrives; why the last try stopped | Download again, or Resume download when files are kept; Remove |
 
 - Free space comes from `StorageManager.getAllocatableBytes`, which counts what the system can free from caches, and
-  the download reserves it with `allocateBytes`
+  the download reserves what it still has to fetch with `allocateBytes`, which frees the system's caches if it must
   ([StorageManager](https://developer.android.com/reference/android/os/storage/StorageManager)).
 - Files live in app-specific storage under `noBackupFilesDir`, as the runtime's own resampler tables do, so they are
   never backed up (the app's data extraction rules already exclude everything). A stopped download keeps its files
-  and resumes with HTTP Range requests; there is no automatic retry.
+  and resumes with HTTP Range requests; there is no automatic retry. While the app looks at what is installed, at
+  each start, the library shows no model card.
 - In this round the download runs in the app's process while the app is open. Whether it should go on in the
   background, under a notification, is an open question for the owner.
 - Settings also shows the model's licence (from its manifest), a link to the model card, and the notice texts of
@@ -96,7 +102,9 @@ a persistable read permission on each pick
 ([Access documents](https://developer.android.com/training/data-storage/shared/documents-files)), so it needs no
 storage or media permission and sees only what the player chose, from local storage, Downloads or a cloud provider. The
 photo picker has no audio mode (stack report §2.6). The library keeps each song's URI, file name, length and, when the
-file has them, its title and artist tags; it copies nothing. Cancelling the picker is not an error and says nothing.
+file has them, its title and artist tags, in `library.json` in the app's files; it copies nothing. Cancelling the
+picker is not an error and says nothing; a file that cannot be read as audio is named in a snackbar, and a song
+already in the library is not added twice.
 
 Browsing the whole music collection instead (MediaStore with `READ_MEDIA_AUDIO`,
 [Android 13 granular media permissions](https://developer.android.com/about/versions/13/behavior-changes-13#granular-media-permissions))
@@ -356,21 +364,24 @@ Not carried over in this round: Listen & Play, recognition, the Chart Inspector,
 
 ## The prototype in the app
 
-The app now opens on the Library and every screen above is in it, in Compose, reading sample data through the same
-small interfaces the real implementation will fill: `SongLibrary`, `ChartModelStore`, `ChartMaker`,
-`PlaySettingsStore`. Each sample class says in its comment that it is not wired and which plan step builds it, and
-every action that is not built yet shows a snackbar saying so ("Not built yet: Downloading the model (plan step 4).").
+The app opens on the Library and every screen above is in it, in Compose, reading its data through small
+interfaces: `SongLibrary`, `ChartModelStore`, `ChartMaker`, `PlaySettingsStore`. A normal launch uses the app's own
+stores (`AppStores`) where they are built, and samples where they are not; each sample class says so in its comment,
+and every action that is not built yet shows a snackbar saying so ("Not built yet: Making charts (plan step 5).").
 
-- **Real now**: navigation, the screens and their states, the section and seed checks, settings held in memory, and
-  the playfield: the `SurfaceView` render thread paced by `postVsyncCallback`, the runtime's `GameplaySession` judging,
-  its `GameplayFeedback` easing lights and the judgement word, `noteGeometry` placing notes, touches mapped to lanes
-  with their event times. Touches on the emulator are judged.
-- **Sample**: the songs, the model's state, the generation's state and its capabilities' notes, the calibration's
-  taps, and the chart played: a fixed 27-second chart on a clock without sound, pressed by an autoplay with fixed early
-  and late offsets so every judgement shows. Play from a song plays this sample chart and says "Sample chart · no
-  sound"; its results are the runtime's real score of that game.
+- **Real now**: navigation, the screens and their states, the section and seed checks; the settings, kept with
+  DataStore, the audio offset per output, written by Settings, calibration's Use and Results' Use; the song library
+  from the document picker, with File not found, Find again and Remove; decoding to PCM (plan step 3, not yet called by
+  a screen); the model download, its states, the licence, the model card and the notices; and the playfield: the
+  `SurfaceView` render thread paced by `postVsyncCallback`, the runtime's `GameplaySession` judging, its
+  `GameplayFeedback` easing lights and the judgement word, `noteGeometry` placing notes, touches mapped to lanes with
+  their event times. Touches on the emulator are judged.
+- **Sample**: the generation's state and its capabilities' notes, the calibration's taps, and the chart played: a
+  fixed 27-second chart on a clock without sound, pressed by an autoplay with fixed early and late offsets so every
+  judgement shows. Play from a song plays this sample chart and says "Sample chart · no sound"; its results are the
+  runtime's real score of that game.
 - **Lean and orientation**: the play settings, the landscape layout, the leaning lanes, the game held in its
-  orientation through the results, and the live preview in Settings are real; the settings are held in memory.
+  orientation through the results, and the live preview in Settings are real and kept.
 - **For screenshots only**: a debuggable build opens in any sample state from a launch extra
-  (`adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made`);
+  (`adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made`), on sample stores;
   `scripts/capture-prototype.sh` drives them all.

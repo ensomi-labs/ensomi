@@ -43,6 +43,9 @@ interface SongLibrary {
 
     /** Looks again whether each song's file is still there. */
     fun refresh()
+
+    /** Shows the song [id] as missing: its file failed to open (`DecodeException.missing`). */
+    fun markMissing(id: String)
 }
 
 /**
@@ -60,6 +63,8 @@ class SampleSongLibrary(initial: List<Song>) : SongLibrary {
     override fun remove(id: String) = Unit
 
     override fun refresh() = Unit
+
+    override fun markMissing(id: String) = Unit
 
     companion object {
         /** Made-up songs; the prototype has no audio. */

@@ -148,6 +148,18 @@ file's own rate. A writer thread feeds an `AudioTrack` (`ENCODING_PCM_FLOAT`, `M
 as silence (two seconds, so the first note never comes before the hands are on the glass), then the song. Music volume
 is the track's gain (`AudioTrack.setVolume`), which does not change frame positions.
 
+**Song time.** Charts are made and played on the song's time: the clock of ensomi-model's release engine, which puts
+every song on osu!'s (BASS's), the one R2 was fitted to, as in the Swift app. BASS trims an MP3's encoder delay and the
+529-frame Layer III decoder delay only when a LAME extension gives a non-zero encoder delay, and trims nothing
+otherwise. The app decodes MP3 and AAC without the platform's gapless trimming (it takes the extractor's encoder delay
+and padding out of the format) and with Android's own decoders rather than a vendor's, so the start of the PCM is the
+same on every phone: `c2.android.mp3.decoder` trims its 529 frames, and the extractor skips a Xing, Info or VBRI frame.
+`Mp3Lead` then finds the release engine's header class and puts the PCM on the song's time: 529 frames of silence first
+for a file without a header, with a Xing or Info header but no LAME extension, or with a LAME delay of 0; the LAME
+encoder delay taken off when it is not 0; a VBRI header left as decoded; the priming of an iTunes gapless comment taken
+off, as AVFoundation does. AAC's priming (the container's encoder delay) is taken off too, as AVFoundation does; other
+formats are as their decoders give them. The end of a file is left as decoded.
+
 **Reading it.** `AudioTrack.getTimestamp` gives a frame position and "the estimated time when that frame was presented
 or is committed to be presented" ([AudioTrack](https://developer.android.com/reference/android/media/AudioTrack#getTimestamp(android.media.AudioTimestamp))).
 The clock keeps the newest valid pair and carries it to any asked time at rate 1:
@@ -257,7 +269,9 @@ The session applies offsets once, as in the Swift app: the audio offset moves ju
 the visual offset moves only the drawn notes; scroll speed changes only how far ahead notes are drawn.
 
 - **Audio offset** belongs to the output: the `AudioTrack`'s routed `AudioDeviceInfo`, keyed by its type and product
-  name (speaker, wired, a given pair of Bluetooth headphones). A device without one uses the default.
+  name (speaker, wired, a given pair of Bluetooth headphones), as `bluetooth-a2dp/WH-1000XM4`. A device without one
+  uses the default. Outside a game (Settings, calibration, results) the output is the media route Android picks by
+  default among the connected devices: Bluetooth or a hearing aid, then wired or USB, then HDMI, then the speaker.
 - **Visual offset** belongs to the display and is one value.
 - **No separate input offset.** The time from a finger landing to its event timestamp shifts every tap the same way an
   unreported output latency does; judgement cannot tell them apart, so both live in the audio offset. Because the

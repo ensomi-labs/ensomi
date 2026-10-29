@@ -124,6 +124,7 @@ object SongDecoder {
         var toSkip = maxOf(0, startTrim).toLong()
         val info = MediaCodec.BufferInfo()
         var inputDone = false
+        var idleAfterInput = 0
         codec.start()
         while (true) {
             if (isCancelled()) throw CancellationException("Decoding stopped.")
@@ -142,6 +143,10 @@ object SongDecoder {
                 }
             }
             val index = codec.dequeueOutputBuffer(info, TIMEOUT_US)
+            if (inputDone && index == MediaCodec.INFO_TRY_AGAIN_LATER && ++idleAfterInput > MAX_IDLE_AFTER_INPUT) {
+                // A decoder that never signals the end: what it gave is the song.
+                break
+            }
             when {
                 index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     val format = codec.outputFormat
@@ -230,6 +235,9 @@ object SongDecoder {
     private fun MediaFormat.longOr(key: String, default: Long) = if (containsKey(key)) getLong(key) else default
 
     private const val TIMEOUT_US = 10_000L
+
+    /** Five seconds of empty polls after the last input. */
+    private const val MAX_IDLE_AFTER_INPUT = 500
 }
 
 /**

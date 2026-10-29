@@ -10,6 +10,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.AtomicFile
 import android.util.Log
+import androidx.core.net.toUri
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -70,7 +71,7 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
             val known = stored.map { it.uri }.toSet()
             val fresh = read.filter { it.uri !in known }
             alreadyThere += read.size - fresh.size
-            fresh.forEach { keepPermission(Uri.parse(it.uri)) }
+            fresh.forEach { keepPermission(it.uri.toUri()) }
             added = fresh.size
             stored = stored + fresh
             save()
@@ -85,7 +86,7 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
             val old = stored.firstOrNull { it.id == id } ?: return@withContext false
             keepPermission(document)
             if (old.uri != found.uri && stored.none { it.id != id && it.uri == old.uri }) {
-                givePermissionBack(Uri.parse(old.uri))
+                givePermissionBack(old.uri.toUri())
             }
             stored = stored.map { if (it.id == id) found.copy(addedAtMs = old.addedAtMs) else it }
             missing = missing - id
@@ -101,7 +102,7 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
                 val song = stored.firstOrNull { it.id == id } ?: return@withLock
                 stored = stored - song
                 missing = missing - id
-                if (stored.none { it.uri == song.uri }) givePermissionBack(Uri.parse(song.uri))
+                if (stored.none { it.uri == song.uri }) givePermissionBack(song.uri.toUri())
                 save()
                 publish()
             }
@@ -111,7 +112,7 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
     override fun refresh() {
         scope.launch {
             val songs = mutex.withLock { stored }
-            val gone = songs.filterNot { isThere(Uri.parse(it.uri)) }.map { it.id }.toSet()
+            val gone = songs.filterNot { isThere(it.uri.toUri()) }.map { it.id }.toSet()
             mutex.withLock {
                 missing = gone
                 publish()
@@ -119,8 +120,7 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
         }
     }
 
-    /** Marks a song missing when its file failed to open, as decoding finds out. */
-    fun markMissing(id: String) {
+    override fun markMissing(id: String) {
         scope.launch {
             mutex.withLock {
                 missing = missing + id
@@ -241,7 +241,7 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
         artist = artist,
         durationMs = durationMs,
         fileName = fileName,
-        uri = Uri.parse(uri),
+        uri = uri.toUri(),
         missing = missing,
     )
 

@@ -56,7 +56,7 @@ class ModelInstallerTest {
 
         assertTrue(model.complete)
         assertEquals("r2-1.0.1", model.record?.revision)
-        assertEquals(ModelInstaller.sha256(published.getValue(ModelInstaller.MANIFEST)), model.record?.manifestSha256)
+        assertEquals(ModelInstaller.sha256(published.getValue("onnx/${ModelInstaller.MANIFEST}")), model.record?.manifestSha256)
         FILES.forEach { (path, bytes) -> assertArrayEquals(bytes, File(installer.installDirectory, path).readBytes()) }
         assertTrue(File(installer.installDirectory, ModelInstaller.RECORD).isFile)
         assertFalse(installer.stagingDirectory.exists())

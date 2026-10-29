@@ -5,10 +5,13 @@ written in Kotlin with Jetpack Compose. Chart generation and gameplay come from 
 [ensomi-runtime](https://github.com/ensomi-labs/runtime), through its Kotlin bindings. The app shares no
 code or history with the Swift app, which is the reference for what it does.
 
-The app is in development and is not distributed. It holds a prototype of drop-in play: the library, making a
-chart, play, results, settings and timing calibration, on sample data. The playfield is real (a `SurfaceView`
-render thread with the runtime judging) and plays a sample chart without sound, in landscape with the lanes leaning
-back by default; the orientation and the lean are settings with a live preview. Diagnostics, under Settings,
+The app is in development and is not distributed. It is being built from a prototype of drop-in play (the library,
+making a chart, play, results, settings and timing calibration) one store at a time. Real now: the settings, kept with
+Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding songs
+to PCM; and the chart model, downloaded from Hugging Face at a pinned tag and checked file by file. Charts and play are
+still samples. The playfield is real (a `SurfaceView` render thread with the runtime judging) and plays a sample chart
+without sound, in landscape with the lanes leaning back by default; the orientation and the lean are settings with a
+live preview. Diagnostics, under Settings,
 shows what the device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the
 runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
@@ -56,8 +59,8 @@ adb wait-for-device
 
 ## Prototype screens
 
-A debuggable build opens in any sample state of the prototype from a launch extra, for screenshots. The states are
-listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
+A normal launch uses the app's own stores. A debuggable build opens instead in any sample state of the prototype from
+a launch extra, for screenshots; the states are listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
 
 ```sh
 adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made
@@ -66,6 +69,19 @@ adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, and records the playfield preview, on
 the one booted emulator or device.
+
+`scripts/make-click-tracks.sh OUT_DIR` writes click tracks (a click every 500 ms from 1 s) in each container and MP3
+header class, from one PCM, with ffmpeg. With songs in the library, a debuggable build decodes each of them and logs one
+JSON line per song (length, the MP3 lead, the first click's time) under the tag `EnsomiDecodeCheck`:
+
+```sh
+adb shell am start -n io.ensomi.android/.MainActivity --ez decode-check true
+adb logcat -d -s EnsomiDecodeCheck:I -v raw
+```
+
+The model download logs each request and its answer under `EnsomiModel`. Its files are in the app's
+`no_backup/models/ensomi-r2` (`adb shell run-as io.ensomi.android ls no_backup/models/ensomi-r2`), the settings in
+`files/settings.json` and the library in `files/library.json`.
 
 ## Diagnostics output
 
@@ -82,10 +98,10 @@ JSON that fits in one logcat line is printed as is. Longer JSON is split into li
 ## Project layout
 
 - `app/src/main/kotlin/io/ensomi/android/`: the app. `Destinations.kt` and `EnsomiApp.kt` hold the
-  navigation; each feature has its own package: `library/`, `model/`, `chart/`, `play/`, `settings/`,
-  `diagnostics/`.
+  navigation, `AppStores.kt` the app's stores; each feature has its own package: `library/`, `model/`, `chart/`,
+  `play/`, `settings/`, `audio/`, `diagnostics/`.
 - `docs/`: the design, the gameplay design and the build plan.
-- `scripts/`: the screenshot capture script.
+- `scripts/`: the screenshot capture script and the click-track generator.
 - `app/src/test/kotlin/`: unit tests that run on the JVM.
 - `gradle/libs.versions.toml`: every pinned version.
 

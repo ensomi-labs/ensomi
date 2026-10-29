@@ -90,8 +90,8 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
     override fun cancel() {
         val current = synchronized(lock) { running } ?: return
         if (!current.cancelled.compareAndSet(false, true)) return
-        // The state says it at once; the download notices between chunks.
-        mutableState.value = stoppedState(failure = null)
+        // The state says so before the download notices, between chunks; what is staged is read off the main thread.
+        scope.launch { mutableState.value = stoppedState(failure = null) }
     }
 
     override fun remove() {
