@@ -28,10 +28,11 @@ swipe_up_landscape() { adb shell input swipe 700 700 700 250 500; sleep 1.5; }
 
 # scenario:seconds to wait before the screenshot
 SCENARIOS=(
-  first-run:3 downloading:3 download-stopped:3 no-space:3 library:3
+  first-run:3 downloading:3 download-stopped:3 no-space:3 library:3 library-missing:3
   make-chart:3 make-chart-sections:3 make-chart-section-problem:3 make-chart-no-model:3
   make-chart-making:3 make-chart-made:3 make-chart-stopped:3 make-chart-failed:3
   results:3 settings:3 settings-playfield:4 settings-playfield-portrait:4 settings-downloading:3
+  settings-update-pending:3 notices:3 notice-text:4
   calibration-sound:3 calibration-picture:5 diagnostics:6
 )
 
@@ -90,7 +91,7 @@ for mode in light dark; do
         swipe_up_landscape; shot "$mode-$name-scrolled" ;;
       settings)
         swipe_up; shot "$mode-$name-2"; swipe_up; shot "$mode-$name-3"; swipe_up; shot "$mode-$name-4" ;;
-      settings-downloading)
+      settings-downloading|settings-update-pending)
         swipe_up; swipe_up; shot "$mode-$name-model" ;;
     esac
   done

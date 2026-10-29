@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,9 +22,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -52,6 +55,8 @@ fun LibraryScreen(
     model: ModelState,
     onAddSongs: () -> Unit,
     onOpenSong: (Song) -> Unit,
+    onFindAgain: (Song) -> Unit,
+    onRemoveSong: (Song) -> Unit,
     onOpenSettings: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -89,7 +94,7 @@ fun LibraryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (model !is ModelState.Installed) {
+                if (model !is ModelState.Installed && model !is ModelState.Checking) {
                     item(key = "model") {
                         ModelPanel(
                             state = model,
@@ -113,7 +118,13 @@ fun LibraryScreen(
                                 .semantics { heading() },
                         )
                     }
-                    items(songs, key = { it.id }) { song -> SongRow(song) { onOpenSong(song) } }
+                    items(songs, key = { it.id }) { song ->
+                        if (song.missing) {
+                            MissingSongRow(song, onFindAgain = { onFindAgain(song) }, onRemove = { onRemoveSong(song) })
+                        } else {
+                            SongRow(song) { onOpenSong(song) }
+                        }
+                    }
                 }
             }
         }
@@ -152,6 +163,50 @@ private fun SongRow(song: Song, onClick: () -> Unit) {
             }
         },
     )
+}
+
+/** A song whose file has gone: it says so and offers to pick the file anew or to forget the song. */
+@Composable
+private fun MissingSongRow(song: Song, onFindAgain: () -> Unit, onRemove: () -> Unit) {
+    Column {
+        ListItem(
+            headlineContent = { Text(song.title) },
+            supportingContent = {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(R.drawable.ic_warning),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        stringResource(R.string.library_file_not_found, song.fileName),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            leadingContent = {
+                Box(
+                    Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_music_note),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
+        )
+        Row(
+            Modifier.padding(start = 72.dp, end = 16.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedButton(onClick = onFindAgain) { Text(stringResource(R.string.library_find_again)) }
+            TextButton(onClick = onRemove) { Text(stringResource(R.string.library_remove)) }
+        }
+    }
 }
 
 @Composable

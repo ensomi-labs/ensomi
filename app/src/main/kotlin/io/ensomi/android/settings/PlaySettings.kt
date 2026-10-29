@@ -95,19 +95,23 @@ data class PlaySettings(
     }
 }
 
-/** The output the audio offset is kept for: the routed `AudioDeviceInfo`, keyed by its type and product name. */
+/**
+ * The output the audio offset is kept for: the routed `AudioDeviceInfo`, keyed by its type and product name
+ * ([OutputRoutes.key]), with the name the screens show for it.
+ */
 data class OutputRoute(val key: String, val name: String)
 
 interface PlaySettingsStore {
     val settings: StateFlow<PlaySettings>
 
-    /** The output play would use now. */
+    /** The output play would use now. [settings] carries its audio offset. */
     val route: StateFlow<OutputRoute>
 
+    /** Changes the settings; a change of the audio offset is kept for [route]. */
     fun update(change: (PlaySettings) -> PlaySettings)
 }
 
-/** Not wired: kept in memory only. The real store (plan step 1) persists with DataStore, offsets per output. */
+/** For the prototype's scenarios: kept in memory only. The app's store is [DataStorePlaySettingsStore]. */
 class InMemoryPlaySettingsStore(initial: PlaySettings, route: OutputRoute) : PlaySettingsStore {
     private val state = MutableStateFlow(initial)
     override val settings: StateFlow<PlaySettings> = state.asStateFlow()

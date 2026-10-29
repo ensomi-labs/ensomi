@@ -122,8 +122,8 @@ fun CalibrationScreen(
                         }
                     }
                     when (step) {
-                        CalibrationStep.SOUND -> SoundStep(settings, route, wide)
-                        CalibrationStep.PICTURE -> PictureStep(settings, wide, onChange)
+                        CalibrationStep.SOUND -> SoundStep(settings, route, wide, onChange)
+                        CalibrationStep.PICTURE -> PictureStep(settings, wide, onChange, onBack)
                     }
                 }
             }
@@ -132,11 +132,18 @@ fun CalibrationScreen(
 }
 
 @Composable
-private fun SoundStep(settings: PlaySettings, route: OutputRoute, wide: Boolean) {
+private fun SoundStep(
+    settings: PlaySettings,
+    route: OutputRoute,
+    wide: Boolean,
+    onChange: ((PlaySettings) -> PlaySettings) -> Unit,
+) {
     val notWired = LocalNotWired.current
     val taps = SAMPLE_TAP_ERRORS_MS
     val median = taps.sorted().let { (it[it.size / 2 - 1] + it[it.size / 2]) / 2.0 }
-    val suggestion = settings.audioOffsetMs - median.roundToInt()
+    // The taps were made at the offset the output had when they started, so using the suggestion does not move it.
+    val tappedAt = rememberSaveable(route.key) { settings.audioOffsetMs }
+    val suggestion = (tappedAt - median.roundToInt()).coerceIn(PlaySettings.OFFSETS)
     val info: @Composable () -> Unit = {
         Text(stringResource(R.string.calibration_sound_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
         Text(
@@ -184,8 +191,9 @@ private fun SoundStep(settings: PlaySettings, route: OutputRoute, wide: Boolean)
             }
             ActionButton(
                 stringResource(R.string.calibration_apply, PlaySettings.formatOffset(suggestion)),
-                onClick = { notWired("Applying the calibration (plan step 8)") },
+                onClick = { onChange { it.copy(audioOffsetMs = suggestion) } },
                 icon = R.drawable.ic_check_circle,
+                enabled = settings.audioOffsetMs != suggestion,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -231,8 +239,12 @@ private fun TapStrip(errorsMs: List<Int>) {
 }
 
 @Composable
-private fun PictureStep(settings: PlaySettings, wide: Boolean, onChange: ((PlaySettings) -> PlaySettings) -> Unit) {
-    val notWired = LocalNotWired.current
+private fun PictureStep(
+    settings: PlaySettings,
+    wide: Boolean,
+    onChange: ((PlaySettings) -> PlaySettings) -> Unit,
+    onDone: () -> Unit,
+) {
     val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     // The play renderer, drawing a note on every click; nothing is judged. Beside the controls when the window is
     // wider than tall, so the field keeps its height in landscape.
@@ -292,7 +304,8 @@ private fun PictureStep(settings: PlaySettings, wide: Boolean, onChange: ((PlayS
         )
         ActionButton(
             stringResource(R.string.calibration_done),
-            onClick = { notWired("Saving the visual offset (plan step 1)") },
+            // The slider keeps each value as it moves; Done leaves.
+            onClick = onDone,
             modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(bottom = 12.dp),
         )
     }

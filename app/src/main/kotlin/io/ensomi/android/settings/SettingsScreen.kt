@@ -34,6 +34,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -47,8 +48,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
 import io.ensomi.android.model.ModelPanel
+import io.ensomi.android.model.ModelSource
 import io.ensomi.android.model.ModelState
-import io.ensomi.android.ui.LocalNotWired
 import io.ensomi.android.ui.sliderColorsWithoutTicks
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -73,10 +74,11 @@ fun SettingsScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onRemoveModel: () -> Unit,
+    onNotices: () -> Unit,
     /** The item the list opens at: [PLAYFIELD_SETTINGS] opens it at the playfield section (prototype scenarios). */
     firstItem: Int = 0,
 ) {
-    val notWired = LocalNotWired.current
+    val uriHandler = LocalUriHandler.current
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = firstItem)
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -225,7 +227,7 @@ fun SettingsScreen(
                             supporting = stringResource(R.string.settings_model_card),
                             icon = R.drawable.ic_info,
                             external = true,
-                            onClick = { notWired("Opening the model card (plan step 4)") },
+                            onClick = { uriHandler.openUri(ModelSource.MODEL_CARD) },
                         )
                     }
                 }
@@ -234,7 +236,7 @@ fun SettingsScreen(
                         title = stringResource(R.string.settings_notices),
                         supporting = stringResource(R.string.settings_notices_help),
                         icon = R.drawable.ic_description,
-                        onClick = { notWired("The notice texts (plan step 4)") },
+                        onClick = onNotices,
                     )
                 }
                 item {

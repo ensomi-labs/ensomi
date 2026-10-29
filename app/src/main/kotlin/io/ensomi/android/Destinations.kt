@@ -31,3 +31,11 @@ data object Calibration : NavKey
 
 @Serializable
 data object Diagnostics : NavKey
+
+/** The licence notices of the chart model and of ONNX Runtime. */
+@Serializable
+data object Notices : NavKey
+
+/** One notice's text: a file of the installed model ([path] relative to it), or an asset of the runtime's AAR. */
+@Serializable
+data class NoticeText(val path: String, val asset: Boolean) : NavKey

@@ -1,5 +1,10 @@
 package io.ensomi.android.model
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.os.storage.StorageManager
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -26,7 +32,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
 import io.ensomi.android.ui.ActionButton
-import io.ensomi.android.ui.LocalNotWired
 import java.util.Locale
 
 /**
@@ -47,10 +52,11 @@ fun ModelPanel(
     val content: @Composable () -> Unit = {
         Column(Modifier.padding(if (inSettings) 0.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (state) {
+                ModelState.Checking -> Text(stringResource(R.string.model_checking), style = MaterialTheme.typography.bodyMedium)
                 is ModelState.Absent -> Absent(state, onDownload, inSettings)
                 is ModelState.Downloading -> Downloading(state, onCancel)
                 is ModelState.Stopped -> Stopped(state, onDownload)
-                is ModelState.Installed -> Installed(state, onDownload, onRemove)
+                is ModelState.Installed -> Installed(state, onDownload, onCancel, onRemove)
             }
         }
     }
@@ -66,7 +72,7 @@ fun ModelPanel(
 
 @Composable
 private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings: Boolean) {
-    val notWired = LocalNotWired.current
+    val context = LocalContext.current
     if (!inSettings) {
         Text(stringResource(R.string.model_get_title), style = MaterialTheme.typography.titleLarge)
     }
@@ -87,8 +93,8 @@ private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings:
         Text(stringResource(R.string.model_no_space_hint), style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDownload) { Text(stringResource(R.string.model_try_again)) }
-            // The system's screen for freeing space (StorageManager.ACTION_MANAGE_STORAGE), plan step 4.
-            TextButton(onClick = { notWired("Opening the storage screen (plan step 4)") }) {
+            // The system's screen for freeing space.
+            TextButton(onClick = { openStorageScreen(context) }) {
                 Text(stringResource(R.string.model_free_space))
             }
         }
@@ -97,20 +103,26 @@ private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings:
 
 @Composable
 private fun Downloading(state: ModelState.Downloading, onCancel: () -> Unit) {
-    val fraction = if (state.totalBytes > 0) state.doneBytes.toFloat() / state.totalBytes else 0f
     Text(
         stringResource(R.string.model_downloading),
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
     )
+    Progress(state.doneBytes, state.totalBytes, onCancel)
+    Text(stringResource(R.string.model_downloading_hint), style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun Progress(doneBytes: Long, totalBytes: Long, onCancel: () -> Unit) {
+    val fraction = if (totalBytes > 0) doneBytes.toFloat() / totalBytes else 0f
     LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             stringResource(
                 R.string.model_progress,
                 (fraction * 100).toInt(),
-                megabytes(state.doneBytes),
-                megabytes(state.totalBytes),
+                megabytes(doneBytes),
+                megabytes(totalBytes),
             ),
             style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -118,7 +130,6 @@ private fun Downloading(state: ModelState.Downloading, onCancel: () -> Unit) {
         )
         TextButton(onClick = onCancel) { Text(stringResource(R.string.model_cancel)) }
     }
-    Text(stringResource(R.string.model_downloading_hint), style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
@@ -130,21 +141,59 @@ private fun Stopped(state: ModelState.Stopped, onResume: () -> Unit) {
 }
 
 @Composable
-private fun Installed(state: ModelState.Installed, onDownloadAgain: () -> Unit, onRemove: () -> Unit) {
+private fun Installed(
+    state: ModelState.Installed,
+    onDownloadAgain: () -> Unit,
+    onCancel: () -> Unit,
+    onRemove: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Column {
             Text(state.name, style = MaterialTheme.typography.titleMedium)
             Text(
-                stringResource(R.string.model_installed_detail, state.revision, megabytes(state.sizeBytes)),
+                stringResource(
+                    R.string.model_installed_detail,
+                    state.revision ?: stringResource(R.string.model_revision_not_recorded),
+                    megabytes(state.sizeBytes),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = onDownloadAgain) { Text(stringResource(R.string.model_check_files)) }
-        TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }
+    when (val update = state.update) {
+        is ModelUpdate.Downloading -> {
+            Text(
+                stringResource(R.string.model_updating, ModelSource.PINNED_REVISION),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            Progress(update.doneBytes, update.totalBytes, onCancel)
+        }
+        is ModelUpdate.Pending -> {
+            Text(stringResource(R.string.model_update_pending, update.pinnedRevision), style = MaterialTheme.typography.bodyMedium)
+            if (update.failure != null) Problem(update.failure)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onDownloadAgain) {
+                    Text(stringResource(if (update.resumable) R.string.model_resume else R.string.model_check_files))
+                }
+                TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }
+            }
+        }
+        null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onDownloadAgain) { Text(stringResource(R.string.model_check_files)) }
+            TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }
+        }
+    }
+}
+
+/** The system's screen for freeing space, where the phone has one. */
+private fun openStorageScreen(context: Context) {
+    try {
+        context.startActivity(Intent(StorageManager.ACTION_MANAGE_STORAGE))
+    } catch (e: ActivityNotFoundException) {
+        context.startActivity(Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
     }
 }
 

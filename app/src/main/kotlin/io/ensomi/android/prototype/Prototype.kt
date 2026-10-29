@@ -6,7 +6,10 @@ import androidx.navigation3.runtime.NavKey
 import io.ensomi.android.Calibration
 import io.ensomi.android.Diagnostics
 import io.ensomi.android.Library
+import io.ensomi.android.AppStores
 import io.ensomi.android.MakeChart
+import io.ensomi.android.NoticeText
+import io.ensomi.android.Notices
 import io.ensomi.android.Play
 import io.ensomi.android.Results
 import io.ensomi.android.Settings
@@ -20,6 +23,8 @@ import io.ensomi.android.library.SampleSongLibrary
 import io.ensomi.android.library.SongLibrary
 import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.ModelUpdate
+import io.ensomi.android.model.ONNX_RUNTIME_NOTICES
 import io.ensomi.android.model.SampleChartModelStore
 import io.ensomi.android.play.SAMPLE_RESULT
 import io.ensomi.android.settings.PLAYFIELD_SETTINGS
@@ -29,7 +34,10 @@ import io.ensomi.android.settings.InMemoryPlaySettingsStore
 import io.ensomi.android.settings.PlaySettings
 import io.ensomi.android.settings.PlaySettingsStore
 
-/** What the screens read and act on. Every implementation is a sample of the prototype; see each class. */
+/**
+ * What the screens read and act on: the app's stores ([AppStores]) on a normal launch, samples in a prototype
+ * scenario. The chart maker is a sample in both until plan step 5.
+ */
 class AppGraph(
     val songs: SongLibrary,
     val model: ChartModelStore,
@@ -56,9 +64,31 @@ data class Scenario(
     val settings: PlaySettings = PlaySettings(),
     /** Opens Settings scrolled to this item: [PLAYFIELD_SETTINGS] for the playfield section. */
     val settingsItem: Int = 0,
+    /** One of the sample songs has lost its file. */
+    val missingSong: Boolean = false,
+    /** The app's own stores instead of samples: a normal launch. */
+    val real: Boolean = false,
 ) {
-    fun graph(): AppGraph = AppGraph(
-        songs = SampleSongLibrary(if (withSongs) SampleSongLibrary.SONGS else emptyList()),
+    fun graph(stores: () -> AppStores): AppGraph = if (real) {
+        val app = stores()
+        AppGraph(
+            songs = app.songs,
+            model = app.model,
+            charts = SampleChartMaker(make, SampleChartMaker.CAPABILITIES),
+            settings = app.settings,
+        )
+    } else {
+        sampleGraph()
+    }
+
+    private fun sampleGraph(): AppGraph = AppGraph(
+        songs = SampleSongLibrary(
+            when {
+                !withSongs -> emptyList()
+                missingSong -> SampleSongLibrary.WITH_MISSING
+                else -> SampleSongLibrary.SONGS
+            },
+        ),
         model = SampleChartModelStore(model),
         charts = SampleChartMaker(make, SampleChartMaker.CAPABILITIES.takeIf { model is ModelState.Installed }),
         settings = InMemoryPlaySettingsStore(settings, InMemoryPlaySettingsStore.SPEAKER),
@@ -70,7 +100,8 @@ data class Scenario(
         private val PACKAGE = SampleChartModelStore.PACKAGE_BYTES
         private val ONE_SECTION = listOf(SectionDraft(id = 1, start = "00:32", end = "00:48", kind = SectionKind.JUMPSTREAM))
 
-        val DEFAULT = Scenario(backStack = listOf(Library))
+        /** A normal launch: the app's own stores. */
+        val DEFAULT = Scenario(backStack = listOf(Library), real = true)
 
         private val FLAT = PlaySettings(landscapeLean = 0)
         private val MOST_LEAN = PlaySettings(landscapeLean = PlaySettings.LEANS.last)
@@ -85,7 +116,8 @@ data class Scenario(
                 withSongs = true,
             ),
             "no-space" to Scenario(listOf(Library), model = ModelState.Absent(PACKAGE, 80_200_000), withSongs = false),
-            "library" to DEFAULT,
+            "library" to Scenario(listOf(Library)),
+            "library-missing" to Scenario(listOf(Library), missingSong = true),
             "make-chart" to Scenario(listOf(Library, MakeChart(SONG))),
             "make-chart-sections" to Scenario(listOf(Library, MakeChart(SONG)), sections = ONE_SECTION, sectionsOpen = true),
             "make-chart-section-problem" to Scenario(
@@ -131,6 +163,18 @@ data class Scenario(
             "settings-playfield-max" to Scenario(listOf(Library, Settings), settings = MOST_LEAN, settingsItem = PLAYFIELD_SETTINGS),
             "settings-playfield-portrait" to Scenario(listOf(Library, Settings), settings = PORTRAIT, settingsItem = PLAYFIELD_SETTINGS),
             "settings-downloading" to Scenario(listOf(Library, Settings), model = ModelState.Downloading(50_600_000, PACKAGE)),
+            "settings-update-pending" to Scenario(
+                listOf(Library, Settings),
+                model = ModelState.Installed(
+                    "Ensomi R2 r2-1.0",
+                    revision = "r2-1.0",
+                    sizeBytes = PACKAGE,
+                    license = "MIT",
+                    update = ModelUpdate.Pending(SampleChartModelStore.PINNED_REVISION, "The connection was lost.", resumable = true),
+                ),
+            ),
+            "notices" to Scenario(listOf(Library, Settings, Notices)),
+            "notice-text" to Scenario(listOf(Library, Settings, Notices, NoticeText(ONNX_RUNTIME_NOTICES.last().path, asset = true))),
             "calibration-sound" to Scenario(listOf(Library, Settings, Calibration)),
             "calibration-picture" to Scenario(listOf(Library, Settings, Calibration), calibrationStep = CalibrationStep.PICTURE),
             "diagnostics" to Scenario(listOf(Library, Settings, Diagnostics)),

@@ -31,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -40,7 +41,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,7 +53,6 @@ import io.ensomi.android.settings.OutputRoute
 import io.ensomi.android.settings.PlaySettings
 import io.ensomi.android.ui.ActionButton
 import io.ensomi.android.ui.DarkSystemBars
-import io.ensomi.android.ui.LocalNotWired
 import io.ensomi.android.ui.theme.Brand
 import io.ensomi.android.ui.theme.GameTheme
 import java.util.Locale
@@ -66,12 +68,12 @@ fun ResultsScreen(
     result: PlayResult,
     settings: PlaySettings,
     route: OutputRoute,
+    onChange: ((PlaySettings) -> PlaySettings) -> Unit,
     onPlayAgain: () -> Unit,
     onDone: () -> Unit,
 ) {
     GameTheme {
         DarkSystemBars()
-        val notWired = LocalNotWired.current
         Box(Modifier.fillMaxSize().background(Brand.Plum), contentAlignment = Alignment.TopCenter) {
             // Wider than tall (the game's landscape, which the results keep): the score on the left, the timing on the
             // right, each scrolling on its own if it must, and the actions held at the bottom right, on the first screen.
@@ -148,19 +150,30 @@ fun ResultsScreen(
                     val adjustment = result.suggestedAdjustmentMs
                     if (adjustment != null && abs(adjustment) >= MIN_SUGGESTION_MS) {
                         Panel {
-                            val proposed = settings.audioOffsetMs + adjustment
-                            Text(
-                                stringResource(
-                                    R.string.results_offset_suggestion,
-                                    route.name,
-                                    PlaySettings.formatOffset(settings.audioOffsetMs),
-                                    PlaySettings.formatOffset(proposed),
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Brand.Text,
-                            )
-                            TextButton(onClick = { notWired("Applying the suggested offset (plan step 1)") }) {
-                                Text(stringResource(R.string.results_offset_apply), color = Brand.Lavender)
+                            // The game was played at the offset the output had when the results opened.
+                            val playedAt = rememberSaveable(route.key) { settings.audioOffsetMs }
+                            val proposed = (playedAt + adjustment).coerceIn(PlaySettings.OFFSETS)
+                            if (settings.audioOffsetMs == proposed) {
+                                Text(
+                                    stringResource(R.string.results_offset_used, route.name, PlaySettings.formatOffset(proposed)),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Brand.Text,
+                                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                                )
+                            } else {
+                                Text(
+                                    stringResource(
+                                        R.string.results_offset_suggestion,
+                                        route.name,
+                                        PlaySettings.formatOffset(settings.audioOffsetMs),
+                                        PlaySettings.formatOffset(proposed),
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Brand.Text,
+                                )
+                                TextButton(onClick = { onChange { it.copy(audioOffsetMs = proposed) } }) {
+                                    Text(stringResource(R.string.results_offset_apply), color = Brand.Lavender)
+                                }
                             }
                         }
                     }

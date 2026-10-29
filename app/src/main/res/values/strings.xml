@@ -64,6 +64,16 @@
     <string name="library_song_detail">%1$s · %2$s</string>
     <string name="library_empty_title">Add songs from your phone</string>
     <string name="library_empty_body">Choose audio files with Android’s file picker. Ensomi reads only the files you choose and needs no access to the rest of your music.</string>
+    <string name="library_file_not_found">File not found: %1$s</string>
+    <string name="library_find_again">Find again</string>
+    <string name="library_remove">Remove</string>
+    <string name="library_unreadable_one">“%1$s” could not be read as audio.</string>
+    <plurals name="library_unreadable_many">
+        <item quantity="one">%1$d file could not be read as audio.</item>
+        <item quantity="other">%1$d files could not be read as audio.</item>
+    </plurals>
+    <string name="library_already_there">Those songs are in the library already.</string>
+    <string name="library_find_failed">That file could not be read as audio.</string>
     <plurals name="library_chart_count">
         <item quantity="one">%d chart</item>
         <item quantity="other">%d charts</item>
@@ -88,6 +98,15 @@
     <string name="model_installed_detail">Package %1$s · %2$s</string>
     <string name="model_check_files">Download again</string>
     <string name="model_remove">Remove</string>
+    <string name="model_checking">Checking the chart model…</string>
+    <string name="model_revision_not_recorded">not recorded</string>
+    <string name="model_updating">Updating to package %1$s. This model stays in use until the update is in place.</string>
+    <string name="model_update_pending">An update to package %1$s is pending. This model stays in use until it arrives.</string>
+    <string name="model_failure_network">The connection was lost.</string>
+    <string name="model_failure_http">Hugging Face answered with HTTP %1$d.</string>
+    <string name="model_failure_refused">This version of Ensomi cannot use the package: %1$s</string>
+    <string name="model_failure_mismatch">%1$s did not match the package’s manifest.</string>
+    <string name="model_failure_not_opened">The downloaded model would not open: %1$s</string>
 
     <!-- Making a chart -->
     <string name="make_stars">Stars</string>
@@ -179,6 +198,7 @@
     <string name="results_histogram_description">Hits by how early or late they were</string>
     <string name="results_offset_suggestion">Suggested audio offset for %1$s: %3$s (now %2$s).</string>
     <string name="results_offset_apply">Use suggested offset</string>
+    <string name="results_offset_used">%1$s now plays with an audio offset of %2$s.</string>
     <string name="results_sample_note">This game used the sample chart. A chart of your song will show its own results here.</string>
     <string name="results_play_again">Play again</string>
     <string name="results_done">Back to song</string>
@@ -221,6 +241,21 @@
     <string name="settings_notices">Licence notices</string>
     <string name="settings_notices_help">BeatThis, which finds the beat, and ONNX Runtime, which runs the model.</string>
     <string name="settings_model_footer">Ensomi makes charts on this phone with this model. Nothing is sent to a server.</string>
+    <string name="notices_title">Licence notices</string>
+    <string name="notices_intro">The chart model and the software that runs it come with these licences.</string>
+    <string name="notices_from_model">With the chart model</string>
+    <string name="notices_from_runtime">With ONNX Runtime</string>
+    <string name="notices_onnxruntime_license">ONNX Runtime licence</string>
+    <string name="notices_onnxruntime_third_party">ONNX Runtime third-party notices</string>
+    <string name="notices_licence_of">%1$s licence</string>
+    <string name="notices_unavailable">This notice comes with the chart model. Download the model to read it.</string>
+    <string name="output_speaker">Phone speaker</string>
+    <string name="output_wired">Wired headphones</string>
+    <string name="output_usb">USB audio</string>
+    <string name="output_bluetooth">Bluetooth headphones</string>
+    <string name="output_hearing_aid">Hearing aid</string>
+    <string name="output_hdmi">HDMI</string>
+    <string name="output_other">Audio output</string>
     <string name="settings_about">About</string>
     <string name="settings_preview">Playfield preview</string>
     <string name="settings_preview_help">A sample chart that plays itself, without sound.</string>

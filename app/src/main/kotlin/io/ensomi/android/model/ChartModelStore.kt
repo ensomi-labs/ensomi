@@ -1,11 +1,15 @@
 package io.ensomi.android.model
 
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Where the chart model stands on this device. Sizes are bytes. */
 sealed interface ModelState {
+    /** Looking at what is installed, when the app starts. */
+    data object Checking : ModelState
+
     /** Nothing installed. [freeBytes] is what the app's storage can allocate. */
     data class Absent(val downloadBytes: Long, val freeBytes: Long) : ModelState {
         val fits: Boolean get() = freeBytes >= downloadBytes
@@ -19,13 +23,35 @@ sealed interface ModelState {
     data class Installed(
         /** The model's identity, from its manifest, such as "Ensomi R2 r2-1.0". */
         val name: String,
-        /** The package tag the download came from, such as "r2-1.0.1". */
-        val revision: String,
+        /** The package tag the download came from, such as "r2-1.0.1"; null for an install without a record. */
+        val revision: String?,
         val sizeBytes: Long,
         /** The SPDX expression the manifest gives. */
         val license: String,
+        /** A download over this install, which stays in use until the download is in place. */
+        val update: ModelUpdate? = null,
     ) : ModelState
 }
+
+/** A download of the pinned tag over an installed model. */
+sealed interface ModelUpdate {
+    data class Downloading(val doneBytes: Long, val totalBytes: Long) : ModelUpdate
+
+    /**
+     * The install is not the pinned tag, or misses files, and the download to fix it stopped or has not run:
+     * [failure] says why, [resumable] whether files are kept for a resume.
+     */
+    data class Pending(val pinnedRevision: String, val failure: String?, val resumable: Boolean) : ModelUpdate
+}
+
+/**
+ * A licence notice to show with the model: a file of the installed model ([path] relative to its directory), or an
+ * asset of the runtime's AAR.
+ */
+data class Notice(val path: String, val asset: Boolean)
+
+/** ONNX Runtime's licence and third-party notices, which the runtime's AAR carries. */
+val ONNX_RUNTIME_NOTICES: List<Notice> = io.ensomi.runtime.onnxRuntimeLicenseAssets.map { Notice(it, asset = true) }
 
 /**
  * The Ensomi R2 model in app storage: download from Hugging Face at the pinned tag, check each file against the
@@ -34,6 +60,13 @@ sealed interface ModelState {
 interface ChartModelStore {
     val state: StateFlow<ModelState>
 
+    /** The installed model's directory, for the runtime's generator, or null when none is installed. */
+    val directory: File?
+
+    /** The licence notices of the model in use and of ONNX Runtime, which runs it. */
+    val notices: List<Notice>
+
+    /** Downloads the pinned tag, or resumes a stopped download. Checks free space first. */
     fun download()
 
     fun cancel()
@@ -42,12 +75,13 @@ interface ChartModelStore {
 }
 
 /**
- * Not wired: a fixed state for the prototype. The real store (plan step 4) downloads, checks and installs the
- * package.
+ * For the prototype's scenarios: a fixed state. The app's store is [DownloadingChartModelStore].
  */
 class SampleChartModelStore(initial: ModelState) : ChartModelStore {
     private val mutableState = MutableStateFlow(initial)
     override val state: StateFlow<ModelState> = mutableState.asStateFlow()
+    override val directory: File? = null
+    override val notices: List<Notice> = ONNX_RUNTIME_NOTICES
 
     override fun download() = Unit
 
@@ -56,9 +90,9 @@ class SampleChartModelStore(initial: ModelState) : ChartModelStore {
     override fun remove() = Unit
 
     companion object {
-        /** The package at the pinned tag: 30 files, about 120 MB by its manifest. */
-        const val PACKAGE_BYTES = 120_400_000L
-        const val PINNED_REVISION = "r2-1.0.1"
+        /** The package at the pinned tag: 30 files, 120.4 MB by its manifest. */
+        const val PACKAGE_BYTES = ModelSource.PACKAGE_BYTES
+        const val PINNED_REVISION = ModelSource.PINNED_REVISION
 
         val INSTALLED = ModelState.Installed("Ensomi R2 r2-1.0", PINNED_REVISION, PACKAGE_BYTES, "MIT")
     }
