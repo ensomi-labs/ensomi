@@ -12,6 +12,7 @@ import android.util.AtomicFile
 import android.util.Log
 import androidx.core.net.toUri
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
@@ -210,12 +211,25 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
     }
 
     /**
-     * Whether the document is still there and readable: the permission is held and the provider still knows it. The
-     * file is not opened, so a cloud provider does not fetch it.
+     * Whether the document is still there and readable: the permission is held, the provider still knows it, and, for
+     * the phone's own storage, the file opens (the Downloads provider names a file that has gone). A cloud provider's
+     * file is not opened, so it is not fetched.
      */
     private fun isThere(uri: Uri): Boolean {
         val held = resolver.persistedUriPermissions.any { it.uri == uri && it.isReadPermission }
-        return held && displayName(uri) != null
+        if (!held || displayName(uri) == null) return false
+        if (uri.authority !in LOCAL_PROVIDERS) return true
+        return try {
+            resolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+        } catch (e: FileNotFoundException) {
+            false
+        } catch (e: SecurityException) {
+            false
+        } catch (e: IllegalArgumentException) {
+            false
+        } catch (e: IllegalStateException) {
+            false
+        }
     }
 
     private fun keepPermission(uri: Uri) {
@@ -247,5 +261,13 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
 
     private companion object {
         const val TAG = "EnsomiLibrary"
+
+        /** Document providers whose files are on the phone, cheap to open. */
+        val LOCAL_PROVIDERS = setOf(
+            "com.android.externalstorage.documents",
+            "com.android.providers.downloads.documents",
+            "com.android.providers.media.documents",
+            "media",
+        )
     }
 }

@@ -56,12 +56,16 @@ object SongDecoder {
     ): DecodedSong {
         val extractor = MediaExtractor()
         try {
-            try {
-                extractor.setDataSource(context, uri, null)
+            // Opened here, so that a file that has gone is told apart from one that is not audio.
+            val file = try {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")
             } catch (e: FileNotFoundException) {
                 throw DecodeException("The file is not there.", missing = true, cause = e)
             } catch (e: SecurityException) {
                 throw DecodeException("Ensomi may no longer read the file.", missing = true, cause = e)
+            } ?: throw DecodeException("The file is not there.", missing = true)
+            try {
+                file.use { extractor.setDataSource(it) }
             } catch (e: IOException) {
                 throw DecodeException("The file could not be read as audio.", cause = e)
             }
@@ -92,7 +96,11 @@ object SongDecoder {
                 format.removeKey(MediaFormat.KEY_ENCODER_DELAY)
                 format.removeKey(MediaFormat.KEY_ENCODER_PADDING)
             }
-            format.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT)
+            // Raw PCM (WAV, and FLAC, which the extractor decodes itself) says in this key what its samples are;
+            // for a compressed format it asks the decoder for float output.
+            if (mime != MediaFormat.MIMETYPE_AUDIO_RAW) {
+                format.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_FLOAT)
+            }
             val durationUs = format.longOr(MediaFormat.KEY_DURATION, 0)
             val codec = createDecoder(mime, format)
             try {
@@ -118,7 +126,11 @@ object SongDecoder {
     ): DecodedSong {
         var sampleRate = inputFormat.intOr(MediaFormat.KEY_SAMPLE_RATE, 0)
         var fileChannels = inputFormat.intOr(MediaFormat.KEY_CHANNEL_COUNT, 1)
-        var encoding = AudioFormat.ENCODING_PCM_16BIT
+        var encoding = if (mime == MediaFormat.MIMETYPE_AUDIO_RAW) {
+            inputFormat.intOr(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+        } else {
+            AudioFormat.ENCODING_PCM_16BIT
+        }
         val out = PcmBuilder(channels.count, estimateFrames(durationUs, sampleRate) + maxOf(0, -startTrim))
         out.addSilence(maxOf(0, -startTrim))
         var toSkip = maxOf(0, startTrim).toLong()
@@ -152,7 +164,7 @@ object SongDecoder {
                     val format = codec.outputFormat
                     sampleRate = format.intOr(MediaFormat.KEY_SAMPLE_RATE, sampleRate)
                     fileChannels = format.intOr(MediaFormat.KEY_CHANNEL_COUNT, fileChannels)
-                    encoding = format.intOr(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                    encoding = format.intOr(MediaFormat.KEY_PCM_ENCODING, encoding)
                 }
                 index >= 0 -> {
                     val buffer = codec.getOutputBuffer(index)!!

@@ -17,9 +17,9 @@ data class StoredSong(
     val durationMs: Long = 0,
     val addedAtMs: Long = 0,
 ) {
-    /** The title tag, else the file name without its extension. */
+    /** The title tag, else the file name, with its extension, which tells `song.mp3` from `song.flac`. */
     val shownTitle: String
-        get() = title?.trim()?.takeIf { it.isNotEmpty() } ?: fileName.substringBeforeLast('.').ifEmpty { fileName }
+        get() = title?.trim()?.takeIf { it.isNotEmpty() } ?: fileName
 }
 
 @Serializable

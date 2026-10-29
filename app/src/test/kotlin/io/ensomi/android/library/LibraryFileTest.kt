@@ -31,9 +31,8 @@ class LibraryFileTest {
     @Test
     fun aSongWithoutATitleTagShowsItsFileName() {
         assertEquals("Lantern Walk", song.shownTitle)
-        assertEquals("afterglow_run", song.copy(title = null, fileName = "afterglow_run.ogg").shownTitle)
-        assertEquals("Glass Garden.final", song.copy(title = " ", fileName = "Glass Garden.final.ogg").shownTitle)
-        assertEquals(".mp3", song.copy(title = null, fileName = ".mp3").shownTitle)
+        assertEquals("afterglow_run.ogg", song.copy(title = null, fileName = "afterglow_run.ogg").shownTitle)
+        assertEquals("Glass Garden.ogg", song.copy(title = " ", fileName = "Glass Garden.ogg").shownTitle)
     }
 
     @Test
