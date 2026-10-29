@@ -7,7 +7,8 @@ code or history with the Swift app, which is the reference for what it does.
 
 The app is in development and is not distributed. It does drop-in play on the app's own stores: the settings, kept
 with Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding
-songs to PCM; the chart model, downloaded from Hugging Face at a pinned tag and checked file by file; charts made on
+songs to PCM; the chart model, downloaded from Hugging Face at a pinned tag or installed from the package's files in a
+folder the player picks, either way only the pinned package and checked file by file; charts made on
 the device by the runtime from the player's songs, the last one per song kept; play: the chart on the song's own sound,
 timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with
 the lanes leaning back by default (the orientation and the lean are settings with a live preview); and the timing
@@ -50,6 +51,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n io.ensomi.android/.MainActivity
 ```
 
+`./gradlew assembleDebugAndroidTest assembleChecks` builds the phone checks (`app/src/androidTest`) and the checks
+build (`app-checks.apk`: the same app, not debuggable, signed with the debug key, with the scenarios and frame logs),
+which [docs/phone-checks.md](docs/phone-checks.md) and `scripts/phone-checks.sh` use. Do not run the checks with
+`connectedDebugAndroidTest` on HyperOS: its install dialog makes the install fail while Gradle reports success.
+
 Without a phone, use an arm64 emulator. On Apple silicon it runs natively, for example:
 
 ```sh
@@ -87,8 +93,21 @@ adb shell am start -n io.ensomi.android/.MainActivity --ez decode-check true
 adb logcat -d -s EnsomiDecodeCheck:I -v raw
 ```
 
-The model download logs each request and its answer under `EnsomiModel`. Its files are in the app's
-`no_backup/models/ensomi-r2` (`adb shell run-as io.ensomi.android ls no_backup/models/ensomi-r2`), the settings in
+The model download logs each request and its answer under `EnsomiModel`, and each install, the download or Install from
+files, logs its start and its outcome as one JSON line under `EnsomiModelInstall`
+(`{"source":"huggingface"|"files","result":"started"|"installed"|"stopped"|"cancelled","seconds":…}`, with the revision,
+manifest SHA-256, files and bytes once installed, or the reason it stopped), which `scripts/phone-checks.sh` waits on. A
+debuggable build starts the download from a launch extra, as the Download button does:
+
+```sh
+adb shell am start -n io.ensomi.android/.MainActivity --ez download-model true
+adb logcat -d -s EnsomiModelInstall:I -v raw
+```
+
+The model's files are in the app's
+`no_backup/models/ensomi-r2` (`adb shell run-as io.ensomi.android ls no_backup/models/ensomi-r2`), with
+`ensomi-install.json` recording the tag, the manifest's SHA-256 and the source; an install from files copies into
+`no_backup/models/.files-ensomi-r2` first and leaves nothing there when it stops. The settings are in
 `files/settings.json`, the library in `files/library.json`, and each song's last chart in `files/charts/<song id>/`
 (`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
 
@@ -114,9 +133,31 @@ and, during a game, broadcasts that do what an emulator cannot (another output, 
 adb shell am broadcast -a io.ensomi.android.debug.PLAY --es do change-output   # or take-focus, give-focus
 ```
 
-A debuggable build also writes each game's frame times to `files/clock-log.csv` (`nanos,songMs,renderMs`) when the game
-closes, for checking that song time never goes back, and each frame's pacing to `files/frame-log.csv`
-(`vsyncNanos,presentNanos,runtimeNanos,drawNanos`).
+A debuggable build (and the checks build) also writes each game's frame times to `files/clock-log.csv`
+(`nanos,songMs,renderMs`) when the game closes, for checking that song time never goes back, and each frame's pacing to
+`files/frame-log.csv` (`vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos`: the frame's deadline
+from `FrameData` and when its drawing was posted). The same builds take the launch extras above; the `pacing-flat`,
+`pacing`, `pacing-lean-max` and `pacing-portrait` scenarios play the sample game without end at each lean, for the
+frame pacing check.
+
+## Phone checks
+
+[docs/phone-checks.md](docs/phone-checks.md) is the runbook for testers. `scripts/phone-checks.sh` (POSIX `sh` and `adb`
+only) installs the APKs, makes sure the model is installed (the app's download first, Install from files when Hugging
+Face cannot be reached), pushes click tracks and songs to `/data/local/tmp/ensomi-checks`, runs each group of the
+instrumented checks (`app/src/androidTest/kotlin/io/ensomi/android/checks/`) with `am instrument`, and packs the results,
+logcat and the device's facts into one `.tar.gz`. `scripts/make-phone-kit.sh` assembles the kit testers get (APKs, the
+model checked against the pin, click tracks, songs).
+
+Each check logs one JSON object per result under the tag `EnsomiPhoneCheck` (split into `part i/n` lines like the
+Diagnostics JSON when longer than a logcat line) and appends it to `results.jsonl` in
+`/sdcard/Android/media/io.ensomi.android/phone-checks/`, beside CSV files of frames and timestamps:
+
+```sh
+adb shell am instrument -w -r -e class io.ensomi.android.checks.RuntimeCheck \
+  io.ensomi.android.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s EnsomiPhoneCheck:I -v raw
+```
 
 ## Diagnostics output
 
@@ -135,9 +176,12 @@ JSON that fits in one logcat line is printed as is. Longer JSON is split into li
 - `app/src/main/kotlin/io/ensomi/android/`: the app. `Destinations.kt` and `EnsomiApp.kt` hold the
   navigation, `AppStores.kt` the app's stores; each feature has its own package: `library/`, `model/`, `chart/`,
   `play/`, `settings/`, `audio/`, `diagnostics/`.
-- `docs/`: the design, the gameplay design and the build plan.
-- `scripts/`: the screenshot capture script, the Perfetto frame-timeline script and the click-track generator.
+- `docs/`: the design, the gameplay design, the build plan and the phone checks' runbook.
+- `scripts/`: the screenshot capture script, the Perfetto frame-timeline script, the click-track generator, the phone
+  checks' collection script and the kit script.
 - `app/src/test/kotlin/`: unit tests that run on the JVM.
+- `app/src/androidTest/kotlin/`: the phone checks, instrumented tests that measure on a device and log their results.
+- `app/src/checks/`: the checks build's resources (the debug tools on in a build that is not debuggable).
 - `gradle/libs.versions.toml`: every pinned version.
 
 ## License

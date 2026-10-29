@@ -74,15 +74,42 @@ mode does: fetch `ensomi-package.json`, check it with the runtime's `checkPackag
 check each one's size and SHA-256, and only then move the directory into place with an `ensomi-install.json` record of
 the tag. It never reads `main`.
 
+**Two ways in, one package** (the owner's decisions of 2026-10-29). The download from Hugging Face is the first,
+recommended way, on every screen that offers the model. The second, **Install from files**, is for phones that cannot
+reach Hugging Face (huggingface.co is blocked in mainland China): the player picks the folder that holds the package's
+files, and the app copies them into its own storage (`noBackupFilesDir`), where the runtime gets the file path it
+needs. Both accept only the exact pinned package: the SHA-256 of `ensomi-package.json` for `r2-1.0.1` is pinned in the
+app (`ModelSource.PINNED_MANIFEST_SHA256`, beside the tag, the one place both are named), so a manifest with any other
+hash is refused before a file is fetched or copied, and every file it lists is then checked by its own size and
+SHA-256. The record says which way the files came (`"source": "huggingface"` or `"files"`).
+
+- **A folder, not files.** The picker is `ACTION_OPEN_DOCUMENT_TREE`: one choice for the package's 30 files, where
+  `OPEN_MULTIPLE_DOCUMENTS` would ask the player to select all 30 and could not tell a missing file from one left
+  unselected. The folder is the one that holds `ensomi-package.json`, or the folder above it when the files are in its
+  `onnx` folder, as on Hugging Face. Android 11 and later do not let the root of Download be picked, so the files go
+  in a folder inside it (`Download/ensomi-r2`). The app reads only the files the manifest lists, once, and keeps no
+  permission to the folder.
+- **The same checks as the download**: the manifest's pinned SHA-256 and `checkPackage`; every listed file present, at
+  its listed size, before anything is copied; the space reserved with `allocateBytes`; each file's size and SHA-256 as
+  it is copied into `.files-ensomi-r2` beside the install; the runtime opening the copy; the record; one rename into
+  place. Whatever stops it (a refusal, a file that does not match, a provider that goes away, Cancel) deletes the
+  copy, so the installed model is the old one or the whole new one, never half of either.
+- **What the player sees**: under Download, a line ("Can't reach Hugging Face? If you have the package's files, pick
+  the folder that holds them") and an outlined **Install from files** button; while it copies, the download's
+  progress bar under "Installing the Ensomi R2 model from files"; if it stops, the reason in words with a warning
+  symbol: not the pinned package, no `ensomi-package.json`, a file missing (named), a file that does not match (named),
+  the files unreadable, not enough space. A copy started during a download stops the download first.
+
 | State | What the card says | Actions |
 | --- | --- | --- |
-| Not installed | What the model is, that it is a one-time download of 120 MB, that songs never leave the phone; "Needs 120 MB. 18.4 GB free." | **Download model** (the screen's primary action) |
+| Not installed | What the model is, that it is a one-time download of 120 MB, that songs never leave the phone; "Needs 120 MB. 18.4 GB free." | **Download model** (the screen's primary action); Install from files |
 | Not enough space | "Not enough space: the model needs 120 MB, and 80 MB is free." with a warning symbol | Try again; Free up space (the system's storage screen) |
 | Downloading | Progress bar, percent, megabytes of total; "You can add songs while it downloads." | Cancel |
-| Stopped | "The download stopped at 50.6 of 120.4 MB." and the reason; "Resume continues from the files already here." | Resume download |
+| Installing from files | The same progress, under "Installing the Ensomi R2 model from files" | Cancel |
+| Stopped | "The download stopped at 50.6 of 120.4 MB." and the reason; "Resume continues from the files already here." | Resume download; Install from files |
 | Installed (Settings only) | "Ensomi R2 r2-1.0", package tag and size | Download again; Remove |
 | Updating (Settings only) | The installed model, and progress to the pinned tag, which it stays in use until | Cancel |
-| Update pending (Settings only) | The installed tag, the pinned one, and that the installed model stays in use until the update arrives; why the last try stopped | Download again, or Resume download when files are kept; Remove |
+| Update pending (Settings only) | The installed tag, the pinned one, and that the installed model stays in use until the update arrives; why the last try stopped | Download again, or Resume download when files are kept; Remove; Install from files |
 
 - Free space comes from `StorageManager.getAllocatableBytes`, which counts what the system can free from caches, and
   the download reserves what it still has to fetch with `allocateBytes`, which frees the system's caches if it must
@@ -375,7 +402,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 | Taken from the Swift app | Changed for Android, and why |
 | --- | --- |
 | The loop: model, song, generate with stars, seed and sections, play, results | One back stack from a song to its game; no tabs (one top-level place); Settings as a screen, not reachable during a game |
-| Model install from Hugging Face at the pinned tag, `checkPackage`, per-file SHA-256, Range resume, install record, update on start | Free space checked and reserved with `StorageManager`; files under `noBackupFilesDir`; no "Choose Folder" (the runtime needs a file path, and a tree URI is not one; a development install by `adb push` replaces it) |
+| Model install from Hugging Face at the pinned tag, `checkPackage`, per-file SHA-256, Range resume, install record, update on start; Choose Folder | Free space checked and reserved with `StorageManager`; files under `noBackupFilesDir`; Choose Folder became Install from files (the owner's decision of 2026-10-29): the picked folder's files are copied into app storage, since the runtime needs a file path and a tree URI is not one; both ways accept only the pinned manifest's SHA-256 |
 | Music folders as the library | Songs picked one by one with the system picker: no permission, nothing scanned |
 | Generation states, phase names, Stop, the core's message on failure, Use Seed | A state bar at the bottom of a phone screen instead of a two-panel setup; no Session tiles or lane preview; no chart-server engine (out of scope); the last chart kept on disk |
 | The play look: brand palette, notes by kind, coral line, hit flash and miss tint, "Ready", combo from 2, Reduce Motion rules | Drawn on a `SurfaceView` canvas instead of Metal; touch lanes instead of key caps with letters; immersive full screen in landscape with leaning lanes (new: the owner's choice, after Malody), portrait as a setting; a lead-in and a count-in after pause; Restart in the pause panel |
@@ -392,7 +419,7 @@ Not carried over in this round: Listen & Play, recognition, the Chart Inspector,
 
 The app opens on the Library and runs every screen above on its own stores (`AppStores`): the settings, kept with
 DataStore, the audio offset per output, written by Settings, calibration's Use and Results' Use; the song library from
-the document picker, with File not found, Find again and Remove; decoding to PCM; the model download, its states, the
+the document picker, with File not found, Find again and Remove; decoding to PCM; the model download and the install from files, their states, the
 licence, the model card and the notices; making charts with the runtime (prepare on opening a song, the whole-chart
 scheduler, Stop, the model's capabilities, the last chart per song kept); play: the player's chart on the song's sound,
 the `AudioTrack` clock, the pauses, the results from the runtime's score, and the playfield: the `SurfaceView` render

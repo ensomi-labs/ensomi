@@ -10,6 +10,7 @@
 #   -s SERIAL  the phone, when more than one is connected (adb devices)
 #   -g GROUPS  only these groups, comma-separated (default: all, in this order):
 #              runtime,model,decode,generation,determinism,audio,frames,lifecycle
+#              and, on its own after the checklist's manual checks, manual (the app's logs and its last game's files)
 #   -l LABEL   a name for this run's output, such as speaker, wired or bt (the audio group); recorded in the results
 #   -n         do not install the APKs (they are installed already)
 #
@@ -143,6 +144,8 @@ if [ "$INSTALL" = yes ]; then
   install_apk "$TEST" "its checks"
 fi
 adb shell svc power stayon usb >/dev/null 2>&1
+# Room for a whole check's log (and a manual game's) in logcat's buffer.
+adb logcat -G 16M >/dev/null 2>&1
 adb shell pm list instrumentation | tr -d '\r' | grep -q "$PKG.test" || die "the checks are not installed (pm list instrumentation)"
 
 # The installed model's record, or nothing.
@@ -208,6 +211,7 @@ if wanted model || wanted generation || wanted determinism; then
   adb shell am force-stop $PKG
 fi
 
+if wanted decode || wanted generation || wanted determinism; then
 step "Test data"
 ash rm -rf $PUSHED >/dev/null
 ash mkdir -p $PUSHED/clicks $PUSHED/songs >/dev/null
@@ -229,6 +233,7 @@ for kind in clicks songs; do
   done
 done
 say "click tracks: $(ash ls $PUSHED/clicks | wc -l | tr -d ' '), songs:${SONGS:- none (the generation checks make a synthetic song)}"
+fi
 
 ash rm -rf "$RESULTS" >/dev/null
 FAILED=
@@ -284,6 +289,17 @@ fi
 if wanted lifecycle; then
   say "  (the lifecycle check presses Home, Recents and the power key by itself: leave the phone alone)"
   run_check lifecycle LifecycleCheck $(label_args)
+fi
+
+if wanted manual; then
+  step "The app's logs and its last game"
+  mkdir -p "$OUT/manual"
+  for file in clock-log.csv frame-log.csv settings.json library.json; do
+    ash run-as $PKG cat files/$file >"$OUT/manual/$file"
+  done
+  adb logcat -d -v threadtime -s Ensomi:I EnsomiPlay:I EnsomiAudio:I EnsomiPlayfield:I EnsomiCalibration:I \
+    EnsomiCharts:I EnsomiModel:I EnsomiModelInstall:I EnsomiDiagnostics:I EnsomiDecodeCheck:I >"$OUT/manual/logcat.txt" 2>&1
+  say "  collected the logs, the last game's clock-log.csv and frame-log.csv, settings.json and library.json"
 fi
 
 step "Collecting"

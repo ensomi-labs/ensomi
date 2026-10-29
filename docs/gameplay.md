@@ -385,8 +385,8 @@ the runtime calls, which draw nothing, took about three times as long as on a qu
 
 ## Measurements a phone must make
 
-On the Snapdragon 8 Gen 3 Xiaomi (HyperOS, 120 Hz) and the Dimensity 9400+, on speaker, wired and Bluetooth output
-where it applies:
+On the Snapdragon 8 Gen 3 HyperOS phone, a Redmi K80 (`24117RK2CC`, `zorn`, 120 Hz), and the Dimensity 9400+ phone, on
+speaker, wired and Bluetooth output where it applies. [phone-checks.md](phone-checks.md) is how they are run:
 
 | What | How | Good when |
 | --- | --- | --- |
@@ -397,7 +397,16 @@ where it applies:
 | Touch to light | 240 fps video of a finger tapping a lane | The light within two refreshes of the finger landing |
 | Frame pacing | Perfetto FrameTimeline over a 60 s autoplay of the densest sample, at 120 Hz, at no lean, 40° and 55° | Under 0.5 % of frames late; render-thread work p99 under 3 ms at every lean |
 | The lean in hand | Players who know 4K on phones play the samples in landscape at 0°, 40° and 55°, and in portrait | 40° reads at speed; far notes are big enough; thumbs land in their lanes; the HUD never covers a lane |
-| Refresh rate | `Display.getRefreshRate()` during play after `setFrameRate` | 120 Hz on the Xiaomi unless battery saver is on |
+| Refresh rate | `Display.getRefreshRate()` during play after `setFrameRate` | 120 Hz on the Redmi K80 unless battery saver is on |
 | Multi-touch | Four-finger chords and holds with real hands, presses and releases counted | Every press has its release; no lane stays lit |
 | Haptics | 240 fps video with Vibrate on lane touch | Its delay known, to say whether to offer it |
 | Heat | 10 minutes of play: thermal status and frame pacing | No drop in pacing |
+
+Which check makes each (`app/src/androidTest/.../checks/`, or the runbook's checklist): clock smoothness,
+`AudioClockCheck` (per output, the raw timestamps' line fit); picture against audio, `AudioClockCheck` on vsync-paced
+reads of the game's clock, and a hand-played game's `clock-log.csv` (checklist 2); unreported output latency, the
+calibration by ear (checklist 4); touch stamp, the runtime's `lateInputs` from a hand-played game (checklist 2), while
+the handling delay of each touch is not logged yet; touch to light and haptics, slow-motion video (checklist 1); frame
+pacing and refresh rate, `FramePacingCheck`, also in the checks build, which is not debuggable; the lean in hand,
+checklist 9; multi-touch, checklist 3; heat, checklist 11 with `FramePacingCheck`'s thermal state. The runtime's cost per
+call through JNA, the first thing the phone measures above, is `RuntimeCheck`.
