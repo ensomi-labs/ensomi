@@ -48,7 +48,12 @@ object PhoneCheck {
 
     val debuggable: Boolean get() = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
-    /** `/sdcard/Android/media/io.ensomi.android/phone-checks`: the results the script pulls. */
+    /**
+     * `/sdcard/Android/media/io.ensomi.android/phone-checks`: the results the script pulls. The app's media folder is
+     * deprecated for media the gallery should see; here it is only a place adb can read in a build that is not
+     * debuggable, without any permission.
+     */
+    @Suppress("DEPRECATION")
     val outDir: File
         get() {
             val media = context.externalMediaDirs.firstOrNull { it != null } ?: context.getExternalFilesDir(null)!!

@@ -37,6 +37,8 @@ class LifecycleCheck {
             device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), PANEL_WAIT_MS)
             Thread.sleep(START_MS)
             for ((name, trigger) in triggers()) {
+                // Each interruption starts from a game that plays: a panel left from the one before is resumed first.
+                val playing = ensurePlaying(resume)
                 val since = PhoneCheck.logcatNow()
                 val started = System.nanoTime()
                 trigger()
@@ -47,6 +49,7 @@ class LifecycleCheck {
                     .map { it.removePrefix("Paused:").trim() }
                 val result = linkedMapOf<String, Any?>(
                     "trigger" to name,
+                    "wasPlaying" to playing,
                     "causes" to causes,
                     "panelShown" to panel,
                     "seconds" to PhoneCheck.round((System.nanoTime() - started) / 1e9, 1),
@@ -54,9 +57,6 @@ class LifecycleCheck {
                 )
                 results += result
                 PhoneCheck.report("lifecycle-pause", result)
-                // Resume, and let the count-in run out, so the next interruption finds the game playing.
-                device.findObject(By.text(resume))?.click()
-                Thread.sleep(COUNT_IN_MS)
             }
         } finally {
             instrumentation.runOnMainSync {
@@ -93,6 +93,16 @@ class LifecycleCheck {
         },
     )
 
+    /** Resumes the game if its pause panel shows and lets the count-in run out; whether it then plays. */
+    private fun ensurePlaying(resume: String): Boolean {
+        device.waitForIdle()
+        if (device.hasObject(By.text(resume))) {
+            device.findObject(By.text(resume))?.click()
+            Thread.sleep(COUNT_IN_MS)
+        }
+        return !device.hasObject(By.text(resume))
+    }
+
     private fun launcherIntent(): Intent =
         context.packageManager.getLaunchIntentForPackage(context.packageName)!!.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
@@ -107,10 +117,10 @@ class LifecycleCheck {
     }
 
     private companion object {
-        const val START_MS = 5_000L
+        const val START_MS = 8_000L
         const val AWAY_MS = 2_000L
         const val SETTLE_MS = 1_000L
-        const val PANEL_WAIT_MS = 5_000L
+        const val PANEL_WAIT_MS = 10_000L
         const val COUNT_IN_MS = 5_000L
     }
 }

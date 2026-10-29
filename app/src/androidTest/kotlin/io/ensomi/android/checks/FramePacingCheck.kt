@@ -125,6 +125,12 @@ class FramePacingCheck {
         val draw = DoubleArray(rows.size) { rows[it][3] / 1e6 }
         val work = DoubleArray(rows.size) { runtime[it] + draw[it] }
         val spanSeconds = (rows.last()[0] - rows.first()[0]) / 1e9
+        // Frames drawn for an earlier presentation time than the frame before, or for the same one.
+        var presentBack = 0
+        var presentRepeats = 0
+        for (i in 1 until rows.size) {
+            if (rows[i][1] < rows[i - 1][1]) presentBack++ else if (rows[i][1] == rows[i - 1][1]) presentRepeats++
+        }
         return linkedMapOf<String, Any?>(
             "frames" to rows.size,
             "fps" to PhoneCheck.round((rows.size - 1) / spanSeconds, 1),
@@ -133,6 +139,8 @@ class FramePacingCheck {
             "missedPct" to PhoneCheck.round(100.0 * missed / intervals.size, 2),
             "lateFrames" to late,
             "latePct" to late?.let { PhoneCheck.round(100.0 * it / rows.size, 2) },
+            "presentationStepsBack" to presentBack,
+            "presentationRepeats" to presentRepeats,
         ) + Stats.summary("workMs", work) + Stats.summary("runtimeMs", runtime) + Stats.summary("drawMs", draw)
     }
 

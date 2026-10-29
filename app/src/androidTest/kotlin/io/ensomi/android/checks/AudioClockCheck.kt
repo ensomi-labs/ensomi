@@ -141,13 +141,24 @@ class AudioClockCheck {
         rate: Int,
         leadInFrames: Long,
     ): Map<String, Any?> {
-        // Song time between frames: never back; against the presentation time, the picture's own jitter.
+        // Song time between frames: never back while the time asked for moves on; against the presentation time, the
+        // picture's own jitter. A frame whose preferred presentation time is earlier than the one before (the frame
+        // timeline Choreographer prefers changed) asks for an earlier time: counted apart, as a finding about vsync.
         var songBack = 0
         var worstBack = 0.0
+        var presentBack = 0
+        var presentWorstBack = 0.0
+        var presentRepeats = 0
         val steps = ArrayList<Double>()
         for (i in 1 until frames.size) {
             val a = frames[i - 1]
             val b = frames[i]
+            if (b.presentNanos < a.presentNanos) {
+                presentBack++
+                presentWorstBack = maxOf(presentWorstBack, (a.presentNanos - b.presentNanos) / 1e6)
+                continue
+            }
+            if (b.presentNanos == a.presentNanos) presentRepeats++
             if (a.songMs.isNaN() || b.songMs.isNaN()) continue
             if (b.songMs < a.songMs - 1e-6) {
                 songBack++
@@ -188,6 +199,9 @@ class AudioClockCheck {
             "frameRateHz" to frames.takeIf { it.size > 1 }?.let { PhoneCheck.round((it.size - 1) * 1e9 / (it.last().nanos - it.first().nanos), 1) },
             "songTimeStepsBack" to songBack,
             "songTimeWorstBackMs" to PhoneCheck.round(worstBack),
+            "presentationStepsBack" to presentBack,
+            "presentationWorstBackMs" to PhoneCheck.round(presentWorstBack),
+            "presentationRepeats" to presentRepeats,
             "pictureStepSdMs" to PhoneCheck.round(stepSd),
             "pictureStepWorstMs" to PhoneCheck.round(stepArray.maxOfOrNull { abs(it) } ?: Double.NaN),
             "pictureStepGood" to (stepSd < 0.5),

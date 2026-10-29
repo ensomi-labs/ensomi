@@ -36,12 +36,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
+private val RECORD_JSON = Json { ignoreUnknownKeys = true }
+
 /** The installed model, or null: `noBackupFilesDir/models/ensomi-r2` with its manifest and record. */
 fun installedModel(): Pair<File, InstallRecord?>? {
     val directory = File(PhoneCheck.context.noBackupFilesDir, "models/ensomi-r2")
     if (!File(directory, ModelInstaller.MANIFEST).isFile) return null
     val record = File(directory, ModelInstaller.RECORD).takeIf { it.isFile }?.let {
-        runCatching { Json { ignoreUnknownKeys = true }.decodeFromString(InstallRecord.serializer(), it.readText()) }.getOrNull()
+        runCatching { RECORD_JSON.decodeFromString(InstallRecord.serializer(), it.readText()) }.getOrNull()
     }
     return directory to record
 }
