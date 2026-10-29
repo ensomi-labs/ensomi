@@ -11,10 +11,10 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 | Step | Builds | Emulator check | Phone check | Needs |
 | --- | --- | --- | --- | --- |
 | 0 | Design, prototype screens on sample data, playfield on a fake clock (this round), including landscape play, the lane lean and its live preview | Every screen and state captured light and dark, 200 % font, landscape; the game at no lean, 40° and 55° in landscape and in portrait; playfield recording | — | — |
-| 1 | Settings stored with Jetpack DataStore, the play orientation and each orientation's lean among them; the audio offset kept per output (routed `AudioDeviceInfo` type and name); Results' and calibration's Use buttons write it | Change every setting, force-stop, relaunch: values kept; JVM tests for the output key | — | — |
-| 2 | Song library: `OpenMultipleDocuments` for `audio/*`, persistable read permission, name, length and tags (`MediaMetadataRetriever`), stored as JSON in app storage; File not found, Find again, Remove | Push audio files to the AVD, add them through the picker with UI Automator, relaunch, delete one file | Files from Downloads and a cloud provider | — |
-| 3 | Decoding with `MediaExtractor` and `MediaCodec` to float PCM at the file's rate: mono for generation, stereo for play; the MP3 lead rule the Swift app documents, met with Android's decoders | JVM tests of the MP3 header classes on frames the test builds; decode MP3, AAC, FLAC, Ogg and WAV on the AVD and compare lengths | The six click-track classes against the release engine's times | 2 |
-| 4 | Model install: download from Hugging Face at the pinned tag over `HttpURLConnection`, `checkPackage`, per-file size and SHA-256, Range resume, install record, update on start, free-space check and reservation, licence and notices in Settings | JVM tests against a local HTTP server (the JDK's `com.sun.net.httpserver`): drop mid-file, resume, changed file, refused manifest; a real download on the AVD, killed and resumed | Download on mobile data and Wi-Fi | 1 |
+| 1 (done) | Settings stored with Jetpack DataStore, the play orientation and each orientation's lean among them; the audio offset kept per output (routed `AudioDeviceInfo` type and name); Results' and calibration's Use buttons write it | Change every setting, force-stop, relaunch: values kept; JVM tests for the output key | — | — |
+| 2 (done) | Song library: `OpenMultipleDocuments` for `audio/*`, persistable read permission, name, length and tags (`MediaMetadataRetriever`), stored as JSON in app storage; File not found, Find again, Remove | Push audio files to the AVD, add them through the picker with UI Automator, relaunch, delete one file | Files from Downloads and a cloud provider | — |
+| 3 (done) | Decoding with `MediaExtractor` and `MediaCodec` to float PCM at the file's rate: mono for generation, stereo for play; the MP3 lead rule the Swift app documents, met with Android's decoders | JVM tests of the MP3 header classes on frames the test builds; decode MP3, AAC, FLAC, Ogg and WAV on the AVD and compare lengths | The six click-track classes against the release engine's times | 2 |
+| 4 (done) | Model install: download from Hugging Face at the pinned tag over `HttpURLConnection`, `checkPackage`, per-file size and SHA-256, Range resume, install record, update on start, free-space check and reservation, licence and notices in Settings | JVM tests against a local HTTP server (the JDK's `com.sun.net.httpserver`): drop mid-file, resume, changed file, refused manifest; a real download on the AVD, killed and resumed | Download on mobile data and Wi-Fi | 1 |
 | 5 | Making charts: `RuntimeWorker.withGenerator`, `prepare` when a song opens (the four latest `Prepared` kept in memory by the file's SHA-256), a whole-chart scheduler, phases, Stop through `Cancellation` from another thread, the runtime's messages; the last chart per song kept on disk | Generate a real chart on the AVD with the real model; Stop mid-way; 7 stars gives the runtime's refusal | Time and peak memory per song (the stack report's T10); whether `lowMemory` is needed | 3, 4 |
 | 6 | Audio output and clock: the `AudioTrack` writer with the lead-in, the timestamp clock (32-bit extension, hold rules, no backward step), pause and resume, music volume, audio focus, becoming noisy, route changes, underrun count | JVM tests of the clock against a scripted timestamp source; the AVD plays a song and the clock log is monotonic | Clock smoothness and the output latency per route (gameplay.md) | 3 |
 | 7 | Play: the controller on the real chart and clock with touch; pause on lifecycle, focus, audio focus, noisy and route change; gesture exclusion for the outer lanes; Results from the score; Play again | A full game on the AVD with taps from `adb shell input` and the autoplay as a debug option; pause and resume at each trigger | Touch stamps, touch to light, multi-touch, a full game by hand | 5, 6 |
@@ -24,11 +24,32 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 | 10 | Accessibility and finish: a TalkBack pass on every screen, the TalkBack notice before play, the short-window state, haptics wired | UI Automator dumps show labels; TalkBack walked on the AVD | Haptic delay by video; decide whether to offer Vibrate on lane touch | 7, 8 |
 | 11 | Remove the prototype's samples once every store is real; keep the screenshot scenarios backed by fakes for review | Capture script still runs | — | 1–10 |
 
+## Steps done
+
+What each finished step's emulator check showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-1`):
+
+- **1.** Every setting changed in Settings, the app force-stopped and launched: all kept in `settings.json`; the
+  calibration's Use and Results' Use (the `results-stored` scenario) wrote the speaker's offset, which a restart kept;
+  JVM tests cover the output key, the route order and per-output offsets.
+- **2.** Nine click tracks pushed to Downloads and added at once through the picker, kept across a restart; a deleted
+  file showed File not found, Find again brought it back at once under its new name, and Remove forgot it.
+- **3.** WAV (44.1 and 48 kHz), FLAC, Ogg Vorbis and Opus decoded to ffmpeg's frame counts, the first click at 1000.1 ms;
+  MP3 with a LAME delay (CBR and VBR) at 1000.1 ms and without a Xing header at 1025.1 ms (the 529 frames
+  `c2.android.mp3.decoder` trims put back, as BASS keeps them), AAC at 1000.1 ms with its 1024 frames of priming off;
+  compressed files keep their end padding (up to 936 frames). Stereo mixed down equals mono; a deleted file reports
+  itself missing.
+- **4.** The 120.4 MB package downloaded from Hugging Face; force-stopped at 42 %, the app showed the stopped download,
+  and Resume asked for `beatthis.onnx` from byte 51817683 (HTTP 206), checked every file, had the runtime open the
+  model and wrote `ensomi-install.json` (`r2-1.0.1` and the manifest's SHA-256); the licence, model card link and the
+  three notices show; the install survived an emulator cold boot. JVM tests against a local server cover a drop
+  mid-file, resume, a server ignoring Range, a changed file, a refused manifest, a file not matching, no space, and
+  Download again copying from the install.
+
 ## Pins the steps add
 
-All in `gradle/libs.versions.toml`, each chosen when its step starts: Jetpack DataStore (step 1),
-kotlinx-serialization-json (step 2, for the library and settings files), and WorkManager only if the owner wants the
-model download to continue in the background.
+All in `gradle/libs.versions.toml`, each chosen when its step starts: Jetpack DataStore 1.3.0 and
+kotlinx-serialization-json 1.12.0 (step 1, for the settings and library files; the same version as the serialization
+core), and WorkManager only if the owner wants the model download to continue in the background.
 
 ## Runtime changes
 
