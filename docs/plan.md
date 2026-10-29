@@ -101,6 +101,35 @@ What steps 8 to 11 showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-
   "not built yet". The capture script ran every group (135 files), now with UI dumps of every screen, Perfetto at each
   lean and a real game to its results, and holds the rotation itself (`wm user-rotation`).
 
+What steps 12 and 13 showed on the emulators (builds b2 and b3 of `claude/android-phone-checks`; the emulator's
+timing, not a phone's):
+
+- **12.** `ensomi-36-16k` downloaded the model from Hugging Face through the app (290 s; record `source:
+  huggingface`). `ensomi-36`, cut off the network, failed the download at once ("The connection was lost."), the
+  script copied the kit's files to `Download/ensomi-r2`, and the real system picker installed them (record `source:
+  files`). A copy of that folder with one byte of `runtime.json` changed was refused with "runtime.json did not match
+  the package's manifest." and left nothing installed. The manifest at `r2-1.0.1` hashed to the pinned SHA-256 on the
+  Mac, and `ensomi-36`'s earlier download had recorded the same. After the offline failure the card said nothing,
+  since a download that keeps nothing fell back to "not installed" without its reason; it now says why.
+- **13.** On both AVDs the script ran every group to its archive. The runtime loaded and its 52 UniFFI checksums read
+  back stable (26 of them at 0x8000 or above, none with high bits through JNA); a frame's runtime calls took 0.58 ms
+  at the median and 2.0 ms at the 99th percentile in the debug build. All nine click tracks landed within 0.03 ms of
+  the release engine's times. The synthetic four-minute song made a 1 600-note chart in 8.7 s with `lowMemory` off
+  (prepare 6.5 s, peak 1 930 MB resident) and 9.6 s with it on (prepare 7.6 s, peak 872 MB), the same `.osu` both
+  times and in the determinism check's two fresh runs. The audio clock never went back over three minutes (timestamp
+  residual sd 0.09 ms, 0 underruns); once, the vsync thread's preferred presentation time went back by a frame,
+  which the check now counts apart (the playfield's own frame logs never went back, but repeated a presentation time
+  one to three times a minute). The checks build, not debuggable, took the runtime part of a frame from 1.2 ms to
+  0.5 ms at the median against the debug build on the same AVD, so frame pacing is judged on it. Every lifecycle
+  interruption paused the game on `ensomi-36-16k`; on `ensomi-36` the pause panel after Back was not found in time,
+  which then left Home without a new pause, so each interruption now starts from a game that plays.
+- **b3**, with those fixes: all 20 check runs on both AVDs passed (68 results, none not ok), the five interruptions
+  included. A real 105-second song made the same chart (one `.osu` SHA-256) on both AVDs, with `lowMemory` off and on,
+  and in the determinism runs. The Mac's connection dropped `ensomi-36`'s download at 75 of 120 MB; the script fell
+  back to Install from files through the real picker, as on a phone without Hugging Face. At 60 Hz the checks build met
+  the frame targets (under 0.5 % late, work p99 under 3 ms) at every lean on `ensomi-36-16k`, and the debug build did
+  not; the emulator's numbers decide nothing about the Redmi K80's 120 Hz.
+
 ## Pins the steps add
 
 All in `gradle/libs.versions.toml`, each chosen when its step starts: Jetpack DataStore 1.3.0 and

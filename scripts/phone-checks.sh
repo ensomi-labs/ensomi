@@ -235,7 +235,10 @@ done
 say "click tracks: $(ash ls $PUSHED/clicks | wc -l | tr -d ' '), songs:${SONGS:- none (the generation checks make a synthetic song)}"
 fi
 
-ash rm -rf "$RESULTS" >/dev/null
+# Any group of checks: the results of an earlier run on the phone go first (they were pulled then).
+SUITE=no
+for group in runtime model decode generation determinism audio frames lifecycle; do wanted $group && SUITE=yes; done
+[ "$SUITE" = yes ] && ash rm -rf "$RESULTS" >/dev/null
 FAILED=
 run_check() { # name, class, then am instrument -e pairs
   name=$1; class=$2; shift 2
@@ -296,6 +299,8 @@ if wanted manual; then
   mkdir -p "$OUT/manual"
   for file in clock-log.csv frame-log.csv touch-log.csv settings.json library.json; do
     ash run-as $PKG cat files/$file >"$OUT/manual/$file"
+    # A file the app has not written (no game yet) is left out rather than kept as an error message.
+    if grep -q -E 'No such file|run-as:' "$OUT/manual/$file"; then rm -f "$OUT/manual/$file"; fi
   done
   adb logcat -d -v threadtime -s Ensomi:I EnsomiPlay:I EnsomiAudio:I EnsomiPlayfield:I EnsomiCalibration:I \
     EnsomiCharts:I EnsomiModel:I EnsomiModelInstall:I EnsomiDiagnostics:I EnsomiDecodeCheck:I >"$OUT/manual/logcat.txt" 2>&1
@@ -303,7 +308,9 @@ if wanted manual; then
 fi
 
 step "Collecting"
-adb pull "$RESULTS" "$OUT/results" >>"$LOG" 2>&1 || say "  no result files on the phone"
+if [ "$SUITE" = yes ]; then
+  adb pull "$RESULTS" "$OUT/results" >>"$LOG" 2>&1 || say "  no result files on the phone"
+fi
 adb shell am force-stop $PKG
 cp "$0" "$OUT/" 2>/dev/null
 if [ -f "$OUT/results/results.jsonl" ]; then
@@ -311,9 +318,10 @@ if [ -f "$OUT/results/results.jsonl" ]; then
   bad=$(wc -l <"$OUT/not-ok.jsonl" | tr -d ' ')
   total=$(wc -l <"$OUT/results/results.jsonl" | tr -d ' ')
   say "$total results, $bad not ok${FAILED:+; did not pass:$FAILED}"
-else
+elif [ "$SUITE" = yes ]; then
   say "no results.jsonl was pulled${FAILED:+; did not pass:$FAILED}"
 fi
-(cd "$OUT_PARENT" && tar -czf "$NAME.tar.gz" "$NAME") || die "could not pack $OUT"
+# COPYFILE_DISABLE keeps macOS tar from adding ._ metadata files.
+(cd "$OUT_PARENT" && COPYFILE_DISABLE=1 tar -czf "$NAME.tar.gz" "$NAME") || die "could not pack $OUT"
 say ""
 say "Done. Send back this file: $OUT_PARENT/$NAME.tar.gz"

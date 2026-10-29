@@ -8,6 +8,7 @@
 # ./gradlew assembleDebug assembleDebugAndroidTest assembleChecks); clicks/ from make-click-tracks.sh; songs/ with the
 # SONG files given (full-length songs the team may share); and model/ensomi-r2/, the R2 package at the pinned tag,
 # every file checked against the manifest and the manifest against the app's pin. Zip KIT_DIR and hand it over.
+# curl honours HTTPS_PROXY: set it where the network needs a proxy to reach huggingface.co.
 set -eu
 KIT=${1:?usage: scripts/make-phone-kit.sh KIT_DIR [SONG...]}
 shift
