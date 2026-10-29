@@ -79,6 +79,16 @@ object PhoneCheck {
         return ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes().decodeToString() }
     }
 
+    /** Now, as logcat's `-T` takes a start time: seconds since the epoch with milliseconds. */
+    fun logcatNow(): String {
+        val ms = System.currentTimeMillis()
+        return String.format(Locale.ROOT, "%d.%03d", ms / 1000, ms % 1000)
+    }
+
+    /** The raw lines logged under [tags] (`Tag:I` each) since [since] ([logcatNow]), without clearing the log. */
+    fun logcatSince(since: String, vararg tags: String): List<String> =
+        shell("logcat -d -v raw -T $since -s ${tags.joinToString(" ")}").lines()
+
     /** The files the script pushed into [dir] (names without spaces), sorted; empty when there are none. */
     fun pushedFiles(dir: String): List<String> =
         shell("ls -1 $dir").lines().map { it.trim() }

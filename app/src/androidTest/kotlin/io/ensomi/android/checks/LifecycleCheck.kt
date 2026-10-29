@@ -37,12 +37,12 @@ class LifecycleCheck {
             device.wait(Until.hasObject(By.pkg(context.packageName).depth(0)), PANEL_WAIT_MS)
             Thread.sleep(START_MS)
             for ((name, trigger) in triggers()) {
-                PhoneCheck.shell("logcat -c")
+                val since = PhoneCheck.logcatNow()
                 val started = System.nanoTime()
                 trigger()
                 bringBack()
                 val panel = device.wait(Until.hasObject(By.text(resume)), PANEL_WAIT_MS) == true
-                val causes = PhoneCheck.shell("logcat -d -v raw -s EnsomiPlay:I").lines()
+                val causes = PhoneCheck.logcatSince(since, "EnsomiPlay:I")
                     .filter { it.startsWith("Paused:") }
                     .map { it.removePrefix("Paused:").trim() }
                 val result = linkedMapOf<String, Any?>(

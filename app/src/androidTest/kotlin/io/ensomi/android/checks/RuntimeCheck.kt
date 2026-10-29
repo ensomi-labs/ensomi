@@ -18,9 +18,10 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
+import org.junit.FixMethodOrder
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.runners.MethodSorters
 
 /**
  * The runtime on the phone without a model: its native library loads through the AAR's Kotlin API, the calls that need
@@ -28,6 +29,8 @@ import org.junit.runner.RunWith
  * call per frame").
  */
 @RunWith(AndroidJUnit4::class)
+// By name: the load comes first, so its time is the native library's first load in this process.
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class RuntimeCheck {
     @Test
     fun loadsAndAnswersWithoutAModel() = runBlocking {

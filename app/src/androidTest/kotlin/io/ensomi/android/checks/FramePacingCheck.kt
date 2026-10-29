@@ -45,11 +45,12 @@ class FramePacingCheck {
         val context = PhoneCheck.context
         val log = File(context.filesDir, FRAME_LOG)
         log.delete()
-        PhoneCheck.shell("logcat -c")
+        val since = PhoneCheck.logcatNow()
         val thermalBefore = PhoneCheck.thermal()
         val intent = Intent(context, MainActivity::class.java).putExtra("prototype", name)
         val rates = mutableListOf<Double>()
         var modes = emptyList<String>()
+        var logLines = emptyList<String>()
         ActivityScenario.launch<MainActivity>(intent).use { scenario ->
             Thread.sleep(SETTLE_MS)
             // A system prompt about full screen would hold the game's lead-in: it is dismissed where it shows.
@@ -63,6 +64,8 @@ class FramePacingCheck {
                 }
                 Thread.sleep(minOf(SAMPLE_MS, maxOf(0L, (until - System.nanoTime()) / 1_000_000)))
             }
+            // Read while the game still runs, so the pause of closing it is not among them.
+            logLines = PhoneCheck.logcatSince(since, "EnsomiPlayfield:I", "EnsomiPlay:I")
         }
         // The playfield writes its record off the main thread once it is detached.
         val deadline = System.currentTimeMillis() + 15_000
@@ -73,7 +76,6 @@ class FramePacingCheck {
             lastSize = size
             Thread.sleep(300)
         }
-        val logLines = PhoneCheck.shell("logcat -d -v raw -s EnsomiPlayfield:I EnsomiPlay:I").lines()
         val asked = logLines.firstOrNull { it.startsWith("Frame rate:") }
         val pauses = logLines.filter { it.startsWith("Paused:") }
         val stats = logLines.filter { it.startsWith("fps=") }
