@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Records a Perfetto trace of whatever plays on the one booted emulator or device: SurfaceFlinger's FrameTimeline
 # (each frame's expected and actual presentation and its jank, per layer), the graphics and view atrace categories,
-# and the app's own trace sections (EnsomiFrame, EnsomiRuntime, EnsomiDraw on the render thread). Start the game
-# first; the trace covers the next SECONDS.
+# the scheduler, and the app's own trace sections (EnsomiFrame, EnsomiRuntime, EnsomiDraw on the render thread). Start
+# the game first; the trace covers the next SECONDS.
+#
+# FrameTimeline lists the frames that carry a vsync id: the app window's (the HUD, the pause panel). The playfield's
+# SurfaceView frames, drawn with lockHardwareCanvas, carry none, so their pacing is the render thread's sections here
+# and its own log (EnsomiPlayfield: missed vsyncs, frames past their deadline).
 #
 #   scripts/capture-frame-timeline.sh OUT_DIR NAME [SECONDS]
 #
@@ -31,10 +35,19 @@ data_sources {
       atrace_categories: "view"
       atrace_categories: "input"
       atrace_apps: "$PKG"
+      ftrace_events: "sched/sched_switch"
+      ftrace_events: "task/task_newtask"
+      ftrace_events: "task/task_rename"
     }
   }
 }
-data_sources { config { name: "linux.process_stats" target_buffer: 1 } }
+data_sources {
+  config {
+    name: "linux.process_stats"
+    target_buffer: 1
+    process_stats_config { scan_all_processes_on_start: true }
+  }
+}
 duration_ms: $((SECONDS_TO_TRACE * 1000))
 EOF
 )
@@ -44,16 +57,17 @@ adb pull "$DEVICE_TRACE" "$OUT/$NAME.pftrace" >/dev/null
 adb shell rm -f "$DEVICE_TRACE"
 echo "$NAME.pftrace"
 
-# The app's frames on its playfield layer (the SurfaceView's), by jank type, and how long they took against the
-# frame interval; then the render thread's own sections.
+# The app's frames by layer and jank type, and how long they took; then the render thread's own sections (by name, in
+# the app's process, so they are found even if a thread's name was not recorded).
 QUERIES=$(cat <<'EOF'
 SELECT a.layer_name, a.jank_type, COUNT(*) AS frames, ROUND(AVG(a.dur) / 1e6, 2) AS avg_ms, ROUND(MAX(a.dur) / 1e6, 2) AS max_ms
 FROM actual_frame_timeline_slice a JOIN process p USING (upid)
 WHERE p.name = 'io.ensomi.android'
 GROUP BY a.layer_name, a.jank_type ORDER BY a.layer_name, frames DESC;
-SELECT s.name, COUNT(*) AS slices, ROUND(AVG(s.dur) / 1e6, 3) AS avg_ms, ROUND(MAX(s.dur) / 1e6, 3) AS max_ms
-FROM slice s JOIN thread_track tt ON s.track_id = tt.id JOIN thread t USING (utid)
-WHERE t.name = 'EnsomiPlayfield' AND s.name IN ('EnsomiFrame', 'EnsomiRuntime', 'EnsomiDraw')
+SELECT s.name, COUNT(*) AS slices, ROUND(AVG(s.dur) / 1e6, 3) AS avg_ms,
+  ROUND(MAX(s.dur) / 1e6, 3) AS max_ms, SUM(s.dur > 3e6) AS over_3ms
+FROM slice s
+WHERE s.name IN ('EnsomiFrame', 'EnsomiRuntime', 'EnsomiDraw')
 GROUP BY s.name;
 EOF
 )

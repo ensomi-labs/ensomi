@@ -284,9 +284,12 @@ private fun SoundStep(
             style = MaterialTheme.typography.bodySmall,
             color = Brand.MutedText,
         )
+        val suggestedLabel = stringResource(R.string.calibration_suggested)
+        val suggestedSpoken = suggestion?.let(PlaySettings::formatOffset) ?: stringResource(R.string.calibration_no_suggestion_spoken)
         Row(verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.calibration_suggested), style = MaterialTheme.typography.labelLarge, color = Brand.Lavender)
+            // Read as one: "Suggested audio offset, +8 ms", or "…, none yet" rather than a dash.
+            Column(Modifier.weight(1f).clearAndSetSemantics { contentDescription = "$suggestedLabel, $suggestedSpoken" }) {
+                Text(suggestedLabel, style = MaterialTheme.typography.labelLarge, color = Brand.Lavender)
                 Text(
                     suggestion?.let(PlaySettings::formatOffset) ?: stringResource(R.string.calibration_no_suggestion),
                     style = MaterialTheme.typography.displaySmall.copy(fontFeatureSettings = "tnum"),
@@ -355,14 +358,17 @@ private fun SoundStep(
             )
         }
     }
-    // Wider than tall: the pad beside the readings, so it keeps its size in landscape.
+    // Wider than tall: the pad beside the readings, so it keeps its size in landscape, with the actions under it, so
+    // they stay on screen however long the readings are.
     if (wide) {
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 info()
+            }
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                pad(Modifier.fillMaxWidth().weight(1f))
                 actions()
             }
-            pad(Modifier.weight(1f).fillMaxHeight().padding(bottom = 12.dp))
         }
     } else {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

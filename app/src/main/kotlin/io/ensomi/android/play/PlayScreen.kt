@@ -633,7 +633,11 @@ private fun TalkBackNotice(onStart: () -> Unit, onBack: () -> Unit) {
                     stringResource(R.string.play_talkback_title),
                     style = MaterialTheme.typography.headlineSmall,
                     color = Brand.Text,
-                    modifier = Modifier.semantics { heading() },
+                    // Announced as it appears, so TalkBack does not start on the playfield behind it.
+                    modifier = Modifier.semantics {
+                        heading()
+                        liveRegion = LiveRegionMode.Assertive
+                    },
                 )
                 Text(stringResource(R.string.play_talkback_body), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
                 ActionButton(

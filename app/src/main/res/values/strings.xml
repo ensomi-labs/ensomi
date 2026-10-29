@@ -290,6 +290,7 @@
     <string name="calibration_picture_help">The clicks go on, and a note falls onto the line with each one. Move the slider until the notes cross the line on the click. No tapping.</string>
     <string name="calibration_done">Done</string>
     <string name="calibration_no_suggestion">—</string>
+    <string name="calibration_no_suggestion_spoken">none yet: tap on 16 clicks</string>
     <string name="calibration_apply_none">Use the suggestion</string>
     <string name="calibration_paused">Paused. Tap to go on.</string>
     <string name="calibration_pad_description">Tap pad. %1$s</string>

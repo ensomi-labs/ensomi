@@ -355,7 +355,11 @@ heads) for the output used, when it is at least 3 ms.
   presentation and work, written to `files/frame-log.csv` when the playfield closes. Each frame is a trace section
   (`EnsomiFrame`, holding `EnsomiRuntime` and `EnsomiDraw`), so `scripts/capture-frame-timeline.sh` shows the render
   thread's work beside SurfaceFlinger's frame timeline in one Perfetto trace. The refresh-rate request is logged with
-  the display's modes and the rate it runs at.
+  the display's modes and the rate it runs at. FrameTimeline lists only frames that carry a vsync id: the app window's
+  (HUD, panels) do; the playfield's SurfaceView frames, drawn with `lockHardwareCanvas`, carry none and are not in it
+  (seen on the AVD), so their pacing is the render thread's own log and sections, which count missed vsyncs and frames
+  past `FrameData`'s deadline. A GLES path that queues buffers through `ASurfaceTransaction` with Choreographer's vsync
+  id would bring them into FrameTimeline; that is not a reason on its own to leave the canvas.
 - **GLES only if the canvas misses frames**, and only a phone can say: the emulator has one 60 Hz vsync, draws on the
   Mac's GPU through its own translation and runs the runtime on the Mac's cores, so its frame cost says nothing about a
   phone's. The canvas stays until the phone measurements (plan step 9's phone check) show missed frames at 120 Hz.
