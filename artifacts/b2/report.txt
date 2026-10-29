@@ -1,0 +1,952 @@
+Ensomi Android phone-check run b2 — 2026-10-29/30 JST
+
+Outcome: build passes; both model-install routes work; the full collection scripts finish and pack archives. The 16 KB run has 34 results / 0 not ok, with all ten instrument invocations passing. The 4 KB run has 34 results / 4 not ok, with eight invocations passing and audio/lifecycle failing; no instrument invocations were skipped. The kit-making script is broken by its absent runbook. All source, scripts, docs and pinned versions remain unchanged.
+
+Left for implementation/review:
+- Supply docs/phone-checks.md so make-phone-kit.sh can finish without manual assembly.
+- Investigate the ensomi-36 audio failure: one backward preferred presentation timestamp and matching backward song-time sample; read time itself advanced.
+- Investigate lifecycle Back/Home failures: Back logged a pause but no panel was found, then Home found the panel without a new pause cause.
+- Assess pacing targets on hardware: only 2/8 measurements met the <3 ms p99 work / <0.5% late targets on ensomi-36-16k; 0/8 did on ensomi-36. All pacing assertions passed because they require recorded frames, not target compliance. These emulator measurements do not establish phone latency or 120 Hz performance.
+- The script exits 0 even when checks fail; use the instrument files and JSON summaries to judge the run.
+
+All evidence paths are relative to /Users/l/ensomi/ensomi--android-phone-checks-b2. Large binaries and raw run evidence remain under artifacts/b2. This report includes every requested JSON line, console output, APK/archive SHA-256, compiler/lint diagnostic and instrument failure.
+
+SETUP
+local.properties (ignored):
+sdk.dir=/Users/l/Library/Android/sdk
+ensomi.runtime.aar=/Users/l/ensomi/ensomi-runtime--android-aar/build/android/ensomi-runtime.aar
+JAVA_HOME=/Applications/Android Studio.app/Contents/jbr/Contents/Home
+Both AVDs booted separately with -no-window -gpu host -no-snapshot, retaining their existing data until the requested uninstall. No simultaneous AVDs during measurements. Gradle daemon stopped before AVD work. Captures use the debug APK restored by the collector.
+
+
+
+Ensomi Android phone checks — b2
+Source commit: 31f52760bc7e546c33c3bbd47f56221e9c0083fa
+Branch: codex/android-phone-checks-b2
+
+BUILD
+Command: JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint
+BUILD SUCCESSFUL in 1m 5s; 125 actionable tasks executed; exit 0.
+assembleDebug: PASS
+assembleDebugAndroidTest: PASS
+assembleChecks: PASS
+testDebugUnitTest: PASS (121 tests; 0 failures/errors/skips)
+lint: PASS (0 errors; 2 warnings)
+
+Kotlin diagnostics under app/src (no errors; all warnings):
+w: file:///Users/l/ensomi/ensomi--android-phone-checks-b2/app/src/androidTest/kotlin/io/ensomi/android/checks/AppPathGeneration.kt:44:23 Redundant creation of Json format. Creating instances for each use can be slow.
+w: file:///Users/l/ensomi/ensomi--android-phone-checks-b2/app/src/androidTest/kotlin/io/ensomi/android/checks/PhoneCheck.kt:54:33 'val externalMediaDirs: Array<(out) File!>!' is deprecated. Deprecated in Java.
+
+Unignored lint findings:
+/Users/l/ensomi/ensomi--android-phone-checks-b2/gradle/libs.versions.toml:4: Warning: A newer version of com.android.application than 9.4.1 is available: 9.5.0 [AndroidGradlePluginVersion]
+agp = "9.4.1"
+      ~~~~~~~
+
+   Explanation for issues of type "AndroidGradlePluginVersion":
+   This detector looks for usage of the Android Gradle Plugin where the
+   version you are using is not the current stable release. Using older
+   versions is fine, and there are cases where you deliberately want to stick
+   with an older version. However, you may simply not be aware that a more
+   recent version is available, and that is what this lint check helps find.
+
+/Users/l/ensomi/ensomi--android-phone-checks-b2/gradle/libs.versions.toml:24: Warning: A newer version of androidx.test.uiautomator:uiautomator than 2.3.0 is available: 2.4.0 [GradleDependency]
+uiautomator = "2.3.0"
+              ~~~~~~~
+
+   Explanation for issues of type "GradleDependency":
+   This detector looks for usages of libraries where the version you are using
+   is not the current stable release. Using older versions is fine, and there
+   are cases where you deliberately want to stick with an older version.
+   However, you may simply not be aware that a more recent version is
+   available, and that is what this lint check helps find.
+
+0 errors, 2 warnings
+
+Judgment: dependency update notices only; preserve pinned versions per build-only scope. app/lint.xml unchanged (OldTargetApi and ChromeOsAbiSupport ignored).
+
+Other build messages: libjnidispatch.so could not be stripped and was packaged as-is in debug and checks. Deprecated Gradle features are incompatible with Gradle 10 (current wrapper 9.8.2). Full log: artifacts/b2/build.log; Gradle problem report: artifacts/b2/gradle-problems-report.html.
+
+APK SHA-256
+c7d5189802ff69b97c2753595d821b0f9abb9965ade4a9d6e6c3db1c4a640c4b  artifacts/b2/apk/app-checks.apk
+00a59186a40ea4007758a4a3a22707a5171efb34ff0c39fedc2b053811dfdfbe  artifacts/b2/apk/app-debug-androidTest.apk
+fa6bfda8878d04da25b94151f6b272a35b5640b2392fe895be092bfe799ea9ec  artifacts/b2/apk/app-debug.apk
+
+KIT
+Command: scripts/make-phone-kit.sh artifacts/b2/kit
+Exit 1. Complete console output:
+cp: /Users/l/ensomi/ensomi--android-phone-checks-b2/docs/phone-checks.md: No such file or directory
+
+Recovery and setup:
+Source: 31f52760bc7e546c33c3bbd47f56221e9c0083fa; branch codex/android-phone-checks-b2.
+Initial artifacts symlink targeted /Users/l/ensomi/ensomi/artifacts. Replaced this worktree symlink with a directory and moved only this run b2 into it; prior evidence remains in shared directory.
+Earlier Android artifact song mosaic.mp3 is 104.724898 s (ffprobe); no eligible >=180 s prior Android song found. No SONG passed; suite will synthesize 240 s.
+make-phone-kit.sh failed (exit 1) at missing docs/phone-checks.md. No source, script or documentation edited. Manually fetched manifest r2-1.0.1 and its files, checked manifest pin plus each file size/SHA-256, copied built APKs, invoked unmodified make-click-tracks.sh. Kit collection script remains byte-identical to source. Missing runbook remains a kit defect.
+ensomi-36-16k launched: /Users/l/Library/Android/sdk/emulator/emulator -avd ensomi-36-16k -no-window -gpu host -no-snapshot
+Waited for sys.boot_completed=1. getconf PAGE_SIZE => 16384. pm list packages io.ensomi.android => package:io.ensomi.android. adb uninstall io.ensomi.android => Success.
+
+
+EMULATOR ensomi-36-16k
+Command: sh artifacts/b2/kit/phone-checks.sh -k artifacts/b2/kit -o artifacts/b2/runs/ensomi-36-16k
+Collector exit 0. No emulator input/interference from start to completion.
+
+Complete console output:
+Results go to artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323
+
+== Device facts
+ro.product.model=sdk_gphone16k_arm64
+ro.product.device=emu64a16k
+ro.soc.model=ranchu
+ro.build.fingerprint=google/sdk_gphone16k_arm64/emu64a16k:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+ro.build.version.release=16
+ro.mi.os.version.incremental=
+ro.vendor.build.fingerprint=google/sdk_gphone16k_arm64/emu64a16k:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+
+== Installing
+Installing the app (debug build). Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+Installing its checks. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+
+== Chart model
+Downloading the model from Hugging Face in the app (120 MB). Keep the phone unlocked.
+  still waiting (1 min)
+  still waiting (2 min)
+  still waiting (3 min)
+  still waiting (4 min)
+Downloaded and installed from Hugging Face.
+
+== Test data
+click tracks: 9, songs: none (the generation checks make a synthetic song)
+
+== Checks
+  runtime
+    passed
+  model
+    passed
+  decode
+    passed
+  generation-synthetic-lowmemory-off
+    passed
+  generation-synthetic-lowmemory-on
+    passed
+  determinism
+    passed
+  (the audio check plays quiet clicks for three minutes: leave the phone alone; its output is recorded)
+  audio
+    passed
+  frames-debug
+    passed
+Installing the checks build (not debuggable) for frame pacing. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  frames-checks-build
+    passed
+Installing the debug build again. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  (the lifecycle check presses Home, Recents and the power key by itself: leave the phone alone)
+  lifecycle
+    passed
+
+== Collecting
+34 results, 0 not ok
+
+Done. Send back this file: artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323.tar.gz
+
+Archive: artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323.tar.gz
+SHA-256: 6e3cff8cf1b3a6611d7189d4873c470a40976d96960369a59b96fd68d021a79b
+Archive contents checked against the extracted model-install.txt and results.jsonl; identical.
+
+model-install.txt (verbatim):
+{"source":"huggingface","result":"started","seconds":0.0,"pinnedRevision":"r2-1.0.1"}
+{"source":"huggingface","result":"installed","seconds":290.32,"pinnedRevision":"r2-1.0.1","revision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","files":30,"bytes":120377244}
+path=huggingface
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","source":"huggingface"}
+
+Instrument files:
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-audio.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-decode.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-determinism.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-frames-checks-build.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-frames-debug.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-generation-synthetic-lowmemory-off.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-generation-synthetic-lowmemory-on.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-lifecycle.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-model.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261029-234323/instrument-runtime.txt: PASS; no failure message
+
+Every line of results/results.jsonl, quoted verbatim:
+
+> {"check":"runtime-call-cost","debuggable":true,"frames":27200,"visibleMax":18,"advanceUs":33.0,"visibleObjectsUs":35.5,"noteGeometryUsEach":39.3,"feedbackUs":214.6,"scoreUs":33.7,"frameMeanMs":0.68,"frameMsP50":0.577,"frameMsP99":1.999,"frameMsMax":177.617,"underOneMsPerFrameAtP99":false,"ok":true}
+
+> {"check":"uniffi-checksums","debuggable":true,"contractVersion":30,"checksums":52,"rawWithHighBits":0,"atLeast0x8000":26,"stableAcrossCalls":true,"low16Sha256":"3c85aeaba1cb97e5a66ffee0829e18b9071a1a8309a5fe1fddf64e0c19d90729","file":"uniffi-checksums.txt","ok":true}
+
+> {"check":"runtime-load","debuggable":true,"loaded":true,"initMs":0.0,"noticeFiles":[],"packageCheck":"Model: ensomi-package.json: format null; this runtime reads ensomi-package/1","missingModelOpen":"refused: runtime.json: No such file or directory (os error 2)","error":null,"ok":true}
+
+> {"check":"model-install-from-files","debuggable":true,"seconds":0.36,"MBps":331.1,"notPinned":"NotPinned(sha256=4956057baaaff453adc91d45d566855aa28fe82b17a635ea31ecdc59842b05f5)","interrupted":"Unreadable(detail=The provider went away.)","mismatch":"Mismatch(path=runtime.json)","ok":true}
+
+> {"check":"model-installed","debuggable":true,"installed":true}
+
+> {"check":"model-integrity","debuggable":true,"model":"Ensomi R2 r2-1.0","revision":"r2-1.0.1","source":"huggingface","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","pinned":true,"files":30,"bytes":120377244,"filesNotMatching":[],"hashSeconds":0.04,"hashMBps":2736.0,"openMs":283.5,"starRange":[2.0,6.0],"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-48k.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288000,"durationMs":6000.0,"firstClickMs":1000.083,"expectedMs":1000.083,"errorMs":0.0,"stereoEqualsMono":true,"decodeMs":77.8,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-lame.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":151.2,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-noxing.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"None","leadFrames":529,"frames":266641,"durationMs":6046.28,"firstClickMs":1025.147,"expectedMs":1025.14,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":119.5,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-vbr.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":117.3,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.flac","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":54.3,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.m4a","mime":"audio/mp4a-latm","codec":"c2.android.aac.decoder","sampleRate":44100,"header":null,"leadFrames":-1024,"frames":265216,"durationMs":6013.97,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":163.9,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.ogg","mime":"audio/vorbis","codec":"c2.android.vorbis.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264640,"durationMs":6000.91,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":141.7,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.opus","mime":"audio/opus","codec":"c2.android.opus.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288648,"durationMs":6013.5,"firstClickMs":1000.104,"expectedMs":1000.083,"errorMs":0.021,"stereoEqualsMono":true,"decodeMs":150.7,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":42.2,"ok":true}
+
+> {"check":"decode-clicks","debuggable":true,"files":9,"wrong":[],"toleranceMs":0.5,"ok":true}
+
+> {"check":"generation","debuggable":true,"song":"synthetic-240s.wav","synthetic":true,"songBytes":42336044,"songSha256":"2ab7e06e34de953f9e0f0ef1bb13991e332b04e4842ccbec9613aec182ea7b17","lowMemory":false,"lowMemoryArg":"off","deviceChoosesLowMemory":true,"totalMemGiB":5.86,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1600,"holds":92,"modelOpenMs":342.2,"decodeSeconds":1.01,"prepareSeconds":6.54,"chartSeconds":1.12,"totalSeconds":8.68,"rssBeforeMB":338.7,"peakRssMB":1930.1,"peakRssByPhaseMB":{"loading":374.3,"timing":1930.1,"rows":590.8},"minAvailMB":1636.2,"systemLowMemorySeen":false,"osuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+
+> {"check":"generation","debuggable":true,"song":"synthetic-240s.wav","synthetic":true,"songBytes":42336044,"songSha256":"2ab7e06e34de953f9e0f0ef1bb13991e332b04e4842ccbec9613aec182ea7b17","lowMemory":true,"lowMemoryArg":"on","deviceChoosesLowMemory":true,"totalMemGiB":5.86,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1600,"holds":92,"modelOpenMs":317.9,"decodeSeconds":1.02,"prepareSeconds":7.56,"chartSeconds":1.05,"totalSeconds":9.63,"rssBeforeMB":336.5,"peakRssMB":872.0,"peakRssByPhaseMB":{"loading":364.8,"timing":872.0,"rows":583.5},"minAvailMB":2571.9,"systemLowMemorySeen":false,"osuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+
+> {"check":"determinism","debuggable":true,"song":"synthetic-240s.wav","synthetic":true,"songSha256":"2ab7e06e34de953f9e0f0ef1bb13991e332b04e4842ccbec9613aec182ea7b17","modelRevision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","lowMemory":true,"stars":4.0,"seed":"20261029","firstOsuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","secondOsuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","notes":1600,"firstSeconds":9.63,"secondSeconds":9.87,"same":true,"ok":true}
+
+> {"check":"audio-clock","debuggable":true,"seconds":180,"routes":["speaker/sdk_gphone16k_arm64","speaker/sdk_gphone16k_arm64"],"sampleRate":44100,"outputSampleRate":"48000","outputFramesPerBuffer":"1088","queuedMs":400,"underruns":0,"clockReads":298,"clockStepsBackHeld":68,"frames":10799,"frameRateHz":60.0,"songTimeStepsBack":0,"songTimeWorstBackMs":0.0,"pictureStepSdMs":0.002,"pictureStepWorstMs":0.038,"pictureStepGood":true,"firstNewSongTimeAfterResumeMs":69.2,"timestamps":7896,"timestampPositionsBack":0,"timestampGapMsP50":22.66,"timestampGapMsMax":50.25,"timestampAheadOfReadMsP50":-8.06,"fitResidualSdMs":0.092,"fitMaxResidualMs":5.622,"driftPpm":[0.0,0.0],"smoothnessGood":true,"files":["audio-clock-frames.csv","audio-clock-timestamps.csv"],"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3703,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":3,"missedPct":0.08,"lateFrames":3,"latePct":0.08,"workMsP50":2.698,"workMsP99":5.268,"workMsMax":31.791,"runtimeMsP50":1.452,"runtimeMsP99":3.238,"runtimeMsMax":31.019,"drawMsP50":1.093,"drawMsP99":3.683,"drawMsMax":21.746,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.44ms runtime_max=4.28ms draw_avg=1.22ms draw_max=3.34ms work_p50=2.59ms work_p99=5.16ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.17ms runtime_max=3.02ms draw_avg=1.00ms draw_max=3.12ms work_p50=2.33ms work_p99=3.91ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.32ms runtime_max=3.20ms draw_avg=1.25ms draw_max=2.56ms work_p50=2.56ms work_p99=4.12ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3702,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":0,"latePct":0.0,"workMsP50":2.523,"workMsP99":5.016,"workMsMax":11.534,"runtimeMsP50":1.347,"runtimeMsP99":2.968,"runtimeMsMax":4.159,"drawMsP50":1.018,"drawMsP99":3.688,"drawMsMax":10.5,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.30ms runtime_max=2.97ms draw_avg=1.17ms draw_max=3.41ms work_p50=2.53ms work_p99=4.20ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.41ms runtime_max=2.83ms draw_avg=1.18ms draw_max=3.93ms work_p50=2.48ms work_p99=4.65ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.80ms runtime_max=3.47ms draw_avg=0.54ms draw_max=5.23ms work_p50=2.36ms work_p99=3.89ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3699,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"workMsP50":2.342,"workMsP99":4.048,"workMsMax":6.417,"runtimeMsP50":1.32,"runtimeMsP99":2.943,"runtimeMsMax":5.031,"drawMsP50":0.925,"drawMsP99":1.832,"drawMsMax":3.52,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.30ms runtime_max=2.88ms draw_avg=1.02ms draw_max=2.12ms work_p50=2.28ms work_p99=3.95ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.25ms runtime_max=3.38ms draw_avg=0.94ms draw_max=2.19ms work_p50=2.08ms work_p99=3.83ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.93ms runtime_max=3.32ms draw_avg=0.60ms draw_max=1.29ms work_p50=2.45ms work_p99=3.77ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3696,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"workMsP50":2.159,"workMsP99":3.872,"workMsMax":5.911,"runtimeMsP50":1.221,"runtimeMsP99":2.895,"runtimeMsMax":4.219,"drawMsP50":0.845,"drawMsP99":1.802,"drawMsMax":3.132,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.21ms runtime_max=2.58ms draw_avg=0.93ms draw_max=1.68ms work_p50=2.00ms work_p99=3.52ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.18ms runtime_max=2.45ms draw_avg=0.86ms draw_max=2.22ms work_p50=1.98ms work_p99=3.63ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.98ms runtime_max=4.22ms draw_avg=0.48ms draw_max=1.99ms work_p50=2.41ms work_p99=4.09ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3700,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"workMsP50":2.036,"workMsP99":5.472,"workMsMax":29.35,"runtimeMsP50":0.558,"runtimeMsP99":1.965,"runtimeMsMax":5.359,"drawMsP50":1.359,"drawMsP99":4.793,"drawMsMax":29.157,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.48ms runtime_max=2.14ms draw_avg=1.54ms draw_max=8.67ms work_p50=1.97ms work_p99=5.18ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.54ms runtime_max=1.87ms draw_avg=1.64ms draw_max=6.13ms work_p50=1.98ms work_p99=5.22ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.59ms runtime_max=1.39ms draw_avg=1.88ms draw_max=8.22ms work_p50=2.41ms work_p99=3.59ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-checks-build.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3708,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":0,"latePct":0.0,"workMsP50":1.971,"workMsP99":5.636,"workMsMax":9.945,"runtimeMsP50":0.522,"runtimeMsP99":1.501,"runtimeMsMax":2.696,"drawMsP50":1.375,"drawMsP99":4.933,"drawMsMax":9.399,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.51ms runtime_max=2.05ms draw_avg=1.59ms draw_max=9.40ms work_p50=1.87ms work_p99=5.36ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.52ms runtime_max=1.73ms draw_avg=1.48ms draw_max=6.30ms work_p50=1.81ms work_p99=4.86ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.62ms runtime_max=1.62ms draw_avg=1.74ms draw_max=5.25ms work_p50=2.27ms work_p99=3.74ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-checks-build.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3709,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"workMsP50":1.428,"workMsP99":2.827,"workMsMax":5.416,"runtimeMsP50":0.538,"runtimeMsP99":1.611,"runtimeMsMax":3.87,"drawMsP50":0.845,"drawMsP99":1.858,"drawMsMax":4.17,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.58ms runtime_max=1.52ms draw_avg=0.98ms draw_max=2.16ms work_p50=1.51ms work_p99=2.63ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.56ms runtime_max=1.88ms draw_avg=0.86ms draw_max=3.66ms work_p50=1.38ms work_p99=2.98ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.61ms runtime_max=1.58ms draw_avg=0.83ms draw_max=2.36ms work_p50=1.34ms work_p99=2.69ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-checks-build.csv","meetsTarget":true,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3697,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":0,"latePct":0.0,"workMsP50":1.296,"workMsP99":2.652,"workMsMax":4.994,"runtimeMsP50":0.496,"runtimeMsP99":1.524,"runtimeMsMax":3.121,"drawMsP50":0.772,"drawMsP99":1.774,"drawMsMax":4.215,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.53ms runtime_max=2.51ms draw_avg=0.82ms draw_max=1.78ms work_p50=1.36ms work_p99=2.29ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.46ms runtime_max=1.79ms draw_avg=0.72ms draw_max=1.45ms work_p50=1.17ms work_p99=2.13ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.58ms runtime_max=1.43ms draw_avg=0.79ms draw_max=4.21ms work_p50=1.27ms work_p99=2.31ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-checks-build.csv","meetsTarget":true,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"back","causes":["Back"],"panelShown":true,"seconds":6.3,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"home","causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":4.0,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"recents","causes":["another window took focus"],"panelShown":true,"seconds":3.9,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"notification-shade","causes":["another window took focus"],"panelShown":true,"seconds":4.1,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"screen-off","causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":3.7,"ok":true}
+
+> {"check":"lifecycle","debuggable":true,"triggers":5,"failed":[],"ok":true}
+
+
+Frame target assessment (assertion pass only requires recorded frames):
+
+pacing-flat, debuggable=True: fps=60.0, latePct=0.08, workMsP99=5.268, meetsTarget=False
+
+pacing, debuggable=True: fps=60.0, latePct=0.0, workMsP99=5.016, meetsTarget=False
+
+pacing-lean-max, debuggable=True: fps=60.0, latePct=0.0, workMsP99=4.048, meetsTarget=False
+
+pacing-portrait, debuggable=True: fps=60.0, latePct=0.0, workMsP99=3.872, meetsTarget=False
+
+pacing-flat, debuggable=False: fps=60.0, latePct=0.03, workMsP99=5.472, meetsTarget=False
+
+pacing, debuggable=False: fps=60.0, latePct=0.0, workMsP99=5.636, meetsTarget=False
+
+pacing-lean-max, debuggable=False: fps=60.0, latePct=0.03, workMsP99=2.827, meetsTarget=True
+
+pacing-portrait, debuggable=False: fps=60.0, latePct=0.0, workMsP99=2.652, meetsTarget=True
+
+
+EMULATOR ensomi-36
+Command: sh artifacts/b2/kit/phone-checks.sh -k artifacts/b2/kit -o artifacts/b2/runs/ensomi-36
+Collector exit 0 despite audio/lifecycle failures. This exit code does not mean the checks passed.
+
+Existing install record, read before uninstall:
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb"}
+existing=6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb
+pinned=6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb
+match=True
+
+Offline preparation commands: adb uninstall io.ensomi.android; adb shell cmd connectivity airplane-mode enable; adb shell cmd connectivity airplane-mode; adb shell ping -c 1 huggingface.co
+Output:
+Success
+enabled
+PING huggingface.co (69.63.181.12) 56(84) bytes of data.
+64 bytes from 69.63.181.12: icmp_seq=0 ttl=255 time=5528161710115043 ms
+wrong data byte #16 should be 0x10 but was 0xac
+#16	ac d9 75 4 e0 6 1 bb 4 ea d7 e9 40 11 fc 7 c6 12 0 1 ac d9 75 4 e0 6 1 bb 4 ea d7 e9
+#48	30 31 32 33 34 35 36 37
+
+--- huggingface.co ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 5528161710115043.100/5528161710115043.100/5528161710115043.100/0.000 ms, pipe 2
+
+First ping unexpectedly received a malformed response immediately after airplane mode was enabled. Then ran adb shell ip route; adb shell settings get global airplane_mode_radios; adb shell settings get global wifi_on; adb shell svc wifi disable; adb shell svc data disable; adb shell ping -c 1 -W 3 huggingface.co. Output:
+cell,bluetooth,uwb,wifi,wimax
+3
+ping: unknown host huggingface.co
+
+Complete collector console output:
+Results go to artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249
+
+== Device facts
+ro.product.model=sdk_gphone64_arm64
+ro.product.device=emu64a
+ro.soc.model=ranchu
+ro.build.fingerprint=google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+ro.build.version.release=16
+ro.mi.os.version.incremental=
+ro.vendor.build.fingerprint=google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+
+== Installing
+Installing the app (debug build). Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+Installing its checks. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+
+== Chart model
+Downloading the model from Hugging Face in the app (120 MB). Keep the phone unlocked.
+The download from Hugging Face did not finish (stopped).
+  {"source":"huggingface","result":"stopped","seconds":0.0,"pinnedRevision":"r2-1.0.1","failure":"The connection was lost."}
+Copying the kit's model files to the phone's Download/ensomi-r2 folder.
+
+Now on the phone, in Ensomi: tap 'Install from files', open the Download folder, open 'ensomi-r2',
+tap 'Use this folder' and then 'Allow'. Ensomi copies and checks the files; this waits until it is done.
+  still waiting (1 min)
+Installed from files.
+
+== Test data
+click tracks: 9, songs: none (the generation checks make a synthetic song)
+
+== Checks
+  runtime
+    passed
+  model
+    passed
+  decode
+    passed
+  generation-synthetic-lowmemory-off
+    passed
+  generation-synthetic-lowmemory-on
+    passed
+  determinism
+    passed
+  (the audio check plays quiet clicks for three minutes: leave the phone alone; its output is recorded)
+  audio
+    did not pass: see instrument-audio.txt
+  frames-debug
+    passed
+Installing the checks build (not debuggable) for frame pacing. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  frames-checks-build
+    passed
+Installing the debug build again. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  (the lifecycle check presses Home, Recents and the power key by itself: leave the phone alone)
+  lifecycle
+    did not pass: see instrument-lifecycle.txt
+
+== Collecting
+34 results, 4 not ok; did not pass: audio lifecycle
+
+Done. Send back this file: artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249.tar.gz
+
+Archive: artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249.tar.gz
+SHA-256: a3a76e336baa2b63713d290cac577d665f69f472e93d7f4d7917c81c6345513e
+Archive model record and JSON results verified identical to collected files.
+
+model-install.txt (verbatim):
+{"source":"huggingface","result":"started","seconds":0.0,"pinnedRevision":"r2-1.0.1"}
+{"source":"huggingface","result":"stopped","seconds":0.0,"pinnedRevision":"r2-1.0.1","failure":"The connection was lost."}
+{"source":"files","result":"started","seconds":0.0,"pinnedRevision":"r2-1.0.1"}
+{"source":"files","result":"installed","seconds":0.82,"pinnedRevision":"r2-1.0.1","revision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","files":30,"bytes":120377244}
+path=files
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","source":"files"}
+
+Instrument files:
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-audio.txt: FAIL;
+Full failure output:
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.AudioClockCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+io.ensomi.android.checks.AudioClockCheck:
+INSTRUMENTATION_STATUS: test=theClockIsSmoothAndNeverGoesBack
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.AudioClockCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: Song time went back between frames expected:<0> but was:<1>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at io.ensomi.android.checks.AudioClockCheck.theClockIsSmoothAndNeverGoesBack(AudioClockCheck.kt:133)
+
+INSTRUMENTATION_STATUS: stream=
+Error in theClockIsSmoothAndNeverGoesBack(io.ensomi.android.checks.AudioClockCheck):
+java.lang.AssertionError: Song time went back between frames expected:<0> but was:<1>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at io.ensomi.android.checks.AudioClockCheck.theClockIsSmoothAndNeverGoesBack(AudioClockCheck.kt:133)
+
+INSTRUMENTATION_STATUS: test=theClockIsSmoothAndNeverGoesBack
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 180.253
+There was 1 failure:
+1) theClockIsSmoothAndNeverGoesBack(io.ensomi.android.checks.AudioClockCheck)
+java.lang.AssertionError: Song time went back between frames expected:<0> but was:<1>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at io.ensomi.android.checks.AudioClockCheck.theClockIsSmoothAndNeverGoesBack(AudioClockCheck.kt:133)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1
+
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-decode.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-determinism.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-frames-checks-build.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-frames-debug.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-generation-synthetic-lowmemory-off.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-generation-synthetic-lowmemory-on.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-lifecycle.txt: FAIL;
+Full failure output:
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.LifecycleCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+io.ensomi.android.checks.LifecycleCheck:
+INSTRUMENTATION_STATUS: test=theGamePausesOnEachInterruption
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.LifecycleCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: No pause, or no pause panel, after: [back, home]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at io.ensomi.android.checks.LifecycleCheck.theGamePausesOnEachInterruption(LifecycleCheck.kt:69)
+
+INSTRUMENTATION_STATUS: stream=
+Error in theGamePausesOnEachInterruption(io.ensomi.android.checks.LifecycleCheck):
+java.lang.AssertionError: No pause, or no pause panel, after: [back, home]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at io.ensomi.android.checks.LifecycleCheck.theGamePausesOnEachInterruption(LifecycleCheck.kt:69)
+
+INSTRUMENTATION_STATUS: test=theGamePausesOnEachInterruption
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 55.263
+There was 1 failure:
+1) theGamePausesOnEachInterruption(io.ensomi.android.checks.LifecycleCheck)
+java.lang.AssertionError: No pause, or no pause panel, after: [back, home]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at io.ensomi.android.checks.LifecycleCheck.theGamePausesOnEachInterruption(LifecycleCheck.kt:69)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1
+
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-model.txt: PASS; no failure message
+
+artifacts/b2/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-000249/instrument-runtime.txt: PASS; no failure message
+
+Every line of results/results.jsonl, quoted verbatim:
+
+> {"check":"runtime-call-cost","debuggable":true,"frames":27200,"visibleMax":18,"advanceUs":34.7,"visibleObjectsUs":37.7,"noteGeometryUsEach":40.8,"feedbackUs":234.3,"scoreUs":36.1,"frameMeanMs":0.719,"frameMsP50":0.617,"frameMsP99":2.165,"frameMsMax":186.508,"underOneMsPerFrameAtP99":false,"ok":true}
+
+> {"check":"uniffi-checksums","debuggable":true,"contractVersion":30,"checksums":52,"rawWithHighBits":0,"atLeast0x8000":26,"stableAcrossCalls":true,"low16Sha256":"3c85aeaba1cb97e5a66ffee0829e18b9071a1a8309a5fe1fddf64e0c19d90729","file":"uniffi-checksums.txt","ok":true}
+
+> {"check":"runtime-load","debuggable":true,"loaded":true,"initMs":0.0,"noticeFiles":[],"packageCheck":"Model: ensomi-package.json: format null; this runtime reads ensomi-package/1","missingModelOpen":"refused: runtime.json: No such file or directory (os error 2)","error":null,"ok":true}
+
+> {"check":"model-install-from-files","debuggable":true,"seconds":0.42,"MBps":287.1,"notPinned":"NotPinned(sha256=4956057baaaff453adc91d45d566855aa28fe82b17a635ea31ecdc59842b05f5)","interrupted":"Unreadable(detail=The provider went away.)","mismatch":"Mismatch(path=runtime.json)","ok":true}
+
+> {"check":"model-installed","debuggable":true,"installed":true}
+
+> {"check":"model-integrity","debuggable":true,"model":"Ensomi R2 r2-1.0","revision":"r2-1.0.1","source":"files","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","pinned":true,"files":30,"bytes":120377244,"filesNotMatching":[],"hashSeconds":0.05,"hashMBps":2359.6,"openMs":351.9,"starRange":[2.0,6.0],"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-48k.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288000,"durationMs":6000.0,"firstClickMs":1000.083,"expectedMs":1000.083,"errorMs":0.0,"stereoEqualsMono":true,"decodeMs":81.8,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-lame.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":156.7,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-noxing.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"None","leadFrames":529,"frames":266641,"durationMs":6046.28,"firstClickMs":1025.147,"expectedMs":1025.14,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":127.9,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click-vbr.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":123.8,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.flac","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":56.7,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.m4a","mime":"audio/mp4a-latm","codec":"c2.android.aac.decoder","sampleRate":44100,"header":null,"leadFrames":-1024,"frames":265216,"durationMs":6013.97,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":171.1,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.ogg","mime":"audio/vorbis","codec":"c2.android.vorbis.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264640,"durationMs":6000.91,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":147.9,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.opus","mime":"audio/opus","codec":"c2.android.opus.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288648,"durationMs":6013.5,"firstClickMs":1000.104,"expectedMs":1000.083,"errorMs":0.021,"stereoEqualsMono":true,"decodeMs":165.2,"ok":true}
+
+> {"check":"decode-click","debuggable":true,"file":"click.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":44.8,"ok":true}
+
+> {"check":"decode-clicks","debuggable":true,"files":9,"wrong":[],"toleranceMs":0.5,"ok":true}
+
+> {"check":"generation","debuggable":true,"song":"synthetic-240s.wav","synthetic":true,"songBytes":42336044,"songSha256":"2ab7e06e34de953f9e0f0ef1bb13991e332b04e4842ccbec9613aec182ea7b17","lowMemory":false,"lowMemoryArg":"off","deviceChoosesLowMemory":true,"totalMemGiB":5.79,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1600,"holds":92,"modelOpenMs":351.3,"decodeSeconds":1.07,"prepareSeconds":6.81,"chartSeconds":1.16,"totalSeconds":9.04,"rssBeforeMB":327.4,"peakRssMB":1919.9,"peakRssByPhaseMB":{"start":327.5,"loading":362.8,"timing":1919.9,"rows":580.7},"minAvailMB":2743.1,"systemLowMemorySeen":false,"osuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+
+> {"check":"generation","debuggable":true,"song":"synthetic-240s.wav","synthetic":true,"songBytes":42336044,"songSha256":"2ab7e06e34de953f9e0f0ef1bb13991e332b04e4842ccbec9613aec182ea7b17","lowMemory":true,"lowMemoryArg":"on","deviceChoosesLowMemory":true,"totalMemGiB":5.79,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1600,"holds":92,"modelOpenMs":365.5,"decodeSeconds":1.06,"prepareSeconds":10.04,"chartSeconds":1.16,"totalSeconds":12.26,"rssBeforeMB":327.2,"peakRssMB":1096.7,"peakRssByPhaseMB":{"loading":351.6,"timing":1096.7,"rows":565.9},"minAvailMB":3715.2,"systemLowMemorySeen":false,"osuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+
+> {"check":"determinism","debuggable":true,"song":"synthetic-240s.wav","synthetic":true,"songSha256":"2ab7e06e34de953f9e0f0ef1bb13991e332b04e4842ccbec9613aec182ea7b17","modelRevision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","lowMemory":true,"stars":4.0,"seed":"20261029","firstOsuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","secondOsuSha256":"ada863ec7648c482d6a1df95b1451f3e293d6ab7a1ff486b340ca855630e5ba3","notes":1600,"firstSeconds":12.56,"secondSeconds":12.68,"same":true,"ok":true}
+
+> {"check":"audio-clock","debuggable":true,"seconds":180,"routes":["speaker/sdk_gphone64_arm64","speaker/sdk_gphone64_arm64"],"sampleRate":44100,"outputSampleRate":"48000","outputFramesPerBuffer":"1088","queuedMs":400,"underruns":0,"clockReads":300,"clockStepsBackHeld":55,"frames":10794,"frameRateHz":60.0,"songTimeStepsBack":1,"songTimeWorstBackMs":16.667,"pictureStepSdMs":0.002,"pictureStepWorstMs":0.036,"pictureStepGood":true,"firstNewSongTimeAfterResumeMs":84.9,"timestamps":7959,"timestampPositionsBack":0,"timestampGapMsP50":22.68,"timestampGapMsMax":62.84,"timestampAheadOfReadMsP50":-7.85,"fitResidualSdMs":0.087,"fitMaxResidualMs":5.274,"driftPpm":[0.0,0.0],"smoothnessGood":true,"files":["audio-clock-frames.csv","audio-clock-timestamps.csv"],"ok":false}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3695,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":2,"missedPct":0.05,"lateFrames":2,"latePct":0.05,"workMsP50":2.741,"workMsP99":4.846,"workMsMax":27.371,"runtimeMsP50":1.518,"runtimeMsP99":3.397,"runtimeMsMax":24.59,"drawMsP50":1.151,"drawMsP99":3.081,"drawMsMax":25.166,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.59ms runtime_max=4.37ms draw_avg=1.37ms draw_max=4.13ms work_p50=2.83ms work_p99=4.72ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.47ms runtime_max=3.43ms draw_avg=1.24ms draw_max=4.06ms work_p50=2.66ms work_p99=4.54ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=2.12ms runtime_max=4.26ms draw_avg=0.57ms draw_max=5.00ms work_p50=2.56ms work_p99=4.71ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3688,"fps":59.8,"vsyncIntervalMs":16.667,"missedVsyncs":11,"missedPct":0.3,"lateFrames":7,"latePct":0.19,"workMsP50":2.573,"workMsP99":11.754,"workMsMax":19.459,"runtimeMsP50":1.416,"runtimeMsP99":3.336,"runtimeMsMax":18.254,"drawMsP50":1.079,"drawMsP99":8.648,"drawMsMax":16.943,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.54ms runtime_max=7.81ms draw_avg=1.58ms draw_max=11.85ms work_p50=2.64ms work_p99=12.32ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.69ms runtime_max=3.83ms draw_avg=1.30ms draw_max=4.73ms work_p50=2.80ms work_p99=6.28ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.93ms runtime_max=9.52ms draw_avg=0.68ms draw_max=4.51ms work_p50=2.18ms work_p99=6.15ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3685,"fps":59.7,"vsyncIntervalMs":16.667,"missedVsyncs":12,"missedPct":0.33,"lateFrames":6,"latePct":0.16,"workMsP50":2.632,"workMsP99":5.904,"workMsMax":78.6,"runtimeMsP50":1.463,"runtimeMsP99":3.572,"runtimeMsMax":17.505,"drawMsP50":1.071,"drawMsP99":3.524,"drawMsMax":77.301,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.50ms runtime_max=7.03ms draw_avg=1.38ms draw_max=5.29ms work_p50=2.73ms work_p99=6.03ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.46ms runtime_max=3.65ms draw_avg=1.24ms draw_max=5.09ms work_p50=2.53ms work_p99=5.25ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.93ms runtime_max=3.82ms draw_avg=0.62ms draw_max=4.19ms work_p50=2.54ms work_p99=3.91ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":true,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3691,"fps":59.9,"vsyncIntervalMs":16.667,"missedVsyncs":2,"missedPct":0.05,"lateFrames":0,"latePct":0.0,"workMsP50":2.414,"workMsP99":4.237,"workMsMax":9.888,"runtimeMsP50":1.384,"runtimeMsP99":3.071,"runtimeMsMax":8.562,"drawMsP50":0.964,"drawMsP99":1.993,"drawMsMax":6.792,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.38ms runtime_max=3.05ms draw_avg=1.11ms draw_max=2.22ms work_p50=2.49ms work_p99=4.01ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.42ms runtime_max=3.33ms draw_avg=0.94ms draw_max=4.89ms work_p50=2.19ms work_p99=4.03ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=2.15ms runtime_max=4.32ms draw_avg=0.52ms draw_max=1.24ms work_p50=2.58ms work_p99=4.34ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-debug.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3698,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"workMsP50":2.085,"workMsP99":5.749,"workMsMax":25.375,"runtimeMsP50":0.64,"runtimeMsP99":2.233,"runtimeMsMax":12.104,"drawMsP50":1.315,"drawMsP99":4.978,"drawMsMax":25.21,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.67ms runtime_max=1.99ms draw_avg=1.60ms draw_max=5.23ms work_p50=1.96ms work_p99=5.19ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.62ms runtime_max=1.81ms draw_avg=1.48ms draw_max=5.83ms work_p50=1.89ms work_p99=5.35ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.68ms runtime_max=1.54ms draw_avg=1.70ms draw_max=6.32ms work_p50=2.27ms work_p99=3.51ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-checks-build.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3698,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":2,"missedPct":0.05,"lateFrames":1,"latePct":0.03,"workMsP50":1.867,"workMsP99":5.536,"workMsMax":18.484,"runtimeMsP50":0.618,"runtimeMsP99":2.022,"runtimeMsMax":4.391,"drawMsP50":1.164,"drawMsP99":4.782,"drawMsMax":17.865,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.70ms runtime_max=2.07ms draw_avg=1.04ms draw_max=2.68ms work_p50=1.67ms work_p99=3.35ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.77ms runtime_max=2.51ms draw_avg=1.10ms draw_max=2.42ms work_p50=1.85ms work_p99=3.13ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.83ms runtime_max=2.02ms draw_avg=1.06ms draw_max=2.31ms work_p50=1.82ms work_p99=2.99ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-checks-build.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3698,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"workMsP50":1.689,"workMsP99":3.247,"workMsMax":8.033,"runtimeMsP50":0.642,"runtimeMsP99":1.898,"runtimeMsMax":3.414,"drawMsP50":0.967,"drawMsP99":2.193,"drawMsMax":6.926,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.68ms runtime_max=1.92ms draw_avg=1.03ms draw_max=2.54ms work_p50=1.63ms work_p99=2.98ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.64ms runtime_max=1.50ms draw_avg=1.03ms draw_max=2.36ms work_p50=1.73ms work_p99=2.82ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.82ms runtime_max=1.70ms draw_avg=0.95ms draw_max=2.28ms work_p50=1.75ms work_p99=2.90ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-checks-build.csv","meetsTarget":false,"ok":true}
+
+> {"check":"frame-pacing","debuggable":false,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":["Paused: the app left the foreground (ON_PAUSE)"],"frames":3695,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"workMsP50":1.578,"workMsP99":3.148,"workMsMax":5.551,"runtimeMsP50":0.604,"runtimeMsP99":1.805,"runtimeMsMax":3.395,"drawMsP50":0.916,"drawMsP99":2.121,"drawMsMax":4.458,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.63ms runtime_max=1.57ms draw_avg=0.94ms draw_max=2.78ms work_p50=1.47ms work_p99=3.03ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.67ms runtime_max=2.38ms draw_avg=0.98ms draw_max=2.56ms work_p50=1.60ms work_p99=3.25ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.71ms runtime_max=2.27ms draw_avg=0.91ms draw_max=1.82ms work_p50=1.65ms work_p99=2.66ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-checks-build.csv","meetsTarget":false,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"back","causes":["Back"],"panelShown":false,"seconds":7.1,"ok":false}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"home","causes":[],"panelShown":true,"seconds":4.0,"ok":false}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"recents","causes":["another window took focus"],"panelShown":true,"seconds":3.9,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"notification-shade","causes":["another window took focus"],"panelShown":true,"seconds":4.2,"ok":true}
+
+> {"check":"lifecycle-pause","debuggable":true,"trigger":"screen-off","causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":3.7,"ok":true}
+
+> {"check":"lifecycle","debuggable":true,"triggers":5,"failed":["back","home"],"ok":false}
+
+
+Frame target assessment (assertion pass only requires recorded frames):
+
+pacing-flat, debuggable=True: fps=60.0, latePct=0.05, workMsP99=4.846, meetsTarget=False
+
+pacing, debuggable=True: fps=59.8, latePct=0.19, workMsP99=11.754, meetsTarget=False
+
+pacing-lean-max, debuggable=True: fps=59.7, latePct=0.16, workMsP99=5.904, meetsTarget=False
+
+pacing-portrait, debuggable=True: fps=59.9, latePct=0.0, workMsP99=4.237, meetsTarget=False
+
+pacing-flat, debuggable=False: fps=60.0, latePct=0.03, workMsP99=5.749, meetsTarget=False
+
+pacing, debuggable=False: fps=60.0, latePct=0.03, workMsP99=5.536, meetsTarget=False
+
+pacing-lean-max, debuggable=False: fps=60.0, latePct=0.0, workMsP99=3.247, meetsTarget=False
+
+pacing-portrait, debuggable=False: fps=60.0, latePct=0.0, workMsP99=3.148, meetsTarget=False
+
+Audio evidence, CSV line 3723: read time advances 5.312208 ms while preferred expected presentation time and song time both go back 16.666666 ms. All nearby frames are unpaused. This identifies the input timestamp reversal in this run; it does not establish whether the app, check or emulator should compensate. Full adjacent samples:
+[
+  {
+    "csvLine": 3723,
+    "rows": [
+      {
+        "nanos": "251549975202",
+        "presentNanos": "251578888868",
+        "songMs": "60059.72577337642",
+        "paused": "false"
+      },
+      {
+        "nanos": "251584955286",
+        "presentNanos": "251628888866",
+        "songMs": "60109.72577137642",
+        "paused": "false"
+      },
+      {
+        "nanos": "251590267494",
+        "presentNanos": "251612222200",
+        "songMs": "60093.05910537642",
+        "paused": "false"
+      },
+      {
+        "nanos": "251658333369",
+        "presentNanos": "251662222198",
+        "songMs": "60143.05910337642",
+        "paused": "false"
+      },
+      {
+        "nanos": "251680305119",
+        "presentNanos": "251712222196",
+        "songMs": "60193.05910137642",
+        "paused": "false"
+      }
+    ],
+    "deltaPresentMs": -16.666666,
+    "deltaNanosMs": 5.312208,
+    "deltaSongMs": -16.66666599999735
+  }
+]
+
+Lifecycle: Back causes=[Back], panelShown=false; Home causes=[], panelShown=true. Recents, notification shade and screen off passed. No reruns substituted for these failures.
+
+Connectivity restored after collection with adb shell cmd connectivity airplane-mode disable; adb shell svc wifi enable; adb shell svc data enable; adb shell cmd connectivity airplane-mode. Output:
+disabled
+
+
+PICKER EVIDENCE
+All interactions used real Android DocumentsUI through adb shell input tap. Bounds were read with uiautomator dump; screenshots are unmodified adb exec-out screencap -p output.
+00-offline-download.png: app after collector fallback launch, showing first-run and Install from files.
+input tap 291 1176 => 01-install-from-files.png: picker at storage root.
+input tap 757 1230 => 02-download.png: Download folder.
+input tap 271 932 => 03-ensomi-r2.png: package folder; Use this folder enabled.
+input tap 540 2298 => 04-use-this-folder.png: Allow access confirmation.
+input tap 879 1407 => twelve immediate screenshots 05-after-allow-00.png through 05-after-allow-11.png.
+05-installing.png (copy of 05-after-allow-01.png): real install at 60%, 72.9 MB of 120.4 MB.
+05-after-allow-02.png and -03.png: copying complete, still installing at 100%.
+06-installed.png (copy of 05-after-allow-06.png): model panel gone; Add songs only.
+Installer reports files installed in 0.82 s, correct pin, 30 files, 120377244 bytes. Collector continued without further input.
+UI path matched requested steps. Android says Cannot use this folder at storage root and Download (normal restricted roots); ensomi-r2 is selectable.
+
+Optional refusal completed after collection and network restoration. Copied artifacts/b2/refusal/ensomi-r2-bad to /sdcard/Download, then adb shell pm clear io.ensomi.android. Real picker selected Download > ensomi-r2-bad > Use this folder > Allow. runtime.json changed only at offset 0 (123 to 122), same 4893196-byte size; details in artifacts/b2/refusal/mutation.json.
+10-refusal-first-run.png, 11-refusal-picker.png, 12-refusal-download.png, 13-refusal-bad-folder.png, 14-refusal-permission.png, 15-refused.png record the sequence. The visible app message is: runtime.json did not match the package’s manifest. Installer log reports stopped after 0.32 s. No app source/script/doc modifications.
+
+
+Refusal mutation:
+{
+  "file": "runtime.json",
+  "size": 4893196,
+  "changedBytes": 1,
+  "offset": 0,
+  "originalByte": 123,
+  "changedByte": 122,
+  "originalSha256": "0e9de83b6049f5c15f4f5a0ea45c93bcbcda4007f51c186588c0b0d24dc9c2e7",
+  "changedSha256": "86850174359ccb1d80862b07995cd8d6e68abe29c2d26487250ec06076947008"
+}
+
+
+Refusal installation log:
+--------- beginning of main
+{"source":"files","result":"started","seconds":0.0,"pinnedRevision":"r2-1.0.1"}
+{"source":"files","result":"stopped","seconds":0.32,"pinnedRevision":"r2-1.0.1","failure":"runtime.json did not match the package’s manifest."}
+
+
+KIT RECOVERY CONSOLE (manual asset assembly, not a successful make-phone-kit.sh run)
+manifest r2-1.0.1: 6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb
+{"format": "ensomi-package/1", "model": {"id": "ensomi-r2", "name": "Ensomi R2", "version": "r2-1.0"}, "license": "MIT", "notices": ["BeatThis-LICENSE.txt"], "pipeline": {"id": "r2", "version": 1}, "min_runtime": "0.3.0", "config": "runtime.json", "files": [{"path": "BeatThis-LICENSE.txt", "size": 1113, "sha256": "909ab6549794a18e9bb243aacfadda4a5f308436fc2846f350755c53c4f06ae1"}, {"path": "beatthis-hann-window.bin", "size": 4096, "sha256": "d7eea073e5f5f88615d8e140802bf8710115c6819a233caecf27cbe746aaf170"}, {"path": "beatthis-mel-filter.bin", "size": 262656, "sha256": "57cf87a6ccce2c80898823c13ce260ec5a43b957c0671cfd9233d269f8dc14f2"}, {"path": "beatthis.onnx", "size": 82098878, "sha256": "e347136d07c45301ae869d3d1011b8746bad55cf2389424af2aac1fd62de8d83"}, {"path": "r2_commit.onnx", "size": 8018082, "sha256": "6c8516a79ca419e5ca8ddce7331b1db4872a25a4b07468e24554952ad52c5d34"}, {"path": "r2_initial_buffer_0.bin", "size": 2048, "sha256": "e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad"}, {"path": "r2_initial_buffer_1.bin", "size": 4096, "sha256": "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7"}, {"path": "r2_initial_buffer_2.bin", "size": 8192, "sha256": "9f1dcbc35c350d6027f98be0f5c8b43b42ca52b7604459c0c42be3aa88913d47"}, {"path": "r2_initial_buffer_3.bin", "size": 16384, "sha256": "4fe7b59af6de3b665b67788cc2f99892ab827efae3a467342b3bb4e3bc8e5bfe"}, {"path": "r2_initial_buffer_4.bin", "size": 32768, "sha256": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479"}, {"path": "r2_initial_buffer_5.bin", "size": 65536, "sha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31"}, {"path": "r2_initial_buffer_6.bin", "size": 131072, "sha256": "fa43239bcee7b97ca62f007cc68487560a39e19f74f3dde7486db3f98df8e471"}, {"path": "r2_initial_buffer_7.bin", "size": 262144, "sha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90"}, {"path": "r2_initial_last.bin", "size": 1024, "sha256": "94a61253aa4c90673fb7183ae429f1c509d17fc5eb731442e088c7c0a15a1d26"}, {"path": "r2_initial_rows.bin", "size": 8, "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"}, {"path": "r2_predict.onnx", "size": 682810, "sha256": "1a0ed3f90ee1147ba13961bf57fc63ea380dfc7ecdb4698b275355128c20c652"}, {"path": "r2_release.onnx", "size": 499987, "sha256": "9e0c8969b7130f5db54e730a7ac963b6215104a264093a01ddc5675f508e41c4"}, {"path": "rows-hann-window.bin", "size": 3840, "sha256": "22049b62ec98f480fdef9b77dbb819c62660651cd8e208e544326db960d6034d"}, {"path": "rows-mel-filter.bin", "size": 246272, "sha256": "a814279754ed386887bc2619a7b3cf855bcd1b01ca0a0def7f1cf3c9ec48a0f3"}, {"path": "rows_encoder.onnx", "size": 2278715, "sha256": "b49a3f0eae1fcdaa7fe4a3b200b087bf41c436561498fa624a65439c46378394"}, {"path": "rows_step.onnx", "size": 12412935, "sha256": "eee2517f7785e9ee9c6ec1b6096d91062a0745892fa9b7554834388f1d4d6e1d"}, {"path": "runtime.json", "size": 4893196, "sha256": "0e9de83b6049f5c15f4f5a0ea45c93bcbcda4007f51c186588c0b0d24dc9c2e7"}, {"path": "scopes-J_ex.bin", "size": 1056424, "sha256": "030c1c97f876b197d926cc7abd8bd5b56a243fdb22f687766b24f7ef3574dd17"}, {"path": "scopes-S.bin", "size": 1056424, "sha256": "27dd0264425a2aa2a0c8707089f33e4363dbb916e5146ee6cdb7de4e11f84da3"}, {"path": "scopes-band.bin", "size": 1056424, "sha256": "f9286ad7db7ab9123bd2507be9bb209e104b59d14ef123491d72630fde81ef89"}, {"path": "scopes-chord_share.bin", "size": 1056424, "sha256": "917319ac4aa0132fd9271f76e5e92663e0e724c0aaeab1569b35ce66a91efd97"}, {"path": "scopes-hand_share.bin", "size": 1056424, "sha256": "d21dfcef6075e41b9bab67444950462c85a85ae7fcdd73d4401b4e5fb06b7221"}, {"path": "scopes-jump_share.bin", "size": 1056424, "sha256": "90b4a567bcf234343b965b673e56b0f401b65abf09054d0dad54f09ecdd3d114"}, {"path": "scopes-length_s.bin", "size": 1056424, "sha256": "4d7ab00ee2aa38ab5d0c97ad0061352c5fc5a1c8f327a9900940827d48787074"}, {"path": "scopes-median_gap_ms.bin", "size": 1056424, "sha256": "d19c68b065b072156710dcea387692a4918b54b6b873376bb202ba2d51eaada4"}]}
+fetching BeatThis-LICENSE.txt (1113 bytes)
+verified BeatThis-LICENSE.txt: size and SHA-256
+fetching beatthis-hann-window.bin (4096 bytes)
+verified beatthis-hann-window.bin: size and SHA-256
+fetching beatthis-mel-filter.bin (262656 bytes)
+verified beatthis-mel-filter.bin: size and SHA-256
+fetching beatthis.onnx (82098878 bytes)
+verified beatthis.onnx: size and SHA-256
+fetching r2_commit.onnx (8018082 bytes)
+verified r2_commit.onnx: size and SHA-256
+fetching r2_initial_buffer_0.bin (2048 bytes)
+verified r2_initial_buffer_0.bin: size and SHA-256
+fetching r2_initial_buffer_1.bin (4096 bytes)
+verified r2_initial_buffer_1.bin: size and SHA-256
+fetching r2_initial_buffer_2.bin (8192 bytes)
+verified r2_initial_buffer_2.bin: size and SHA-256
+fetching r2_initial_buffer_3.bin (16384 bytes)
+verified r2_initial_buffer_3.bin: size and SHA-256
+fetching r2_initial_buffer_4.bin (32768 bytes)
+verified r2_initial_buffer_4.bin: size and SHA-256
+fetching r2_initial_buffer_5.bin (65536 bytes)
+verified r2_initial_buffer_5.bin: size and SHA-256
+fetching r2_initial_buffer_6.bin (131072 bytes)
+verified r2_initial_buffer_6.bin: size and SHA-256
+fetching r2_initial_buffer_7.bin (262144 bytes)
+verified r2_initial_buffer_7.bin: size and SHA-256
+fetching r2_initial_last.bin (1024 bytes)
+verified r2_initial_last.bin: size and SHA-256
+fetching r2_initial_rows.bin (8 bytes)
+verified r2_initial_rows.bin: size and SHA-256
+fetching r2_predict.onnx (682810 bytes)
+verified r2_predict.onnx: size and SHA-256
+fetching r2_release.onnx (499987 bytes)
+verified r2_release.onnx: size and SHA-256
+fetching rows-hann-window.bin (3840 bytes)
+verified rows-hann-window.bin: size and SHA-256
+fetching rows-mel-filter.bin (246272 bytes)
+verified rows-mel-filter.bin: size and SHA-256
+fetching rows_encoder.onnx (2278715 bytes)
+verified rows_encoder.onnx: size and SHA-256
+fetching rows_step.onnx (12412935 bytes)
+verified rows_step.onnx: size and SHA-256
+fetching runtime.json (4893196 bytes)
+verified runtime.json: size and SHA-256
+fetching scopes-J_ex.bin (1056424 bytes)
+verified scopes-J_ex.bin: size and SHA-256
+fetching scopes-S.bin (1056424 bytes)
+verified scopes-S.bin: size and SHA-256
+fetching scopes-band.bin (1056424 bytes)
+verified scopes-band.bin: size and SHA-256
+fetching scopes-chord_share.bin (1056424 bytes)
+verified scopes-chord_share.bin: size and SHA-256
+fetching scopes-hand_share.bin (1056424 bytes)
+verified scopes-hand_share.bin: size and SHA-256
+fetching scopes-jump_share.bin (1056424 bytes)
+verified scopes-jump_share.bin: size and SHA-256
+fetching scopes-length_s.bin (1056424 bytes)
+verified scopes-length_s.bin: size and SHA-256
+fetching scopes-median_gap_ms.bin (1056424 bytes)
+verified scopes-median_gap_ms.bin: size and SHA-256
+total 5200
+-rw-r--r--@ 1 l  staff  1152078 Oct 29 23:43 click-48k.wav
+-rw-r--r--@ 1 l  staff   145492 Oct 29 23:43 click-lame.mp3
+-rw-r--r--@ 1 l  staff   144866 Oct 29 23:43 click-noxing.mp3
+-rw-r--r--@ 1 l  staff    31144 Oct 29 23:43 click-vbr.mp3
+-rw-r--r--@ 1 l  staff    18985 Oct 29 23:43 click.flac
+-rw-r--r--@ 1 l  staff    11616 Oct 29 23:43 click.m4a
+-rw-r--r--@ 1 l  staff    18214 Oct 29 23:43 click.ogg
+-rw-r--r--@ 1 l  staff    62146 Oct 29 23:43 click.opus
+-rw-r--r--@ 1 l  staff  1058478 Oct 29 23:43 click.wav
+Manual kit assets ready; runbook missing in source. No eligible >=180 s song found in earlier Android artifacts; using synthetic song.
+
+
+PROTOTYPE CAPTURES AND SHUTDOWN
+Command: scripts/capture-prototype.sh artifacts/b2/screens screens
+Exit 0. Captured light/dark for all 27 configured scenarios, plus scrolling/dynamic-color variants: 76 PNG files. Every expected filename is present and has a valid PNG signature and nonzero dimensions. Visually reviewed light/dark first-run, installing-files and install-files-refused, plus the real picker install/refusal flow. No issue observed in those reviewed images. Other screen captures are available for UI review; this report does not claim a full visual audit of every scenario.
+
+Capture console:
+Night mode: no
+light-first-run.png
+light-downloading.png
+light-download-stopped.png
+light-no-space.png
+light-installing-files.png
+light-install-files-refused.png
+light-library.png
+light-library-missing.png
+light-make-chart.png
+light-make-chart-sections.png
+light-make-chart-sections-scrolled.png
+light-make-chart-section-problem.png
+light-make-chart-no-model.png
+light-make-chart-making.png
+light-make-chart-made.png
+light-make-chart-made-scrolled.png
+light-make-chart-stopped.png
+light-make-chart-failed.png
+light-results.png
+light-results-scrolled.png
+light-settings.png
+light-settings-2.png
+light-settings-3.png
+light-settings-4.png
+light-settings-playfield.png
+light-settings-playfield-portrait.png
+light-settings-downloading.png
+light-settings-downloading-model.png
+light-settings-update-pending.png
+light-settings-update-pending-model.png
+light-notices.png
+light-notice-text.png
+light-calibration-sound.png
+light-calibration-sound-scrolled.png
+light-calibration-picture.png
+light-diagnostics.png
+light-library-dynamic.png
+light-make-chart-made-dynamic.png
+Night mode: yes
+dark-first-run.png
+dark-downloading.png
+dark-download-stopped.png
+dark-no-space.png
+dark-installing-files.png
+dark-install-files-refused.png
+dark-library.png
+dark-library-missing.png
+dark-make-chart.png
+dark-make-chart-sections.png
+dark-make-chart-sections-scrolled.png
+dark-make-chart-section-problem.png
+dark-make-chart-no-model.png
+dark-make-chart-making.png
+dark-make-chart-made.png
+dark-make-chart-made-scrolled.png
+dark-make-chart-stopped.png
+dark-make-chart-failed.png
+dark-results.png
+dark-results-scrolled.png
+dark-settings.png
+dark-settings-2.png
+dark-settings-3.png
+dark-settings-4.png
+dark-settings-playfield.png
+dark-settings-playfield-portrait.png
+dark-settings-downloading.png
+dark-settings-downloading-model.png
+dark-settings-update-pending.png
+dark-settings-update-pending-model.png
+dark-notices.png
+dark-notice-text.png
+dark-calibration-sound.png
+dark-calibration-sound-scrolled.png
+dark-calibration-picture.png
+dark-diagnostics.png
+dark-library-dynamic.png
+dark-make-chart-made-dynamic.png
+Night mode: no
+Deleted 1 rows
+Night mode: no
+
+Every picker screenshot path:
+artifacts/b2/picker/00-offline-download.png
+artifacts/b2/picker/01-install-from-files.png
+artifacts/b2/picker/02-download.png
+artifacts/b2/picker/03-ensomi-r2.png
+artifacts/b2/picker/04-use-this-folder.png
+artifacts/b2/picker/05-after-allow-00.png
+artifacts/b2/picker/05-after-allow-01.png
+artifacts/b2/picker/05-after-allow-02.png
+artifacts/b2/picker/05-after-allow-03.png
+artifacts/b2/picker/05-after-allow-04.png
+artifacts/b2/picker/05-after-allow-05.png
+artifacts/b2/picker/05-after-allow-06.png
+artifacts/b2/picker/05-after-allow-07.png
+artifacts/b2/picker/05-after-allow-08.png
+artifacts/b2/picker/05-after-allow-09.png
+artifacts/b2/picker/05-after-allow-10.png
+artifacts/b2/picker/05-after-allow-11.png
+artifacts/b2/picker/05-installing.png
+artifacts/b2/picker/06-installed.png
+artifacts/b2/picker/10-refusal-first-run.png
+artifacts/b2/picker/11-refusal-picker.png
+artifacts/b2/picker/12-refusal-download.png
+artifacts/b2/picker/13-refusal-bad-folder.png
+artifacts/b2/picker/14-refusal-permission.png
+artifacts/b2/picker/15-refused.png
+
+Every prototype screenshot path:
+artifacts/b2/screens/dark-calibration-picture.png
+artifacts/b2/screens/dark-calibration-sound-scrolled.png
+artifacts/b2/screens/dark-calibration-sound.png
+artifacts/b2/screens/dark-diagnostics.png
+artifacts/b2/screens/dark-download-stopped.png
+artifacts/b2/screens/dark-downloading.png
+artifacts/b2/screens/dark-first-run.png
+artifacts/b2/screens/dark-install-files-refused.png
+artifacts/b2/screens/dark-installing-files.png
+artifacts/b2/screens/dark-library-dynamic.png
+artifacts/b2/screens/dark-library-missing.png
+artifacts/b2/screens/dark-library.png
+artifacts/b2/screens/dark-make-chart-failed.png
+artifacts/b2/screens/dark-make-chart-made-dynamic.png
+artifacts/b2/screens/dark-make-chart-made-scrolled.png
+artifacts/b2/screens/dark-make-chart-made.png
+artifacts/b2/screens/dark-make-chart-making.png
+artifacts/b2/screens/dark-make-chart-no-model.png
+artifacts/b2/screens/dark-make-chart-section-problem.png
+artifacts/b2/screens/dark-make-chart-sections-scrolled.png
+artifacts/b2/screens/dark-make-chart-sections.png
+artifacts/b2/screens/dark-make-chart-stopped.png
+artifacts/b2/screens/dark-make-chart.png
+artifacts/b2/screens/dark-no-space.png
+artifacts/b2/screens/dark-notice-text.png
+artifacts/b2/screens/dark-notices.png
+artifacts/b2/screens/dark-results-scrolled.png
+artifacts/b2/screens/dark-results.png
+artifacts/b2/screens/dark-settings-2.png
+artifacts/b2/screens/dark-settings-3.png
+artifacts/b2/screens/dark-settings-4.png
+artifacts/b2/screens/dark-settings-downloading-model.png
+artifacts/b2/screens/dark-settings-downloading.png
+artifacts/b2/screens/dark-settings-playfield-portrait.png
+artifacts/b2/screens/dark-settings-playfield.png
+artifacts/b2/screens/dark-settings-update-pending-model.png
+artifacts/b2/screens/dark-settings-update-pending.png
+artifacts/b2/screens/dark-settings.png
+artifacts/b2/screens/light-calibration-picture.png
+artifacts/b2/screens/light-calibration-sound-scrolled.png
+artifacts/b2/screens/light-calibration-sound.png
+artifacts/b2/screens/light-diagnostics.png
+artifacts/b2/screens/light-download-stopped.png
+artifacts/b2/screens/light-downloading.png
+artifacts/b2/screens/light-first-run.png
+artifacts/b2/screens/light-install-files-refused.png
+artifacts/b2/screens/light-installing-files.png
+artifacts/b2/screens/light-library-dynamic.png
+artifacts/b2/screens/light-library-missing.png
+artifacts/b2/screens/light-library.png
+artifacts/b2/screens/light-make-chart-failed.png
+artifacts/b2/screens/light-make-chart-made-dynamic.png
+artifacts/b2/screens/light-make-chart-made-scrolled.png
+artifacts/b2/screens/light-make-chart-made.png
+artifacts/b2/screens/light-make-chart-making.png
+artifacts/b2/screens/light-make-chart-no-model.png
+artifacts/b2/screens/light-make-chart-section-problem.png
+artifacts/b2/screens/light-make-chart-sections-scrolled.png
+artifacts/b2/screens/light-make-chart-sections.png
+artifacts/b2/screens/light-make-chart-stopped.png
+artifacts/b2/screens/light-make-chart.png
+artifacts/b2/screens/light-no-space.png
+artifacts/b2/screens/light-notice-text.png
+artifacts/b2/screens/light-notices.png
+artifacts/b2/screens/light-results-scrolled.png
+artifacts/b2/screens/light-results.png
+artifacts/b2/screens/light-settings-2.png
+artifacts/b2/screens/light-settings-3.png
+artifacts/b2/screens/light-settings-4.png
+artifacts/b2/screens/light-settings-downloading-model.png
+artifacts/b2/screens/light-settings-downloading.png
+artifacts/b2/screens/light-settings-playfield-portrait.png
+artifacts/b2/screens/light-settings-playfield.png
+artifacts/b2/screens/light-settings-update-pending-model.png
+artifacts/b2/screens/light-settings-update-pending.png
+artifacts/b2/screens/light-settings.png
+
+Screenshot SHA-256 index: artifacts/b2/screenshots-sha256.txt
+
+Shutdown command, once per emulator after its work: /Users/l/Library/Android/sdk/platform-tools/adb emu kill
+ensomi-36-16k:
+OK: killing emulator, bye bye
+OK
+
+ensomi-36:
+OK: killing emulator, bye bye
+OK
+
+Both emulator processes exited 0. No app source, scripts, docs or pins were edited. local.properties is ignored. The pre-existing untracked LocalFixtures symlink is untouched.
+
+Final adb devices -l:
+List of devices attached
+
+
+Commit scope: report.txt and SHA-256 indexes only. APKs, model packages, screenshots, full console/build logs, test reports and collected archives remain in the ignored artifacts/b2 directory on this Mac. No source fixes were attempted.
