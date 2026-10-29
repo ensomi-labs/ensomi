@@ -1,7 +1,6 @@
 package io.ensomi.android.prototype
 
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import androidx.navigation3.runtime.NavKey
 import io.ensomi.android.Calibration
 import io.ensomi.android.Diagnostics
@@ -60,7 +59,7 @@ data class DebugOptions(
     val stars: Double? = null,
     val autoplay: Boolean = false,
     val lowMemory: Boolean? = null,
-    /** Debug builds: games log every frame's times and take the debug broadcasts that change the output. */
+    /** Debug builds and the checks build ([DebugTools]): games log every frame's times and take the debug broadcasts. */
     val debuggable: Boolean = false,
 )
 
@@ -230,9 +229,9 @@ data class Scenario(
             "diagnostics" to Scenario(listOf(Library, Settings, Diagnostics)),
         )
 
-        fun from(intent: Intent?, applicationInfo: ApplicationInfo): Scenario {
-            val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-            if (!debuggable || intent == null) return DEFAULT
+        /** The scenario and debug options [intent] asks for, when [debugTools] ([DebugTools]); else [DEFAULT]. */
+        fun from(intent: Intent?, debugTools: Boolean): Scenario {
+            if (!debugTools || intent == null) return DEFAULT
             val scenario = ALL[intent.getStringExtra("prototype")] ?: DEFAULT
             val debug = DebugOptions(
                 stars = intent.getFloatExtra("stars", Float.NaN).takeIf { !it.isNaN() }?.toDouble(),

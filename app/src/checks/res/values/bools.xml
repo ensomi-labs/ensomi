@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The checks build: not debuggable, as a release is, but with the scenarios and frame logs the phone checks use. -->
+    <bool name="debug_tools">true</bool>
+</resources>

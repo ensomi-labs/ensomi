@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The debug launch extras and frame logs in a build that is not debuggable: on only in the checks build
+         (src/checks), which the phone checks measure frame pacing with. Debuggable builds have them anyway. -->
+    <bool name="debug_tools">false</bool>
+</resources>

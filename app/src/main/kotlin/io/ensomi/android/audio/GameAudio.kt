@@ -51,6 +51,9 @@ class GameAudio(
 
     private var released = false
 
+    /** The track's underruns when it was released. */
+    private var closedUnderruns = 0
+
     private val routing = AudioRouting.OnRoutingChangedListener { router -> if (running) onRoute(router.routedDevice) }
 
     init {
@@ -76,6 +79,10 @@ class GameAudio(
         )
         writer = Thread(::write, "EnsomiAudioWriter").also { it.start() }
     }
+
+    /** The track's underruns so far (`AudioTrack.getUnderrunCount`), or at [close] once closed. */
+    val underruns: Int
+        get() = synchronized(lock) { if (released) closedUnderruns else track.underrunCount }
 
     /** The device the track plays on now; null until it has started. */
     val routedDevice: AudioDeviceInfo?
@@ -153,7 +160,8 @@ class GameAudio(
         synchronized(lock) {
             if (released) return
             running = false
-            Log.i(TAG, "Output closed: ${track.underrunCount} underruns, routed to ${track.routedDevice?.productName}")
+            closedUnderruns = track.underrunCount
+            Log.i(TAG, "Output closed: $closedUnderruns underruns, routed to ${track.routedDevice?.productName}")
             track.removeOnRoutingChangedListener(routing)
             // A paused track would keep the writer blocked: flushing frees the buffer, and stop() wakes a blocked write.
             track.pause()

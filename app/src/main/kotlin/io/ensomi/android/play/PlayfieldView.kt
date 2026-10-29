@@ -358,7 +358,7 @@ class PlayfieldView @JvmOverloads constructor(
                 }
                 val done = System.nanoTime()
                 stats.record(vsyncNanos, runtimeDone - start, done - runtimeDone, late = done > deadlineNanos)
-                log?.record(vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone)
+                log?.record(vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone, deadlineNanos, done)
             } finally {
                 Trace.endSection()
             }
@@ -449,28 +449,31 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
 
 /**
  * Debug builds: every frame of a playfield, kept across surfaces, and written as CSV when it closes
- * (`vsyncNanos,presentNanos,runtimeNanos,drawNanos`; README). [summary] goes to the log then.
+ * (`vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos`: the frame's deadline from `FrameData` and
+ * when its drawing was posted; README). [summary] goes to the log then.
  */
 class FrameLog {
-    private var data = LongArray(4 * 8_192)
+    private var data = LongArray(COLUMNS * 8_192)
     private var size = 0
 
     @Synchronized
-    fun record(vsyncNanos: Long, presentNanos: Long, runtimeNanos: Long, drawNanos: Long) {
-        if (size + 4 > data.size) data = data.copyOf(data.size * 2)
+    fun record(vsyncNanos: Long, presentNanos: Long, runtimeNanos: Long, drawNanos: Long, deadlineNanos: Long, doneNanos: Long) {
+        if (size + COLUMNS > data.size) data = data.copyOf(data.size * 2)
         data[size] = vsyncNanos
         data[size + 1] = presentNanos
         data[size + 2] = runtimeNanos
         data[size + 3] = drawNanos
-        size += 4
+        data[size + 4] = deadlineNanos
+        data[size + 5] = doneNanos
+        size += COLUMNS
     }
 
     /** Frames, and the whole frame's work at the median, the 99th percentile and the most. */
     @Synchronized
     fun summary(): String {
-        val frames = size / 4
+        val frames = size / COLUMNS
         if (frames == 0) return "frames=0"
-        val work = LongArray(frames) { data[it * 4 + 2] + data[it * 4 + 3] }.also { it.sort() }
+        val work = LongArray(frames) { data[it * COLUMNS + 2] + data[it * COLUMNS + 3] }.also { it.sort() }
         return String.format(
             Locale.ROOT,
             "frames=%d work_p50=%.2fms work_p99=%.2fms work_max=%.2fms",
@@ -480,12 +483,20 @@ class FrameLog {
 
     @Synchronized
     fun csv(): String = buildString {
-        append("vsyncNanos,presentNanos,runtimeNanos,drawNanos\n")
+        append("vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos\n")
         var i = 0
         while (i < size) {
-            append(data[i]).append(',').append(data[i + 1]).append(',').append(data[i + 2]).append(',').append(data[i + 3]).append('\n')
-            i += 4
+            for (column in 0 until COLUMNS) {
+                if (column > 0) append(',')
+                append(data[i + column])
+            }
+            append('\n')
+            i += COLUMNS
         }
+    }
+
+    private companion object {
+        const val COLUMNS = 6
     }
 }
 

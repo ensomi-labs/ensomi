@@ -154,6 +154,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onPlay = { backStack.add(Play(key.songId, loop = false)) },
                         onDownloadModel = graph.model::download,
                         onCancelDownload = graph.model::cancel,
+                        onInstallModelFromFolder = graph.model::installFromFolder,
                     )
                 }
                 entry<Play> { key ->

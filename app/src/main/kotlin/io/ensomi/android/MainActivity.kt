@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import io.ensomi.android.diagnostics.DecodeCheck
 import io.ensomi.android.prototype.AppGraph
+import io.ensomi.android.prototype.DebugTools
 import io.ensomi.android.prototype.Scenario
 import io.ensomi.android.ui.theme.EnsomiTheme
 
@@ -14,7 +15,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val scenario = Scenario.from(intent, applicationInfo)
+        val scenario = Scenario.from(intent, DebugTools.enabled(this))
         val graph = Graphs.forScenario(scenario) { AppStores.get(applicationContext) }
         val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         if (debuggable && savedInstanceState == null && intent.getBooleanExtra(DecodeCheck.EXTRA, false)) {

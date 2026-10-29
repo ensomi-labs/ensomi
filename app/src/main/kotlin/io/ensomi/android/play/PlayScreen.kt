@@ -4,7 +4,6 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.pm.ActivityInfo
-import android.content.pm.ApplicationInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -24,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import io.ensomi.android.audio.AudioPlayClock
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.audio.GameAudio
+import io.ensomi.android.prototype.DebugTools
 import io.ensomi.android.settings.OutputRoute
 import io.ensomi.android.settings.PlayOutputs
 import java.io.File
@@ -163,7 +163,7 @@ fun PlayScreen(
         val cutoutTop = WindowInsets.displayCutout.getTop(density).toFloat()
         val gestureBottom = WindowInsets.mandatorySystemGestures.getBottom(density).toFloat()
         val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
-        val debuggable = remember(context) { context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
+        val debuggable = remember(context) { DebugTools.enabled(context) }
         var phase by rememberSaveable { mutableStateOf(PlayPhase.PLAYING) }
         var restarts by remember { mutableIntStateOf(0) }
         var view by remember { mutableStateOf<PlayfieldView?>(null) }

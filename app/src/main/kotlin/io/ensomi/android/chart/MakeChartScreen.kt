@@ -91,6 +91,7 @@ fun MakeChartScreen(
     onPlay: (MadeChart) -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onInstallModelFromFolder: (android.net.Uri) -> Unit,
     /** The maker's own [MakeChartViewModel.make] and [MakeChartViewModel.stop] once it is wired. */
     onMake: () -> Unit = viewModel::make,
     onStop: () -> Unit = viewModel::stop,
@@ -158,7 +159,13 @@ fun MakeChartScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (model !is ModelState.Installed) {
-                    ModelPanel(model, onDownload = onDownloadModel, onCancel = onCancelDownload, onRemove = {})
+                    ModelPanel(
+                        model,
+                        onDownload = onDownloadModel,
+                        onCancel = onCancelDownload,
+                        onRemove = {},
+                        onInstallFromFolder = onInstallModelFromFolder,
+                    )
                 }
                 StatusCard(state, onUseSeed = viewModel::useSeed)
                 StarsCard(viewModel, capabilities, enabled = !making)

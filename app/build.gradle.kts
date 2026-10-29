@@ -40,6 +40,22 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk { abiFilters += "arm64-v8a" }
+        // The phone checks (app/src/androidTest, docs/phone-checks.md), run with `am instrument` by
+        // scripts/phone-checks.sh.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        // The checks build: not debuggable, as a release is not, so the phone checks measure frame pacing without ART's
+        // debuggable mode. Signed with the debug key and without R8, so it installs over the debug build (keeping its
+        // data, the model with it) and the debug build's instrumented checks can drive it. It keeps the scenarios and
+        // frame logs (src/checks/res/values/bools.xml). Never distributed (docs/phone-checks.md).
+        create("checks") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            isProfileable = true
+            signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     compileOptions {
@@ -76,4 +92,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.junit)
+
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.uiautomator)
 }
