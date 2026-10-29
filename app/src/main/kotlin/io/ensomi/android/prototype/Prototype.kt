@@ -157,6 +157,8 @@ data class Scenario(
                 holdCountdown = true,
             ),
             "results" to Scenario(listOf(Library, MakeChart(SONG), Results(SONG, SAMPLE_RESULT))),
+            // The sample result over the app's own stores: Use writes the stored offset, before games are real (step 7).
+            "results-stored" to Scenario(listOf(Library, Results(null, SAMPLE_RESULT)), real = true),
             "settings" to Scenario(listOf(Library, Settings)),
             "settings-playfield" to Scenario(listOf(Library, Settings), settingsItem = PLAYFIELD_SETTINGS),
             "settings-playfield-flat" to Scenario(listOf(Library, Settings), settings = FLAT, settingsItem = PLAYFIELD_SETTINGS),

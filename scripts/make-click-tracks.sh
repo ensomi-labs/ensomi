@@ -16,8 +16,8 @@ mkdir -p "$OUT"
 CLICK="if(gte(t,1)*lt(mod(t-1,0.5),0.01),0.8*sin(2*PI*1000*(t-1)),0)"
 ff() { ffmpeg -hide_banner -loglevel error -y "$@"; }
 
-ff -f lavfi -i "aevalsrc=${CLICK}|${CLICK}:s=44100:d=6" -c:a pcm_s16le "$OUT/click.wav"
-ff -f lavfi -i "aevalsrc=${CLICK}|${CLICK}:s=48000:d=6" -c:a pcm_s16le "$OUT/click-48k.wav"
+ff -f lavfi -i "aevalsrc='${CLICK}|${CLICK}':s=44100:d=6" -c:a pcm_s16le "$OUT/click.wav"
+ff -f lavfi -i "aevalsrc='${CLICK}|${CLICK}':s=48000:d=6" -c:a pcm_s16le "$OUT/click-48k.wav"
 ff -i "$OUT/click.wav" -c:a flac "$OUT/click.flac"
 ff -i "$OUT/click.wav" -c:a aac -b:a 192k "$OUT/click.m4a"
 ff -i "$OUT/click.wav" -c:a libmp3lame -b:a 192k "$OUT/click-lame.mp3"
