@@ -18,11 +18,11 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 | 5 (done) | Making charts: `RuntimeWorker.withGenerator`, `prepare` when a song opens (the four latest `Prepared` kept in memory by the file's SHA-256), a whole-chart scheduler, phases, Stop through `Cancellation` from another thread, the runtime's messages; the last chart per song kept on disk | Generate a real chart on the AVD with the real model; Stop mid-way; 7 stars gives the runtime's refusal | Time and peak memory per song (the stack report's T10); whether `lowMemory` is needed | 3, 4 |
 | 6 (done) | Audio output and clock: the `AudioTrack` writer with the lead-in, the timestamp clock (32-bit extension, hold rules, no backward step), pause and resume, music volume, audio focus, becoming noisy, route changes, underrun count | JVM tests of the clock against a scripted timestamp source; the AVD plays a song and the clock log is monotonic | Clock smoothness and the output latency per route (gameplay.md) | 3 |
 | 7 (done) | Play: the controller on the real chart and clock with touch; pause on lifecycle, focus, audio focus, noisy and route change; gesture exclusion for the outer lanes; Results from the score; Play again | A full game on the AVD with taps from `adb shell input` and the autoplay as a debug option; pause and resume at each trigger | Touch stamps, touch to light, multi-touch, a full game by hand; the pause when the output changes (the emulator has one output) | 5, 6 |
-| 8 | Calibration: the click track through the play output, the tap pad as a `View` with event times, median of 16, apply per output; the picture step on the real clock | Taps from `adb shell input` at known times give the expected suggestion within a frame | Three runs per output agree within 5 ms | 1, 6 |
-| 9 | Frame pacing: per-frame logs on the render thread, a Perfetto FrameTimeline capture script, the refresh-rate request checked; GLES only if the canvas misses frames | The logs and capture run on the AVD at 60 Hz, at each lean | 120 Hz pacing on the Xiaomi, 60 s autoplay of the densest chart at no lean, 40° and 55°; if drawing under the perspective matrix costs too much, notes drawn as quads projected on the CPU (`drawVertices`) before GLES | 7 |
+| 8 (done) | Calibration: the click track through the play output, the tap pad as a `View` with event times, median of 16, apply per output; the picture step on the real clock | Taps from `adb shell input` at known times give the expected suggestion within a frame | Three runs per output agree within 5 ms | 1, 6 |
+| 9 (done) | Frame pacing: per-frame logs on the render thread, a Perfetto FrameTimeline capture script, the refresh-rate request checked; GLES only if the canvas misses frames | The logs and capture run on the AVD at 60 Hz, at each lean | 120 Hz pacing on the Xiaomi, 60 s autoplay of the densest chart at no lean, 40° and 55°; if drawing under the perspective matrix costs too much, notes drawn as quads projected on the CPU (`drawVertices`) before GLES | 7 |
 | 9a | The lean in players' hands: landscape and portrait, the default lean and the range tried by people who play 4K on phones; the HUD corners, the outer lanes at the screen's edges, the back-gesture exclusion in landscape | — | Whether 40° and the eye distance read well at speed; whether thumbs land in the right lanes; whether the far notes are big enough | 7 |
-| 10 | Accessibility and finish: a TalkBack pass on every screen, the TalkBack notice before play, the short-window state, haptics wired | UI Automator dumps show labels; TalkBack walked on the AVD | Haptic delay by video; decide whether to offer Vibrate on lane touch | 7, 8 |
-| 11 | Remove the prototype's samples once every store is real; keep the screenshot scenarios backed by fakes for review | Capture script still runs | — | 1–10 |
+| 10 (done) | Accessibility and finish: a TalkBack pass on every screen, the TalkBack notice before play, the short-window state, haptics wired | UI Automator dumps show labels; TalkBack walked on the AVD | Haptic delay by video; decide whether to offer Vibrate on lane touch | 7, 8 |
+| 11 (done) | Remove the prototype's samples once every store is real; keep the screenshot scenarios backed by fakes for review | Capture script still runs | — | 1–10 |
 
 ## Steps done
 
@@ -71,6 +71,32 @@ What steps 5 to 7 showed (`ensomi-36`, builds b1 and b2 of `claude/android-impl-
   not be made, since the emulator has one output (unverified, a phone check). Both back-gesture exclusion rects were
   set. The emulator's own recorder kept the sound of a whole game. The judgement word and combo are drawn under the
   notes, so a note crossing them in the middle lanes stays whole.
+
+What steps 8 to 11 showed (`ensomi-36`, builds b1 and b2 of `claude/android-impl-3`):
+
+- **8.** The click track through the play output, recorded by the emulator's own recorder: clicks 500.04 ms apart on
+  average (500.0 to 500.6). 24 taps from `adb shell input tap` were all taken; recomputed from their logged event
+  times and the logged time of click 0 alone, their song times and errors matched the app's within 0.012 ms and the
+  suggestion was the app's (+8 ms, against 16.7 ms allowed); Use wrote it for the speaker and Start over cleared the
+  taps. The picture step drew the clicks' notes with the player's lean on the clicks' clock at 60 fps; the clicks
+  paused on Home and went on from where they stopped (252 timestamps read, 19 steps back held, 0 underruns). The
+  phone check (three runs per output within 5 ms) is not done.
+- **9.** At no lean, 40° and 55° in landscape and flat in portrait the sample game held 60 fps with no missed vsync and
+  no frame past its deadline; the whole frame's work was 2.4 to 2.9 ms at the median and 4.0 to 5.2 ms at the 99th
+  percentile (a debug build on the Mac). A real game of a 990-note chart: 6 456 frames, 0.31 % of vsync gaps over
+  1.5 intervals, work 2.1 ms median, 9.0 ms p99. The request asked for 60 Hz, the AVD's one mode, and SurfaceFlinger
+  shows the SurfaceView's vote (60 Hz, default compatibility, only if seamless). FrameTimeline lists the app window's
+  frames but not the SurfaceView's (gameplay.md). The emulator cannot say whether the canvas is fast enough on a phone,
+  so GLES is not started; the 120 Hz phone check decides.
+- **10.** UI Automator dumps of every kind of screen: every control has a label, on itself or on its text or icon
+  (Compose's buttons keep it on the child). TalkBack 16 walked the Library, a song, Settings and Calibration in order
+  without an unnamed stop; the notice before play showed and held the game; with a window 600 px wide (228 dp tall in
+  landscape) the game paused and said the window was too small, and the pause panel came back with the size; Vibrate on
+  lane touch gave one `VIRTUAL_KEY` effect per lane press in `vibrator_manager`. Haptic delay and the choice of
+  offering the vibration stay phone checks.
+- **11.** The scenarios' fakes moved to `prototype/Fakes.kt`; the feature packages hold no samples and no screen says
+  "not built yet". The capture script ran every group, now with UI dumps of every screen, Perfetto at each lean and a
+  real game.
 
 ## Pins the steps add
 

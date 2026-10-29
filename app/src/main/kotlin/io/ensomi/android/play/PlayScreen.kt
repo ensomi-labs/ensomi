@@ -86,6 +86,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -618,26 +620,25 @@ private fun PausePanel(movedTo: String?, onResume: () -> Unit, onRestart: () -> 
     }
 }
 
-/** Before the game starts with TalkBack on: the lanes need direct touch, which touch exploration takes over. */
+/**
+ * Before the game starts with TalkBack on: the lanes need direct touch, which touch exploration takes over. A dialog,
+ * its own window, so TalkBack moves to it and reads it as it appears, rather than starting on the playfield.
+ */
 @Composable
 private fun TalkBackNotice(onStart: () -> Unit, onBack: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Brand.Plum.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(dismissOnClickOutside = false)) {
         Surface(
             shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp, bottomEnd = 26.dp, bottomStart = 10.dp),
             color = Brand.Panel,
             border = BorderStroke(1.dp, Brand.PanelBorder),
-            modifier = Modifier.padding(24.dp).widthIn(max = 420.dp),
+            modifier = Modifier.widthIn(max = 420.dp),
         ) {
             Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     stringResource(R.string.play_talkback_title),
                     style = MaterialTheme.typography.headlineSmall,
                     color = Brand.Text,
-                    // Announced as it appears, so TalkBack does not start on the playfield behind it.
-                    modifier = Modifier.semantics {
-                        heading()
-                        liveRegion = LiveRegionMode.Assertive
-                    },
+                    modifier = Modifier.semantics { heading() },
                 )
                 Text(stringResource(R.string.play_talkback_body), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
                 ActionButton(

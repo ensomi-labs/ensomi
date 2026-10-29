@@ -64,11 +64,18 @@ tap_text() { # text on screen to tap
   adb shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
 }
 
+# The display's rotation, held: the setting, and the window manager's lock, which turns the screen now even when an
+# app held another orientation a moment ago.
+rotate() { # 0 for portrait, 1 for landscape
+  adb shell settings put system user_rotation "$1"
+  adb shell wm user-rotation lock "$1" >/dev/null 2>&1 || true
+}
+
 restore() {
   adb shell settings delete secure immersive_mode_confirmations || true
   adb shell settings put global hide_error_dialogs 0 || true
   adb shell settings put system font_scale 1.0 || true
-  adb shell settings put system user_rotation 0 || true
+  rotate 0 || true
   adb shell cmd uimode night no || true
 }
 trap restore EXIT
@@ -76,7 +83,7 @@ trap restore EXIT
 adb shell settings put global hide_error_dialogs 1
 dismiss_anr_dialog
 adb shell settings put system accelerometer_rotation 0
-adb shell settings put system user_rotation 0
+rotate 0
 adb shell settings put system font_scale 1.0
 
 if wanted screens; then
@@ -165,12 +172,12 @@ fi
 
 if wanted landscape; then
 # The phone turned to landscape: the chrome follows it. (Play turns it to landscape by itself.)
-adb shell settings put system user_rotation 1
+rotate 1
 sleep 2
 for name in library make-chart-made settings settings-playfield calibration-sound calibration-picture; do
   launch "$name"; sleep 3; shot "landscape-$name"
 done
-adb shell settings put system user_rotation 0
+rotate 0
 sleep 2
 fi
 
