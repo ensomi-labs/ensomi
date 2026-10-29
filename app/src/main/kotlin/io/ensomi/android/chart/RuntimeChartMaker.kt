@@ -1,5 +1,6 @@
 package io.ensomi.android.chart
 
+import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -67,8 +68,8 @@ class RuntimeChartMaker(
     private val model: ChartModelStore,
     private val store: ChartStore,
     /**
-     * `GeneratorOptions.lowMemory`; null leaves it to the runtime, which keeps it off outside iOS. A debug launch may
-     * change it ([io.ensomi.android.prototype.Scenario]).
+     * `GeneratorOptions.lowMemory` ([lowMemory] picks it for the device); null leaves it to the runtime, which keeps it
+     * off outside iOS. A debug launch may change it ([io.ensomi.android.prototype.Scenario]).
      */
     @Volatile var lowMemory: Boolean?,
 ) : ChartMaker {
@@ -191,6 +192,7 @@ class RuntimeChartMaker(
                 failed(songId, failure, making)
             }
             synchronized(lock) { makings.remove(songId) }
+            if (state is MakeState.Stopped) Log.i(TAG, "Chart for $songId stopped")
             setState(songId, state)
         }
     }
@@ -294,7 +296,8 @@ class RuntimeChartMaker(
     private fun failed(songId: String, failure: Exception, making: Making): MakeState = when {
         making.stopped.get() -> MakeState.Stopped(songId)
         failure is GeneratorException.Cancelled -> MakeState.Stopped(songId)
-        failure is GeneratorException.Generation -> MakeState.Failed(songId, "${failure.code}: ${failure.message}")
+        failure is GeneratorException.Generation ->
+            MakeState.Failed(songId, GeneratorChoices.refusal(failure.code, failure.message))
         failure is GeneratorException -> MakeState.Failed(songId, failure.message ?: failure.javaClass.simpleName)
         failure is DecodeException -> {
             if (failure.missing) songs.markMissing(songId)
@@ -405,8 +408,14 @@ class RuntimeChartMaker(
         /** How many songs' audio stages are kept, as in the Swift app: about 50 KB per second of song each. */
         const val PREPARED_SONGS = 4
 
-        /** What the app asks for: the runtime's own choice, which is off on Android (plan step 5 says why). */
-        val LOW_MEMORY: Boolean? = null
+        /** `lowMemory` for this device: on below [GeneratorChoices.LOW_MEMORY_BELOW_BYTES] of memory. */
+        fun lowMemory(context: Context): Boolean {
+            val activities = context.getSystemService(ActivityManager::class.java)
+            val memory = ActivityManager.MemoryInfo().also { activities.getMemoryInfo(it) }
+            val low = GeneratorChoices.lowMemory(memory.totalMem, activities.isLowRamDevice)
+            Log.i(TAG, String.format(Locale.ROOT, "lowMemory %s: %.1f GiB of memory", low, memory.totalMem / 1073741824.0))
+            return low
+        }
 
         /** No play starts from these schedulers, so their lead is never used. */
         private val NO_PLAY = LeadPolicy(Ruleset(Judge.C), renderLeadMs = 0.0, marginMs = 0.0)

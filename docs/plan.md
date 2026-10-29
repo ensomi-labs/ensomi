@@ -15,9 +15,9 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 | 2 (done) | Song library: `OpenMultipleDocuments` for `audio/*`, persistable read permission, name, length and tags (`MediaMetadataRetriever`), stored as JSON in app storage; File not found, Find again, Remove | Push audio files to the AVD, add them through the picker with UI Automator, relaunch, delete one file | Files from Downloads and a cloud provider | — |
 | 3 (done) | Decoding with `MediaExtractor` and `MediaCodec` to float PCM at the file's rate: mono for generation, stereo for play; the MP3 lead rule the Swift app documents, met with Android's decoders | JVM tests of the MP3 header classes on frames the test builds; decode MP3, AAC, FLAC, Ogg and WAV on the AVD and compare lengths | The six click-track classes against the release engine's times | 2 |
 | 4 (done) | Model install: download from Hugging Face at the pinned tag over `HttpURLConnection`, `checkPackage`, per-file size and SHA-256, Range resume, install record, update on start, free-space check and reservation, licence and notices in Settings | JVM tests against a local HTTP server (the JDK's `com.sun.net.httpserver`): drop mid-file, resume, changed file, refused manifest; a real download on the AVD, killed and resumed | Download on mobile data and Wi-Fi | 1 |
-| 5 | Making charts: `RuntimeWorker.withGenerator`, `prepare` when a song opens (the four latest `Prepared` kept in memory by the file's SHA-256), a whole-chart scheduler, phases, Stop through `Cancellation` from another thread, the runtime's messages; the last chart per song kept on disk | Generate a real chart on the AVD with the real model; Stop mid-way; 7 stars gives the runtime's refusal | Time and peak memory per song (the stack report's T10); whether `lowMemory` is needed | 3, 4 |
-| 6 | Audio output and clock: the `AudioTrack` writer with the lead-in, the timestamp clock (32-bit extension, hold rules, no backward step), pause and resume, music volume, audio focus, becoming noisy, route changes, underrun count | JVM tests of the clock against a scripted timestamp source; the AVD plays a song and the clock log is monotonic | Clock smoothness and the output latency per route (gameplay.md) | 3 |
-| 7 | Play: the controller on the real chart and clock with touch; pause on lifecycle, focus, audio focus, noisy and route change; gesture exclusion for the outer lanes; Results from the score; Play again | A full game on the AVD with taps from `adb shell input` and the autoplay as a debug option; pause and resume at each trigger | Touch stamps, touch to light, multi-touch, a full game by hand | 5, 6 |
+| 5 (done) | Making charts: `RuntimeWorker.withGenerator`, `prepare` when a song opens (the four latest `Prepared` kept in memory by the file's SHA-256), a whole-chart scheduler, phases, Stop through `Cancellation` from another thread, the runtime's messages; the last chart per song kept on disk | Generate a real chart on the AVD with the real model; Stop mid-way; 7 stars gives the runtime's refusal | Time and peak memory per song (the stack report's T10); whether `lowMemory` is needed | 3, 4 |
+| 6 (done) | Audio output and clock: the `AudioTrack` writer with the lead-in, the timestamp clock (32-bit extension, hold rules, no backward step), pause and resume, music volume, audio focus, becoming noisy, route changes, underrun count | JVM tests of the clock against a scripted timestamp source; the AVD plays a song and the clock log is monotonic | Clock smoothness and the output latency per route (gameplay.md) | 3 |
+| 7 (done) | Play: the controller on the real chart and clock with touch; pause on lifecycle, focus, audio focus, noisy and route change; gesture exclusion for the outer lanes; Results from the score; Play again | A full game on the AVD with taps from `adb shell input` and the autoplay as a debug option; pause and resume at each trigger | Touch stamps, touch to light, multi-touch, a full game by hand | 5, 6 |
 | 8 | Calibration: the click track through the play output, the tap pad as a `View` with event times, median of 16, apply per output; the picture step on the real clock | Taps from `adb shell input` at known times give the expected suggestion within a frame | Three runs per output agree within 5 ms | 1, 6 |
 | 9 | Frame pacing: per-frame logs on the render thread, a Perfetto FrameTimeline capture script, the refresh-rate request checked; GLES only if the canvas misses frames | The logs and capture run on the AVD at 60 Hz, at each lean | 120 Hz pacing on the Xiaomi, 60 s autoplay of the densest chart at no lean, 40° and 55°; if drawing under the perspective matrix costs too much, notes drawn as quads projected on the CPU (`drawVertices`) before GLES | 7 |
 | 9a | The lean in players' hands: landscape and portrait, the default lean and the range tried by people who play 4K on phones; the HUD corners, the outer lanes at the screen's edges, the back-gesture exclusion in landscape | — | Whether 40° and the eye distance read well at speed; whether thumbs land in the right lanes; whether the far notes are big enough | 7 |
@@ -26,7 +26,7 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 
 ## Steps done
 
-What each finished step's emulator check showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-1`):
+What steps 1 to 4 showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-1`):
 
 - **1.** Every setting changed in Settings, the app force-stopped and launched: all kept in `settings.json`; the
   calibration's Use and Results' Use (the `results-stored` scenario) wrote the speaker's offset, which a restart kept;
@@ -44,6 +44,30 @@ What each finished step's emulator check showed (`ensomi-36`, builds b1 to b3 of
   three notices show; the install survived an emulator cold boot. JVM tests against a local server cover a drop
   mid-file, resume, a server ignoring Range, a changed file, a refused manifest, a file not matching, no space, and
   Download again copying from the install.
+
+What steps 5 to 7 showed (`ensomi-36`, builds b1 and b2 of `claude/android-impl-2`, with a 105-second MP3):
+
+- **5.** The audio stages ran as the song opened (decoded in 2.2 s, prepared in 4.5 s), so Make chart took 1.2 s to a
+  953-note chart, kept on disk: after a force-stop the library said "1 chart" and the song opened on Chart ready. Stop
+  ended each stage: decoding, Finding the beat (Stopped within about 2 s, the adb and UI dumps included) and the chart
+  stage; 7 stars gave the runtime's refusal `star_out_of_range: star must be in [2, 6)`. **`lowMemory`**: by default the
+  audio stages peaked at 1.8 GB resident and left 0.7 GB available, and the low-memory killer ended seven background
+  apps; with `lowMemory` they peaked at 1.1 GB (1.7 GB left, no kill) in 6.4 s instead of 4.5 s, the chart stage alike
+  (1.1 s). So the app turns it on below 7 GiB of memory (`GeneratorChoices`), which covers the emulator and 6 GB phones;
+  phones sold with 8 GB or more keep the faster default until their own measurement (the phone check) says otherwise.
+  The same seed makes the same chart only with the same option, which a device keeps.
+- **6.** A whole autoplay game on the `AudioTrack` clock: 6 622 frames from −1 961 to 104 807 ms, song time and render
+  time never went back; 181 timestamps read, 29 steps back held (all under 2 ms, from the emulator's computed
+  position), 0 underruns; the track at 44.1 kHz float stereo with a 400 ms buffer, its gain the music volume. JVM tests
+  cover the clock against a scripted output (lead-in, 32-bit wrap, steps back and forward, pause and resume, polling,
+  a whole song with jitter, an underrun and a pause).
+- **7.** The autoplay played the song to Results (953 Perfect, 3 Good, 34 Miss: it leaves every 29th note alone) and
+  Play again started a new game; taps from `adb shell input` were judged (1 Perfect, 117 Good, 872 Miss, 2 late
+  inputs). The game paused and resumed where it stopped, sound included, on the button, Back, leaving the app, the
+  notification shade, an emulated phone call (audio focus) and `ACTION_AUDIO_BECOMING_NOISY`; a change of output could
+  not be made, since the emulator has one output (unverified, a phone check). Both back-gesture exclusion rects were
+  set. The emulator's own recorder kept the sound of a whole game. The judgement word and combo are drawn under the
+  notes, so a note crossing them in the middle lanes stays whole.
 
 ## Pins the steps add
 

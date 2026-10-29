@@ -26,7 +26,7 @@ class AppStores private constructor(context: Context) {
     private val documents = DocumentSongLibrary(context, scope)
     val model = DownloadingChartModelStore(context, scope)
     val chartStore = ChartStore(File(context.filesDir, "charts"))
-    val charts = RuntimeChartMaker(context, scope, documents, model, chartStore, RuntimeChartMaker.LOW_MEMORY)
+    val charts = RuntimeChartMaker(context, scope, documents, model, chartStore, RuntimeChartMaker.lowMemory(context))
     val songs = ChartedSongLibrary(documents, chartStore.songIds, scope) { charts.forget(it) }
     val playAudio = PlayAudioCache()
 
