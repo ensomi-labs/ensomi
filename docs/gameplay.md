@@ -405,8 +405,8 @@ speaker, wired and Bluetooth output where it applies. [phone-checks.md](phone-ch
 Which check makes each (`app/src/androidTest/.../checks/`, or the runbook's checklist): clock smoothness,
 `AudioClockCheck` (per output, the raw timestamps' line fit); picture against audio, `AudioClockCheck` on vsync-paced
 reads of the game's clock, and a hand-played game's `clock-log.csv` (checklist 2); unreported output latency, the
-calibration by ear (checklist 4); touch stamp, the runtime's `lateInputs` from a hand-played game (checklist 2), while
-the handling delay of each touch is not logged yet; touch to light and haptics, slow-motion video (checklist 1); frame
+calibration by ear (checklist 4); touch stamp, the runtime's `lateInputs` and each touch's handling delay (`touch-log.csv`) from a hand-played game
+(checklist 2); touch to light and haptics, slow-motion video (checklist 1); frame
 pacing and refresh rate, `FramePacingCheck`, also in the checks build, which is not debuggable; the lean in hand,
 checklist 9; multi-touch, checklist 3; heat, checklist 11 with `FramePacingCheck`'s thermal state. The runtime's cost per
 call through JNA, the first thing the phone measures above, is `RuntimeCheck`.

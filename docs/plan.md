@@ -105,7 +105,7 @@ What steps 8 to 11 showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-
 
 All in `gradle/libs.versions.toml`, each chosen when its step starts: Jetpack DataStore 1.3.0 and
 kotlinx-serialization-json 1.12.0 (step 1, for the settings and library files; the same version as the serialization
-core), AndroidX Test runner 1.7.0, core 1.7.0, JUnit extensions 1.3.0 and UI Automator 2.3.0 (step 13, the phone
+core), AndroidX Test runner 1.7.0, core 1.7.0, JUnit extensions 1.3.0 and UI Automator 2.4.0 (step 13, the phone
 checks only), and WorkManager only if the owner wants the model download to continue in the background.
 
 ## Runtime changes

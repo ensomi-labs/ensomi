@@ -21,7 +21,7 @@ junit = "4.13.2"
 androidxTestRunner = "1.7.0"
 androidxTestCore = "1.7.0"
 androidxTestExtJunit = "1.3.0"
-uiautomator = "2.3.0"
+uiautomator = "2.4.0"
 # The runtime comes from a local AAR for now (`ensomi.runtime.aar` in local.properties).
 # Once a runtime release carries the AAR, pin it here, for example: ensomiRuntime = "x.y.z"
 

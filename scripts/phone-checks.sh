@@ -294,12 +294,12 @@ fi
 if wanted manual; then
   step "The app's logs and its last game"
   mkdir -p "$OUT/manual"
-  for file in clock-log.csv frame-log.csv settings.json library.json; do
+  for file in clock-log.csv frame-log.csv touch-log.csv settings.json library.json; do
     ash run-as $PKG cat files/$file >"$OUT/manual/$file"
   done
   adb logcat -d -v threadtime -s Ensomi:I EnsomiPlay:I EnsomiAudio:I EnsomiPlayfield:I EnsomiCalibration:I \
     EnsomiCharts:I EnsomiModel:I EnsomiModelInstall:I EnsomiDiagnostics:I EnsomiDecodeCheck:I >"$OUT/manual/logcat.txt" 2>&1
-  say "  collected the logs, the last game's clock-log.csv and frame-log.csv, settings.json and library.json"
+  say "  collected the logs, the last game's clock, frame and touch logs, settings.json and library.json"
 fi
 
 step "Collecting"

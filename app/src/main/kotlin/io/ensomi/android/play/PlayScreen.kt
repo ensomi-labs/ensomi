@@ -293,7 +293,10 @@ fun PlayScreen(
                     factory = { viewContext ->
                         PlayfieldView(viewContext).apply {
                             keepScreenOn = true
-                            if (debuggable) frameLogFile = File(viewContext.filesDir, FRAME_LOG)
+                            if (debuggable) {
+                                frameLogFile = File(viewContext.filesDir, FRAME_LOG)
+                                touchLogFile = File(viewContext.filesDir, TOUCH_LOG)
+                            }
                             // Held at the start of the lead-in until the window has focus (above).
                             this.pause()
                             controllerFactory = ::controller
@@ -775,6 +778,9 @@ private const val CLOCK_LOG = "clock-log.csv"
 
 /** Debug builds: the last playfield's vsync, presentation and work per frame (step 9's frame log). */
 private const val FRAME_LOG = "frame-log.csv"
+
+/** Debug builds: each lane press and release of the last game, when it happened and when it was handled. */
+private const val TOUCH_LOG = "touch-log.csv"
 
 /** Smaller than this, the playfield would be squashed: the screen says so instead (design.md, short windows). */
 private val MIN_PLAY_HEIGHT = 280.dp

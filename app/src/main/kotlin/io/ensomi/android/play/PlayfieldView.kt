@@ -110,6 +110,10 @@ class PlayfieldView @JvmOverloads constructor(
     var frameLogFile: File? = null
     private val frameLog = FrameLog()
 
+    /** Debug builds: where each lane press and release goes, as CSV, when the playfield closes ([TouchLog]). */
+    var touchLogFile: File? = null
+    private val touchLog = TouchLog()
+
     private val mutableHud = MutableStateFlow(PlayHud())
     val hud: StateFlow<PlayHud> = mutableHud.asStateFlow()
 
@@ -203,11 +207,16 @@ class PlayfieldView @JvmOverloads constructor(
         val closing = controller ?: return
         controller = null
         val logFile = frameLogFile
+        val touchFile = touchLogFile
         Thread({
             closing.close()
             if (logFile != null) {
                 Log.i(TAG, "Frames: ${frameLog.summary()}")
                 runCatching { logFile.writeText(frameLog.csv()) }
+            }
+            if (touchFile != null) {
+                Log.i(TAG, "Touches: ${touchLog.summary()}")
+                runCatching { touchFile.writeText(touchLog.csv()) }
             }
         }, "EnsomiPlayfieldClose").start()
     }
@@ -242,6 +251,7 @@ class PlayfieldView @JvmOverloads constructor(
         val g = geometry ?: return true
         val target = controller ?: return true
         val nanos = eventNanos(event)
+        if (touchLogFile != null) touchLog.record(event.actionMasked, nanos, System.nanoTime(), event.pointerCount)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = event.actionIndex
@@ -497,6 +507,50 @@ class FrameLog {
 
     private companion object {
         const val COLUMNS = 6
+    }
+}
+
+/**
+ * Debug builds: every touch event of a playfield but moves, kept across surfaces and written as CSV when it closes
+ * (`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the view handled it, how many
+ * fingers were down). The handling delay is gameplay.md's touch stamp measurement; [summary] goes to the log.
+ */
+class TouchLog {
+    private var data = LongArray(4 * 2_048)
+    private var size = 0
+
+    @Synchronized
+    fun record(action: Int, eventNanos: Long, handledNanos: Long, pointers: Int) {
+        if (action == MotionEvent.ACTION_MOVE) return
+        if (size + 4 > data.size) data = data.copyOf(data.size * 2)
+        data[size] = action.toLong()
+        data[size + 1] = eventNanos
+        data[size + 2] = handledNanos
+        data[size + 3] = pointers.toLong()
+        size += 4
+    }
+
+    /** Touch events, and the delay from each event to its handling at the median, the 99th percentile and the most. */
+    @Synchronized
+    fun summary(): String {
+        val events = size / 4
+        if (events == 0) return "events=0"
+        val delays = LongArray(events) { data[it * 4 + 2] - data[it * 4 + 1] }.also { it.sort() }
+        return String.format(
+            Locale.ROOT,
+            "events=%d handling_p50=%.2fms handling_p99=%.2fms handling_max=%.2fms",
+            events, delays[(events - 1) / 2] / 1e6, delays[((events - 1) * 99) / 100] / 1e6, delays[events - 1] / 1e6,
+        )
+    }
+
+    @Synchronized
+    fun csv(): String = buildString {
+        append("action,eventNanos,handledNanos,pointers\n")
+        var i = 0
+        while (i < size) {
+            append(data[i]).append(',').append(data[i + 1]).append(',').append(data[i + 2]).append(',').append(data[i + 3]).append('\n')
+            i += 4
+        }
     }
 }
 

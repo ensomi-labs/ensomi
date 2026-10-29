@@ -136,7 +136,8 @@ adb shell am broadcast -a io.ensomi.android.debug.PLAY --es do change-output   #
 A debuggable build (and the checks build) also writes each game's frame times to `files/clock-log.csv`
 (`nanos,songMs,renderMs`) when the game closes, for checking that song time never goes back, and each frame's pacing to
 `files/frame-log.csv` (`vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos`: the frame's deadline
-from `FrameData` and when its drawing was posted). The same builds take the launch extras above; the `pacing-flat`,
+from `FrameData` and when its drawing was posted), and each touch but moves to `files/touch-log.csv`
+(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it). The same builds take the launch extras above; the `pacing-flat`,
 `pacing`, `pacing-lean-max` and `pacing-portrait` scenarios play the sample game without end at each lean, for the
 frame pacing check.
 
