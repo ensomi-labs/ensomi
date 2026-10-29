@@ -5,14 +5,13 @@ written in Kotlin with Jetpack Compose. Chart generation and gameplay come from 
 [ensomi-runtime](https://github.com/ensomi-labs/runtime), through its Kotlin bindings. The app shares no
 code or history with the Swift app, which is the reference for what it does.
 
-The app is in development and is not distributed. It is being built from a prototype of drop-in play (the library,
-making a chart, play, results, settings and timing calibration) one store at a time. Real now: the settings, kept with
-Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding songs
-to PCM; the chart model, downloaded from Hugging Face at a pinned tag and checked file by file; charts made on the
-device by the runtime from the player's songs, the last one per song kept; and play: the chart on the song's own sound,
-timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with the
-lanes leaning back by default (the orientation and the lean are settings with a live preview). The timing calibration
-is still a sample. Diagnostics, under Settings,
+The app is in development and is not distributed. It does drop-in play on the app's own stores: the settings, kept
+with Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding
+songs to PCM; the chart model, downloaded from Hugging Face at a pinned tag and checked file by file; charts made on
+the device by the runtime from the player's songs, the last one per song kept; play: the chart on the song's own sound,
+timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with
+the lanes leaning back by default (the orientation and the lean are settings with a live preview); and the timing
+calibration, on a click track through the same output and clock. Diagnostics, under Settings,
 shows what the device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the
 runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
@@ -60,16 +59,24 @@ adb wait-for-device
 
 ## Prototype screens
 
-A normal launch uses the app's own stores. A debuggable build opens instead in any sample state of the prototype from
-a launch extra, for screenshots; the states are listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
+A normal launch uses the app's own stores. For review, a debuggable build opens instead in any state of every screen
+from a launch extra, on fakes (`prototype/Fakes.kt`: sample songs, a model state, a chart state, settings in memory, a
+click track without sound); the states are listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
 
 ```sh
 adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made
 ```
 
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
-orientations, some screens at 200 % font size and with the phone in landscape, and records the playfield preview, on
-the one booted emulator or device.
+orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
+screen, the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
+plays a real game of that song (it needs a stored chart) by the autoplay to its results, on the one booted emulator or
+device.
+
+`scripts/capture-frame-timeline.sh OUT_DIR NAME [SECONDS]` records a Perfetto trace of whatever plays: SurfaceFlinger's
+FrameTimeline (each frame's expected and actual presentation and its jank, per layer), the graphics atrace categories
+and the render thread's own sections (`EnsomiFrame`, with `EnsomiRuntime` and `EnsomiDraw`). With Perfetto's
+`trace_processor` or the `perfetto` Python package it also summarises the app's frames by jank type.
 
 `scripts/make-click-tracks.sh OUT_DIR` writes click tracks (a click every 500 ms from 1 s) in each container and MP3
 header class, from one PCM, with ffmpeg. With songs in the library, a debuggable build decodes each of them and logs one
@@ -86,8 +93,13 @@ The model download logs each request and its answer under `EnsomiModel`. Its fil
 (`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
 
 Making charts logs under `EnsomiCharts` (each song's audio stages and each chart, with their times and the peak
-resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, the score) and their sound
-under `EnsomiAudio` (the track's buffer, its route and its underruns). A debuggable build takes these extras on a
+resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, the score), their sound
+under `EnsomiAudio` (the track's buffer, its route and its underruns), and the playfield's render thread under
+`EnsomiPlayfield`: the frame rate it asked for and got, then every two seconds the frames drawn, the vsyncs missed,
+the frames finished after their deadline, and the time in the runtime and in drawing (average, most, and the whole
+frame's work at the median and the 99th percentile). The calibration logs under `EnsomiCalibration`: the output the
+clicks play on, every five seconds when click 0 was heard on the `System.nanoTime()` clock, and each tap's event time,
+song time, error and the suggestion. A debuggable build takes these extras on a
 normal launch, for checks on an emulator:
 
 ```sh
@@ -103,7 +115,8 @@ adb shell am broadcast -a io.ensomi.android.debug.PLAY --es do change-output   #
 ```
 
 A debuggable build also writes each game's frame times to `files/clock-log.csv` (`nanos,songMs,renderMs`) when the game
-closes, for checking that song time never goes back.
+closes, for checking that song time never goes back, and each frame's pacing to `files/frame-log.csv`
+(`vsyncNanos,presentNanos,runtimeNanos,drawNanos`).
 
 ## Diagnostics output
 
@@ -123,7 +136,7 @@ JSON that fits in one logcat line is printed as is. Longer JSON is split into li
   navigation, `AppStores.kt` the app's stores; each feature has its own package: `library/`, `model/`, `chart/`,
   `play/`, `settings/`, `audio/`, `diagnostics/`.
 - `docs/`: the design, the gameplay design and the build plan.
-- `scripts/`: the screenshot capture script and the click-track generator.
+- `scripts/`: the screenshot capture script, the Perfetto frame-timeline script and the click-track generator.
 - `app/src/test/kotlin/`: unit tests that run on the JVM.
 - `gradle/libs.versions.toml`: every pinned version.
 

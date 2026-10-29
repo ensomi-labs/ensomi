@@ -293,15 +293,22 @@ the visual offset moves only the drawn notes; scroll speed changes only how far 
 - **Defaults are 0 ms** for both until the phones are measured; the Swift app's −15 ms was tuned on a Mac with a
   keyboard. The phone measurements may give per-route defaults.
 
-**Calibration, sound step.** The same `AudioTrack` path plays a click track: one second of silence, then a click every
-500 ms, generated in code (a short tone burst). Click k is heard at song time `1000 + 500 k` ms on the play clock. The
-pad is a `View` that stamps taps with `getEventTimeNanos`, as the playfield does. A tap's error is its chart time minus
-the nearest click's time; the suggested audio offset is the current one minus the median error of the last 16 taps.
-Calibrating again from a result gives errors near zero. The screen names the output it calibrates.
+**Calibration, sound step.** The same `AudioTrack` path (`GameAudio`) and clock (`AudioPlayClock`) as a game play a
+click track: one second of silence, then a click every 500 ms without end, generated in code (`ClickTrack`: 48 kHz
+mono, a 30 ms tone burst at 1760 Hz that rises in half a millisecond, whose first sample is the click's time); the
+writer repeats the 500 ms period, so every click falls on a whole frame. Click k is heard at song time `1000 + 500 k`
+ms on the play clock. The track plays at full gain (the phone's media volume sets the level) and its routed device is
+the output calibrated, named on the screen; a change of output starts the taps over. The pad is a `View` that stamps
+taps with `getEventTimeNanos`, as the playfield does; the screen polls the clock every 10 ms, since no render thread
+does in this step. A tap's song-time error is its song time minus the nearest click's (taps more than 250 ms before
+the first click are dropped). A tap is judged at its song time plus the audio offset, so the offset that puts the taps
+on the clicks is minus the median song-time error of the last 16 taps, whatever offset was in use while they were made
+(the same as the current offset minus the median chart-time error). The strip shows chart-time errors at the offset in
+use, so calibrating again from a result gives errors near zero.
 
 **Calibration, picture step.** The clicks go on and the play renderer draws a note at each click's time on the same
-clock, with the visual offset from the slider, live. The player moves it until the notes cross the line on the click.
-No taps.
+clock (a `PlayController` that reads the clicks' clock but neither starts nor closes it, judging nothing), with the
+visual offset from the slider, live. The player moves it until the notes cross the line on the click. No taps.
 
 **After a game**, Results offer the runtime's `suggestedAudioOffsetMs` (minus the mean error of hit taps and hold
 heads) for the output used, when it is at least 3 ms.
@@ -340,9 +347,18 @@ heads) for the output used, when it is at least 3 ms.
   `Canvas.drawVertices` call (hardware-accelerated from API 29, same page). GLES with instanced quads replaces only
   the draw step if the canvas still misses frames at 120 Hz; the thread, pacing, clock and frame order stay.
 - Measured with per-frame logs on the render thread and Perfetto's FrameTimeline, which records expected and actual
-  presentation and jank per layer ([FrameTimeline](https://perfetto.dev/docs/data-sources/frametimeline)). The
-  prototype's render thread already logs, every two seconds under the tag `EnsomiPlayfield`, its frame rate, the
-  vsyncs it missed, and its average and longest time per frame in the runtime and in drawing.
+  presentation and jank per layer ([FrameTimeline](https://perfetto.dev/docs/data-sources/frametimeline)). The render
+  thread logs, every two seconds under the tag `EnsomiPlayfield`, its frame rate and the display's, the vsyncs it
+  missed, the frames it finished after their deadline (`FrameData`'s preferred timeline), its average and longest
+  time per frame in the runtime and in drawing, and the whole frame's work at the median and the 99th percentile, the
+  number the table above sets; it allocates nothing to do so. Debug builds also keep every frame's vsync, expected
+  presentation and work, written to `files/frame-log.csv` when the playfield closes. Each frame is a trace section
+  (`EnsomiFrame`, holding `EnsomiRuntime` and `EnsomiDraw`), so `scripts/capture-frame-timeline.sh` shows the render
+  thread's work beside SurfaceFlinger's frame timeline in one Perfetto trace. The refresh-rate request is logged with
+  the display's modes and the rate it runs at.
+- **GLES only if the canvas misses frames**, and only a phone can say: the emulator has one 60 Hz vsync, draws on the
+  Mac's GPU through its own translation and runs the runtime on the Mac's cores, so its frame cost says nothing about a
+  phone's. The canvas stays until the phone measurements (plan step 9's phone check) show missed frames at 120 Hz.
 
 ## What the emulator can and cannot show
 

@@ -1,8 +1,9 @@
 # Ensomi for Android: UI and UX design, drop-in play
 
-This is the design of the app's first real round, for review before it is built. The gameplay side (playfield, clock,
-input, judgement, offsets, frame pacing) is in [gameplay.md](gameplay.md); the order of work is in [plan.md](plan.md).
-The app already holds a static prototype of these screens (the last section says what it shows and what it does not).
+This is the design of the app's first real round, built as it stands here. The gameplay side (playfield, clock, input,
+judgement, offsets, frame pacing) is in [gameplay.md](gameplay.md); the order of work is in [plan.md](plan.md). Every
+screen below runs on the app's own stores; the last section says how the screenshot scenarios still open each state on
+fakes.
 
 The Swift app on `dev/swift` (at `623feaa`) is the reference for what to build: its features, flows, look and timing
 care. This document designs how, with Android's own conventions and APIs; it ports no Swift code.
@@ -227,17 +228,24 @@ Settings are stored with Jetpack DataStore; the audio offset is kept per output 
 
 ### Timing calibration
 
-In the game's dark presentation, two steps on a segmented control:
+In the game's dark presentation, two steps on a segmented control (in landscape it sits in the top bar beside the
+title, so each step keeps the height it needs). The clicks play from the moment the screen opens until it closes,
+through the output play uses.
 
 1. **Sound.** A click every half second. The player taps a large pad on each click, eyes closed if they like. A strip
-   shows the last taps from early to late; after enough taps the screen suggests the audio offset for the current
-   output (named on the screen) from the median of the last 16, with Use and Start over.
+   shows the last 16 taps from early to late, as the game would judge them with the offset in use now, so they gather
+   at the middle once it is right. After 16 taps the screen suggests the audio offset for the output the clicks play on
+   (named on the screen) from the median of the last 16, and keeps it current with each tap; Use applies it (a
+   `CONFIRM` tick), Start over clears the taps. Before 16 taps the suggestion reads "—" and Use is off. If the sound
+   moves to another output, the taps start over and the new output is named.
 2. **Picture.** The clicks go on and a note falls onto the line with each one, drawn by the play renderer with the
-   player's lane lean. The player moves the visual offset slider until the notes cross the line on the click. In
-   landscape the notes sit beside the slider, so the field keeps its height. There is no tapping in this step, so
-   touch latency cannot leak into the visual offset.
+   player's lane lean, on the clicks' own clock. The player moves the visual offset slider until the notes cross the
+   line on the click. In landscape the notes sit beside the slider, so the field keeps its height. There is no tapping
+   in this step, so touch latency cannot leak into the visual offset.
 
-How the click is timed and why this separates the offsets is in gameplay.md.
+The clicks pause when the app leaves the foreground or another app takes audio focus, and go on when it comes back;
+while they are paused the pad says "Paused. Tap to go on.", and a tap does so. How the click is timed and why this
+separates the offsets is in gameplay.md.
 
 ### Diagnostics
 
@@ -297,12 +305,13 @@ plum 11.8, Miss on plum 9.4, dark ink on coral 6.7 to 8.4; in light chrome, text
 Haptics go through `View.performHapticFeedback`, which honours the player's touch-feedback setting and needs no
 `VIBRATE` permission ([Haptic feedback](https://developer.android.com/develop/ui/views/haptics/haptic-feedback)).
 
-- **Chrome**: Material components' own feedback; `CONFIRM` when a chart is ready and when a calibration is applied,
-  `REJECT` when a chart fails.
+- **Chrome**: Material components' own feedback; `CONFIRM` when a chart being made is ready (not when a stored one is
+  opened) and when a calibration's or the results' suggested offset is applied, `REJECT` when a chart fails.
 - **Play**: off by default. "Vibrate on lane touch" adds a `VIRTUAL_KEY` tick per lane press. Off because the actuator
   answers some milliseconds after the touch, a tick that feels late reads as a late hit, and a vibration can be heard
   through the phone's speaker. The player may still like it with headphones; the phone measurements say how late it is.
-- **Calibration**: never. A tick would be a second cue competing with the click.
+- **Calibration**: never while tapping. A tick would be a second cue competing with the click; the pad also turns off
+  its click sound.
 
 ## Accessibility
 
@@ -311,8 +320,11 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
   live regions; problems are text, not colour.
 - **TalkBack in play**: with touch exploration on, a single tap explores instead of touching, so the lanes cannot be
   played. The play screen is one labelled element ("Playfield: four lanes. Touch a lane when its note reaches the
-  line."), the HUD values and the Pause button stay reachable, and when TalkBack is on the screen says before the game
-  starts that lanes need direct touch. Playing with TalkBack on is not a goal of this round.
+  line."), the HUD values and the Pause button stay reachable. When touch exploration is on, before the game starts
+  a panel says "TalkBack is on: … the lanes need direct touch. Turn TalkBack off to play, or start anyway." with Start
+  anyway and Back; the lead-in waits behind it. Playing with TalkBack on is not a goal of this round.
+- **TalkBack in calibration**: the pad is one labelled element ("Tap pad. Tap on the click"); a TalkBack double tap
+  is not timed, so it counts as no tap. The strip says where the middle of the taps is ("… 22 ms late").
 - **Font size**: chrome follows the system font size up to Android 14's 200 %
   ([non-linear font scaling](https://developer.android.com/about/versions/14/features#non-linear-font-scaling)):
   text wraps, steppers sit under their labels, nothing is truncated to fit. The HUD and the panels scale too; text
@@ -353,8 +365,9 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
   for phones and is not proposed.)
 - **Edge to edge**: required for API 36 (same source). Chrome pads for the system bars; the playfield keeps its HUD
   below the display cutout and its key tray above the system's mandatory gesture area (gameplay.md).
-- **Split screen and short windows**: losing focus pauses; a window too short to play in says so instead of drawing a
-  squashed playfield.
+- **Split screen and short windows**: losing focus pauses; a window less than 280 dp tall or wide pauses the game and
+  says "This window is too small to play in" instead of drawing a squashed playfield; when it grows again, the pause
+  panel is there.
 
 ## What comes from the Swift app, and what changes
 
@@ -376,25 +389,22 @@ Not carried over in this round: Listen & Play, recognition, the Chart Inspector,
 
 ## The prototype in the app
 
-The app opens on the Library and every screen above is in it, in Compose, reading its data through small
-interfaces: `SongLibrary`, `ChartModelStore`, `ChartMaker`, `PlaySettingsStore`. A normal launch uses the app's own
-stores (`AppStores`) where they are built, and samples where they are not; each sample class says so in its comment,
-and every action that is not built yet shows a snackbar saying so ("Not built yet: Starting the taps over (plan step 8).").
+The app opens on the Library and runs every screen above on its own stores (`AppStores`): the settings, kept with
+DataStore, the audio offset per output, written by Settings, calibration's Use and Results' Use; the song library from
+the document picker, with File not found, Find again and Remove; decoding to PCM; the model download, its states, the
+licence, the model card and the notices; making charts with the runtime (prepare on opening a song, the whole-chart
+scheduler, Stop, the model's capabilities, the last chart per song kept); play: the player's chart on the song's sound,
+the `AudioTrack` clock, the pauses, the results from the runtime's score, and the playfield: the `SurfaceView` render
+thread paced by `postVsyncCallback`, the runtime's `GameplaySession` judging, its `GameplayFeedback` easing lights and
+the judgement word, `noteGeometry` placing notes, touches mapped to lanes with their event times; and the calibration:
+the click track through the play output, the pad's taps on its clock, the picture step drawn on the same clock.
 
-- **Real now**: navigation, the screens and their states, the section and seed checks; the settings, kept with
-  DataStore, the audio offset per output, written by Settings, calibration's Use and Results' Use; the song library
-  from the document picker, with File not found, Find again and Remove; decoding to PCM; the model download, its
-  states, the licence, the model card and the notices; making charts with the runtime (prepare on opening a song, the
-  whole-chart scheduler, Stop, the model's capabilities, the last chart per song kept); and play: the player's chart on
-  the song's sound, the `AudioTrack` clock, the pauses, the results from the runtime's score, and the playfield: the
-  `SurfaceView` render thread paced by `postVsyncCallback`, the runtime's `GameplaySession` judging, its
-  `GameplayFeedback` easing lights and the judgement word, `noteGeometry` placing notes, touches mapped to lanes with
-  their event times.
-- **Sample**: the calibration's taps and clicks, and the playfield preview in Settings: a fixed 27-second chart on a
-  clock without sound, pressed by an autoplay with fixed early and late offsets so every judgement shows ("Sample
-  chart · no sound"); its results are the runtime's real score of that game.
-- **Lean and orientation**: the play settings, the landscape layout, the leaning lanes, the game held in its
-  orientation through the results, and the live preview in Settings are real and kept.
-- **For screenshots only**: a debuggable build opens in any sample state from a launch extra
-  (`adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made`), on sample stores;
-  `scripts/capture-prototype.sh` drives them all.
+Two parts play a fixed chart by design: the playfield preview in Settings, a 27-second chart on a clock without sound,
+pressed by an autoplay with fixed early and late offsets so every judgement shows ("Sample chart · no sound"), whose
+results are the runtime's real score of that game; and the calibration's picture step, a note on every click.
+
+**For review**, a debuggable build opens in any state of any screen from a launch extra
+(`adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made`), on the fakes in
+`prototype/Fakes.kt` (sample songs, a fixed model and chart state, settings in memory, a click track without sound and
+16 sample taps); `scripts/capture-prototype.sh` drives them all and plays one real game. Nothing in the screens says
+"not built yet" any more.

@@ -176,7 +176,7 @@ fun PlayScreen(
             phase = PlayPhase.PAUSED
         }
 
-        val audioFocus = if (game != null) rememberAudioFocus { cause -> pause(cause) } else null
+        val audioFocus = if (game != null) rememberAudioFocus(onLost = { cause -> pause(cause) }) else null
         if (game != null) {
             BecomingNoisy { pause("becoming noisy (ACTION_AUDIO_BECOMING_NOISY)") }
             if (game.debuggable) DebugPlayBroadcasts(running)
