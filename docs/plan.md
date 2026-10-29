@@ -72,7 +72,7 @@ What steps 5 to 7 showed (`ensomi-36`, builds b1 and b2 of `claude/android-impl-
   set. The emulator's own recorder kept the sound of a whole game. The judgement word and combo are drawn under the
   notes, so a note crossing them in the middle lanes stays whole.
 
-What steps 8 to 11 showed (`ensomi-36`, builds b1 and b2 of `claude/android-impl-3`):
+What steps 8 to 11 showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-3`):
 
 - **8.** The click track through the play output, recorded by the emulator's own recorder: clicks 500.04 ms apart on
   average (500.0 to 500.6). 24 taps from `adb shell input tap` were all taken; recomputed from their logged event
@@ -90,13 +90,14 @@ What steps 8 to 11 showed (`ensomi-36`, builds b1 and b2 of `claude/android-impl
   so GLES is not started; the 120 Hz phone check decides.
 - **10.** UI Automator dumps of every kind of screen: every control has a label, on itself or on its text or icon
   (Compose's buttons keep it on the child). TalkBack 16 walked the Library, a song, Settings and Calibration in order
-  without an unnamed stop; the notice before play showed and held the game; with a window 600 px wide (228 dp tall in
+  without an unnamed stop; the notice before play, a dialog since b3, took TalkBack's first focus and held the game
+  until Start anyway was double tapped (Back returned to the song); with a window 600 px wide (228 dp tall in
   landscape) the game paused and said the window was too small, and the pause panel came back with the size; Vibrate on
   lane touch gave one `VIRTUAL_KEY` effect per lane press in `vibrator_manager`. Haptic delay and the choice of
   offering the vibration stay phone checks.
 - **11.** The scenarios' fakes moved to `prototype/Fakes.kt`; the feature packages hold no samples and no screen says
-  "not built yet". The capture script ran every group, now with UI dumps of every screen, Perfetto at each lean and a
-  real game.
+  "not built yet". The capture script ran every group (135 files), now with UI dumps of every screen, Perfetto at each
+  lean and a real game to its results, and holds the rotation itself (`wm user-rotation`).
 
 ## Pins the steps add
 

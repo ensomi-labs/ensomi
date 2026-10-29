@@ -321,8 +321,9 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 - **TalkBack in play**: with touch exploration on, a single tap explores instead of touching, so the lanes cannot be
   played. The play screen is one labelled element ("Playfield: four lanes. Touch a lane when its note reaches the
   line."), the HUD values and the Pause button stay reachable. When touch exploration is on, before the game starts
-  a panel says "TalkBack is on: … the lanes need direct touch. Turn TalkBack off to play, or start anyway." with Start
-  anyway and Back; the lead-in waits behind it. Playing with TalkBack on is not a goal of this round.
+  a dialog says "TalkBack is on: … the lanes need direct touch. Turn TalkBack off to play, or start anyway." with Start
+  anyway and Back; the lead-in waits behind it. A dialog is its own window, so TalkBack moves into it at once instead
+  of starting on the playfield. Playing with TalkBack on is not a goal of this round.
 - **TalkBack in calibration**: the pad is one labelled element ("Tap pad. Tap on the click"); a TalkBack double tap
   is not timed, so it counts as no tap. The strip says where the middle of the taps is ("… 22 ms late").
 - **Font size**: chrome follows the system font size up to Android 14's 200 %
