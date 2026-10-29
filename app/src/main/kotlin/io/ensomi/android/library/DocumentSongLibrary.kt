@@ -113,9 +113,13 @@ class DocumentSongLibrary(context: Context, private val scope: CoroutineScope) :
     override fun refresh() {
         scope.launch {
             val songs = mutex.withLock { stored }
-            val gone = songs.filterNot { isThere(it.uri.toUri()) }.map { it.id }.toSet()
+            val checked = songs.associate { it.id to (it.uri to isThere(it.uri.toUri())) }
             mutex.withLock {
-                missing = gone
+                // A song found again or added while the files were looked at keeps the state it has now.
+                missing = stored.filter { song ->
+                    val (uri, there) = checked[song.id] ?: return@filter song.id in missing
+                    if (uri == song.uri) !there else song.id in missing
+                }.map { it.id }.toSet()
                 publish()
             }
         }
