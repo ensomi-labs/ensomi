@@ -33,7 +33,7 @@ swipe_up_landscape() { adb shell input swipe 700 700 700 250 500; sleep 1.5; }
 
 # scenario:seconds to wait before the screenshot
 SCENARIOS=(
-  first-run:3 downloading:3 download-stopped:3 no-space:3 installing-files:3 install-files-refused:3
+  first-run:3 downloading:3 download-stopped:3 no-space:3 download-failed:3 installing-files:3 install-files-refused:3
   library:3 library-missing:3
   make-chart:3 make-chart-sections:3 make-chart-section-problem:3 make-chart-no-model:3
   make-chart-making:3 make-chart-made:3 make-chart-stopped:3 make-chart-failed:3

@@ -10,10 +10,16 @@ sealed interface ModelState {
     data object Checking : ModelState
 
     /**
-     * Nothing installed. [freeBytes] is what the app's storage can allocate. [filesFailure] says why the last install
-     * from picked files stopped, if it did.
+     * Nothing installed. [freeBytes] is what the app's storage can allocate. [failure] says why the last download
+     * stopped before it had kept anything (no connection, Hugging Face unreachable), and [filesFailure] why the last
+     * install from picked files stopped, if they did.
      */
-    data class Absent(val downloadBytes: Long, val freeBytes: Long, val filesFailure: String? = null) : ModelState {
+    data class Absent(
+        val downloadBytes: Long,
+        val freeBytes: Long,
+        val filesFailure: String? = null,
+        val failure: String? = null,
+    ) : ModelState {
         val fits: Boolean get() = freeBytes >= downloadBytes
     }
 

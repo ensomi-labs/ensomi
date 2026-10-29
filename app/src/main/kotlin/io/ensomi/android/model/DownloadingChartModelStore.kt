@@ -267,7 +267,7 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         return if (staged != null) {
             ModelState.Stopped(staged.first, staged.second, failure, filesFailure)
         } else {
-            ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes(), filesFailure)
+            ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes(), filesFailure, failure)
         }
     }
 

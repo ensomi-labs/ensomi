@@ -149,6 +149,11 @@ data class Scenario(
                 model = ModelState.Downloading(50_600_000, PACKAGE, fromFiles = true),
                 withSongs = false,
             ),
+            "download-failed" to Scenario(
+                listOf(Library),
+                model = ModelState.Absent(PACKAGE, FREE, failure = "The connection was lost."),
+                withSongs = false,
+            ),
             "install-files-refused" to Scenario(
                 listOf(Library),
                 model = ModelState.Absent(

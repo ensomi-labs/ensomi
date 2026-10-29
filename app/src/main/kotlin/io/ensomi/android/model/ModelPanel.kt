@@ -99,6 +99,7 @@ private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, onPickFolde
         } else {
             ActionButton(stringResource(R.string.model_download), onDownload, icon = R.drawable.ic_download, modifier = Modifier.fillMaxWidth())
         }
+        if (state.failure != null) Problem(stringResource(R.string.model_download_failed, state.failure))
     } else {
         Problem(stringResource(R.string.model_no_space, megabytes(state.downloadBytes), megabytes(state.freeBytes)))
         Text(stringResource(R.string.model_no_space_hint), style = MaterialTheme.typography.bodySmall)

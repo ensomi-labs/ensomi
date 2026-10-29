@@ -102,7 +102,7 @@ SHA-256. The record says which way the files came (`"source": "huggingface"` or 
 
 | State | What the card says | Actions |
 | --- | --- | --- |
-| Not installed | What the model is, that it is a one-time download of 120 MB, that songs never leave the phone; "Needs 120 MB. 18.4 GB free." | **Download model** (the screen's primary action); Install from files |
+| Not installed | What the model is, that it is a one-time download of 120 MB, that songs never leave the phone; "Needs 120 MB. 18.4 GB free."; after a download that stopped before keeping anything, why ("The download from Hugging Face failed. The connection was lost.") | **Download model** (the screen's primary action); Install from files |
 | Not enough space | "Not enough space: the model needs 120 MB, and 80 MB is free." with a warning symbol | Try again; Free up space (the system's storage screen) |
 | Downloading | Progress bar, percent, megabytes of total; "You can add songs while it downloads." | Cancel |
 | Installing from files | The same progress, under "Installing the Ensomi R2 model from files" | Cancel |
