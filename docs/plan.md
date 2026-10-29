@@ -90,7 +90,7 @@ What steps 8 to 11 showed (`ensomi-36`, builds b1 to b3 of `claude/android-impl-
   so GLES is not started; the 120 Hz phone check decides.
 - **10.** UI Automator dumps of every kind of screen: every control has a label, on itself or on its text or icon
   (Compose's buttons keep it on the child). TalkBack 16 walked the Library, a song, Settings and Calibration in order
-  without an unnamed stop; the notice before play, a dialog since b3, took TalkBack's first focus and held the game
+  without an unnamed stop (Settings' scroll-speed slider took two stops in the same place, not yet explained); the notice before play, a dialog since b3, took TalkBack's first focus and held the game
   until Start anyway was double tapped (Back returned to the song); with a window 600 px wide (228 dp tall in
   landscape) the game paused and said the window was too small, and the pause panel came back with the size; Vibrate on
   lane touch gave one `VIRTUAL_KEY` effect per lane press in `vibrator_manager`. Haptic delay and the choice of
