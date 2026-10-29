@@ -105,7 +105,15 @@
     <string name="model_failure_http">Hugging Face answered with HTTP %1$d.</string>
     <string name="model_failure_refused">This version of Ensomi cannot use the package: %1$s</string>
     <string name="model_failure_mismatch">%1$s did not match the package’s manifest.</string>
-    <string name="model_failure_not_opened">The downloaded model would not open: %1$s</string>
+    <string name="model_failure_not_opened">The model would not open: %1$s</string>
+    <string name="model_failure_not_pinned">These are not the files of the Ensomi R2 package %1$s, the one this version of Ensomi uses.</string>
+    <string name="model_failure_no_manifest">The folder has no ensomi-package.json. Pick the folder that holds the package’s files.</string>
+    <string name="model_failure_missing">%1$s is not in the folder. The package needs every file its manifest lists.</string>
+    <string name="model_failure_unreadable">The files could not be read. %1$s</string>
+    <string name="model_install_files">Install from files</string>
+    <string name="model_install_files_hint">Can’t reach Hugging Face? If you have the package’s files, pick the folder that holds them (ensomi-package.json and the files it lists).</string>
+    <string name="model_installing_files">Installing the Ensomi R2 model from files</string>
+    <string name="model_installing_files_hint">Ensomi copies each file and checks it against the package. Keep Ensomi open until it finishes.</string>
 
     <!-- Making a chart -->
     <string name="make_stars">Stars</string>

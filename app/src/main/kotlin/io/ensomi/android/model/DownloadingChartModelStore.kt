@@ -1,9 +1,11 @@
 package io.ensomi.android.model
 
 import android.content.Context
+import android.net.Uri
 import android.os.storage.StorageManager
 import android.util.Log
 import io.ensomi.android.R
+import io.ensomi.android.json.Json
 import io.ensomi.runtime.GeneratorException
 import io.ensomi.runtime.RuntimeWorker
 import io.ensomi.runtime.checkPackage
@@ -21,12 +23,15 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * The chart model in app storage under `noBackupFilesDir/models`, installed by [ModelInstaller] from
- * [ModelSource] while the app is open. Free space comes from `StorageManager.getAllocatableBytes`, and a download
- * asks `allocateBytes` for what it still has to fetch, which frees the system's caches if it must.
+ * [ModelSource] while the app is open, or from the package's files in a folder the player picked. Free space comes
+ * from `StorageManager.getAllocatableBytes`, and an install asks `allocateBytes` for what it still has to write, which
+ * frees the system's caches if it must.
  *
- * When the app starts with an install that is not the pinned tag or misses a file, it downloads the pinned tag over
- * it; the install stays in use until the download is in place. Otherwise a download runs only when asked: a stopped
- * one waits for Resume.
+ * When the app starts with an install that is not the pinned package or misses a file, it downloads the pinned tag
+ * over it; the install stays in use until the download is in place. Otherwise a download runs only when asked: a
+ * stopped one waits for Resume.
+ *
+ * Each install's outcome, and its start, goes to logcat as one JSON line under [INSTALL_TAG], for scripts.
  */
 class DownloadingChartModelStore(context: Context, private val scope: CoroutineScope) : ChartModelStore {
     private val appContext = context.applicationContext
@@ -38,6 +43,7 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         baseUrl = ModelSource.BASE_URL,
         revision = ModelSource.PINNED_REVISION,
         checkManifest = ::check,
+        pinnedManifestSha256 = ModelSource.PINNED_MANIFEST_SHA256,
         verify = ::open,
         reserve = ::reserve,
         log = { Log.i(TAG, it) },
@@ -64,7 +70,7 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
             when {
                 found != null -> {
                     mutableState.value = installedState(found, update = null)
-                    if (!found.upToDate(ModelSource.PINNED_REVISION)) {
+                    if (!upToDate(found)) {
                         Log.i(TAG, "The install is not ${ModelSource.PINNED_REVISION} with every file: updating it")
                         download()
                     }
@@ -77,14 +83,27 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
     override fun download() {
         synchronized(lock) {
             if (running?.job?.isActive == true && running?.cancelled?.get() == false) return
-            val previous = running
-            val cancelled = AtomicBoolean(false)
-            val job = scope.launch {
-                previous?.job?.join()
-                run(cancelled)
-            }
-            running = Running(job, cancelled)
+            launch { run(it) }
         }
+    }
+
+    override fun installFromFolder(folder: Uri) {
+        synchronized(lock) {
+            // The player picked files, so the download under way, if any, gives way.
+            running?.cancelled?.set(true)
+            launch { copy(folder, it) }
+        }
+    }
+
+    /** Runs [work] after the install before it has ended. Call it holding [lock]. */
+    private fun launch(work: (AtomicBoolean) -> Unit) {
+        val previous = running
+        val cancelled = AtomicBoolean(false)
+        val job = scope.launch {
+            previous?.job?.join()
+            work(cancelled)
+        }
+        running = Running(job, cancelled)
     }
 
     override fun cancel() {
@@ -107,6 +126,8 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
 
     private fun run(cancelled: AtomicBoolean) {
         if (cancelled.get()) return
+        val started = System.nanoTime()
+        logInstall(InstallRecord.SOURCE_HUGGING_FACE, "started", started)
         try {
             val result = installer.download(
                 progress = { done, total ->
@@ -117,11 +138,14 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
             synchronized(lock) { installed = result }
             if (!cancelled.get()) mutableState.value = installedState(result, update = null)
             Log.i(TAG, "Installed ${result.pkg.modelName} ${result.pkg.modelVersion}, package ${result.record?.revision}")
+            logInstall(InstallRecord.SOURCE_HUGGING_FACE, "installed", started, result)
         } catch (e: CancellationException) {
             Log.i(TAG, "Download cancelled")
+            logInstall(InstallRecord.SOURCE_HUGGING_FACE, "cancelled", started)
             mutableState.value = stoppedState(failure = null)
         } catch (e: ModelDownloadException) {
             Log.w(TAG, "Download stopped: ${e.failure}", e)
+            logInstall(InstallRecord.SOURCE_HUGGING_FACE, "stopped", started, failure = describe(e.failure))
             val failure = e.failure
             mutableState.value = if (failure is ModelFailure.NoSpace && synchronized(lock) { installed } == null) {
                 ModelState.Absent(failure.neededBytes, failure.freeBytes)
@@ -130,28 +154,102 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
             }
         } catch (e: IOException) {
             Log.w(TAG, "Download stopped", e)
-            mutableState.value = stoppedState(e.message ?: appContext.getString(R.string.model_failure_network))
+            val failure = e.message ?: appContext.getString(R.string.model_failure_network)
+            logInstall(InstallRecord.SOURCE_HUGGING_FACE, "stopped", started, failure = failure)
+            mutableState.value = stoppedState(failure)
         } catch (e: RuntimeException) {
             Log.e(TAG, "Download failed", e)
-            mutableState.value = stoppedState(e.message ?: e.javaClass.simpleName)
+            val failure = e.message ?: e.javaClass.simpleName
+            logInstall(InstallRecord.SOURCE_HUGGING_FACE, "stopped", started, failure = failure)
+            mutableState.value = stoppedState(failure)
         }
     }
+
+    /** Installs from the picked [folder]; on any stop the state is what it was before, with the reason. */
+    private fun copy(folder: Uri, cancelled: AtomicBoolean) {
+        if (cancelled.get()) return
+        val started = System.nanoTime()
+        logInstall(InstallRecord.SOURCE_FILES, "started", started)
+        val failure: String? = try {
+            val result = installer.installFrom(
+                DocumentTreePackageFiles(appContext.contentResolver, folder),
+                progress = { done, total ->
+                    if (!cancelled.get()) mutableState.value = progressState(done, total, fromFiles = true)
+                },
+                isCancelled = { cancelled.get() },
+            )
+            synchronized(lock) { installed = result }
+            mutableState.value = installedState(result, update = null)
+            Log.i(TAG, "Installed ${result.pkg.modelName} ${result.pkg.modelVersion} from files, package ${result.record?.revision}")
+            logInstall(InstallRecord.SOURCE_FILES, "installed", started, result)
+            return
+        } catch (e: CancellationException) {
+            Log.i(TAG, "Install from files cancelled")
+            logInstall(InstallRecord.SOURCE_FILES, "cancelled", started)
+            null
+        } catch (e: ModelDownloadException) {
+            Log.w(TAG, "Install from files stopped: ${e.failure}", e)
+            describe(e.failure).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
+        } catch (e: IOException) {
+            Log.w(TAG, "Install from files stopped", e)
+            (e.message ?: e.javaClass.simpleName).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Install from files failed", e)
+            (e.message ?: e.javaClass.simpleName).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
+        }
+        val model = synchronized(lock) { installed }
+        mutableState.value = if (model != null) {
+            val update = if (upToDate(model)) {
+                null
+            } else {
+                ModelUpdate.Pending(ModelSource.PINNED_REVISION, failure, resumable = installer.staged() != null)
+            }
+            installedState(model, update)
+        } else {
+            idleState(failure = null, filesFailure = failure)
+        }
+    }
+
+    /** One JSON line per install event under [INSTALL_TAG]: how it is installing, what happened, and when. */
+    private fun logInstall(source: String, result: String, startedNanos: Long, model: InstalledModel? = null, failure: String? = null) {
+        val line = linkedMapOf<String, Any?>(
+            "source" to source,
+            "result" to result,
+            "seconds" to Math.round((System.nanoTime() - startedNanos) / 1e7) / 100.0,
+            "pinnedRevision" to ModelSource.PINNED_REVISION,
+        )
+        if (model != null) {
+            line["revision"] = model.record?.revision
+            line["manifestSha256"] = model.record?.manifestSha256
+            line["files"] = model.pkg.files.size
+            line["bytes"] = model.pkg.totalBytes
+        }
+        if (failure != null) line["failure"] = failure
+        Log.i(INSTALL_TAG, Json.encode(line))
+    }
+
+    private fun upToDate(model: InstalledModel) =
+        model.upToDate(ModelSource.PINNED_REVISION, ModelSource.PINNED_MANIFEST_SHA256)
 
     private fun installedState(model: InstalledModel, update: ModelUpdate?) = ModelState.Installed(
         name = "${model.pkg.modelName} ${model.pkg.modelVersion}",
         revision = model.record?.revision,
         sizeBytes = model.pkg.totalBytes,
         license = model.pkg.license,
-        update = update ?: if (model.upToDate(ModelSource.PINNED_REVISION)) {
+        update = update ?: if (upToDate(model)) {
             null
         } else {
             ModelUpdate.Pending(ModelSource.PINNED_REVISION, failure = null, resumable = installer.staged() != null)
         },
     )
 
-    private fun progressState(done: Long, total: Long): ModelState {
+    private fun progressState(done: Long, total: Long, fromFiles: Boolean = false): ModelState {
         val model = synchronized(lock) { installed }
-        return if (model != null) installedState(model, ModelUpdate.Downloading(done, total)) else ModelState.Downloading(done, total)
+        return if (model != null) {
+            installedState(model, ModelUpdate.Downloading(done, total, fromFiles))
+        } else {
+            ModelState.Downloading(done, total, fromFiles)
+        }
     }
 
     /** A download that stopped: over an install, the install with the update pending; else Stopped, or Absent. */
@@ -164,12 +262,12 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         return idleState(failure)
     }
 
-    private fun idleState(failure: String?): ModelState {
+    private fun idleState(failure: String?, filesFailure: String? = null): ModelState {
         val staged = installer.staged()
         return if (staged != null) {
-            ModelState.Stopped(staged.first, staged.second, failure)
+            ModelState.Stopped(staged.first, staged.second, failure, filesFailure)
         } else {
-            ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes())
+            ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes(), filesFailure)
         }
     }
 
@@ -184,6 +282,10 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
             megabytes(failure.neededBytes),
             megabytes(failure.freeBytes),
         )
+        is ModelFailure.NotPinned -> appContext.getString(R.string.model_failure_not_pinned, ModelSource.PINNED_REVISION)
+        ModelFailure.NoManifest -> appContext.getString(R.string.model_failure_no_manifest)
+        is ModelFailure.Missing -> appContext.getString(R.string.model_failure_missing, failure.path)
+        is ModelFailure.Unreadable -> appContext.getString(R.string.model_failure_unreadable, failure.detail ?: "")
     }
 
     private fun freeBytes(): Long = try {
@@ -227,7 +329,10 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         }
     }
 
-    private companion object {
-        const val TAG = "EnsomiModel"
+    companion object {
+        private const val TAG = "EnsomiModel"
+
+        /** Each install's start and outcome as one JSON line (README), read by `scripts/phone-checks.sh`. */
+        const val INSTALL_TAG = "EnsomiModelInstall"
     }
 }

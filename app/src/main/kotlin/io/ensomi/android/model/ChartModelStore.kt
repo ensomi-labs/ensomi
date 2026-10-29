@@ -1,5 +1,6 @@
 package io.ensomi.android.model
 
+import android.net.Uri
 import java.io.File
 import kotlinx.coroutines.flow.StateFlow
 
@@ -8,15 +9,27 @@ sealed interface ModelState {
     /** Looking at what is installed, when the app starts. */
     data object Checking : ModelState
 
-    /** Nothing installed. [freeBytes] is what the app's storage can allocate. */
-    data class Absent(val downloadBytes: Long, val freeBytes: Long) : ModelState {
+    /**
+     * Nothing installed. [freeBytes] is what the app's storage can allocate. [filesFailure] says why the last install
+     * from picked files stopped, if it did.
+     */
+    data class Absent(val downloadBytes: Long, val freeBytes: Long, val filesFailure: String? = null) : ModelState {
         val fits: Boolean get() = freeBytes >= downloadBytes
     }
 
-    data class Downloading(val doneBytes: Long, val totalBytes: Long) : ModelState
+    /** Downloading, or copying the files the player picked when [fromFiles]. */
+    data class Downloading(val doneBytes: Long, val totalBytes: Long, val fromFiles: Boolean = false) : ModelState
 
-    /** A download that stopped: cancelled, or the connection dropped. The files so far are kept for a resume. */
-    data class Stopped(val doneBytes: Long, val totalBytes: Long, val failure: String?) : ModelState
+    /**
+     * A download that stopped: cancelled, or the connection dropped. The files so far are kept for a resume.
+     * [filesFailure] says why the last install from picked files stopped, if it did.
+     */
+    data class Stopped(
+        val doneBytes: Long,
+        val totalBytes: Long,
+        val failure: String?,
+        val filesFailure: String? = null,
+    ) : ModelState
 
     data class Installed(
         /** The model's identity, from its manifest, such as "Ensomi R2 r2-1.0". */
@@ -31,9 +44,9 @@ sealed interface ModelState {
     ) : ModelState
 }
 
-/** A download of the pinned tag over an installed model. */
+/** A download of the pinned tag over an installed model, or a copy of picked files when [Downloading.fromFiles]. */
 sealed interface ModelUpdate {
-    data class Downloading(val doneBytes: Long, val totalBytes: Long) : ModelUpdate
+    data class Downloading(val doneBytes: Long, val totalBytes: Long, val fromFiles: Boolean = false) : ModelUpdate
 
     /**
      * The install is not the pinned tag, or misses files, and the download to fix it stopped or has not run:
@@ -52,8 +65,9 @@ data class Notice(val path: String, val asset: Boolean)
 val ONNX_RUNTIME_NOTICES: List<Notice> = io.ensomi.runtime.onnxRuntimeLicenseAssets.map { Notice(it, asset = true) }
 
 /**
- * The Ensomi R2 model in app storage: download from Hugging Face at the pinned tag, check each file against the
- * package manifest (`checkPackage`, sizes, SHA-256), resume a stopped download, remove.
+ * The Ensomi R2 model in app storage: download from Hugging Face at the pinned tag, or install from the package's files
+ * the player picked; check the manifest against the pinned SHA-256 and the runtime's `checkPackage` and each file by
+ * its size and SHA-256; resume a stopped download; remove.
  */
 interface ChartModelStore {
     val state: StateFlow<ModelState>
@@ -66,6 +80,12 @@ interface ChartModelStore {
 
     /** Downloads the pinned tag, or resumes a stopped download. Checks free space first. */
     fun download()
+
+    /**
+     * Installs the pinned package from the files in [folder], a tree the player picked with the system's folder picker:
+     * copied into app storage with the download's checks. A download under way stops first.
+     */
+    fun installFromFolder(folder: Uri)
 
     fun cancel()
 

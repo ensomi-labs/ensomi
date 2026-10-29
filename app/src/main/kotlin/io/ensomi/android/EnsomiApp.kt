@@ -130,6 +130,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onOpenSettings = { backStack.add(Settings) },
                         onDownloadModel = graph.model::download,
                         onCancelDownload = graph.model::cancel,
+                        onInstallModelFromFolder = graph.model::installFromFolder,
                     )
                 }
                 entry<MakeChart> { key ->
@@ -197,6 +198,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onDownloadModel = graph.model::download,
                         onCancelDownload = graph.model::cancel,
                         onRemoveModel = graph.model::remove,
+                        onInstallModelFromFolder = graph.model::installFromFolder,
                         onNotices = { backStack.add(Notices) },
                         firstItem = scenario.settingsItem,
                     )

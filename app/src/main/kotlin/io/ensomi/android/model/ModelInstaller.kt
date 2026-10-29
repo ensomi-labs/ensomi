@@ -3,6 +3,7 @@ package io.ensomi.android.model
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -28,12 +29,21 @@ data class ModelPackage(
     val totalBytes: Long,
 )
 
-/** What `ensomi-install.json` records: the tag the files came from and the manifest's SHA-256. */
+/**
+ * What `ensomi-install.json` records: the tag the files came from, the manifest's SHA-256 and how they came:
+ * [SOURCE_HUGGING_FACE] or [SOURCE_FILES] (null in records written before the app installed from files).
+ */
 @Serializable
 data class InstallRecord(
     val revision: String,
     @SerialName("manifest_sha256") val manifestSha256: String,
-)
+    val source: String? = null,
+) {
+    companion object {
+        const val SOURCE_HUGGING_FACE = "huggingface"
+        const val SOURCE_FILES = "files"
+    }
+}
 
 /** Why a download stopped. */
 sealed interface ModelFailure {
@@ -54,6 +64,18 @@ sealed interface ModelFailure {
 
     /** The runtime would not open the downloaded model. */
     data class NotOpened(val reason: String) : ModelFailure
+
+    /** The manifest is not the pinned package's: its SHA-256 is [sha256], not the pinned one. */
+    data class NotPinned(val sha256: String) : ModelFailure
+
+    /** The picked folder holds no `ensomi-package.json`. */
+    data object NoManifest : ModelFailure
+
+    /** The picked folder lacks a file the manifest lists. */
+    data class Missing(val path: String) : ModelFailure
+
+    /** A picked file could not be read. */
+    data class Unreadable(val detail: String?) : ModelFailure
 }
 
 class ModelDownloadException(val failure: ModelFailure, cause: Throwable? = null) :
@@ -61,15 +83,44 @@ class ModelDownloadException(val failure: ModelFailure, cause: Throwable? = null
 
 /** An installed model: its manifest, its record (null for an install without one), whether every file is there. */
 data class InstalledModel(val pkg: ModelPackage, val record: InstallRecord?, val complete: Boolean) {
-    /** Whether the install is the pinned tag with every file: else it is brought up to date when the app starts. */
-    fun upToDate(revision: String) = complete && record?.revision == revision
+    /**
+     * Whether the install is the pinned tag, with the pinned manifest when [manifestSha256] is given, and every file:
+     * else it is brought up to date when the app starts.
+     */
+    fun upToDate(revision: String, manifestSha256: String? = null) = complete && record?.revision == revision &&
+        (manifestSha256 == null || record.manifestSha256 == manifestSha256)
+}
+
+/**
+ * The files of a package to install from, where the player put them: a folder picked with the system's picker
+ * ([DocumentTreePackageFiles]) or, in tests, a directory ([DirectoryPackageFiles]). Paths are the manifest's.
+ */
+interface PackageFiles {
+    /** The manifest's bytes, or null when there is none. */
+    fun manifest(): ByteArray?
+
+    /** The size of the file at [path], -1 when the folder does not say, or null when there is no such file. */
+    fun size(path: String): Long?
+
+    fun open(path: String): InputStream
+}
+
+/** A package's files in a directory. */
+class DirectoryPackageFiles(private val directory: File) : PackageFiles {
+    override fun manifest(): ByteArray? = File(directory, ModelInstaller.MANIFEST).takeIf { it.isFile }?.readBytes()
+
+    override fun size(path: String): Long? = File(directory, path).takeIf { it.isFile }?.length()
+
+    override fun open(path: String): InputStream = File(directory, path).inputStream()
 }
 
 /**
  * Installs a model package into `<root>/ensomi-r2`, the way the Swift app's solo-device mode does: fetch the
- * manifest (`ensomi-package.json`) at [baseUrl], check it with [checkManifest] (the runtime's `checkPackage`), fetch
- * exactly the files it lists into `<root>/.download-ensomi-r2` and check each one's size and SHA-256, have [verify]
- * open the result (the runtime's generator), then add `ensomi-install.json` and move the directory into place.
+ * manifest (`ensomi-package.json`) at [baseUrl], check its SHA-256 against [pinnedManifestSha256] and its content with
+ * [checkManifest] (the runtime's `checkPackage`), fetch exactly the files it lists into `<root>/.download-ensomi-r2`
+ * and check each one's size and SHA-256, have [verify] open the result (the runtime's generator), then add
+ * `ensomi-install.json` and move the directory into place. [installFrom] does the same with files the player picked,
+ * copied into `<root>/.files-ensomi-r2`.
  *
  * A file already staged or installed with its listed size and SHA-256 is kept or copied instead of fetched. A
  * stopped download keeps its files, the one in progress as `<path>.part`, and resumes it with `Range: bytes=<n>-`: a
@@ -81,6 +132,8 @@ class ModelInstaller(
     private val baseUrl: String,
     val revision: String,
     private val checkManifest: (String) -> ModelPackage,
+    /** The SHA-256 the manifest must have; null takes any manifest the runtime accepts (tests). */
+    private val pinnedManifestSha256: String? = null,
     private val verify: (File) -> Unit = {},
     private val reserve: (Long) -> Unit = {},
     private val connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
@@ -89,6 +142,9 @@ class ModelInstaller(
 ) {
     val installDirectory = File(root, "ensomi-r2")
     val stagingDirectory = File(root, ".download-ensomi-r2")
+
+    /** Where an install from picked files copies them; it never outlives the install, done or failed. */
+    val copyDirectory = File(root, ".files-ensomi-r2")
 
     /** The model in [installDirectory], or null when there is none or the runtime refuses its manifest. */
     fun installed(): InstalledModel? {
@@ -129,12 +185,8 @@ class ModelInstaller(
      */
     fun download(progress: (Long, Long) -> Unit, isCancelled: () -> Boolean): InstalledModel {
         val manifestBytes = fetchSmall(MANIFEST)
-        val manifestText = manifestBytes.decodeToString()
-        val pkg = checkManifest(manifestText)
+        val pkg = checkedPackage(manifestBytes)
         val paths = pkg.files.map { it.path }
-        if (paths.any { it.startsWith("/") || it.split('/').any { part -> part == ".." || part.isEmpty() } }) {
-            throw ModelDownloadException(ModelFailure.Refused("The manifest lists a path outside the model."))
-        }
         stagingDirectory.mkdirs()
         File(stagingDirectory, MANIFEST).writeBytes(manifestBytes)
 
@@ -182,37 +234,146 @@ class ModelInstaller(
             if (staged.relativeTo(stagingDirectory).invariantSeparatorsPath !in listed) staged.delete()
         }
 
+        verifyOpens(stagingDirectory)
+        val record = writeRecord(stagingDirectory, manifestBytes, InstallRecord.SOURCE_HUGGING_FACE)
+        replaceInstall(stagingDirectory)
+        return InstalledModel(pkg, record, complete = true)
+    }
+
+    /**
+     * Installs the package in [files], as the player picked them, with the download's checks: the manifest's pinned
+     * SHA-256 and the runtime's `checkPackage`, every listed file there before anything is copied, the space reserved,
+     * each file's size and SHA-256 as it is copied into [copyDirectory], the runtime opening the copy, then the record
+     * (source [InstallRecord.SOURCE_FILES]) and the move into place. Whatever stops it, a refusal, a file that does not
+     * match, [isCancelled] or an error, the copy is deleted: an installed model is either the old one or the whole new
+     * one. Calls [progress] with the bytes copied and the total.
+     */
+    fun installFrom(files: PackageFiles, progress: (Long, Long) -> Unit, isCancelled: () -> Boolean): InstalledModel {
+        val manifestBytes = readable { files.manifest() } ?: throw ModelDownloadException(ModelFailure.NoManifest)
+        if (manifestBytes.size > MAX_MANIFEST_BYTES) throw ModelDownloadException(ModelFailure.NotPinned(sha256(manifestBytes)))
+        val pkg = checkedPackage(manifestBytes)
+        for (file in pkg.files) {
+            val size = readable { files.size(file.path) } ?: throw ModelDownloadException(ModelFailure.Missing(file.path))
+            if (size >= 0 && size != file.size) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
+        }
+        var installed = false
+        copyDirectory.deleteRecursively()
         try {
-            verify(stagingDirectory)
+            reserve(pkg.totalBytes)
+            copyDirectory.mkdirs()
+            File(copyDirectory, MANIFEST).writeBytes(manifestBytes)
+            var done = 0L
+            progress(0L, pkg.totalBytes)
+            for (file in pkg.files) {
+                if (isCancelled()) throw CancellationException("The install was cancelled.")
+                val target = File(copyDirectory, file.path)
+                target.parentFile?.mkdirs()
+                val sha = readable { copyChecked(files, file, target, isCancelled) { progress(done + it, pkg.totalBytes) } }
+                if (sha != file.sha256) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
+                done += file.size
+                progress(done, pkg.totalBytes)
+            }
+            verifyOpens(copyDirectory)
+            val record = writeRecord(copyDirectory, manifestBytes, InstallRecord.SOURCE_FILES)
+            replaceInstall(copyDirectory)
+            installed = true
+            return InstalledModel(pkg, record, complete = true)
+        } finally {
+            if (!installed) copyDirectory.deleteRecursively()
+        }
+    }
+
+    /** Copies [file] from [files] to [target], returning its SHA-256; a file longer or shorter than listed is refused. */
+    private fun copyChecked(
+        files: PackageFiles,
+        file: ModelFile,
+        target: File,
+        isCancelled: () -> Boolean,
+        progress: (Long) -> Unit,
+    ): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var written = 0L
+        files.open(file.path).use { input ->
+            FileOutputStream(target).use { output ->
+                val buffer = ByteArray(CHUNK)
+                var reported = 0L
+                while (true) {
+                    if (isCancelled()) throw CancellationException("The install was cancelled.")
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    written += n
+                    if (written > file.size) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
+                    digest.update(buffer, 0, n)
+                    output.write(buffer, 0, n)
+                    if (written - reported >= REPORT_BYTES) {
+                        progress(written)
+                        reported = written
+                    }
+                }
+            }
+        }
+        if (written != file.size) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** Deletes the installed model, any stopped download and any copy left by a stopped process. */
+    fun remove() {
+        stagingDirectory.deleteRecursively()
+        copyDirectory.deleteRecursively()
+        installDirectory.deleteRecursively()
+        File(installDirectory.parentFile, OLD).deleteRecursively()
+    }
+
+    /** The manifest, if it is the pinned one and the runtime accepts it and its paths stay inside the model. */
+    private fun checkedPackage(manifestBytes: ByteArray): ModelPackage {
+        pinnedManifestSha256?.let { pin ->
+            val found = sha256(manifestBytes)
+            if (found != pin) throw ModelDownloadException(ModelFailure.NotPinned(found))
+        }
+        val pkg = checkManifest(manifestBytes.decodeToString())
+        val paths = pkg.files.map { it.path }
+        if (paths.any { it.startsWith("/") || it.split('/').any { part -> part == ".." || part.isEmpty() } }) {
+            throw ModelDownloadException(ModelFailure.Refused("The manifest lists a path outside the model."))
+        }
+        return pkg
+    }
+
+    private fun verifyOpens(directory: File) {
+        try {
+            verify(directory)
         } catch (e: ModelDownloadException) {
             throw e
         } catch (e: Exception) {
             throw ModelDownloadException(ModelFailure.NotOpened(e.message ?: e.javaClass.simpleName), e)
         }
-        val record = InstallRecord(revision, sha256(manifestBytes))
-        File(stagingDirectory, RECORD).writeText(JSON.encodeToString(InstallRecord.serializer(), record))
-        replaceInstall()
-        return InstalledModel(pkg, record, complete = true)
     }
 
-    /** Deletes the installed model and any stopped download. */
-    fun remove() {
-        stagingDirectory.deleteRecursively()
-        installDirectory.deleteRecursively()
-        File(installDirectory.parentFile, OLD).deleteRecursively()
+    private fun writeRecord(directory: File, manifestBytes: ByteArray, source: String): InstallRecord {
+        val record = InstallRecord(revision, sha256(manifestBytes), source)
+        File(directory, RECORD).writeText(JSON.encodeToString(InstallRecord.serializer(), record))
+        return record
     }
 
-    private fun replaceInstall() {
+    private fun replaceInstall(from: File) {
         val old = File(installDirectory.parentFile, OLD)
         old.deleteRecursively()
         if (installDirectory.exists() && !installDirectory.renameTo(old)) {
             throw IOException("Could not move the old model aside.")
         }
-        if (!stagingDirectory.renameTo(installDirectory)) {
+        if (!from.renameTo(installDirectory)) {
             old.renameTo(installDirectory)
             throw IOException("Could not move the model into place.")
         }
         old.deleteRecursively()
+    }
+
+    /** Reading the player's files: an error says it could not read them, not that a connection dropped. */
+    private inline fun <T> readable(block: () -> T): T = try {
+        block()
+    } catch (e: IOException) {
+        throw ModelDownloadException(ModelFailure.Unreadable(e.message), e)
+    } catch (e: SecurityException) {
+        throw ModelDownloadException(ModelFailure.Unreadable(e.message), e)
     }
 
     private fun fetchSmall(path: String): ByteArray {
@@ -327,6 +488,9 @@ class ModelInstaller(
         const val RECORD = "ensomi-install.json"
         private const val PART = ".part"
         private const val OLD = ".old-ensomi-r2"
+
+        /** A manifest is a few KB; a larger "manifest" is not the package's and is not read further. */
+        private const val MAX_MANIFEST_BYTES = 1 shl 20
         private const val RANGE_NOT_SATISFIABLE = 416
         private const val CHUNK = 64 * 1024
         private const val REPORT_BYTES = 256 * 1024L

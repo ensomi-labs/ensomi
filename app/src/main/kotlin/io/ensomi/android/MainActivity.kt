@@ -20,6 +20,11 @@ class MainActivity : ComponentActivity() {
         if (debuggable && savedInstanceState == null && intent.getBooleanExtra(DecodeCheck.EXTRA, false)) {
             DecodeCheck.start(applicationContext, AppStores.get(applicationContext))
         }
+        // Debug builds: the model download from Hugging Face, as the Download button starts it, for the phone checks'
+        // script (`--ez download-model true`); its outcome is logged under EnsomiModelInstall.
+        if (debuggable && savedInstanceState == null && intent.getBooleanExtra(DOWNLOAD_MODEL_EXTRA, false)) {
+            AppStores.get(applicationContext).model.download()
+        }
         setContent {
             EnsomiTheme(dynamicColor = scenario.dynamicColor) {
                 EnsomiApp(scenario, graph)
@@ -27,6 +32,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+private const val DOWNLOAD_MODEL_EXTRA = "download-model"
 
 /** Keeps a scenario's graph across configuration changes; the app's own stores are one per process ([AppStores]). */
 private object Graphs {

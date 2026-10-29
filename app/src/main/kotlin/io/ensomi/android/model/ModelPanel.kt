@@ -3,8 +3,11 @@ package io.ensomi.android.model
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.storage.StorageManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,8 +39,9 @@ import java.util.Locale
 
 /**
  * The chart model's state with the action that fits it: download (with the size and the free space), progress with
- * Cancel, resume after a stop, or not enough space. The library shows it until the model is installed; Settings shows
- * it always.
+ * Cancel, resume after a stop, or not enough space. The download from Hugging Face is the first action; installing from
+ * the package's files, picked as a folder with the system's picker, is the second, for phones that cannot reach Hugging
+ * Face. The library shows it until the model is installed; Settings shows it always.
  */
 @Composable
 fun ModelPanel(
@@ -45,18 +49,25 @@ fun ModelPanel(
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit,
+    /** The folder the player picked to install from. */
+    onInstallFromFolder: (Uri) -> Unit,
     modifier: Modifier = Modifier,
     /** In Settings the panel sits in a list and needs no card or introduction. */
     inSettings: Boolean = false,
 ) {
+    // One folder holds the package's 30 files: picking it is one choice, where picking the files would be 30.
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { folder ->
+        if (folder != null) onInstallFromFolder(folder)
+    }
+    val pickFolder = { folderPicker.launch(null) }
     val content: @Composable () -> Unit = {
         Column(Modifier.padding(if (inSettings) 0.dp else 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when (state) {
                 ModelState.Checking -> Text(stringResource(R.string.model_checking), style = MaterialTheme.typography.bodyMedium)
-                is ModelState.Absent -> Absent(state, onDownload, inSettings)
+                is ModelState.Absent -> Absent(state, onDownload, pickFolder, inSettings)
                 is ModelState.Downloading -> Downloading(state, onCancel)
-                is ModelState.Stopped -> Stopped(state, onDownload)
-                is ModelState.Installed -> Installed(state, onDownload, onCancel, onRemove)
+                is ModelState.Stopped -> Stopped(state, onDownload, pickFolder)
+                is ModelState.Installed -> Installed(state, onDownload, onCancel, onRemove, pickFolder)
             }
         }
     }
@@ -71,7 +82,7 @@ fun ModelPanel(
 }
 
 @Composable
-private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings: Boolean) {
+private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, onPickFolder: () -> Unit, inSettings: Boolean) {
     val context = LocalContext.current
     if (!inSettings) {
         Text(stringResource(R.string.model_get_title), style = MaterialTheme.typography.titleLarge)
@@ -99,17 +110,33 @@ private fun Absent(state: ModelState.Absent, onDownload: () -> Unit, inSettings:
             }
         }
     }
+    FromFiles(state.filesFailure, onPickFolder)
+}
+
+/** The second way in: the package's files, from a folder the player picks; and why the last try stopped, if it did. */
+@Composable
+private fun FromFiles(failure: String?, onPickFolder: () -> Unit) {
+    Text(
+        stringResource(R.string.model_install_files_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    if (failure != null) Problem(failure)
+    OutlinedButton(onClick = onPickFolder) { Text(stringResource(R.string.model_install_files)) }
 }
 
 @Composable
 private fun Downloading(state: ModelState.Downloading, onCancel: () -> Unit) {
     Text(
-        stringResource(R.string.model_downloading),
+        stringResource(if (state.fromFiles) R.string.model_installing_files else R.string.model_downloading),
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
     )
     Progress(state.doneBytes, state.totalBytes, onCancel)
-    Text(stringResource(R.string.model_downloading_hint), style = MaterialTheme.typography.bodySmall)
+    Text(
+        stringResource(if (state.fromFiles) R.string.model_installing_files_hint else R.string.model_downloading_hint),
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 @Composable
@@ -133,11 +160,12 @@ private fun Progress(doneBytes: Long, totalBytes: Long, onCancel: () -> Unit) {
 }
 
 @Composable
-private fun Stopped(state: ModelState.Stopped, onResume: () -> Unit) {
+private fun Stopped(state: ModelState.Stopped, onResume: () -> Unit, onPickFolder: () -> Unit) {
     val stopped = stringResource(R.string.model_stopped, megabytes(state.doneBytes), megabytes(state.totalBytes))
     Problem(if (state.failure != null) "$stopped ${state.failure}" else stopped)
     Text(stringResource(R.string.model_stopped_hint), style = MaterialTheme.typography.bodySmall)
     Button(onClick = onResume) { Text(stringResource(R.string.model_resume)) }
+    FromFiles(state.filesFailure, onPickFolder)
 }
 
 @Composable
@@ -146,6 +174,7 @@ private fun Installed(
     onDownloadAgain: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit,
+    onPickFolder: () -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -165,7 +194,11 @@ private fun Installed(
     when (val update = state.update) {
         is ModelUpdate.Downloading -> {
             Text(
-                stringResource(R.string.model_updating, ModelSource.PINNED_REVISION),
+                if (update.fromFiles) {
+                    stringResource(R.string.model_installing_files)
+                } else {
+                    stringResource(R.string.model_updating, ModelSource.PINNED_REVISION)
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
@@ -180,6 +213,7 @@ private fun Installed(
                 }
                 TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }
             }
+            TextButton(onClick = onPickFolder) { Text(stringResource(R.string.model_install_files)) }
         }
         null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDownloadAgain) { Text(stringResource(R.string.model_check_files)) }

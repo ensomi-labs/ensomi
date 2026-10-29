@@ -117,6 +117,8 @@ class FakeChartModelStore(initial: ModelState) : ChartModelStore {
 
     override fun download() = Unit
 
+    override fun installFromFolder(folder: Uri) = Unit
+
     override fun cancel() = Unit
 
     override fun remove() = Unit

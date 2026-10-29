@@ -132,6 +132,20 @@ class ModelInstallerTest {
     }
 
     @Test
+    fun theDownloadAcceptsOnlyThePinnedManifest() {
+        publish(FILES)
+        val manifest = published.getValue("onnx/${ModelInstaller.MANIFEST}")
+        val refusing = installer(pin = "0".repeat(64))
+        assertEquals(ModelFailure.NotPinned(ModelInstaller.sha256(manifest)), failureOf { refusing.download({ _, _ -> }, { false }) })
+        assertEquals(listOf("ensomi-package.json range=0"), requests)
+        assertNull(refusing.installed())
+
+        val model = installer(pin = ModelInstaller.sha256(manifest)).download({ _, _ -> }, { false })
+        assertEquals(InstallRecord.SOURCE_HUGGING_FACE, model.record?.source)
+        assertTrue(model.upToDate("r2-1.0.1", ModelInstaller.sha256(manifest)))
+    }
+
+    @Test
     fun aMissingFileOnTheServerIsAnHttpFailure() {
         publish(FILES)
         published.remove("onnx/small.bin")
@@ -183,11 +197,12 @@ class ModelInstallerTest {
         assertNull(installer.installed())
     }
 
-    private fun installer(verify: (File) -> Unit = {}, reserve: (Long) -> Unit = {}) = ModelInstaller(
+    private fun installer(verify: (File) -> Unit = {}, reserve: (Long) -> Unit = {}, pin: String? = null) = ModelInstaller(
         root = root,
         baseUrl = "http://127.0.0.1:${server.address.port}/onnx/",
         revision = "r2-1.0.1",
         checkManifest = ::check,
+        pinnedManifestSha256 = pin,
         verify = verify,
         reserve = reserve,
     )

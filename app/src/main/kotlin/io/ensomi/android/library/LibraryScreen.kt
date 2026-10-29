@@ -60,6 +60,7 @@ fun LibraryScreen(
     onOpenSettings: () -> Unit,
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
+    onInstallModelFromFolder: (android.net.Uri) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -101,6 +102,7 @@ fun LibraryScreen(
                             onDownload = onDownloadModel,
                             onCancel = onCancelDownload,
                             onRemove = {},
+                            onInstallFromFolder = onInstallModelFromFolder,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }

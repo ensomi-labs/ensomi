@@ -145,6 +145,20 @@ data class Scenario(
                 withSongs = true,
             ),
             "no-space" to Scenario(listOf(Library), model = ModelState.Absent(PACKAGE, 80_200_000), withSongs = false),
+            "installing-files" to Scenario(
+                listOf(Library),
+                model = ModelState.Downloading(50_600_000, PACKAGE, fromFiles = true),
+                withSongs = false,
+            ),
+            "install-files-refused" to Scenario(
+                listOf(Library),
+                model = ModelState.Absent(
+                    PACKAGE,
+                    FREE,
+                    filesFailure = "These are not the files of the Ensomi R2 package r2-1.0.1, the one this version of Ensomi uses.",
+                ),
+                withSongs = false,
+            ),
             "library" to Scenario(listOf(Library)),
             "library-missing" to Scenario(listOf(Library), missingSong = true),
             "make-chart" to Scenario(listOf(Library, MakeChart(SONG))),
@@ -179,6 +193,11 @@ data class Scenario(
                 settings = PORTRAIT.copy(portraitLean = PlaySettings.DEFAULT_LANDSCAPE_LEAN),
             ),
             "play-preview" to Scenario(listOf(Library, Settings, Play(null, loop = true))),
+            // The sample game without end, for the phone checks' frame pacing (androidTest FramePacingCheck).
+            "pacing-flat" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true)), settings = FLAT),
+            "pacing" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true))),
+            "pacing-lean-max" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true)), settings = MOST_LEAN),
+            "pacing-portrait" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true)), settings = PORTRAIT),
             "play-paused" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), pauseAfterMs = 12_400),
             "play-countdown" to Scenario(
                 listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),

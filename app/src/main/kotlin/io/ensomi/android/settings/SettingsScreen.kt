@@ -74,6 +74,7 @@ fun SettingsScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onRemoveModel: () -> Unit,
+    onInstallModelFromFolder: (android.net.Uri) -> Unit,
     onNotices: () -> Unit,
     /** The item the list opens at: [PLAYFIELD_SETTINGS] opens it at the playfield section (prototype scenarios). */
     firstItem: Int = 0,
@@ -216,6 +217,7 @@ fun SettingsScreen(
                         onDownload = onDownloadModel,
                         onCancel = onCancelDownload,
                         onRemove = onRemoveModel,
+                        onInstallFromFolder = onInstallModelFromFolder,
                         inSettings = true,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
