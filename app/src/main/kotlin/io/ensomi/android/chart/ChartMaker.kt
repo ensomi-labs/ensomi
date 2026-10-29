@@ -38,6 +38,9 @@ sealed interface MakeState {
     data class Failed(val songId: String, val message: String) : MakeState
 }
 
+/** The last chart made for a song, to play: the app's record and the `.osu` the runtime wrote. */
+class LastChart(val record: StoredChart, val osu: String)
+
 /**
  * Makes charts on this device: decodes the song, runs the runtime's generator on it through `RuntimeWorker`, reports
  * the phase it is in, and stops on request (`Cancellation.cancel()` from another thread).
@@ -46,22 +49,32 @@ interface ChartMaker {
     /** Null until the model is open. */
     val capabilities: StateFlow<ChartCapabilities?>
 
-    val state: StateFlow<MakeState>
+    /** Each song's state; a song without one is [MakeState.Idle]. */
+    val states: StateFlow<Map<String, MakeState>>
+
+    /** The song's screen opened: shows its last chart, and starts the runtime's `prepare` for it in the background. */
+    fun open(songId: String) = Unit
 
     fun make(songId: String, request: ChartRequest)
 
-    fun stop()
+    fun stop(songId: String)
+
+    /** A game is about to start: work nobody waits for stops, so the game has the processor to itself. */
+    fun quiet() = Unit
+
+    /** The last chart made for the song, or null. Reads app storage: call it off the main thread. */
+    fun lastChart(songId: String): LastChart? = null
 }
 
-/** Not wired: a fixed state for the prototype. The real maker is plan steps 3 and 5. */
+/** Not wired: a fixed state for the prototype's scenarios. The app's maker is [RuntimeChartMaker]. */
 class SampleChartMaker(initial: MakeState, capabilities: ChartCapabilities?) : ChartMaker {
-    private val mutableState = MutableStateFlow(initial)
-    override val state: StateFlow<MakeState> = mutableState.asStateFlow()
+    override val states: StateFlow<Map<String, MakeState>> =
+        MutableStateFlow(initial.songId?.let { mapOf(it to initial) }.orEmpty()).asStateFlow()
     override val capabilities: StateFlow<ChartCapabilities?> = MutableStateFlow(capabilities).asStateFlow()
 
     override fun make(songId: String, request: ChartRequest) = Unit
 
-    override fun stop() = Unit
+    override fun stop(songId: String) = Unit
 
     companion object {
         /**

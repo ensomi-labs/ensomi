@@ -70,6 +70,8 @@ class DataStorePlaySettingsStore(
         scope.launch { route.collect { output -> synchronized(lock) { state.value = stored.forOutput(output.key) } } }
     }
 
+    override fun forRoute(route: OutputRoute): PlaySettings = synchronized(lock) { stored.forOutput(route.key) }
+
     override fun update(change: (PlaySettings) -> PlaySettings) {
         val key = route.value.key
         val apply = { value: StoredSettings -> value.with(change(value.forOutput(key)), key) }
@@ -94,14 +96,25 @@ class DataStorePlaySettingsStore(
 }
 
 /**
- * The output play would use now, from the audio devices Android reports, updated as devices come and go. Plan step 6
- * replaces the guess with the play track's routed device while a game runs.
+ * The output play would use now. A game's track says which device it plays on ([playingOn]), and that is the output
+ * from then on; until a game has played, and after devices come or go, it is the device Android would pick by default
+ * among those it reports ([OutputRoutes.current]).
  */
-class SystemOutputRoute(context: Context) {
+class SystemOutputRoute(context: Context) : PlayOutputs {
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val state = MutableStateFlow(read())
     val route: StateFlow<OutputRoute> = state.asStateFlow()
+
+    override fun routeOf(device: AudioDeviceInfo?): OutputRoute {
+        if (device == null) return read()
+        val output = OutputDevice(device.type, device.productName?.toString().orEmpty())
+        return OutputRoute(OutputRoutes.key(output), name(output))
+    }
+
+    override fun playingOn(device: AudioDeviceInfo?) {
+        if (device != null) state.value = routeOf(device)
+    }
 
     init {
         audioManager.registerAudioDeviceCallback(

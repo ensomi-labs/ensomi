@@ -13,6 +13,7 @@ import io.ensomi.android.Notices
 import io.ensomi.android.Play
 import io.ensomi.android.Results
 import io.ensomi.android.Settings
+import io.ensomi.android.audio.PlayAudioCache
 import io.ensomi.android.chart.ChartMaker
 import io.ensomi.android.chart.MakePhase
 import io.ensomi.android.chart.MakeState
@@ -30,19 +31,39 @@ import io.ensomi.android.play.SAMPLE_RESULT
 import io.ensomi.android.settings.PLAYFIELD_SETTINGS
 import io.ensomi.android.settings.PlayOrientation
 import io.ensomi.android.settings.CalibrationStep
+import io.ensomi.android.settings.FixedPlayOutputs
+import io.ensomi.android.settings.PlayOutputs
 import io.ensomi.android.settings.InMemoryPlaySettingsStore
 import io.ensomi.android.settings.PlaySettings
 import io.ensomi.android.settings.PlaySettingsStore
 
 /**
  * What the screens read and act on: the app's stores ([AppStores]) on a normal launch, samples in a prototype
- * scenario. The chart maker is a sample in both until plan step 5.
+ * scenario.
  */
 class AppGraph(
     val songs: SongLibrary,
     val model: ChartModelStore,
     val charts: ChartMaker,
     val settings: PlaySettingsStore,
+    /** The device a game's sound plays on, for its audio offset. */
+    val outputs: PlayOutputs,
+    /** The sound of the song last played; null in the scenarios, whose games are the sample chart without sound. */
+    val playAudio: PlayAudioCache? = null,
+    val debug: DebugOptions = DebugOptions(),
+)
+
+/**
+ * What a debuggable build's launch intent may ask of a normal launch, for checks on the emulator: `--ef stars 7` for
+ * stars outside the slider's range, `--ez autoplay true` for games played by the autoplay, `--ez low-memory true` for
+ * the generator's `lowMemory`.
+ */
+data class DebugOptions(
+    val stars: Double? = null,
+    val autoplay: Boolean = false,
+    val lowMemory: Boolean? = null,
+    /** Debug builds: games log every frame's times and take the debug broadcasts that change the output. */
+    val debuggable: Boolean = false,
 )
 
 /**
@@ -68,14 +89,19 @@ data class Scenario(
     val missingSong: Boolean = false,
     /** The app's own stores instead of samples: a normal launch. */
     val real: Boolean = false,
+    val debug: DebugOptions = DebugOptions(),
 ) {
     fun graph(stores: () -> AppStores): AppGraph = if (real) {
         val app = stores()
+        debug.lowMemory?.let { app.charts.lowMemory = it }
         AppGraph(
             songs = app.songs,
             model = app.model,
-            charts = SampleChartMaker(make, SampleChartMaker.CAPABILITIES),
+            charts = app.charts,
             settings = app.settings,
+            outputs = app.route,
+            playAudio = app.playAudio,
+            debug = debug,
         )
     } else {
         sampleGraph()
@@ -92,6 +118,7 @@ data class Scenario(
         model = SampleChartModelStore(model),
         charts = SampleChartMaker(make, SampleChartMaker.CAPABILITIES.takeIf { model is ModelState.Installed }),
         settings = InMemoryPlaySettingsStore(settings, InMemoryPlaySettingsStore.SPEAKER),
+        outputs = FixedPlayOutputs(InMemoryPlaySettingsStore.SPEAKER),
     )
 
     companion object {
@@ -186,7 +213,13 @@ data class Scenario(
             val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
             if (!debuggable || intent == null) return DEFAULT
             val scenario = ALL[intent.getStringExtra("prototype")] ?: DEFAULT
-            return scenario.copy(dynamicColor = intent.getBooleanExtra("dynamicColor", false))
+            val debug = DebugOptions(
+                stars = intent.getFloatExtra("stars", Float.NaN).takeIf { !it.isNaN() }?.toDouble(),
+                autoplay = intent.getBooleanExtra("autoplay", false),
+                lowMemory = if (intent.hasExtra("low-memory")) intent.getBooleanExtra("low-memory", false) else null,
+                debuggable = true,
+            )
+            return scenario.copy(dynamicColor = intent.getBooleanExtra("dynamicColor", false), debug = debug)
         }
     }
 }

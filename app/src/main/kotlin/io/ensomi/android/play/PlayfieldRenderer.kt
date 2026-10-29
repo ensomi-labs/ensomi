@@ -98,11 +98,17 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
     /** The runtime's word for each tier (`tierJudgement`), asked once rather than per event and frame. */
     private val judgementOf: Map<Tier, Judgement> by lazy { Tier.entries.associateWith { tierJudgement(it) } }
 
+    /**
+     * The judgement word and the combo are drawn after the lanes and before the notes: they sit on the lanes, and a
+     * note passing through them stays whole, since a note covered at the moment it must be read is a miss the player
+     * could not see coming. The words are large and change slowly, so a note crossing them hides little of them.
+     */
     fun draw(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry) {
         drawGround(canvas, g)
         drawTray(canvas, frame, g)
+        onLanes(canvas, g) { drawLanes(canvas, frame, g) }
+        if (frame != null && frame.judging && !frame.paused) drawJudgement(canvas, frame, g)
         onLanes(canvas, g) {
-            drawLanes(canvas, frame, g)
             if (frame != null) drawNotes(canvas, frame, g)
             drawFarFade(canvas, g)
         }
@@ -112,7 +118,6 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         if (frame != null) {
             onLanes(canvas, g) { drawHitFeedback(canvas, frame, g) }
             if (frame.judging) drawProgress(canvas, frame, g)
-            if (frame.judging && !frame.paused) drawJudgement(canvas, frame, g)
         }
     }
 

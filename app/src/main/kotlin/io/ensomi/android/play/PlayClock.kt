@@ -3,8 +3,16 @@ package io.ensomi.android.play
 /**
  * Song time as it is heard. Times on the play path share one clock, `CLOCK_MONOTONIC`: `System.nanoTime()`, the
  * `MotionEvent` event times and `AudioTimestamp.nanoTime` with `TIMEBASE_MONOTONIC`.
+ *
+ * Called from the render thread ([start], [update], [songTimeMs]) and the main thread ([pause], [resume]).
  */
-interface PlayClock {
+interface PlayClock : AutoCloseable {
+    /** Starts the song from [fromMs], which is negative for a lead-in. */
+    fun start(nanoTime: Long, fromMs: Double)
+
+    /** Reads the output's position when it is due; the render thread calls it at the start of every frame. */
+    fun update(nanoTime: Long) = Unit
+
     /**
      * The song time, in milliseconds, of the sound heard at [nanoTime]: negative during the lead-in before the
      * song's first frame, frozen while paused, null until the output has reported its first frame.
@@ -19,11 +27,13 @@ interface PlayClock {
     fun resume(nanoTime: Long)
 
     val isPaused: Boolean
+
+    override fun close() = Unit
 }
 
 /**
- * Not the audio clock: a clock that runs at rate 1 from [start], for the playfield preview, which has no sound. The
- * real clock (plan step 6) reads `AudioTrack.getTimestamp` and keeps the same contract.
+ * Not the audio clock: a clock that runs at rate 1 from [start], for the playfield preview and the calibration's
+ * picture step, which have no sound of their own. A game runs on [AudioPlayClock], which keeps the same contract.
  */
 class FakePlayClock : PlayClock {
     /** The nanoTime at song time 0. */
@@ -31,9 +41,8 @@ class FakePlayClock : PlayClock {
     private var pausedAtMs: Double? = null
     private var started = false
 
-    /** Starts at song time [fromMs], which is negative for a lead-in. */
     @Synchronized
-    fun start(nanoTime: Long, fromMs: Double) {
+    override fun start(nanoTime: Long, fromMs: Double) {
         originNanos = nanoTime - (fromMs * 1e6).toLong()
         pausedAtMs = null
         started = true

@@ -4,6 +4,28 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import io.ensomi.android.audio.AudioPlayClock
+import io.ensomi.android.audio.DecodedSong
+import io.ensomi.android.audio.GameAudio
+import io.ensomi.android.settings.OutputRoute
+import io.ensomi.android.settings.PlayOutputs
+import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
 import android.view.WindowInsets as PlatformWindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.compose.BackHandler
@@ -26,6 +48,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.shape.CircleShape
@@ -78,12 +101,42 @@ import kotlinx.coroutines.delay
 private enum class PlayPhase { PLAYING, PAUSED, COUNTDOWN }
 
 /**
+ * A game of the player's song: its chart and its sound, decoded for play, and the outputs the sound may play on, each
+ * with an audio offset of its own.
+ */
+class SongGame(
+    val chart: PlayChart,
+    val audio: DecodedSong,
+    val outputs: PlayOutputs,
+    /** The settings with an output's audio offset. */
+    val settingsFor: (OutputRoute) -> PlaySettings,
+    /** Debug launches: the autoplay plays the game. */
+    val autoplay: Boolean = false,
+    /** Debug builds: every frame's times go to `clock-log.csv`, and the debug broadcasts are taken. */
+    val debuggable: Boolean = false,
+)
+
+/** The parts of a running game the screen reaches from the main thread; made on the render thread. */
+private class RunningGame {
+    @Volatile
+    var audio: GameAudio? = null
+
+    @Volatile
+    var clock: AudioPlayClock? = null
+
+    /** The output the sound plays on, by `AudioDeviceInfo.id`, once the track has said. */
+    var deviceId: Int? = null
+}
+
+/**
  * The play screen: the playfield full screen with the system bars hidden, the HUD over its top edge, and the pause
- * panel. Play pauses on the pause button, on Back, when the app leaves the foreground and when another window takes
- * focus; Resume counts in before the music goes on.
+ * panel. Play pauses on the pause button, on Back, when the app leaves the foreground, when another window takes
+ * focus, when another app takes audio focus, when headphones are unplugged and when the output changes; Resume counts
+ * in before the music goes on.
  *
- * Prototype: the chart is [SampleCharts.PREVIEW] on a [FakePlayClock] with the autoplay pressing the lanes; there is
- * no sound. Touches on the playfield are judged too. Plan step 7 puts the player's chart and the audio clock here.
+ * With a [game], the player's chart plays on its own sound and the audio clock ([AudioPlayClock]); without one, the
+ * chart is [SampleCharts.PREVIEW] on a [FakePlayClock] with the autoplay pressing the lanes and no sound (the
+ * settings' preview and the prototype's scenarios). Touches on the playfield are judged in both.
  */
 @Composable
 fun PlayScreen(
@@ -93,12 +146,14 @@ fun PlayScreen(
     loop: Boolean,
     onFinished: (PlayResult) -> Unit,
     onQuit: () -> Unit,
+    game: SongGame? = null,
     /** Debug scenarios only: pause after this long, and hold the count-in on its first beat. */
     autoPauseAfterMs: Long? = null,
     holdCountdown: Boolean = false,
 ) {
     GameTheme {
         Immersive()
+        val context = LocalContext.current
         val density = LocalDensity.current
         val cutoutTop = WindowInsets.displayCutout.getTop(density).toFloat()
         val gestureBottom = WindowInsets.mandatorySystemGestures.getBottom(density).toFloat()
@@ -106,15 +161,25 @@ fun PlayScreen(
         var phase by rememberSaveable { mutableStateOf(PlayPhase.PLAYING) }
         var restarts by remember { mutableIntStateOf(0) }
         var view by remember { mutableStateOf<PlayfieldView?>(null) }
+        // Where the sound moved during this game, for the pause panel.
+        var movedTo by remember { mutableStateOf<String?>(null) }
+        val running = remember(restarts) { RunningGame() }
 
-        fun pause() {
+        fun pause(cause: String) {
             if (phase == PlayPhase.PAUSED) return
+            Log.i(TAG, "Paused: $cause")
             view?.pause()
             phase = PlayPhase.PAUSED
         }
 
-        BackHandler(enabled = phase != PlayPhase.PAUSED) { pause() }
-        LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { pause() }
+        val audioFocus = if (game != null) rememberAudioFocus { cause -> pause(cause) } else null
+        if (game != null) {
+            BecomingNoisy { pause("becoming noisy (ACTION_AUDIO_BECOMING_NOISY)") }
+            if (game.debuggable) DebugPlayBroadcasts(running)
+        }
+
+        BackHandler(enabled = phase != PlayPhase.PAUSED) { pause("Back") }
+        LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { pause("the app left the foreground (ON_PAUSE)") }
         // The lead-in runs only while the window has had focus for a moment, so a system prompt over the first game
         // (Android's "Viewing full screen", which comes a little after the bars hide) holds the lead-in instead of
         // eating it: losing focus before the song has started holds it without the pause panel. Once the song has
@@ -134,15 +199,75 @@ fun PlayScreen(
                     current.pause()
                     started = false
                 }
-                !focused && started -> pause()
+                !focused && started -> pause("another window took focus")
             }
         }
         if (autoPauseAfterMs != null) {
             LaunchedEffect(Unit) {
                 delay(autoPauseAfterMs)
-                pause()
+                pause("the scenario")
                 if (holdCountdown) phase = PlayPhase.COUNTDOWN
             }
+        }
+
+        /** The track's route, on the main thread: the first is the game's output; a change after it pauses. */
+        fun routed(device: AudioDeviceInfo?) {
+            val outputs = game?.outputs ?: return
+            if (device == null) return
+            val previous = running.deviceId
+            val id = device.id
+            if (previous == id) return
+            running.deviceId = id
+            outputs.playingOn(device)
+            Log.i(TAG, "Sound plays on ${device.type}/${device.productName} (id $id)")
+            if (previous == null) return
+            running.clock?.outputChanged(System.nanoTime())
+            movedTo = outputs.routeOf(device).name
+            pause("the output changed")
+        }
+
+        fun controller(hud: MutableStateFlow<PlayHud>, sequence: () -> Long): PlayController {
+            val timing = PlayTiming(
+                audioOffsetMs = settings.audioOffsetMs.toDouble(),
+                visualOffsetMs = settings.visualOffsetMs.toDouble(),
+                scrollTimeMs = settings.scrollTimeMs,
+            )
+            if (game == null) {
+                return PlayController(
+                    chart = SampleCharts.PREVIEW,
+                    judge = settings.judge.toRuntime(),
+                    clock = FakePlayClock(),
+                    timing = timing,
+                    script = Autoplay.inputs(SampleCharts.PREVIEW),
+                    loop = loop,
+                    hud = hud,
+                    nextSequence = sequence,
+                )
+            }
+            // The track reports its route on the main thread.
+            val audio = GameAudio(context, game.audio, PlayController.LEAD_IN_MS, settings.musicVolume, ::routed)
+            val clock = AudioPlayClock(audio, audio.sampleRate, audio.leadInFrames) { Log.i(TAG, it) }
+            running.audio = audio
+            running.clock = clock
+            val clockLog = if (game.debuggable) ClockLog() else null
+            return PlayController(
+                chart = game.chart,
+                judge = settings.judge.toRuntime(),
+                clock = clock,
+                timing = timing,
+                resolveAudioOffset = {
+                    game.settingsFor(game.outputs.routeOf(audio.routedDevice)).audioOffsetMs.toDouble()
+                },
+                clockLog = clockLog,
+                onClose = {
+                    audio.close()
+                    Log.i(TAG, "Clock: ${clock.reads} timestamps read, ${clock.stepsBack} steps back held")
+                    clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } }
+                },
+                script = if (game.autoplay) Autoplay.inputs(game.chart) else emptyList(),
+                hud = hud,
+                nextSequence = sequence,
+            )
         }
 
         Box(Modifier.fillMaxSize().background(Brand.Plum)) {
@@ -150,27 +275,12 @@ fun PlayScreen(
             androidx.compose.runtime.key(restarts) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
-                    factory = { context ->
-                        PlayfieldView(context).apply {
+                    factory = { viewContext ->
+                        PlayfieldView(viewContext).apply {
                             keepScreenOn = true
                             // Held at the start of the lead-in until the window has focus (above).
                             this.pause()
-                            controllerFactory = { hud, sequence ->
-                                PlayController(
-                                    chart = SampleCharts.PREVIEW,
-                                    judge = settings.judge.toRuntime(),
-                                    clock = FakePlayClock(),
-                                    timing = PlayTiming(
-                                        audioOffsetMs = settings.audioOffsetMs.toDouble(),
-                                        visualOffsetMs = settings.visualOffsetMs.toDouble(),
-                                        scrollTimeMs = settings.scrollTimeMs,
-                                    ),
-                                    script = Autoplay.inputs(SampleCharts.PREVIEW),
-                                    loop = loop,
-                                    hud = hud,
-                                    nextSequence = sequence,
-                                )
-                            }
+                            controllerFactory = ::controller
                             view = this
                         }
                     },
@@ -179,6 +289,7 @@ fun PlayScreen(
                         it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                         it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
                         it.reduceMotion = reduceMotion
+                        it.excludeBackGesture = phase == PlayPhase.PLAYING
                         // A view made while the game is paused (after a configuration change) starts paused.
                         if (phase != PlayPhase.PLAYING) it.pause()
                     },
@@ -188,7 +299,7 @@ fun PlayScreen(
             val hud = if (currentView != null) currentView.hud.collectAsStateWithLifecycle().value else PlayHud()
             LaunchedEffect(hud.finished) {
                 val score = hud.finished ?: return@LaunchedEffect
-                onFinished(PlayResult.of(title, detail, score, hud.hitOffsetsMs, sample = true))
+                onFinished(PlayResult.of(title, detail, score, hud.hitOffsetsMs, sample = game == null))
             }
 
             PlayHudRow(
@@ -196,28 +307,177 @@ fun PlayScreen(
                 detail,
                 hud.accuracy,
                 paused = phase != PlayPhase.PLAYING,
-                onPause = ::pause,
+                onPause = { pause("the pause button") },
                 landscapeFarScale = PlaySettings.farScale(settings.landscapeLean),
             )
 
             when (phase) {
                 PlayPhase.PLAYING -> Unit
                 PlayPhase.PAUSED -> PausePanel(
+                    movedTo = movedTo,
                     onResume = { phase = PlayPhase.COUNTDOWN },
                     onRestart = {
                         restarts++
+                        movedTo = null
                         phase = PlayPhase.PLAYING
                     },
                     onQuit = onQuit,
                 )
                 PlayPhase.COUNTDOWN -> Countdown(reduceMotion, hold = holdCountdown) {
-                    view?.resume()
-                    phase = PlayPhase.PLAYING
+                    // Audio focus lost for good is asked for again; refused (a call goes on), the game stays paused.
+                    if (audioFocus != null && !audioFocus.request()) {
+                        phase = PlayPhase.PAUSED
+                        Log.i(TAG, "Resume refused: no audio focus")
+                    } else {
+                        view?.resume()
+                        phase = PlayPhase.PLAYING
+                    }
                 }
             }
         }
     }
 }
+
+/** A game being loaded, or why it cannot be played: in the game's dark presentation and orientation. */
+@Composable
+fun GameLoading(title: String, failure: Int?, onBack: () -> Unit) {
+    GameTheme {
+        Box(
+            Modifier.fillMaxSize().background(Brand.Plum).windowInsetsPadding(WindowInsets.safeDrawing),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(24.dp).widthIn(max = 420.dp),
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium, color = Brand.Text, textAlign = TextAlign.Center)
+                if (failure == null) {
+                    CircularProgressIndicator(color = Brand.Lavender)
+                    Text(
+                        stringResource(R.string.play_loading),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Brand.MutedText,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                } else {
+                    Text(
+                        stringResource(failure),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Brand.Text,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                    OutlinedButton(onClick = onBack) { Text(stringResource(R.string.play_back)) }
+                }
+            }
+        }
+    }
+}
+
+/** The game's audio focus, asked for when the game opens and again on each resume. */
+class GameAudioFocus(private val audioManager: AudioManager, private val request: AudioFocusRequest) {
+    fun request(): Boolean = audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+
+    fun abandon() {
+        audioManager.abandonAudioFocusRequest(request)
+    }
+}
+
+/**
+ * Holds audio focus while the game is open: another app taking it (a call, a voice assistant) pauses the game. A
+ * short sound that only ducks (a notification) does not: Android lowers the game's volume for it by itself.
+ */
+@Composable
+private fun rememberAudioFocus(onLost: (String) -> Unit): GameAudioFocus {
+    val context = LocalContext.current
+    val lost by rememberUpdatedState(onLost)
+    val focus = remember(context) {
+        val audioManager = context.getSystemService(AudioManager::class.java)
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(GameAudio.ATTRIBUTES)
+            .setOnAudioFocusChangeListener(
+                { change ->
+                    when (change) {
+                        AudioManager.AUDIOFOCUS_LOSS -> lost("audio focus lost (AUDIOFOCUS_LOSS)")
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> lost("audio focus lost for a while (AUDIOFOCUS_LOSS_TRANSIENT)")
+                    }
+                },
+                Handler(Looper.getMainLooper()),
+            )
+            .build()
+        GameAudioFocus(audioManager, request)
+    }
+    DisposableEffect(focus) {
+        if (!focus.request()) lost("audio focus refused")
+        onDispose { focus.abandon() }
+    }
+    return focus
+}
+
+/** Headphones unplugged or disconnected: Android says the sound is about to come out of the speaker. */
+@Composable
+private fun BecomingNoisy(onNoisy: () -> Unit) {
+    val context = LocalContext.current
+    val noisy by rememberUpdatedState(onNoisy)
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) noisy()
+            }
+        }
+        context.registerReceiver(receiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), Context.RECEIVER_NOT_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+}
+
+/**
+ * Debug builds: broadcasts that make the emulator, which has one output and no other app playing, do what a phone
+ * does, through the same system paths: `adb shell am broadcast -a io.ensomi.android.debug.PLAY --es do <what>` with
+ * `change-output` (the track asks for another output, which Android reports as a route change), `take-focus` (a
+ * second focus request of the app takes audio focus from the game) or `give-focus`.
+ */
+@Composable
+private fun DebugPlayBroadcasts(running: RunningGame) {
+    val context = LocalContext.current
+    DisposableEffect(context, running) {
+        val audioManager = context.getSystemService(AudioManager::class.java)
+        var taken: AudioFocusRequest? = null
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (val what = intent.getStringExtra("do")) {
+                    "change-output" -> Log.i(TAG, "Debug: asked for another output: ${running.audio?.preferAnotherOutput()}")
+                    "take-focus" -> {
+                        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                            .setAudioAttributes(DEBUG_FOCUS_ATTRIBUTES)
+                            .setOnAudioFocusChangeListener { }
+                            .build()
+                        Log.i(TAG, "Debug: took audio focus: ${audioManager.requestAudioFocus(request)}")
+                        taken = request
+                    }
+                    "give-focus" -> {
+                        taken?.let { audioManager.abandonAudioFocusRequest(it) }
+                        taken = null
+                        Log.i(TAG, "Debug: gave audio focus back")
+                    }
+                    else -> Log.w(TAG, "Debug: no such play broadcast: $what")
+                }
+            }
+        }
+        context.registerReceiver(receiver, IntentFilter(DEBUG_PLAY_ACTION), Context.RECEIVER_EXPORTED)
+        onDispose {
+            context.unregisterReceiver(receiver)
+            taken?.let { audioManager.abandonAudioFocusRequest(it) }
+        }
+    }
+}
+
+private const val DEBUG_PLAY_ACTION = "io.ensomi.android.debug.PLAY"
+
+private val DEBUG_FOCUS_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_ASSISTANT)
+    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+    .build()
 
 /**
  * Title, chart and accuracy on the left and right of the top edge, and the pause button: no panel of their own. In
@@ -283,7 +543,7 @@ private fun PlayHudRow(
 }
 
 @Composable
-private fun PausePanel(onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit) {
+private fun PausePanel(movedTo: String?, onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Brand.Plum.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Surface(
             // The brand's card shape: round corners, a tighter one at the bottom left.
@@ -304,6 +564,14 @@ private fun PausePanel(onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
                 Text(stringResource(R.string.play_paused_detail), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
+                if (movedTo != null) {
+                    Text(
+                        stringResource(R.string.play_output_moved, movedTo),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Brand.Text,
+                        textAlign = TextAlign.Center,
+                    )
+                }
                 ActionButton(
                     stringResource(R.string.play_resume),
                     onClick = onResume,
@@ -396,6 +664,11 @@ fun JudgeDifficulty.toRuntime(): Judge = when (this) {
 }
 
 private const val COUNT_IN_BEAT_MS = 500L
+
+private const val TAG = "EnsomiPlay"
+
+/** Debug builds: the last game's frame times, in the app's files. */
+private const val CLOCK_LOG = "clock-log.csv"
 
 /** How long the window keeps focus before the lead-in runs. */
 private const val FOCUS_SETTLE_MS = 400L

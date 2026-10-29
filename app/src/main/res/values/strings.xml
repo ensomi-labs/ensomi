@@ -184,6 +184,15 @@
     <string name="play_get_ready">Get ready</string>
     <string name="play_preview_title">Playfield preview</string>
     <string name="play_sample_detail">Sample chart · no sound</string>
+    <string name="play_detail">%1$s stars · Judge %2$s</string>
+    <string name="play_output_moved">Sound moved to %1$s. Its audio offset applies from the next game.</string>
+    <string name="play_loading">Loading the song…</string>
+    <string name="play_back">Back</string>
+    <string name="play_failed_missing">The song’s file could not be found. Find it again in the library.</string>
+    <string name="play_failed_no_chart">This song has no chart yet. Make one first.</string>
+    <string name="play_failed_chart">The chart could not be read. Make it again.</string>
+    <string name="play_failed_decode">The song could not be decoded for play.</string>
+    <string name="results_detail">%1$s stars · seed %2$s</string>
 
     <!-- Results -->
     <string name="results_title">Results</string>

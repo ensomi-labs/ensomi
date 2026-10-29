@@ -1,11 +1,5 @@
 package io.ensomi.android.play
 
-/** One object of a chart: a tap when [endMs] is null, else a hold. Lanes 0 to 3, times in song milliseconds. */
-data class NoteSpec(val lane: Int, val startMs: Int, val endMs: Int? = null)
-
-/** A fixed chart for the playfield preview and the calibration's picture step. */
-data class SampleChart(val title: String, val durationMs: Int, val notes: List<NoteSpec>)
-
 /** Charts for the prototype, built in code; nothing is generated. */
 object SampleCharts {
     private const val BEAT = 400 // 150 BPM
@@ -17,7 +11,7 @@ object SampleCharts {
      * About 30 seconds at 150 BPM that shows what the playfield draws: a stream with jumps, holds under taps, chords,
      * a sixteenth stream, two holds side by side, a jack and a trill, then a closing chord.
      */
-    val PREVIEW: SampleChart = run {
+    val PREVIEW: PlayChart = run {
         val notes = mutableListOf<NoteSpec>()
         fun tap(lane: Int, at: Int) { notes += NoteSpec(lane, at) }
         fun hold(lane: Int, from: Int, to: Int) { notes += NoteSpec(lane, from, to) }
@@ -75,18 +69,18 @@ object SampleCharts {
         t += BAR
         listOf(0, 1, 2, 3).forEach { tap(it, t) }
 
-        SampleChart("Sample chart", durationMs = t + 1_000, notes = notes.sortedWith(compareBy({ it.startMs }, { it.lane })))
+        PlayChart("Sample chart", durationMs = t + 1_000, notes = notes.sortedWith(compareBy({ it.startMs }, { it.lane })))
     }
 
     /** The calibration's picture step: a note in lane 1 on every click, 500 ms apart, from 1 s on for a minute. */
-    val CALIBRATION: SampleChart = SampleChart(
+    val CALIBRATION: PlayChart = PlayChart(
         title = "Calibration",
         durationMs = 62_000,
         notes = (0 until 120).map { NoteSpec(lane = 1, startMs = 1_000 + it * 500) },
     )
 
     /** The first object of a lane that starts before the previous one of that lane has ended, or null. */
-    fun firstOverlap(chart: SampleChart): NoteSpec? {
+    fun firstOverlap(chart: PlayChart): NoteSpec? {
         val lastEnd = IntArray(PlayfieldGeometry.LANES) { Int.MIN_VALUE }
         for (note in chart.notes) {
             if (note.startMs <= lastEnd[note.lane]) return note
@@ -104,7 +98,7 @@ data class ScriptedInput(val lane: Int, val press: Boolean, val songMs: Double)
  * judgement the runtime gives. The offsets are fixed, so every run looks the same.
  */
 object Autoplay {
-    fun inputs(chart: SampleChart): List<ScriptedInput> {
+    fun inputs(chart: PlayChart): List<ScriptedInput> {
         val inputs = mutableListOf<ScriptedInput>()
         chart.notes.forEachIndexed { index, note ->
             if (index % 29 == 13) return@forEachIndexed

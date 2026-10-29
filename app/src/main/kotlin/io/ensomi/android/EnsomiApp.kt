@@ -12,6 +12,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,8 +41,16 @@ import io.ensomi.android.library.LibraryScreen
 import io.ensomi.android.model.Notice
 import io.ensomi.android.model.NoticeTextScreen
 import io.ensomi.android.model.NoticesScreen
+import io.ensomi.android.audio.PlayAudioCache
+import io.ensomi.android.library.Song
+import io.ensomi.android.play.GameLoad
+import io.ensomi.android.play.GameLoader
+import io.ensomi.android.play.GameLoading
 import io.ensomi.android.play.GameOrientation
 import io.ensomi.android.play.PlayScreen
+import io.ensomi.android.play.SongGame
+import io.ensomi.android.settings.PlaySettings
+import java.text.NumberFormat
 import io.ensomi.android.play.ResultsScreen
 import io.ensomi.android.prototype.AppGraph
 import io.ensomi.android.prototype.Scenario
@@ -133,8 +142,17 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     entry<MakeChart> { key ->
                         val song = graph.songs.song(key.songId) ?: return@entry
                         val viewModel = viewModel {
-                            MakeChartViewModel(song, graph.charts, scenario.sections, scenario.sectionsOpen)
+                            MakeChartViewModel(
+                                song,
+                                graph.charts,
+                                scenario.sections,
+                                scenario.sectionsOpen,
+                                initialStars = graph.debug.stars,
+                                onClosed = { graph.playAudio?.drop(song.id) },
+                            )
                         }
+                        // The song's last chart, and its audio stages prepared in the background.
+                        LaunchedEffect(song.id) { graph.charts.open(song.id) }
                         MakeChartScreen(
                             viewModel = viewModel,
                             model = model,
@@ -142,22 +160,25 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                             onPlay = { backStack.add(Play(key.songId, loop = false)) },
                             onDownloadModel = graph.model::download,
                             onCancelDownload = graph.model::cancel,
-                            onMake = { notWired("Making charts (plan step 5)") },
-                            onStop = { notWired("Stopping a chart (plan step 5)") },
                         )
                     }
                     entry<Play> { key ->
                         val song = key.songId?.let(graph.songs::song)
-                        PlayScreen(
-                            title = song?.title ?: stringResource(R.string.play_preview_title),
-                            detail = stringResource(R.string.play_sample_detail),
-                            settings = settings,
-                            loop = key.loop,
-                            onFinished = { result -> backStack.replaceLast(Results(key.songId, result)) },
-                            onQuit = { backStack.removeLastOrNull() },
-                            autoPauseAfterMs = scenario.pauseAfterMs,
-                            holdCountdown = scenario.holdCountdown,
-                        )
+                        val playAudio = graph.playAudio
+                        if (song?.uri != null && playAudio != null && !key.loop) {
+                            SongPlay(song, graph, playAudio, settings, backStack)
+                        } else {
+                            PlayScreen(
+                                title = song?.title ?: stringResource(R.string.play_preview_title),
+                                detail = stringResource(R.string.play_sample_detail),
+                                settings = settings,
+                                loop = key.loop,
+                                onFinished = { result -> backStack.replaceLast(Results(key.songId, result)) },
+                                onQuit = { backStack.removeLastOrNull() },
+                                autoPauseAfterMs = scenario.pauseAfterMs,
+                                holdCountdown = scenario.holdCountdown,
+                            )
+                        }
                     }
                     entry<Results> { key ->
                         ResultsScreen(
@@ -220,6 +241,53 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
         }
     }
 }
+
+/** A game of the player's song: loaded off the main thread, then played on its own sound, then its results. */
+@Composable
+private fun SongPlay(
+    song: Song,
+    graph: AppGraph,
+    playAudio: PlayAudioCache,
+    settings: PlaySettings,
+    backStack: NavBackStack<NavKey>,
+) {
+    val context = LocalContext.current
+    val loader = viewModel { GameLoader(context, song, graph.charts, graph.songs, playAudio) }
+    val load by loader.load.collectAsStateWithLifecycle()
+    when (val current = load) {
+        GameLoad.Loading -> GameLoading(song.title, failure = null, onBack = { backStack.removeLastOrNull() })
+        is GameLoad.Failed -> GameLoading(song.title, current.message, onBack = { backStack.removeLastOrNull() })
+        is GameLoad.Ready -> {
+            val stars = formatStars(current.record.stars)
+            val resultDetail = listOfNotNull(
+                song.artist,
+                stringResource(R.string.results_detail, stars, current.record.seed),
+            ).joinToString(" · ")
+            PlayScreen(
+                title = song.title,
+                detail = stringResource(R.string.play_detail, stars, settings.judge.name),
+                settings = settings,
+                loop = false,
+                onFinished = { result -> backStack.replaceLast(Results(song.id, result.copy(detail = resultDetail))) },
+                onQuit = { backStack.removeLastOrNull() },
+                game = SongGame(
+                    chart = current.chart,
+                    audio = current.audio,
+                    outputs = graph.outputs,
+                    settingsFor = graph.settings::forRoute,
+                    autoplay = graph.debug.autoplay,
+                    debuggable = graph.debug.debuggable,
+                ),
+            )
+        }
+    }
+}
+
+private fun formatStars(stars: Double): String =
+    NumberFormat.getNumberInstance().apply {
+        minimumFractionDigits = 1
+        maximumFractionDigits = 1
+    }.format(stars)
 
 /** What the song pickers offer: any audio file. */
 private const val AUDIO = "audio/*"

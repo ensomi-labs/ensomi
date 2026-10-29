@@ -1,9 +1,13 @@
 package io.ensomi.android.library
 
 import android.net.Uri
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 
 /** A song the player added. [durationMs] is the file's length; [fileName] is what the document provider calls it. */
 data class Song(
@@ -78,5 +82,27 @@ class SampleSongLibrary(initial: List<Song>) : SongLibrary {
 
         /** The same songs with one whose file has gone. */
         val WITH_MISSING = SONGS.map { if (it.id == "glass-garden") it.copy(missing = true) else it }
+    }
+}
+
+/**
+ * A library whose songs say whether they have a chart (the last chart made for each is kept, [chartIds]), and whose
+ * [remove] forgets a song's chart with it.
+ */
+class ChartedSongLibrary(
+    private val library: SongLibrary,
+    chartIds: StateFlow<Set<String>>,
+    scope: CoroutineScope,
+    private val onRemove: (String) -> Unit,
+) : SongLibrary by library {
+    override val songs: StateFlow<List<Song>> = combine(library.songs, chartIds) { songs, ids ->
+        songs.map { if (it.id in ids) it.copy(chartCount = 1) else it }
+    }.stateIn(scope, SharingStarted.Eagerly, library.songs.value)
+
+    override fun song(id: String): Song? = songs.value.firstOrNull { it.id == id } ?: library.song(id)
+
+    override fun remove(id: String) {
+        library.remove(id)
+        onRemove(id)
     }
 }

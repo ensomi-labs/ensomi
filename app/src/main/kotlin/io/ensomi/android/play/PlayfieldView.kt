@@ -2,6 +2,7 @@ package io.ensomi.android.play
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Rect
 import android.os.Build
 import android.os.Looper
 import android.util.AttributeSet
@@ -24,7 +25,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * per display refresh. Touches arrive here on the main thread, are stamped with their event time and lane, and go to
  * the render thread's queue; the render thread judges and draws.
  *
- * [controllerFactory] runs on the render thread when the surface is created, so the runtime's session lives there.
+ * [controllerFactory] runs on the render thread when the surface is first created. The controller, and the game with
+ * it, outlives the surface: when the app goes to the background the surface goes and the render thread with it, and
+ * the next surface's thread goes on with the same paused game. The controller is closed when the view is detached.
  */
 class PlayfieldView @JvmOverloads constructor(
     context: Context,
@@ -143,10 +146,28 @@ class PlayfieldView @JvmOverloads constructor(
         val (w, h) = previewSize ?: (viewWidth to viewHeight)
         if (w <= 0 || h <= 0) return
         val (top, bottom) = if (previewSize != null) 0f to 0f else insets
-        geometry = PlayfieldGeometry.of(
+        val g = PlayfieldGeometry.of(
             w.toFloat(), h.toFloat(), resources.displayMetrics.density, top, bottom, hudHeightDp,
             if (w > h) landscapeFarScale else portraitFarScale,
         )
+        geometry = g
+        if (previewSize == null && excludeBackGesture) systemGestureExclusionRects = backGestureExclusion(g)
+    }
+
+    /** During play the outer lanes' lower part is kept from the back gesture (the system caps each edge's share). */
+    var excludeBackGesture = false
+        set(value) {
+            field = value
+            updateGeometry(width, height)
+            if (!value) systemGestureExclusionRects = emptyList()
+        }
+
+    private fun backGestureExclusion(g: PlayfieldGeometry): List<Rect> {
+        val bottom = g.height.toInt()
+        val top = (bottom - g.dp(EXCLUSION_HEIGHT_DP)).toInt().coerceAtLeast(0)
+        val laneEnd = (g.laneLeft(1)).toInt()
+        val laneStart = (g.laneLeft(PlayfieldGeometry.LANES - 1)).toInt()
+        return listOf(Rect(0, top, laneEnd, bottom), Rect(laneStart, top, g.width.toInt(), bottom))
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -158,10 +179,19 @@ class PlayfieldView @JvmOverloads constructor(
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        // The surface must not be drawn after this returns: stop the thread and wait for it.
+        // The surface must not be drawn after this returns: stop the thread and wait for it. The game stays.
         renderThread?.quitAndJoin()
         renderThread = null
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        renderThread?.quitAndJoin()
+        renderThread = null
+        // The session and the sound are let go off the main thread; no frame uses them any more.
+        val closing = controller ?: return
         controller = null
+        Thread({ closing.close() }, "EnsomiPlayfieldClose").start()
     }
 
     /**
@@ -228,16 +258,18 @@ class PlayfieldView @JvmOverloads constructor(
         override fun run() {
             Looper.prepare()
             looper = Looper.myLooper()
-            val playController = try {
-                makeController()
+            // The game of an earlier surface goes on; otherwise this thread makes it and starts it.
+            val playController = controller ?: try {
+                makeController().also {
+                    controller = it
+                    it.start(System.nanoTime())
+                    if (pausePending) it.clock.pause(System.nanoTime())
+                }
             } catch (failure: Throwable) {
                 Log.e(TAG, "Playfield could not start", failure)
                 ready.countDown()
                 return
             }
-            controller = playController
-            playController.start(System.nanoTime())
-            if (pausePending) playController.clock.pause(System.nanoTime())
             visualOffsetMs?.let { playController.visualOffsetMs = it }
             scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
@@ -252,7 +284,6 @@ class PlayfieldView @JvmOverloads constructor(
             }
             choreographer.postVsyncCallback(callback)
             Looper.loop()
-            playController.close()
         }
 
         private fun drawFrame(playController: PlayController, presentNanos: Long, vsyncNanos: Long, stats: FrameStats) {
@@ -284,6 +315,9 @@ class PlayfieldView @JvmOverloads constructor(
 
     private companion object {
         const val TAG = "EnsomiPlayfield"
+
+        /** The height of each edge asked to be kept from the back gesture; Android grants up to 200 dp per edge. */
+        const val EXCLUSION_HEIGHT_DP = 200f
     }
 }
 

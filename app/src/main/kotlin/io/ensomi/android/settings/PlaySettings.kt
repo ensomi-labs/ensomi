@@ -1,5 +1,6 @@
 package io.ensomi.android.settings
 
+import android.media.AudioDeviceInfo
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlin.math.tan
@@ -109,6 +110,18 @@ interface PlaySettingsStore {
 
     /** Changes the settings; a change of the audio offset is kept for [route]. */
     fun update(change: (PlaySettings) -> PlaySettings)
+
+    /** The settings with [route]'s audio offset. */
+    fun forRoute(route: OutputRoute): PlaySettings
+}
+
+/** The device a game's sound plays on, as an output with an audio offset of its own. */
+interface PlayOutputs {
+    /** The output [device] is; null for the one Android would pick now. */
+    fun routeOf(device: AudioDeviceInfo?): OutputRoute
+
+    /** A game's track plays on [device] now: it is the output from then on. */
+    fun playingOn(device: AudioDeviceInfo?)
 }
 
 /** For the prototype's scenarios: kept in memory only. The app's store is [DataStorePlaySettingsStore]. */
@@ -119,7 +132,16 @@ class InMemoryPlaySettingsStore(initial: PlaySettings, route: OutputRoute) : Pla
 
     override fun update(change: (PlaySettings) -> PlaySettings) = state.update(change)
 
+    override fun forRoute(route: OutputRoute): PlaySettings = state.value
+
     companion object {
         val SPEAKER = OutputRoute(key = "builtin-speaker", name = "Phone speaker")
     }
+}
+
+/** For the prototype's scenarios: every game plays on [route]. */
+class FixedPlayOutputs(private val route: OutputRoute) : PlayOutputs {
+    override fun routeOf(device: AudioDeviceInfo?): OutputRoute = route
+
+    override fun playingOn(device: AudioDeviceInfo?) = Unit
 }
