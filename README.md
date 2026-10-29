@@ -8,10 +8,11 @@ code or history with the Swift app, which is the reference for what it does.
 The app is in development and is not distributed. It is being built from a prototype of drop-in play (the library,
 making a chart, play, results, settings and timing calibration) one store at a time. Real now: the settings, kept with
 Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding songs
-to PCM; and the chart model, downloaded from Hugging Face at a pinned tag and checked file by file. Charts and play are
-still samples. The playfield is real (a `SurfaceView` render thread with the runtime judging) and plays a sample chart
-without sound, in landscape with the lanes leaning back by default; the orientation and the lean are settings with a
-live preview. Diagnostics, under Settings,
+to PCM; the chart model, downloaded from Hugging Face at a pinned tag and checked file by file; charts made on the
+device by the runtime from the player's songs, the last one per song kept; and play: the chart on the song's own sound,
+timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with the
+lanes leaning back by default (the orientation and the lean are settings with a live preview). The timing calibration
+is still a sample. Diagnostics, under Settings,
 shows what the device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the
 runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
@@ -81,7 +82,28 @@ adb logcat -d -s EnsomiDecodeCheck:I -v raw
 
 The model download logs each request and its answer under `EnsomiModel`. Its files are in the app's
 `no_backup/models/ensomi-r2` (`adb shell run-as io.ensomi.android ls no_backup/models/ensomi-r2`), the settings in
-`files/settings.json` and the library in `files/library.json`.
+`files/settings.json`, the library in `files/library.json`, and each song's last chart in `files/charts/<song id>/`
+(`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
+
+Making charts logs under `EnsomiCharts` (each song's audio stages and each chart, with their times and the peak
+resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, the score) and their sound
+under `EnsomiAudio` (the track's buffer, its route and its underruns). A debuggable build takes these extras on a
+normal launch, for checks on an emulator:
+
+```sh
+adb shell am start -n io.ensomi.android/.MainActivity --ef stars 7         # stars outside the slider: the runtime refuses
+adb shell am start -n io.ensomi.android/.MainActivity --ez autoplay true   # games played by the autoplay
+adb shell am start -n io.ensomi.android/.MainActivity --ez low-memory true # the generator's lowMemory option
+```
+
+and, during a game, broadcasts that do what an emulator cannot (another output, another app taking audio focus):
+
+```sh
+adb shell am broadcast -a io.ensomi.android.debug.PLAY --es do change-output   # or take-focus, give-focus
+```
+
+A debuggable build also writes each game's frame times to `files/clock-log.csv` (`nanos,songMs,renderMs`) when the game
+closes, for checking that song time never goes back.
 
 ## Diagnostics output
 

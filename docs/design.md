@@ -136,11 +136,17 @@ One screen per song. The top app bar has Back and the song's title; under it, th
 | Failed | "The chart could not be made." with a warning symbol, the runtime's message under it | Try again |
 | Ready to play | "Chart ready", "1,229 notes: 999 taps, 230 long notes", the seed with **Use seed** | **Play** (primary) and Make another, side by side, stacked at large text sizes |
 
-- The runtime reports phases, not fractions, so the bar is indeterminate rather than a guessed percentage.
+- The runtime reports phases, not fractions, so the bar is indeterminate rather than a guessed percentage. The app
+  shows Loading audio while it decodes the song, Finding the beat while the runtime's `prepare` runs, Placing notes
+  while the whole-chart scheduler works and Finishing while the chart is saved. The scheduler reports no phases of its
+  own, so Arranging lanes is never shown under way (as in the Swift app; plan.md, Runtime changes).
 - Choosing a song starts the runtime's `prepare` (the audio stages, most of the work) in the background, as the Swift
-  app does, so Make chart often has only the chart stages left.
-- The fields are disabled while a chart is being made. Stop signals the runtime's `Cancellation` from another thread;
-  the runtime stops at its next graph run.
+  app does, so Make chart often has only the chart stages left. The four latest are kept in memory by the SHA-256 of
+  the song's file and the model's revision. A game starting stops a preparation nobody waits for, so the game has the
+  processor; opening the song again starts it again.
+- The fields are disabled while a chart is being made. Stop signals the runtime's `Cancellation` (during the audio
+  stages) or the scheduler's `stop()` (during the chart stages) from another thread; the runtime stops at its next
+  graph run.
 - The last chart made for a song is kept in app storage (its `.osu` and receipt), so a game can be played again after
   the app was closed. The Swift app keeps it in memory only; on Android the process can be killed in the background at
   any time.
@@ -150,8 +156,10 @@ One screen per song. The top app bar has Back and the song's title; under it, th
 Full screen: the system bars hidden with `WindowInsetsController` and `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`
 ([Immersive mode](https://developer.android.com/develop/ui/views/layout/immersive)), the screen kept on, and the phone
 turned to the play orientation: **landscape** by default, with the lanes leaning back; portrait is a setting (see
-Phone sizes and orientation). Without a panel of its own, the HUD: the song's title and its stars and judge on the
-left, accuracy on the right, then a Pause button; in landscape these sit in the top corners beside the lanes' far
+Phone sizes and orientation). Before the game, the song's last chart is read and the song decoded for play, with
+"Loading the song…" in the game's dark presentation (instant for Play again, which keeps the sound); a song whose file
+has gone, or with no chart, says so there with Back. Without a panel of its own, the HUD: the song's title and its
+stars and judge on the left, accuracy on the right, then a Pause button; in landscape these sit in the top corners beside the lanes' far
 end, in portrait in a row above the lanes. The playfield itself, its look and its timing are in
 [gameplay.md](gameplay.md). A game starts with two seconds of lead-in before the song's first frame, so the hands can
 reach the lanes. The lead-in runs only while the play window has focus: the first time an app hides the system bars,
@@ -168,6 +176,10 @@ The game pauses by itself whenever the player cannot be playing:
 | Another app takes audio focus (a call, a voice assistant) | `AudioManager` focus loss ([audio focus](https://developer.android.com/media/optimize/audio-focus)) |
 | Headphones unplugged or disconnected | `ACTION_AUDIO_BECOMING_NOISY` ([output devices](https://developer.android.com/media/platform/output)) |
 | The output device changes | `AudioTrack.addOnRoutingChangedListener` |
+
+A short sound that only ducks the game (a notification) does not pause it: Android lowers the game's volume for it by
+itself. Audio focus is asked for again on each resume; if it is refused (a call goes on), the game stays paused. When
+the app returns from the background, the game is where it was, paused: it outlives the playfield's surface.
 
 ### Pause
 
@@ -305,7 +317,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
   ([non-linear font scaling](https://developer.android.com/about/versions/14/features#non-linear-font-scaling)):
   text wraps, steppers sit under their labels, nothing is truncated to fit. The HUD and the panels scale too; text
   drawn inside the playfield (judgement word, combo) keeps a fixed size, like the Swift playfield, so it never covers
-  the lanes.
+  the lanes, and is drawn under the notes, so it never hides one.
 - **Touch targets** are Material's 48 dp minimum
   ([large controls](https://developer.android.com/guide/topics/ui/accessibility/apps#large-controls)); lanes are about
   148 dp wide at the line on a phone in landscape and 99 dp in portrait, and a lane's touch zone is its whole column.
@@ -367,19 +379,20 @@ Not carried over in this round: Listen & Play, recognition, the Chart Inspector,
 The app opens on the Library and every screen above is in it, in Compose, reading its data through small
 interfaces: `SongLibrary`, `ChartModelStore`, `ChartMaker`, `PlaySettingsStore`. A normal launch uses the app's own
 stores (`AppStores`) where they are built, and samples where they are not; each sample class says so in its comment,
-and every action that is not built yet shows a snackbar saying so ("Not built yet: Making charts (plan step 5).").
+and every action that is not built yet shows a snackbar saying so ("Not built yet: Starting the taps over (plan step 8).").
 
 - **Real now**: navigation, the screens and their states, the section and seed checks; the settings, kept with
   DataStore, the audio offset per output, written by Settings, calibration's Use and Results' Use; the song library
-  from the document picker, with File not found, Find again and Remove; decoding to PCM (plan step 3, not yet called by
-  a screen); the model download, its states, the licence, the model card and the notices; and the playfield: the
+  from the document picker, with File not found, Find again and Remove; decoding to PCM; the model download, its
+  states, the licence, the model card and the notices; making charts with the runtime (prepare on opening a song, the
+  whole-chart scheduler, Stop, the model's capabilities, the last chart per song kept); and play: the player's chart on
+  the song's sound, the `AudioTrack` clock, the pauses, the results from the runtime's score, and the playfield: the
   `SurfaceView` render thread paced by `postVsyncCallback`, the runtime's `GameplaySession` judging, its
   `GameplayFeedback` easing lights and the judgement word, `noteGeometry` placing notes, touches mapped to lanes with
-  their event times. Touches on the emulator are judged.
-- **Sample**: the generation's state and its capabilities' notes, the calibration's taps, and the chart played: a
-  fixed 27-second chart on a clock without sound, pressed by an autoplay with fixed early and late offsets so every
-  judgement shows. Play from a song plays this sample chart and says "Sample chart · no sound"; its results are the
-  runtime's real score of that game.
+  their event times.
+- **Sample**: the calibration's taps and clicks, and the playfield preview in Settings: a fixed 27-second chart on a
+  clock without sound, pressed by an autoplay with fixed early and late offsets so every judgement shows ("Sample
+  chart · no sound"); its results are the runtime's real score of that game.
 - **Lean and orientation**: the play settings, the landscape layout, the leaning lanes, the game held in its
   orientation through the results, and the live preview in Settings are real and kept.
 - **For screenshots only**: a debuggable build opens in any sample state from a launch extra

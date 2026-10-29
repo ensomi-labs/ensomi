@@ -16,13 +16,18 @@ UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gamep
   - `EnsomiApp.kt`: navigation with Navigation 3. A screen is a `NavKey` plus an `entry`. Screens
     navigate through callbacks that push keys, never by referring to each other.
   - `AppStores.kt`: the app's stores, one per process (DataStore allows one per file): settings, songs,
-    the chart model. Screens reach them through the `AppGraph` interfaces, never directly.
+    the chart model, the charts made (`RuntimeChartMaker`, `ChartStore`) and the sound of the song last played.
+    Screens reach them through the `AppGraph` interfaces, never directly.
   - `Destinations.kt`: the navigation keys.
   - One package per feature (`library/`, `model/`, `chart/`, `play/`, `settings/`, `diagnostics/`), holding
-    its screens, ViewModels and data sources. `audio/` decodes songs (`SongDecoder`, `Mp3Lead`).
+    its screens, ViewModels and data sources. `audio/` decodes songs (`SongDecoder`, `Mp3Lead`), plays a
+    game's sound (`GameAudio`, an `AudioTrack` and its writer thread) and keeps song time from it
+    (`AudioPlayClock`, JVM-tested against a scripted output).
   - `play/`: the playfield, a `SurfaceView` drawn by its own render thread; every runtime call of a game
     happens on that thread. What lies on the lanes is drawn in lane space and tilted by the lean's perspective
-    matrix (`PlayfieldGeometry`); touch zones come from the lanes at the line and never lean.
+    matrix (`PlayfieldGeometry`); touch zones come from the lanes at the line and never lean. A game
+    (`PlayController`) outlives the surface, so it pauses rather than restarts when the app goes to the
+    background.
   - `prototype/`: sample states for screenshots, opened by a launch extra in debuggable builds; a normal launch
     uses the app's stores. Sample implementations say so in their comments, and unbuilt actions say so on screen.
   - `ui/`: shared components and the Material 3 theme. `json/`: a small JSON encoder.
@@ -38,7 +43,8 @@ UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gamep
   replaces it once one exists.
 - Run blocking runtime calls through the runtime's `RuntimeWorker`, never on the main thread.
 - The logcat tag `EnsomiDiagnostics` carries only the Diagnostics JSON, and `EnsomiDecodeCheck` only the
-  decode check's JSON lines (README). Scripts read them.
+  decode check's JSON lines (README). Scripts read them. `EnsomiCharts`, `EnsomiPlay` and `EnsomiAudio` are for
+  people reading a check's log; the README lists the debug launch extras and broadcasts the checks use.
 - `app/lint.xml` ignores lint findings that restate a decision, each with its reason. Fix other
   findings, or list and judge them in the build report.
 

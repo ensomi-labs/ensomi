@@ -99,7 +99,10 @@ follow the lane, since their length is time.
 
 **What does not lean.** Drawn on the screen as it is: the ground, the key tray and its caps, the judgement line, the
 progress bar, and the judgement word and combo, which stay upright and sharp at 42 % of the lanes' height on the screen
-(a fifth smaller in landscape, where the field is short).
+(a fifth smaller in landscape, where the field is short). They are drawn after the lanes and before the notes, so a
+note passing through them in the middle lanes stays whole; the words are large and change slowly, so a note hides
+little of them. Moving them off the lanes was not an option in landscape, where the lanes take the middle of the
+screen and the HUD its top corners, and making them translucent would still tint the notes they cover.
 The line, the tray and the touch zones are the same at every lean.
 
 **Notes** follow the Swift play screen. Taps are rose `#EAA0B7`, 20 dp tall at the line, inset 5 dp from the lane edges,
@@ -169,16 +172,22 @@ songMs(t) = (framePosition − leadInFrames) / sampleRate × 1000 + (t − nanoT
 ```
 
 - Only the low 32 bits of the position are valid; the clock extends them across wraps (same source).
-- It polls every 10 ms while the output warms up and after each start, resume or route change, then less often; the
-  reference says short-term differences are not meaningful and to build the fine mapping in the app. Media3 does the
-  same (10 ms, then 10 s; stack report §2.4). How often to poll once stable is a phone measurement.
-- Before the first valid timestamp after a start or a resume, the clock holds its time. It never runs backwards: if a
-  new pair would move song time back, it holds until the new pair catches up. The runtime's session never moves back
-  either.
+- It polls every 10 ms while the output warms up and for a second after each start, resume or route change, then once
+  a second; the reference says short-term differences are not meaningful and to build the fine mapping in the app.
+  Media3 does the same (10 ms, then 10 s; stack report §2.4). How often to poll once stable is a phone measurement.
+- Before the first valid timestamp after a start or a resume, the clock holds its time: a pair counts only if it was
+  presented after the start or resume and its frame is past the one the output stopped at. It never runs backwards:
+  if a new pair would move song time back, the clock keeps to the old line up to the latest time it was asked for
+  (frames ask for their presentation time, a little ahead) and holds there until the new line catches up, taking no
+  other pair meanwhile; a pair ahead is taken at once. The runtime's session never moves back either.
 - The timestamp is a presented frame, so the output latency the device reports is already out of song time. What it
   does not report stays in the audio offset. There is no runtime API for true end-to-end audio latency, and the CDD
   bounds the reported value only loosely (stack report §2.4), so the offset stays necessary.
-- `AudioTrack.getUnderrunCount()` is logged per game; the writer keeps at least 200 ms queued.
+- `AudioTrack.getUnderrunCount()` is logged per game; the writer keeps at least 200 ms queued (the track's buffer is
+  400 ms or the platform's minimum, whichever is larger, filled before `play()`). After the song it writes silence until
+  the game closes, so the clock keeps reading real timestamps through the last notes and the results.
+- The game's audio offset is the one of the device the track is routed to (`AudioTrack.getRoutedDevice`), taken when
+  the clock first runs, in the lead-in; from then on that device is the output Settings and Results show.
 
 **Pause and resume.** Pause stops the track and the clock holds the song time being heard. Resume, after the count-in,
 plays the track and the clock holds until the first timestamp after it, as the Swift clock waits for the first buffer
@@ -245,9 +254,9 @@ logs.
   bars; the key tray sits above the mandatory gesture inset, which apps cannot opt out of; and during play the app
   excludes the lower part of the outer lanes from the back gesture with `setSystemGestureExclusionRects`, which the
   same page allows games "during gameplay". In landscape the outer lanes reach the screen's edges, so this matters
-  more there. The system caps how much of each edge an app may exclude (`View.setSystemGestureExclusionRects`), so
-  only the lower part of each outer lane is asked for; whether the cap leaves enough on a landscape phone is a check
-  for the phone.
+  more there. The system caps how much of each edge an app may exclude (`View.setSystemGestureExclusionRects`, 200 dp
+  per edge), so only the lowest 200 dp of each outer lane's column is asked for, while the game runs (not while
+  paused); whether the cap leaves enough on a landscape phone is a check for the phone.
 
 ## Judgements through the runtime
 
