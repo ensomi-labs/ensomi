@@ -1,0 +1,1015 @@
+Ensomi Android phone-check run b3 — 2026-10-30 JST
+
+Outcome: build passes. Both full AVD runs finish with ten of ten instrumentation invocations PASSED, none skipped or failed, and 34 results / 0 not ok each. The manual collector runs once and produces its archive. All source, scripts, docs and pinned versions remain unchanged.
+
+Resolved b2 findings observed in b3:
+- The kit includes the runbook and completes without manual assembly once the Mac's existing HTTPS proxy is supplied to curl.
+- Back, Home, Recents, notification shade and screen off all pass on both AVDs. Every trigger reports wasPlaying=true, a pause cause and panelShown=true; the Back/Home cascade did not recur.
+- Both audio checks pass with songTimeStepsBack=0 and underruns=0. Both also have presentationStepsBack=0, so this run does not exercise the specific backward-presentation timestamp distinction that failed in b2. fitResidualSdMs is 0.091 / 0.086 (16 KB / 4 KB); pictureStepSdMs is 0.002 on both.
+- The real failed download on ensomi-36 displayed its progress and reason; the requested prototype variants were also captured.
+- The manual archive includes touch-log.csv with the new action,eventNanos,handledNanos,pointers header. It has no events because no hand-played game was requested or performed.
+
+Deviations and remaining work:
+- Direct kit downloads failed three times with curl exit 35 (LibreSSL SSL_ERROR_SYSCALL). Using the already-configured macOS HTTP/HTTPS proxy through environment variables allowed the unchanged script to finish. Complete command/output for every attempt follows.
+- ensomi-36-16k retained its Hugging Face model and reported path=present. Contrary to the brief's expected ensomi-36 baseline, that AVD's model install record was absent before b3; b2's report records a later pm clear for a refusal test. b3 did not uninstall or clear app data. The tester script attempted Hugging Face, lost the connection after 237.03 s at a displayed 75.3 MB of 120.4 MB, requested its file fallback, then continued after the real picker installed the valid kit model in 0.78 s. That run reports path=files. The model remains installed afterward.
+- Pacing instrumentation passes because it asserts that frames were recorded; ok=true does not mean meetsTarget=true. On ensomi-36-16k all four checks-build scenarios meet the under-0.5% late / under-3 ms p99 work targets; all four debug scenarios miss the work target. On ensomi-36 all eight debug/checks-build scenarios miss the work target. Every scenario's late percentage is under 0.5%, and no pacing pauses were recorded. The checks-build p99 work ranges are 2.332–2.527 ms (16 KB) and 3.143–6.412 ms (4 KB).
+- The collector reports no result files for the manual-only run: this group clears the suite results directory and does not write results.jsonl. Its clock-log.csv, settings.json and library.json hold cat errors because those source files do not exist. It does collect the last sample game's frame log, an empty touch log header and logcat. No actual full manual game or physical touch measurement is implied.
+- The 104.724898 s real song generates the same chart SHA-256 on both AVDs in both memory modes and repeated determinism runs: e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1. This is shorter than the full-length songs requested for phone performance assessment.
+- Physical-phone timing, >60 Hz display behavior, audio outputs, touch/haptics and the runbook's manual checklist remain untested. These emulator results validate the suite and this sample input, not phone performance. No app changes were made to address timing or network behavior.
+- The ensomi-36 emulator log includes Failed to find ColorBuffer: 867 and Failed to bind to texture: invalid color buffer. Both full checks and screenshot capture completed; these host-GPU diagnostics are retained verbatim below and were not investigated by changing the requested GPU mode.
+- The first report-side archive verifier mistook macOS AppleDouble metadata for collected files; excluding that generated metadata let every payload verify byte-for-byte. This does not indicate a collector/archive failure.
+
+All evidence paths are relative to /Users/l/ensomi/ensomi--android-phone-checks-b3. This report quotes every results.jsonl line, full console outputs, instrumentation failures and relevant failure logcat lines. Raw evidence and binaries remain under artifacts/b3/.
+
+SETUP
+
+BEGIN VERBATIM artifacts/b3/setup.json
+
+{
+  "source_commit": "60b2af12cabfd232281565b1c737e00e13317f7a",
+  "branch": "codex/android-phone-checks-b3",
+  "sdk_dir": "/Users/l/Library/Android/sdk",
+  "java_home": "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
+  "runtime_aar": "/Users/l/ensomi/ensomi-runtime--android-aar/build/android/ensomi-runtime.aar",
+  "song": "/Users/l/ensomi/ensomi/artifacts/renders/android-impl/b1/mosaic.mp3",
+  "song_sha256": "e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4",
+  "original_artifacts_symlink": "/Users/l/ensomi/ensomi/artifacts",
+  "avd_flags": [
+    "-no-window",
+    "-gpu",
+    "host",
+    "-no-snapshot"
+  ],
+  "runtime_aar_sha256": "4ba0aff26a36de38cee602c34d0288d606bfc2ea77348c2d57b91599a82ca2bf"
+}
+
+END VERBATIM artifacts/b3/setup.json
+
+BEGIN VERBATIM artifacts/b3/java-version.txt
+
+openjdk version "25.0.3" 2026-04-21
+OpenJDK Runtime Environment (build 25.0.3+-15898627-b508.16)
+OpenJDK 64-Bit Server VM (build 25.0.3+-15898627-b508.16, mixed mode)
+
+END VERBATIM artifacts/b3/java-version.txt
+
+BEGIN VERBATIM artifacts/b3/song-info.json
+
+{
+    "format": {
+        "format_name": "mp3",
+        "duration": "104.724898",
+        "size": "2518746"
+    }
+}
+
+END VERBATIM artifacts/b3/song-info.json
+
+BEGIN VERBATIM artifacts/b3/commands.txt
+
+Working directory: /Users/l/ensomi/ensomi--android-phone-checks-b3
+JAVA_HOME=/Applications/Android Studio.app/Contents/jbr/Contents/Home
+PATH for adb: /Users/l/Library/Android/sdk/platform-tools plus existing PATH
+
+Build:
+./gradlew assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint
+./gradlew --stop
+
+Kit attempts 1-3 (direct connection; each exit 35):
+scripts/make-phone-kit.sh artifacts/b3/kit /Users/l/ensomi/ensomi/artifacts/renders/android-impl/b1/mosaic.mp3
+
+Kit attempt 4 (uses the existing macOS-configured proxy; exit 0):
+HTTPS_PROXY=http://127.0.0.1:6152 HTTP_PROXY=http://127.0.0.1:6152 scripts/make-phone-kit.sh artifacts/b3/kit /Users/l/ensomi/ensomi/artifacts/renders/android-impl/b1/mosaic.mp3
+
+16 KB AVD:
+/Users/l/Library/Android/sdk/emulator/emulator -avd ensomi-36-16k -no-window -gpu host -no-snapshot
+adb wait-for-device
+adb shell getprop sys.boot_completed
+adb devices -l
+adb shell getconf PAGE_SIZE
+adb shell pm list packages io.ensomi.android
+adb shell run-as io.ensomi.android cat no_backup/models/ensomi-r2/ensomi-install.json
+sh artifacts/b3/kit/phone-checks.sh -k artifacts/b3/kit -o artifacts/b3/runs/ensomi-36-16k
+adb emu kill
+
+4 KB AVD:
+/Users/l/Library/Android/sdk/emulator/emulator -avd ensomi-36 -no-window -gpu host -no-snapshot
+adb wait-for-device
+adb shell getprop sys.boot_completed
+adb devices -l
+adb shell getconf PAGE_SIZE
+adb shell pm list packages io.ensomi.android
+adb shell run-as io.ensomi.android cat no_backup/models/ensomi-r2/ensomi-install.json
+adb shell cmd connectivity airplane-mode disable
+adb shell svc wifi enable
+adb shell svc data enable
+adb shell cmd connectivity airplane-mode
+sh artifacts/b3/kit/phone-checks.sh -k artifacts/b3/kit -o artifacts/b3/runs/ensomi-36
+
+Collector requested Install from files after its app download failed. Interactions below were during model setup, before any instrumented check, as requested by the runbook:
+adb shell uiautomator dump /sdcard/b3-fallback-ui.xml
+adb shell cat /sdcard/b3-fallback-ui.xml
+adb exec-out screencap -p
+adb shell input tap 291 996 # Install from files
+adb shell input tap 607 331 # Download breadcrumb; picker remembered b2 refusal folder
+adb shell input tap 270 932 # ensomi-r2, the good kit folder
+adb shell input tap 540 2298 # Use this folder
+adb shell input tap 879 1407 # Allow; final setup interaction, no further emulator inspection/input during checks
+
+sh artifacts/b3/kit/phone-checks.sh -k artifacts/b3/kit -o artifacts/b3/runs/ensomi-36-manual -n -g manual
+adb shell run-as io.ensomi.android cat no_backup/models/ensomi-r2/ensomi-install.json # after all collectors
+scripts/capture-prototype.sh artifacts/b3/screens screens
+adb emu kill
+
+END VERBATIM artifacts/b3/commands.txt
+
+The initial artifacts symlink was replaced by a worktree-local directory; its original shared target was left intact. local.properties is ignored. No app source, repository scripts, docs, pins or lint ignores were changed. No AVD was wiped, no app was uninstalled and no app data was cleared in b3. Only one AVD ran at a time, with -no-snapshot to cold boot its retained data. The Gradle daemon was stopped before emulator work. No external emulator input or adb inspection occurred during the 16 KB collector run or either AVD’s instrumented measurements. On ensomi-36 only, the collector requested the runbook’s Install from files fallback during model setup; its real picker was completed before checks began.
+
+BEGIN VERBATIM artifacts/b3/b2-model-state-evidence.txt
+
+Source: /Users/l/ensomi/ensomi--android-phone-checks-b2/artifacts/b2/report.txt
+
+626: Connectivity restored after collection with adb shell cmd connectivity airplane-mode disable; adb shell svc wifi enable; adb shell svc data enable; adb shell cmd connectivity airplane-mode. Output:
+
+644: Optional refusal completed after collection and network restoration. Copied artifacts/b2/refusal/ensomi-r2-bad to /sdcard/Download, then adb shell pm clear io.ensomi.android. Real picker selected Download > ensomi-r2-bad > Use this folder > Allow. runtime.json changed only at offset 0 (123 to 122), same 4893196-byte size; details in artifacts/b2/refusal/mutation.json.
+
+b3 preflight is recorded in artifacts/b3/emulators/ensomi-36/preflight.txt. No data clear or uninstall was performed in b3.
+
+END VERBATIM artifacts/b3/b2-model-state-evidence.txt
+
+BEGIN VERBATIM artifacts/b3/model-fallback/flow.txt
+
+The ensomi-36 preflight found no model install record. b2 report line 644 records a later refusal test that cleared app data; b3 did not clear data or uninstall.
+The unmodified collector attempted the in-app Hugging Face download. It stopped after 237.03 seconds: The connection was lost.
+01-before.xml records the real visible text: The download stopped at 75.3 MB of 120.4 MB. The connection was lost.
+The collector copied the kit model to Download/ensomi-r2 and requested Install from files.
+Tap 291,996: Install from files. DocumentsUI remembered b2's ensomi-r2-bad folder (02-picker.xml/.png).
+Tap 607,331: Download breadcrumb (03-download.xml/.png).
+Tap 270,932: ensomi-r2, the valid kit folder (04-model-folder.xml/.png).
+Tap 540,2298: Use this folder (05-allow.xml/.png).
+Tap 879,1407: Allow. No further device inspection or input until the collector finished.
+The collector reported Installed from files and continued to the automated checks. model-install.txt reports 30 files, 120377244 bytes, pinned manifest SHA-256, source files, installation time 0.78 seconds.
+This was tester interaction requested by the collector during model setup; no measurement was running.
+
+END VERBATIM artifacts/b3/model-fallback/flow.txt
+
+BUILD
+
+BUILD SUCCESSFUL in 53s
+
+125 actionable tasks: 125 executed
+
+Build exit: 0
+
+assembleDebug: PASSED
+
+assembleDebugAndroidTest: PASSED
+
+assembleChecks: PASSED
+
+testDebugUnitTest: PASSED
+
+lint: PASSED
+
+Unit-test totals: {"tests": 121, "failures": 0, "errors": 0, "skipped": 0}
+
+BEGIN VERBATIM artifacts/b3/kotlin-diagnostics.txt
+
+No Kotlin errors or warnings under app/src/.
+
+END VERBATIM artifacts/b3/kotlin-diagnostics.txt
+
+Unignored lint findings (complete text):
+
+BEGIN VERBATIM artifacts/b3/build-reports/lint-results-debug.txt
+
+/Users/l/ensomi/ensomi--android-phone-checks-b3/gradle/libs.versions.toml:4: Warning: A newer version of com.android.application than 9.4.1 is available: 9.5.0 [AndroidGradlePluginVersion]
+agp = "9.4.1"
+      ~~~~~~~
+
+   Explanation for issues of type "AndroidGradlePluginVersion":
+   This detector looks for usage of the Android Gradle Plugin where the
+   version you are using is not the current stable release. Using older
+   versions is fine, and there are cases where you deliberately want to stick
+   with an older version. However, you may simply not be aware that a more
+   recent version is available, and that is what this lint check helps find.
+
+0 errors, 1 warning
+
+END VERBATIM artifacts/b3/build-reports/lint-results-debug.txt
+
+Lint judgment: dependency update notice only; preserve the pinned AGP version within this build-only task. app/lint.xml ignores OldTargetApi and ChromeOsAbiSupport with their existing reasons. No other unignored findings.
+
+Other build messages: libjnidispatch.so could not be stripped in debug/checks and was packaged as-is. Gradle reports deprecated features incompatible with Gradle 10. Full build output: artifacts/b3/build.log; problem details: artifacts/b3/gradle-problems-report.html.
+
+BEGIN VERBATIM artifacts/b3/build-tasks.txt
+
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:processDebugNavigationResources
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:javaPreCompileDebug
+> Task :app:parseDebugLocalResources
+> Task :app:mergeDebugAssets
+> Task :app:generateDebugRFile
+> Task :app:compressDebugAssets
+> Task :app:generateDebugGlobalSynthetics
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mapDebugSourceSetPaths
+> Task :app:checkDebugAarMetadata
+> Task :app:mergeLibDexDebug
+> Task :app:compileDebugNavigationResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:processDebugMainManifest
+> Task :app:mergeDebugResources
+> Task :app:processDebugManifest
+> Task :app:mergeDebugJniLibFolders
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:preDebugAndroidTestBuild SKIPPED
+> Task :app:generateDebugAndroidTestResources
+> Task :app:packageDebugAndroidTestResources
+> Task :app:processDebugAndroidTestNavigationResources
+> Task :app:parseDebugAndroidTestLocalResources
+> Task :app:mergeDebugNativeLibs
+> Task :app:javaPreCompileDebugAndroidTest
+> Task :app:generateDebugAndroidTestAssets UP-TO-DATE
+> Task :app:generateDebugAndroidTestRFile
+> Task :app:stripDebugDebugSymbols
+> Task :app:desugarDebugFileDependencies
+> Task :app:mergeDebugAndroidTestAssets
+> Task :app:processDebugManifestForPackage
+> Task :app:compressDebugAndroidTestAssets
+> Task :app:processDebugResources
+> Task :app:generateDebugAndroidTestGlobalSynthetics
+> Task :app:checkDebugAndroidTestDuplicateClasses
+> Task :app:desugarDebugAndroidTestFileDependencies
+> Task :app:mergeLibDexDebugAndroidTest
+> Task :app:checkDebugAndroidTestAarMetadata
+> Task :app:mapDebugAndroidTestSourceSetPaths
+> Task :app:compileDebugAndroidTestNavigationResources
+> Task :app:mergeDebugAndroidTestResources
+> Task :app:mergeDebugAndroidTestManifest
+> Task :app:processDebugAndroidTestManifest
+> Task :app:mergeDebugAndroidTestJniLibFolders
+> Task :app:mergeDebugAndroidTestNativeLibs NO-SOURCE
+> Task :app:stripDebugAndroidTestDebugSymbols NO-SOURCE
+> Task :app:validateSigningDebugAndroidTest
+> Task :app:writeDebugAndroidTestSigningConfigVersions
+> Task :app:preChecksBuild UP-TO-DATE
+> Task :app:mergeChecksJniLibFolders
+> Task :app:processDebugAndroidTestResources
+> Task :app:generateChecksResources
+> Task :app:mergeChecksArtProfile
+> Task :app:packageChecksResources
+> Task :app:processChecksNavigationResources
+> Task :app:mergeExtDexDebugAndroidTest
+> Task :app:mergeChecksNativeLibs
+> Task :app:mapChecksSourceSetPaths
+> Task :app:parseChecksLocalResources
+> Task :app:compileChecksNavigationResources
+> Task :app:javaPreCompileChecks
+> Task :app:checkChecksAarMetadata
+> Task :app:generateChecksRFile
+> Task :app:stripChecksDebugSymbols
+> Task :app:createChecksCompatibleScreenManifests
+> Task :app:extractDeepLinksChecks
+> Task :app:processChecksMainManifest
+> Task :app:processChecksManifest
+> Task :app:extractChecksNativeSymbolTables
+> Task :app:mergeChecksStartupProfile
+> Task :app:generateChecksAssets UP-TO-DATE
+> Task :app:processChecksManifestForPackage
+> Task :app:checkChecksDuplicateClasses
+> Task :app:mergeChecksNativeDebugMetadata
+> Task :app:mergeChecksResources
+> Task :app:mergeChecksAssets
+> Task :app:extractChecksVersionControlInfo
+> Task :app:processChecksResources
+> Task :app:collectChecksDependencies
+> Task :app:sdkChecksDependencyData
+> Task :app:validateSigningChecks
+> Task :app:writeChecksAppMetadata
+> Task :app:writeChecksSigningConfigVersions
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:extractProguardFiles
+> Task :app:javaPreCompileDebugUnitTest
+> Task :app:optimizeChecksResources
+> Task :app:compressChecksAssets
+> Task :app:desugarChecksFileDependencies
+> Task :app:mergeExtDexDebug
+> Task :app:mergeExtDexChecks
+> Task :app:compileChecksKotlin
+> Task :app:compileDebugKotlin
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:processDebugJavaRes
+> Task :app:mergeDebugJavaResource
+> Task :app:dexBuilderDebug
+> Task :app:compileChecksJavaWithJavac NO-SOURCE
+> Task :app:bundleDebugClassesToCompileJar
+> Task :app:mergeProjectDexDebug
+> Task :app:dexBuilderChecks
+> Task :app:mergeChecksGlobalSynthetics
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+> Task :app:processChecksJavaRes
+> Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:mergeChecksJavaResource
+> Task :app:generateDebugAndroidTestLintModel
+> Task :app:generateDebugLintReportModel
+> Task :app:generateDebugUnitTestLintModel
+> Task :app:compileDebugUnitTestKotlin
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+> Task :app:compileDebugAndroidTestKotlin
+> Task :app:mergeDexChecks
+> Task :app:testDebugUnitTest
+> Task :app:compileDebugAndroidTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugAndroidTestJavaRes
+> Task :app:mergeDebugAndroidTestJavaResource
+> Task :app:dexBuilderDebugAndroidTest
+> Task :app:mergeProjectDexDebugAndroidTest
+> Task :app:packageDebugAndroidTest
+> Task :app:createDebugAndroidTestApkListingFileRedirect
+> Task :app:assembleDebugAndroidTest
+> Task :app:compileChecksArtProfile
+> Task :app:packageChecks
+> Task :app:createChecksApkListingFileRedirect
+> Task :app:assembleChecks
+> Task :app:lintAnalyzeDebugAndroidTest
+> Task :app:lintAnalyzeDebugUnitTest
+> Task :app:lintAnalyzeDebug
+> Task :app:lintReportDebug
+> Task :app:lintDebug
+> Task :app:lint
+
+END VERBATIM artifacts/b3/build-tasks.txt
+
+BEGIN VERBATIM artifacts/b3/unit-test-summary.txt
+
+io.ensomi.android.audio.AudioPlayClockTest: tests=8, failures=0, errors=0, skipped=0
+io.ensomi.android.audio.Mp3LeadTest: tests=9, failures=0, errors=0, skipped=0
+io.ensomi.android.audio.PcmBuilderTest: tests=3, failures=0, errors=0, skipped=0
+io.ensomi.android.chart.ChartRequestRulesTest: tests=7, failures=0, errors=0, skipped=0
+io.ensomi.android.chart.ChartStoreTest: tests=5, failures=0, errors=0, skipped=0
+io.ensomi.android.chart.GeneratorChoicesTest: tests=2, failures=0, errors=0, skipped=0
+io.ensomi.android.diagnostics.CpuCoresTest: tests=4, failures=0, errors=0, skipped=0
+io.ensomi.android.diagnostics.DiagnosticsLogTest: tests=2, failures=0, errors=0, skipped=0
+io.ensomi.android.diagnostics.DiagnosticsReportTest: tests=3, failures=0, errors=0, skipped=0
+io.ensomi.android.diagnostics.VendorOsTest: tests=3, failures=0, errors=0, skipped=0
+io.ensomi.android.json.JsonTest: tests=4, failures=0, errors=0, skipped=0
+io.ensomi.android.library.LibraryFileTest: tests=4, failures=0, errors=0, skipped=0
+io.ensomi.android.model.ModelFilesInstallTest: tests=12, failures=0, errors=0, skipped=0
+io.ensomi.android.model.ModelInstallerTest: tests=12, failures=0, errors=0, skipped=0
+io.ensomi.android.model.NoticeTextTest: tests=2, failures=0, errors=0, skipped=0
+io.ensomi.android.play.PlayClockTest: tests=3, failures=0, errors=0, skipped=0
+io.ensomi.android.play.PlayfieldGeometryTest: tests=16, failures=0, errors=0, skipped=0
+io.ensomi.android.play.SampleChartsTest: tests=3, failures=0, errors=0, skipped=0
+io.ensomi.android.settings.CalibrationTapsTest: tests=8, failures=0, errors=0, skipped=0
+io.ensomi.android.settings.OutputSettingsTest: tests=5, failures=0, errors=0, skipped=0
+io.ensomi.android.settings.PlaySettingsTest: tests=6, failures=0, errors=0, skipped=0
+
+END VERBATIM artifacts/b3/unit-test-summary.txt
+
+APK SHA-256
+
+BEGIN VERBATIM artifacts/b3/apk-sha256.txt
+
+f9c9dbfc5b38aa68cdfcc9346b726c4568b6a56a017921ec1c04f0e07bb58afc  artifacts/b3/apk/app-checks.apk
+e796c3104f9f38e642f5b0de412a57abc9ab4e1821be2d131772d18fc14a0e70  artifacts/b3/apk/app-debug-androidTest.apk
+fd496fe5158788ce888d95e9c84dd95a485712fabf9437e8ba60a203cb6b5e45  artifacts/b3/apk/app-debug.apk
+
+END VERBATIM artifacts/b3/apk-sha256.txt
+
+KIT
+
+The first three direct-network attempts exited 35. The fourth used the Mac’s existing configured HTTP/HTTPS proxy and exited 0 without intervention or script changes. Completed files were reused and hash-checked by the unmodified script.
+
+BEGIN VERBATIM artifacts/b3/kit-console-attempt1.txt
+
+fetching BeatThis-LICENSE.txt (1113 bytes)
+fetching beatthis-hann-window.bin (4096 bytes)
+fetching beatthis-mel-filter.bin (262656 bytes)
+fetching beatthis.onnx (82098878 bytes)
+fetching r2_commit.onnx (8018082 bytes)
+curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to huggingface.co:443
+
+END VERBATIM artifacts/b3/kit-console-attempt1.txt
+
+BEGIN VERBATIM artifacts/b3/kit-console-attempt2.txt
+
+curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to huggingface.co:443
+
+END VERBATIM artifacts/b3/kit-console-attempt2.txt
+
+BEGIN VERBATIM artifacts/b3/kit-console-attempt3.txt
+
+curl: (35) LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to huggingface.co:443
+
+END VERBATIM artifacts/b3/kit-console-attempt3.txt
+
+BEGIN VERBATIM artifacts/b3/kit-console.txt
+
+fetching r2_commit.onnx (8018082 bytes)
+fetching r2_initial_buffer_0.bin (2048 bytes)
+fetching r2_initial_buffer_1.bin (4096 bytes)
+fetching r2_initial_buffer_2.bin (8192 bytes)
+fetching r2_initial_buffer_3.bin (16384 bytes)
+fetching r2_initial_buffer_4.bin (32768 bytes)
+fetching r2_initial_buffer_5.bin (65536 bytes)
+fetching r2_initial_buffer_6.bin (131072 bytes)
+fetching r2_initial_buffer_7.bin (262144 bytes)
+fetching r2_initial_last.bin (1024 bytes)
+fetching r2_initial_rows.bin (8 bytes)
+fetching r2_predict.onnx (682810 bytes)
+fetching r2_release.onnx (499987 bytes)
+fetching rows-hann-window.bin (3840 bytes)
+fetching rows-mel-filter.bin (246272 bytes)
+fetching rows_encoder.onnx (2278715 bytes)
+fetching rows_step.onnx (12412935 bytes)
+fetching runtime.json (4893196 bytes)
+fetching scopes-J_ex.bin (1056424 bytes)
+fetching scopes-S.bin (1056424 bytes)
+fetching scopes-band.bin (1056424 bytes)
+fetching scopes-chord_share.bin (1056424 bytes)
+fetching scopes-hand_share.bin (1056424 bytes)
+fetching scopes-jump_share.bin (1056424 bytes)
+fetching scopes-length_s.bin (1056424 bytes)
+fetching scopes-median_gap_ms.bin (1056424 bytes)
+model: 31 files, manifest 6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb
+kit ready in artifacts/b3/kit: zip it and hand it over
+
+END VERBATIM artifacts/b3/kit-console.txt
+
+BEGIN VERBATIM artifacts/b3/kit-verification.txt
+
+30 model payload files verified by size and SHA-256, plus pinned manifest; 9 click tracks; mosaic.mp3. APKs, collector, runbook and song are byte-identical to their sources.
+
+END VERBATIM artifacts/b3/kit-verification.txt
+
+RUN ensomi-36-16k
+
+BEGIN VERBATIM artifacts/b3/emulators/ensomi-36-16k/preflight.txt
+
+List of devices attached
+emulator-5554          device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 device:emu64a16k transport_id:42
+
+16384
+package:io.ensomi.android
+package:io.ensomi.android.test
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","source":"huggingface"}
+
+END VERBATIM artifacts/b3/emulators/ensomi-36-16k/preflight.txt
+
+Collector exit: 0
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36-16k-console.txt
+
+Results go to artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718
+
+== Device facts
+ro.product.model=sdk_gphone16k_arm64
+ro.product.device=emu64a16k
+ro.soc.model=ranchu
+ro.build.fingerprint=google/sdk_gphone16k_arm64/emu64a16k:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+ro.build.version.release=16
+ro.mi.os.version.incremental=
+ro.vendor.build.fingerprint=google/sdk_gphone16k_arm64/emu64a16k:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+
+== Installing
+Installing the app (debug build). Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+Installing its checks. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+
+== Chart model
+The pinned model is installed already.
+
+== Test data
+click tracks: 9, songs: song1-mosaic.mp3
+
+== Checks
+  runtime
+    passed
+  model
+    passed
+  decode
+    passed
+  generation-song1-mosaic.mp3-lowmemory-off
+    passed
+  generation-song1-mosaic.mp3-lowmemory-on
+    passed
+  determinism
+    passed
+  (the audio check plays quiet clicks for three minutes: leave the phone alone; its output is recorded)
+  audio
+    passed
+  frames-debug
+    passed
+Installing the checks build (not debuggable) for frame pacing. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  frames-checks-build
+    passed
+Installing the debug build again. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  (the lifecycle check presses Home, Recents and the power key by itself: leave the phone alone)
+  lifecycle
+    passed
+
+== Collecting
+34 results, 0 not ok
+
+Done. Send back this file: artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718.tar.gz
+
+END VERBATIM artifacts/b3/runs/ensomi-36-16k-console.txt
+
+Archive: artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718.tar.gz
+SHA-256: 7b08605021f0c604d68ce4358c2e9b2a2bbe3fa452280ce05aa181db6de152c3
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/model-install.txt
+
+path=present
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","source":"huggingface"}
+
+END VERBATIM artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/model-install.txt
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-audio.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-decode.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-determinism.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-frames-checks-build.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-frames-debug.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-generation-song1-mosaic.mp3-lowmemory-off.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-generation-song1-mosaic.mp3-lowmemory-on.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-lifecycle.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-model.txt: PASSED
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/instrument-runtime.txt: PASSED
+
+Results: 34 total; 0 not ok. Every line follows unchanged.
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/results/results.jsonl
+
+{"check":"runtime-load","debuggable":true,"loaded":true,"initMs":27.2,"noticeFiles":[],"packageCheck":"Model: ensomi-package.json: format null; this runtime reads ensomi-package/1","missingModelOpen":"refused: runtime.json: No such file or directory (os error 2)","error":null,"ok":true}
+{"check":"runtime-call-cost","debuggable":true,"frames":27200,"visibleMax":18,"advanceUs":34.0,"visibleObjectsUs":42.9,"noteGeometryUsEach":39.6,"feedbackUs":222.8,"scoreUs":34.2,"frameMeanMs":0.7,"frameMsP50":0.605,"frameMsP99":2.067,"frameMsMax":174.324,"underOneMsPerFrameAtP99":false,"ok":true}
+{"check":"uniffi-checksums","debuggable":true,"contractVersion":30,"checksums":52,"rawWithHighBits":0,"atLeast0x8000":26,"stableAcrossCalls":true,"low16Sha256":"3c85aeaba1cb97e5a66ffee0829e18b9071a1a8309a5fe1fddf64e0c19d90729","file":"uniffi-checksums.txt","ok":true}
+{"check":"model-install-from-files","debuggable":true,"seconds":0.47,"MBps":256.6,"notPinned":"NotPinned(sha256=4956057baaaff453adc91d45d566855aa28fe82b17a635ea31ecdc59842b05f5)","interrupted":"Unreadable(detail=The provider went away.)","mismatch":"Mismatch(path=runtime.json)","ok":true}
+{"check":"model-installed","debuggable":true,"installed":true}
+{"check":"model-integrity","debuggable":true,"model":"Ensomi R2 r2-1.0","revision":"r2-1.0.1","source":"huggingface","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","pinned":true,"files":30,"bytes":120377244,"filesNotMatching":[],"hashSeconds":0.05,"hashMBps":2669.2,"openMs":283.9,"starRange":[2.0,6.0],"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-48k.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288000,"durationMs":6000.0,"firstClickMs":1000.083,"expectedMs":1000.083,"errorMs":0.0,"stereoEqualsMono":true,"decodeMs":73.9,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-lame.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":156.5,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-noxing.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"None","leadFrames":529,"frames":266641,"durationMs":6046.28,"firstClickMs":1025.147,"expectedMs":1025.14,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":124.5,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-vbr.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":121.2,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.flac","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":56.5,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.m4a","mime":"audio/mp4a-latm","codec":"c2.android.aac.decoder","sampleRate":44100,"header":null,"leadFrames":-1024,"frames":265216,"durationMs":6013.97,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":166.5,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.ogg","mime":"audio/vorbis","codec":"c2.android.vorbis.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264640,"durationMs":6000.91,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":146.9,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.opus","mime":"audio/opus","codec":"c2.android.opus.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288648,"durationMs":6013.5,"firstClickMs":1000.104,"expectedMs":1000.083,"errorMs":0.021,"stereoEqualsMono":true,"decodeMs":160.4,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":42.7,"ok":true}
+{"check":"decode-clicks","debuggable":true,"files":9,"wrong":[],"toleranceMs":0.5,"ok":true}
+{"check":"generation","debuggable":true,"song":"song1-mosaic.mp3","synthetic":false,"songBytes":2518746,"songSha256":"e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4","lowMemory":false,"lowMemoryArg":"off","deviceChoosesLowMemory":true,"totalMemGiB":5.86,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1093,"holds":144,"modelOpenMs":323.9,"decodeSeconds":1.97,"prepareSeconds":3.19,"chartSeconds":0.79,"totalSeconds":5.95,"rssBeforeMB":338.0,"peakRssMB":1888.0,"peakRssByPhaseMB":{"start":338.0,"loading":352.6,"timing":1888.0,"rows":518.6},"minAvailMB":1680.9,"systemLowMemorySeen":false,"osuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+{"check":"generation","debuggable":true,"song":"song1-mosaic.mp3","synthetic":false,"songBytes":2518746,"songSha256":"e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4","lowMemory":true,"lowMemoryArg":"on","deviceChoosesLowMemory":true,"totalMemGiB":5.86,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1093,"holds":144,"modelOpenMs":323.0,"decodeSeconds":1.95,"prepareSeconds":3.5,"chartSeconds":0.77,"totalSeconds":6.22,"rssBeforeMB":338.7,"peakRssMB":1072.4,"peakRssByPhaseMB":{"loading":351.7,"timing":1072.4,"rows":510.8},"minAvailMB":2697.3,"systemLowMemorySeen":false,"osuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+{"check":"determinism","debuggable":true,"song":"song1-mosaic.mp3","synthetic":false,"songSha256":"e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4","modelRevision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","lowMemory":true,"stars":4.0,"seed":"20261029","firstOsuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","secondOsuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","notes":1093,"firstSeconds":6.19,"secondSeconds":6.34,"same":true,"ok":true}
+{"check":"audio-clock","debuggable":true,"seconds":180,"routes":["speaker/sdk_gphone16k_arm64","speaker/sdk_gphone16k_arm64"],"sampleRate":44100,"outputSampleRate":"48000","outputFramesPerBuffer":"1088","queuedMs":400,"underruns":0,"clockReads":298,"clockStepsBackHeld":58,"frames":10799,"frameRateHz":60.0,"songTimeStepsBack":0,"songTimeWorstBackMs":0.0,"presentationStepsBack":0,"presentationWorstBackMs":0.0,"presentationRepeats":1,"pictureStepSdMs":0.002,"pictureStepWorstMs":0.038,"pictureStepGood":true,"firstNewSongTimeAfterResumeMs":66.8,"timestamps":7914,"timestampPositionsBack":0,"timestampGapMsP50":22.66,"timestampGapMsMax":49.89,"timestampAheadOfReadMsP50":-7.91,"fitResidualSdMs":0.091,"fitMaxResidualMs":5.495,"driftPpm":[0.0,0.0],"smoothnessGood":true,"files":["audio-clock-frames.csv","audio-clock-timestamps.csv"],"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3695,"fps":59.9,"vsyncIntervalMs":16.667,"missedVsyncs":5,"missedPct":0.14,"lateFrames":5,"latePct":0.14,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":2.294,"workMsP99":5.0,"workMsMax":26.741,"runtimeMsP50":1.27,"runtimeMsP99":2.934,"runtimeMsMax":26.127,"drawMsP50":0.905,"drawMsP99":3.453,"drawMsMax":25.369,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.20ms runtime_max=2.81ms draw_avg=1.21ms draw_max=8.99ms work_p50=2.43ms work_p99=4.37ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.21ms runtime_max=2.68ms draw_avg=1.03ms draw_max=5.49ms work_p50=2.10ms work_p99=4.40ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.69ms runtime_max=3.24ms draw_avg=0.55ms draw_max=7.64ms work_p50=2.14ms work_p99=3.75ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3699,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.891,"workMsP99":3.708,"workMsMax":6.365,"runtimeMsP50":1.054,"runtimeMsP99":2.566,"runtimeMsMax":3.354,"drawMsP50":0.79,"drawMsP99":1.773,"drawMsMax":4.81,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.06ms runtime_max=2.53ms draw_avg=0.89ms draw_max=1.87ms work_p50=1.77ms work_p99=3.50ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.11ms runtime_max=2.36ms draw_avg=0.87ms draw_max=2.85ms work_p50=1.87ms work_p99=3.59ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.63ms runtime_max=2.72ms draw_avg=0.50ms draw_max=1.19ms work_p50=2.08ms work_p99=3.05ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3698,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.856,"workMsP99":3.661,"workMsMax":10.339,"runtimeMsP50":1.036,"runtimeMsP99":2.498,"runtimeMsMax":10.101,"drawMsP50":0.783,"drawMsP99":1.742,"drawMsMax":4.651,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.14ms runtime_max=2.38ms draw_avg=0.91ms draw_max=1.86ms work_p50=1.92ms work_p99=3.48ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.08ms runtime_max=2.37ms draw_avg=0.80ms draw_max=1.60ms work_p50=1.81ms work_p99=3.24ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.46ms runtime_max=2.33ms draw_avg=0.50ms draw_max=1.75ms work_p50=1.97ms work_p99=2.70ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3695,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.744,"workMsP99":3.545,"workMsMax":8.655,"runtimeMsP50":0.946,"runtimeMsP99":2.392,"runtimeMsMax":6.753,"drawMsP50":0.738,"drawMsP99":1.675,"drawMsMax":6.886,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.10ms runtime_max=2.71ms draw_avg=0.91ms draw_max=6.89ms work_p50=1.76ms work_p99=3.72ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.04ms runtime_max=2.27ms draw_avg=0.82ms draw_max=2.55ms work_p50=1.84ms work_p99=2.99ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.18ms runtime_max=2.20ms draw_avg=0.51ms draw_max=2.74ms work_p50=1.82ms work_p99=2.55ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3698,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.177,"workMsP99":2.527,"workMsMax":30.473,"runtimeMsP50":0.464,"runtimeMsP99":1.412,"runtimeMsMax":7.32,"drawMsP50":0.708,"drawMsP99":1.656,"drawMsMax":29.587,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.42ms runtime_max=1.27ms draw_avg=0.77ms draw_max=1.69ms work_p50=1.15ms work_p99=2.08ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.42ms runtime_max=2.48ms draw_avg=0.73ms draw_max=1.73ms work_p50=1.07ms work_p99=2.23ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.49ms runtime_max=1.15ms draw_avg=0.63ms draw_max=1.66ms work_p50=1.16ms work_p99=2.00ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-checks-build.csv","meetsTarget":true,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3699,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.055,"workMsP99":2.419,"workMsMax":6.395,"runtimeMsP50":0.372,"runtimeMsP99":1.353,"runtimeMsMax":4.113,"drawMsP50":0.664,"drawMsP99":1.605,"drawMsMax":4.608,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.42ms runtime_max=1.25ms draw_avg=0.72ms draw_max=1.38ms work_p50=1.17ms work_p99=2.00ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.36ms runtime_max=1.44ms draw_avg=0.65ms draw_max=1.40ms work_p50=0.98ms work_p99=1.96ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.47ms runtime_max=1.11ms draw_avg=0.59ms draw_max=1.18ms work_p50=1.07ms work_p99=1.63ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-checks-build.csv","meetsTarget":true,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3699,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.065,"workMsP99":2.332,"workMsMax":10.592,"runtimeMsP50":0.379,"runtimeMsP99":1.317,"runtimeMsMax":2.513,"drawMsP50":0.656,"drawMsP99":1.513,"drawMsMax":10.329,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.40ms runtime_max=1.53ms draw_avg=0.71ms draw_max=2.51ms work_p50=1.06ms work_p99=2.16ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.39ms runtime_max=1.82ms draw_avg=0.64ms draw_max=1.52ms work_p50=0.98ms work_p99=2.27ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.46ms runtime_max=1.17ms draw_avg=0.59ms draw_max=2.09ms work_p50=1.09ms work_p99=1.79ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-checks-build.csv","meetsTarget":true,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3698,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.114,"workMsP99":2.491,"workMsMax":10.157,"runtimeMsP50":0.42,"runtimeMsP99":1.361,"runtimeMsMax":2.599,"drawMsP50":0.681,"drawMsP99":1.645,"drawMsMax":9.932,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.55ms runtime_max=1.48ms draw_avg=0.89ms draw_max=2.02ms work_p50=1.42ms work_p99=2.36ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.42ms runtime_max=1.41ms draw_avg=0.73ms draw_max=4.01ms work_p50=1.13ms work_p99=2.33ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.61ms runtime_max=1.47ms draw_avg=0.77ms draw_max=2.07ms work_p50=1.31ms work_p99=2.69ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-checks-build.csv","meetsTarget":true,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"back","wasPlaying":true,"causes":["Back"],"panelShown":true,"seconds":2.1,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"home","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":4.0,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"recents","wasPlaying":true,"causes":["another window took focus"],"panelShown":true,"seconds":3.1,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"notification-shade","wasPlaying":true,"causes":["another window took focus"],"panelShown":true,"seconds":4.2,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"screen-off","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":3.7,"ok":true}
+{"check":"lifecycle","debuggable":true,"triggers":5,"failed":[],"ok":true}
+
+END VERBATIM artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718/results/results.jsonl
+
+RUN ensomi-36
+
+BEGIN VERBATIM artifacts/b3/emulators/ensomi-36/preflight.txt
+
+List of devices attached
+emulator-5554          device product:sdk_gphone64_arm64 model:sdk_gphone64_arm64 device:emu64a transport_id:43
+
+4096
+package:io.ensomi.android
+package:io.ensomi.android.test
+cat: no_backup/models/ensomi-r2/ensomi-install.json: No such file or directory
+disabled
+
+END VERBATIM artifacts/b3/emulators/ensomi-36/preflight.txt
+
+Collector exit: 0
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36-console.txt
+
+Results go to artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125
+
+== Device facts
+ro.product.model=sdk_gphone64_arm64
+ro.product.device=emu64a
+ro.soc.model=ranchu
+ro.build.fingerprint=google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+ro.build.version.release=16
+ro.mi.os.version.incremental=
+ro.vendor.build.fingerprint=google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+
+== Installing
+Installing the app (debug build). Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+Installing its checks. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+
+== Chart model
+Downloading the model from Hugging Face in the app (120 MB). Keep the phone unlocked.
+  still waiting (1 min)
+  still waiting (2 min)
+  still waiting (3 min)
+The download from Hugging Face did not finish (stopped).
+  {"source":"huggingface","result":"stopped","seconds":237.03,"pinnedRevision":"r2-1.0.1","failure":"The connection was lost."}
+Copying the kit's model files to the phone's Download/ensomi-r2 folder.
+
+Now on the phone, in Ensomi: tap 'Install from files', open the Download folder, open 'ensomi-r2',
+tap 'Use this folder' and then 'Allow'. Ensomi copies and checks the files; this waits until it is done.
+  still waiting (1 min)
+Installed from files.
+
+== Test data
+click tracks: 9, songs: song1-mosaic.mp3
+
+== Checks
+  runtime
+    passed
+  model
+    passed
+  decode
+    passed
+  generation-song1-mosaic.mp3-lowmemory-off
+    passed
+  generation-song1-mosaic.mp3-lowmemory-on
+    passed
+  determinism
+    passed
+  (the audio check plays quiet clicks for three minutes: leave the phone alone; its output is recorded)
+  audio
+    passed
+  frames-debug
+    passed
+Installing the checks build (not debuggable) for frame pacing. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  frames-checks-build
+    passed
+Installing the debug build again. Watch the phone: HyperOS and some other systems ask you to allow each install.
+  installed
+  (the lifecycle check presses Home, Recents and the power key by itself: leave the phone alone)
+  lifecycle
+    passed
+
+== Collecting
+34 results, 0 not ok
+
+Done. Send back this file: artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125.tar.gz
+
+END VERBATIM artifacts/b3/runs/ensomi-36-console.txt
+
+Archive: artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125.tar.gz
+SHA-256: 36055104a7c24075bfdac17442f13989482566440e0126f3e173a94507f41a1a
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/model-install.txt
+
+{"source":"huggingface","result":"started","seconds":0.0,"pinnedRevision":"r2-1.0.1"}
+{"source":"huggingface","result":"stopped","seconds":237.03,"pinnedRevision":"r2-1.0.1","failure":"The connection was lost."}
+{"source":"files","result":"started","seconds":0.0,"pinnedRevision":"r2-1.0.1"}
+{"source":"files","result":"installed","seconds":0.78,"pinnedRevision":"r2-1.0.1","revision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","files":30,"bytes":120377244}
+path=files
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","source":"files"}
+
+END VERBATIM artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/model-install.txt
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-audio.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-decode.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-determinism.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-frames-checks-build.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-frames-debug.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-generation-song1-mosaic.mp3-lowmemory-off.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-generation-song1-mosaic.mp3-lowmemory-on.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-lifecycle.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-model.txt: PASSED
+
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/instrument-runtime.txt: PASSED
+
+Results: 34 total; 0 not ok. Every line follows unchanged.
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/results/results.jsonl
+
+{"check":"runtime-load","debuggable":true,"loaded":true,"initMs":21.4,"noticeFiles":[],"packageCheck":"Model: ensomi-package.json: format null; this runtime reads ensomi-package/1","missingModelOpen":"refused: runtime.json: No such file or directory (os error 2)","error":null,"ok":true}
+{"check":"runtime-call-cost","debuggable":true,"frames":27200,"visibleMax":18,"advanceUs":36.0,"visibleObjectsUs":38.7,"noteGeometryUsEach":41.4,"feedbackUs":242.3,"scoreUs":36.4,"frameMeanMs":0.736,"frameMsP50":0.638,"frameMsP99":2.153,"frameMsMax":199.22,"underOneMsPerFrameAtP99":false,"ok":true}
+{"check":"uniffi-checksums","debuggable":true,"contractVersion":30,"checksums":52,"rawWithHighBits":0,"atLeast0x8000":26,"stableAcrossCalls":true,"low16Sha256":"3c85aeaba1cb97e5a66ffee0829e18b9071a1a8309a5fe1fddf64e0c19d90729","file":"uniffi-checksums.txt","ok":true}
+{"check":"model-install-from-files","debuggable":true,"seconds":0.4,"MBps":299.1,"notPinned":"NotPinned(sha256=4956057baaaff453adc91d45d566855aa28fe82b17a635ea31ecdc59842b05f5)","interrupted":"Unreadable(detail=The provider went away.)","mismatch":"Mismatch(path=runtime.json)","ok":true}
+{"check":"model-installed","debuggable":true,"installed":true}
+{"check":"model-integrity","debuggable":true,"model":"Ensomi R2 r2-1.0","revision":"r2-1.0.1","source":"files","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","pinned":true,"files":30,"bytes":120377244,"filesNotMatching":[],"hashSeconds":0.05,"hashMBps":2634.4,"openMs":322.2,"starRange":[2.0,6.0],"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-48k.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288000,"durationMs":6000.0,"firstClickMs":1000.083,"expectedMs":1000.083,"errorMs":0.0,"stereoEqualsMono":true,"decodeMs":82.2,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-lame.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":151.5,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-noxing.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"None","leadFrames":529,"frames":266641,"durationMs":6046.28,"firstClickMs":1025.147,"expectedMs":1025.14,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":126.6,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click-vbr.mp3","mime":"audio/mpeg","codec":"c2.android.mp3.decoder","sampleRate":44100,"header":"Lame(encoder=Lavc63.1., delay=576, padding=936)","leadFrames":-576,"frames":265536,"durationMs":6021.22,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":123.0,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.flac","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":56.2,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.m4a","mime":"audio/mp4a-latm","codec":"c2.android.aac.decoder","sampleRate":44100,"header":null,"leadFrames":-1024,"frames":265216,"durationMs":6013.97,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":169.4,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.ogg","mime":"audio/vorbis","codec":"c2.android.vorbis.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264640,"durationMs":6000.91,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":146.4,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.opus","mime":"audio/opus","codec":"c2.android.opus.decoder","sampleRate":48000,"header":null,"leadFrames":0,"frames":288648,"durationMs":6013.5,"firstClickMs":1000.104,"expectedMs":1000.083,"errorMs":0.021,"stereoEqualsMono":true,"decodeMs":163.6,"ok":true}
+{"check":"decode-click","debuggable":true,"file":"click.wav","mime":"audio/raw","codec":"c2.android.raw.decoder","sampleRate":44100,"header":null,"leadFrames":0,"frames":264600,"durationMs":6000.0,"firstClickMs":1000.091,"expectedMs":1000.083,"errorMs":0.007,"stereoEqualsMono":true,"decodeMs":43.5,"ok":true}
+{"check":"decode-clicks","debuggable":true,"files":9,"wrong":[],"toleranceMs":0.5,"ok":true}
+{"check":"generation","debuggable":true,"song":"song1-mosaic.mp3","synthetic":false,"songBytes":2518746,"songSha256":"e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4","lowMemory":false,"lowMemoryArg":"off","deviceChoosesLowMemory":true,"totalMemGiB":5.79,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1093,"holds":144,"modelOpenMs":362.9,"decodeSeconds":2.01,"prepareSeconds":3.25,"chartSeconds":0.84,"totalSeconds":6.09,"rssBeforeMB":328.2,"peakRssMB":1878.3,"peakRssByPhaseMB":{"start":328.5,"loading":341.7,"timing":1878.3,"rows":508.4,"export":387.9},"minAvailMB":2679.1,"systemLowMemorySeen":false,"osuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+{"check":"generation","debuggable":true,"song":"song1-mosaic.mp3","synthetic":false,"songBytes":2518746,"songSha256":"e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4","lowMemory":true,"lowMemoryArg":"on","deviceChoosesLowMemory":true,"totalMemGiB":5.79,"stars":4.0,"seed":"20261029","result":"Made","failure":null,"notes":1093,"holds":144,"modelOpenMs":370.4,"decodeSeconds":1.98,"prepareSeconds":4.62,"chartSeconds":0.84,"totalSeconds":7.44,"rssBeforeMB":327.4,"peakRssMB":1060.2,"peakRssByPhaseMB":{"loading":340.7,"timing":1060.2,"rows":506.5},"minAvailMB":3729.8,"systemLowMemorySeen":false,"osuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"ok":true}
+{"check":"determinism","debuggable":true,"song":"song1-mosaic.mp3","synthetic":false,"songSha256":"e8400c1ec54dc31d39e41d7d9a4b7d608809287f89e8ac2cf77284b1e95f81d4","modelRevision":"r2-1.0.1","manifestSha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","lowMemory":true,"stars":4.0,"seed":"20261029","firstOsuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","secondOsuSha256":"e79435e98a105b209e0f3ea970dbe4d9c9614493a5dfd0e6be5dce3ade571cc1","notes":1093,"firstSeconds":7.43,"secondSeconds":7.55,"same":true,"ok":true}
+{"check":"audio-clock","debuggable":true,"seconds":180,"routes":["speaker/sdk_gphone64_arm64","speaker/sdk_gphone64_arm64"],"sampleRate":44100,"outputSampleRate":"48000","outputFramesPerBuffer":"1088","queuedMs":400,"underruns":0,"clockReads":299,"clockStepsBackHeld":59,"frames":10799,"frameRateHz":60.0,"songTimeStepsBack":0,"songTimeWorstBackMs":0.0,"presentationStepsBack":0,"presentationWorstBackMs":0.0,"presentationRepeats":1,"pictureStepSdMs":0.002,"pictureStepWorstMs":0.044,"pictureStepGood":true,"firstNewSongTimeAfterResumeMs":85.3,"timestamps":7919,"timestampPositionsBack":0,"timestampGapMsP50":22.67,"timestampGapMsMax":48.74,"timestampAheadOfReadMsP50":-7.76,"fitResidualSdMs":0.086,"fitMaxResidualMs":5.217,"driftPpm":[0.0,0.0],"smoothnessGood":true,"files":["audio-clock-frames.csv","audio-clock-timestamps.csv"],"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3703,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":2,"missedPct":0.05,"lateFrames":2,"latePct":0.05,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.831,"workMsP99":4.011,"workMsMax":24.003,"runtimeMsP50":0.997,"runtimeMsP99":2.609,"runtimeMsMax":23.318,"drawMsP50":0.785,"drawMsP99":1.761,"drawMsMax":13.973,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.04ms runtime_max=2.61ms draw_avg=0.95ms draw_max=1.82ms work_p50=1.93ms work_p99=3.19ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.05ms runtime_max=2.55ms draw_avg=0.79ms draw_max=1.61ms work_p50=1.77ms work_p99=3.36ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.95ms runtime_max=2.58ms draw_avg=0.89ms draw_max=2.99ms work_p50=1.72ms work_p99=3.87ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3703,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.789,"workMsP99":7.299,"workMsMax":14.0,"runtimeMsP50":0.928,"runtimeMsP99":2.264,"runtimeMsMax":9.736,"drawMsP50":0.748,"drawMsP99":6.253,"drawMsMax":13.218,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.01ms runtime_max=2.63ms draw_avg=1.15ms draw_max=5.81ms work_p50=1.71ms work_p99=6.86ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.01ms runtime_max=2.91ms draw_avg=1.29ms draw_max=5.99ms work_p50=1.90ms work_p99=6.93ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.56ms runtime_max=2.40ms draw_avg=0.53ms draw_max=5.69ms work_p50=2.11ms work_p99=2.72ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3699,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.837,"workMsP99":3.735,"workMsMax":5.983,"runtimeMsP50":0.999,"runtimeMsP99":2.692,"runtimeMsMax":4.031,"drawMsP50":0.747,"drawMsP99":1.568,"drawMsMax":3.513,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.08ms runtime_max=2.74ms draw_avg=0.87ms draw_max=1.65ms work_p50=1.83ms work_p99=3.67ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.08ms runtime_max=2.42ms draw_avg=0.84ms draw_max=2.05ms work_p50=1.87ms work_p99=3.33ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.52ms runtime_max=3.42ms draw_avg=0.46ms draw_max=1.72ms work_p50=2.05ms work_p99=3.83ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":true,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3696,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.967,"workMsP99":4.069,"workMsMax":6.599,"runtimeMsP50":1.076,"runtimeMsP99":3.089,"runtimeMsMax":4.887,"drawMsP50":0.798,"drawMsP99":1.723,"drawMsMax":4.706,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.29ms runtime_max=2.81ms draw_avg=1.02ms draw_max=4.71ms work_p50=2.20ms work_p99=3.87ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=1.15ms runtime_max=2.94ms draw_avg=0.86ms draw_max=2.03ms work_p50=1.90ms work_p99=4.24ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=2.26ms runtime_max=4.89ms draw_avg=0.57ms draw_max=2.13ms work_p50=2.76ms work_p99=4.42ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-debug.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing-flat","lean":"landscape 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3699,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.904,"workMsP99":6.412,"workMsMax":21.626,"runtimeMsP50":0.584,"runtimeMsP99":1.926,"runtimeMsMax":3.459,"drawMsP50":1.181,"drawMsP99":5.886,"drawMsMax":19.071,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.71ms runtime_max=2.57ms draw_avg=1.70ms draw_max=6.07ms work_p50=1.92ms work_p99=6.26ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.64ms runtime_max=1.59ms draw_avg=1.63ms draw_max=5.55ms work_p50=2.05ms work_p99=5.86ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.68ms runtime_max=1.54ms draw_avg=1.72ms draw_max=5.89ms work_p50=2.46ms work_p99=4.76ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-flat-checks-build.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing","lean":"landscape 40°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3707,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":1,"missedPct":0.03,"lateFrames":1,"latePct":0.03,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.648,"workMsP99":3.143,"workMsMax":22.393,"runtimeMsP50":0.636,"runtimeMsP99":1.795,"runtimeMsMax":2.835,"drawMsP50":0.928,"drawMsP99":1.999,"drawMsMax":22.213,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.68ms runtime_max=1.90ms draw_avg=0.99ms draw_max=1.74ms work_p50=1.70ms work_p99=2.53ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.66ms runtime_max=2.36ms draw_avg=0.88ms draw_max=1.95ms work_p50=1.57ms work_p99=2.82ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.77ms runtime_max=2.23ms draw_avg=0.91ms draw_max=2.33ms work_p50=1.73ms work_p99=3.11ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-checks-build.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing-lean-max","lean":"landscape 55°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3700,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.944,"workMsP99":5.717,"workMsMax":10.285,"runtimeMsP50":0.651,"runtimeMsP99":1.796,"runtimeMsMax":3.536,"drawMsP50":1.185,"drawMsP99":5.12,"drawMsMax":9.148,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.65ms runtime_max=1.97ms draw_avg=1.63ms draw_max=6.49ms work_p50=1.93ms work_p99=6.06ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.69ms runtime_max=2.07ms draw_avg=1.65ms draw_max=5.71ms work_p50=2.15ms work_p99=5.44ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.71ms runtime_max=1.57ms draw_avg=1.80ms draw_max=5.69ms work_p50=2.49ms work_p99=3.99ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-lean-max-checks-build.csv","meetsTarget":false,"ok":true}
+{"check":"frame-pacing","debuggable":false,"scenario":"pacing-portrait","lean":"portrait 0°","seconds":60,"displayRefreshHz":[60.0],"displayModes":["1080x2424@60.0"],"asked":"Frame rate: asked for 60.0 Hz (modes 60.0, only if seamless); the display runs at 60.0 Hz","pauses":[],"frames":3700,"fps":60.0,"vsyncIntervalMs":16.667,"missedVsyncs":0,"missedPct":0.0,"lateFrames":0,"latePct":0.0,"presentationStepsBack":0,"presentationRepeats":0,"workMsP50":1.968,"workMsP99":5.591,"workMsMax":7.969,"runtimeMsP50":0.642,"runtimeMsP99":1.763,"runtimeMsMax":3.126,"drawMsP50":1.219,"drawMsP99":4.957,"drawMsMax":7.181,"renderThreadLog":["fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.67ms runtime_max=1.89ms draw_avg=1.69ms draw_max=5.84ms work_p50=2.11ms work_p99=5.52ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.71ms runtime_max=2.57ms draw_avg=1.76ms draw_max=6.43ms work_p50=2.10ms work_p99=5.81ms","fps=60.0 frames=121 refresh=60.0Hz missed=0 late=0 runtime_avg=0.76ms runtime_max=2.61ms draw_avg=1.88ms draw_max=6.36ms work_p50=2.61ms work_p99=4.15ms"],"thermalBefore":{"thermalStatus":0,"thermalHeadroom10s":null,"powerSave":false},"thermalAfter":{"thermalStatus":0,"thermalHeadroom10s":0.9033333659172058,"powerSave":false},"file":"frames-pacing-portrait-checks-build.csv","meetsTarget":false,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"back","wasPlaying":true,"causes":["Back"],"panelShown":true,"seconds":2.1,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"home","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":4.0,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"recents","wasPlaying":true,"causes":["another window took focus"],"panelShown":true,"seconds":3.1,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"notification-shade","wasPlaying":true,"causes":["another window took focus"],"panelShown":true,"seconds":4.2,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"screen-off","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":3.7,"ok":true}
+{"check":"lifecycle","debuggable":true,"triggers":5,"failed":[],"ok":true}
+
+END VERBATIM artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125/results/results.jsonl
+
+RUN ensomi-36-manual
+
+Collector exit: 0
+
+BEGIN VERBATIM artifacts/b3/runs/ensomi-36-manual-console.txt
+
+Results go to artifacts/b3/runs/ensomi-36-manual/phone-checks-sdk_gphone64_arm64-20261030-011008
+
+== Device facts
+ro.product.model=sdk_gphone64_arm64
+ro.product.device=emu64a
+ro.soc.model=ranchu
+ro.build.fingerprint=google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+ro.build.version.release=16
+ro.mi.os.version.incremental=
+ro.vendor.build.fingerprint=google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+
+== Checks
+
+== The app's logs and its last game
+  collected the logs, the last game's clock, frame and touch logs, settings.json and library.json
+
+== Collecting
+  no result files on the phone
+no results.jsonl was pulled
+
+Done. Send back this file: artifacts/b3/runs/ensomi-36-manual/phone-checks-sdk_gphone64_arm64-20261030-011008.tar.gz
+
+END VERBATIM artifacts/b3/runs/ensomi-36-manual-console.txt
+
+Archive: artifacts/b3/runs/ensomi-36-manual/phone-checks-sdk_gphone64_arm64-20261030-011008.tar.gz
+SHA-256: 8d6c200c9a0f0702a69dba8bc74ebbf68d7a53f36f6750983d608b076180f190
+
+model-install.txt: absent (manual group does not inspect/install the model).
+
+instrument-*.txt: none (manual collection only).
+
+results/results.jsonl: absent. The manual group clears the suite result directory and does not produce JSON results; its console reports no result files.
+
+Archive manual/ contents (exact archived paths and byte sizes):
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/._settings.json: 163 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/settings.json: 52 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/._touch-log.csv: 163 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/touch-log.csv: 40 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/._frame-log.csv: 163 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/frame-log.csv: 190732 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/._library.json: 163 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/library.json: 51 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/._clock-log.csv: 163 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/clock-log.csv: 52 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/._logcat.txt: 163 bytes
+
+phone-checks-sdk_gphone64_arm64-20261030-011008/manual/logcat.txt: 5306 bytes
+
+clock-log.csv: 1 lines; first line: cat: files/clock-log.csv: No such file or directory
+
+frame-log.csv: 2675 lines; first line: vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos
+
+library.json: 1 lines; first line: cat: files/library.json: No such file or directory
+
+logcat.txt: 32 lines; first line: --------- beginning of main
+
+settings.json: 1 lines; first line: cat: files/settings.json: No such file or directory
+
+touch-log.csv: 1 lines; first line: action,eventNanos,handledNanos,pointers
+
+
+
+BEGIN VERBATIM artifacts/b3/emulators/ensomi-36/postflight-model.txt
+
+{"revision":"r2-1.0.1","manifest_sha256":"6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb","source":"files"}
+
+END VERBATIM artifacts/b3/emulators/ensomi-36/postflight-model.txt
+
+SCREENSHOTS
+
+Capture command exit: 0
+
+BEGIN VERBATIM artifacts/b3/screens-console.txt
+
+Night mode: no
+light-first-run.png
+light-downloading.png
+light-download-stopped.png
+light-no-space.png
+light-download-failed.png
+light-installing-files.png
+light-install-files-refused.png
+light-library.png
+light-library-missing.png
+light-make-chart.png
+light-make-chart-sections.png
+light-make-chart-sections-scrolled.png
+light-make-chart-section-problem.png
+light-make-chart-no-model.png
+light-make-chart-making.png
+light-make-chart-made.png
+light-make-chart-made-scrolled.png
+light-make-chart-stopped.png
+light-make-chart-failed.png
+light-results.png
+light-results-scrolled.png
+light-settings.png
+light-settings-2.png
+light-settings-3.png
+light-settings-4.png
+light-settings-playfield.png
+light-settings-playfield-portrait.png
+light-settings-downloading.png
+light-settings-downloading-model.png
+light-settings-update-pending.png
+light-settings-update-pending-model.png
+light-notices.png
+light-notice-text.png
+light-calibration-sound.png
+light-calibration-sound-scrolled.png
+light-calibration-picture.png
+light-diagnostics.png
+light-library-dynamic.png
+light-make-chart-made-dynamic.png
+Night mode: yes
+dark-first-run.png
+dark-downloading.png
+dark-download-stopped.png
+dark-no-space.png
+dark-download-failed.png
+dark-installing-files.png
+dark-install-files-refused.png
+dark-library.png
+dark-library-missing.png
+dark-make-chart.png
+dark-make-chart-sections.png
+dark-make-chart-sections-scrolled.png
+dark-make-chart-section-problem.png
+dark-make-chart-no-model.png
+dark-make-chart-making.png
+dark-make-chart-made.png
+dark-make-chart-made-scrolled.png
+dark-make-chart-stopped.png
+dark-make-chart-failed.png
+dark-results.png
+dark-results-scrolled.png
+dark-settings.png
+dark-settings-2.png
+dark-settings-3.png
+dark-settings-4.png
+dark-settings-playfield.png
+dark-settings-playfield-portrait.png
+dark-settings-downloading.png
+dark-settings-downloading-model.png
+dark-settings-update-pending.png
+dark-settings-update-pending-model.png
+dark-notices.png
+dark-notice-text.png
+dark-calibration-sound.png
+dark-calibration-sound-scrolled.png
+dark-calibration-picture.png
+dark-diagnostics.png
+dark-library-dynamic.png
+dark-make-chart-made-dynamic.png
+Night mode: no
+Deleted 1 rows
+Night mode: no
+
+END VERBATIM artifacts/b3/screens-console.txt
+
+artifacts/b3/screens/light-first-run.png (SHA-256 093333669ed0647382fd4bb9f26edca63e5984b091f6a594e28c1012823e6039)
+
+artifacts/b3/screens/dark-first-run.png (SHA-256 14d36ef2fcd52b39744885e9acd3e2fb035f6e42340fbb5547bc41af79eb1c41)
+
+artifacts/b3/screens/light-download-failed.png (SHA-256 2621fd71e179cf3935da770827dccd8063ac62c9520d7ca2d6496cc4c8002d0d)
+
+artifacts/b3/screens/dark-download-failed.png (SHA-256 e6016e601a79a830196bfe3b7517fe5ba5fe297e283c3f6a0f23c7bcfb2ba6e2)
+
+artifacts/b3/screens/light-installing-files.png (SHA-256 4384301cd647f10166461d21fa3da6e03c8cbda7d3ca0624962fda3f351efe80)
+
+artifacts/b3/screens/dark-installing-files.png (SHA-256 7ac96ab7ab71a17fb2670d4c2962b44bc35e52b25a2bc3193663603c2990dbe2)
+
+artifacts/b3/screens/light-install-files-refused.png (SHA-256 d8214ddffa3f925a8dbdbfd2f4aa2c866c3f7d54b9abca8d830dad201d0fd484)
+
+artifacts/b3/screens/dark-install-files-refused.png (SHA-256 6e7f1b3dbc2aa3aeefe59514f2511c5dace5d4a6e241b2edc98188b2a20b8022)
+
+
+All screen captures: 78 PNG files; hashes in artifacts/b3/screenshots-sha256.txt.
+
+The screens group captures prototype scenarios. Separate real failed-download and file-picker setup evidence is under artifacts/b3/model-fallback/. Physical phone timing, touch, haptics and the runbook’s manual checklist were not evaluated.
+
+ADDITIONAL OBSERVATIONS
+
+BEGIN VERBATIM artifacts/b3/archive-verification-initial-error.txt
+
+The first Python tarfile verification helper attempted to compare every archive member against a same-named host file, including macOS-generated AppleDouble metadata. Command body: content=tf.extractfile(m).read(); assert content==(p.parent/m.name).read_bytes(),m.name
+Output:
+FileNotFoundError: [Errno 2] No such file or directory: 'artifacts/b3/runs/ensomi-36-16k/._phone-checks-sdk_gphone16k_arm64-20261030-003718'
+The helper was corrected to exclude ._ metadata entries; all collected payloads then matched. This was a report-verification helper error, not a collector or archive failure.
+
+END VERBATIM artifacts/b3/archive-verification-initial-error.txt
+
+BEGIN VERBATIM artifacts/b3/archive-verification.txt
+
+artifacts/b3/runs/ensomi-36-16k/phone-checks-sdk_gphone16k_arm64-20261030-003718.tar.gz: 47 collected files verified byte-for-byte; 49 macOS AppleDouble metadata entries excluded.
+artifacts/b3/runs/ensomi-36/phone-checks-sdk_gphone64_arm64-20261030-005125.tar.gz: 47 collected files verified byte-for-byte; 49 macOS AppleDouble metadata entries excluded.
+artifacts/b3/runs/ensomi-36-manual/phone-checks-sdk_gphone64_arm64-20261030-011008.tar.gz: 18 collected files verified byte-for-byte; 20 macOS AppleDouble metadata entries excluded.
+
+END VERBATIM artifacts/b3/archive-verification.txt
+
+Emulator diagnostics from artifacts/b3/emulators/ensomi-36-16k/emulator.log:
+
+WARNING      | API level '36' requires GLES 3.1, please consider using 'software' rendering mode or GuestAngle for better compatibility and stability. Hardware rendering for OpenGL is deprecated on macOS.
+WARNING      | The emulator now requires a signed jwt token for gRPC access! Use the -grpc flag if you really want an open unprotected grpc port
+WARNING      | Netsim Wifi dns:///localhost:52294 is gone due to Stream removed (CANCELLED)
+
+Emulator diagnostics from artifacts/b3/emulators/ensomi-36/emulator.log:
+
+WARNING      | API level '36' requires GLES 3.1, please consider using 'software' rendering mode or GuestAngle for better compatibility and stability. Hardware rendering for OpenGL is deprecated on macOS.
+WARNING      | The emulator now requires a signed jwt token for gRPC access! Use the -grpc flag if you really want an open unprotected grpc port
+ERROR        | Failed to find ColorBuffer: 867
+ERROR        | Failed to bind to texture: invalid color buffer.
+WARNING      | Netsim Wifi dns:///localhost:53454 is gone due to Stream removed (CANCELLED)
+
+The GLES warning was left as-is because the requested launch explicitly uses -gpu host. The gRPC JWT message is an emulator access notice.
+
+SHUTDOWN
+
+BEGIN VERBATIM artifacts/b3/emulators/ensomi-36-16k/shutdown.txt
+
+OK: killing emulator, bye bye
+OK
+
+END VERBATIM artifacts/b3/emulators/ensomi-36-16k/shutdown.txt
+
+BEGIN VERBATIM artifacts/b3/emulators/ensomi-36/shutdown.txt
+
+OK: killing emulator, bye bye
+OK
+
+END VERBATIM artifacts/b3/emulators/ensomi-36/shutdown.txt
+
+Artifact inventory with SHA-256: artifacts/b3/artifact-sha256.txt. Only the report and hash manifests are committed; binaries and full raw evidence remain in this worktree.
