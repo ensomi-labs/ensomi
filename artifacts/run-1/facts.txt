@@ -1,0 +1,9 @@
+Connection precheck: adb devices -l
+Exit code: 0
+Raw stdout follows:
+List of devices attached
+
+End raw stdout.
+No devices were listed. Stopped at step 1 as instructed.
+Requested getprop and shell facts were not collected; no raw property values are available.
+FACTS-DONE
