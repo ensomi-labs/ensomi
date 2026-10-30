@@ -5,9 +5,11 @@ phone must make") need real phones: the emulator has one 60 Hz display, host aud
 for a teammate with an Android phone and a computer. One script installs the app, makes sure the chart model is there,
 runs the automated checks and packs their results into one file to send back; a checklist covers what needs a person.
 
-The checks work on any arm64 phone with Android 13 or later. The first two phones are the Snapdragon 8 Gen 3 HyperOS
-phone, a Redmi K80 (`24117RK2CC`, `zorn`, HyperOS `OS3.0.307.0.WOKCNXM`, 120 Hz, held by Swd146296), and a
-Dimensity 9400+ phone. Where the plan or gameplay.md say "the Xiaomi" or "the HyperOS phone", they mean the Redmi K80.
+The checks work on any arm64 phone or tablet with Android 13 or later; "phone" below covers a tablet too. The first two
+devices are the Snapdragon 8 Gen 3 HyperOS phone, a Redmi K80 (`24117RK2CC`, `zorn`, HyperOS `OS3.0.307.0.WOKCNXM`,
+120 Hz, held by Swd146296), and a Redmi K Pad tablet (`25079RPDCC`, `turner`, HyperOS `OS3.0.310.0.WAOCNXM`,
+Dimensity 9400+). Where the plan or gameplay.md say "the Xiaomi" or "the HyperOS phone", they mean the Redmi K80; where
+they say "the Dimensity 9400+", the Redmi K Pad.
 
 ## What you get
 
@@ -31,8 +33,9 @@ On the phone:
 1. **Developer options**: Settings › About phone, tap the OS version (on HyperOS "OS version") seven times.
 2. In Developer options (on HyperOS: Settings › Additional settings › Developer options) turn on:
    - **USB debugging**;
-   - **Install via USB** (HyperOS and MIUI only: it asks for a Xiaomi account and may need a SIM card; without it
-     every install fails with `INSTALL_FAILED_USER_RESTRICTED`);
+   - **Install via USB** (HyperOS and MIUI only: it asks for a Xiaomi account, and a phone may need a SIM card; the
+     Redmi K Pad, with no SIM slot, took both this toggle and the next. Without it every install fails with
+     `INSTALL_FAILED_USER_RESTRICTED`);
    - **USB debugging (Security settings)** (HyperOS and MIUI only: lets adb tap and press keys, which the lifecycle
      check does).
 3. Connect the USB cable, choose "File transfer" if asked, and allow the computer's USB debugging key ("Always allow").
@@ -43,7 +46,14 @@ On the phone:
 
 **The install prompt.** HyperOS (and some other systems) show their own dialog for every `adb install`, sometimes with a
 countdown; tap **Install** each time. The script installs up to four times (the app, its checks, the checks build, the
-app again). This is also why Android Studio's or Gradle's `connectedDebugAndroidTest` does not work on these phones: the
+app again); it wakes the screen and tells you to look at the phone before each try. An unanswered prompt closed itself
+after about 12 seconds in the one case seen, and adb then reported `Install canceled by user`. The script asks again,
+up to three times for each install. If the app or its checks still do not install, the run stops. A prompt missed in
+the `frames` group skips that pass and does not stop the run: `lifecycle` and the archive still follow, and the last
+lines say what was skipped. If the debug build could not go back on after the checks build, the checks build stays
+installed; put the debug build back (`adb install -r -t app-debug.apk`) before the checklist.
+
+This is also why Android Studio's or Gradle's `connectedDebugAndroidTest` does not work on these phones: the
 dialog goes unanswered, the install fails with `INSTALL_FAILED_USER_RESTRICTED`, and Gradle still prints
 `BUILD SUCCESSFUL`. The script installs with `adb install` and runs the checks with `adb shell am instrument`.
 
@@ -155,9 +165,16 @@ and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is pers
 
 - `INSTALL_FAILED_USER_RESTRICTED`: Install via USB is off, or the install prompt was refused or timed out. Turn it on,
   run again, tap Install.
+- `Install canceled by user`, after that code: the install prompt closed unanswered, perhaps unseen. Watch the screen
+  when the script says to look at the phone, and tap Install. On the K Pad with Install via USB on,
+  `adb shell getprop persist.security.adbinstall` reads `1`.
 - `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: an Ensomi signed with another key is installed. `adb uninstall
   io.ensomi.android` (this removes its model too) and run again.
 - `unauthorized` in `adb devices`: unplug, replug, accept the prompt on the phone.
+- The phone drops off USB (`no devices/emulators found`, or the script says it is waiting for the phone): use another
+  data cable, or a port with no hub. `transport_id` rising in `adb devices -l` means it keeps reconnecting. The script
+  waits for the phone before each check and before collecting, then goes on. A check cut off by a drop is reported as
+  `connection lost`, not as failed: run its group again with `-n -g`.
 - The lifecycle check fails with no pause panel after `screen-off`: the phone has a screen lock; set it to None for
   the run.
 - `Install from files` says the folder has no `ensomi-package.json`: pick the `ensomi-r2` folder itself, not Download.

@@ -87,6 +87,8 @@ mkdir -p "$OUT" || die "cannot write to $OUT_PARENT"
 LOG=$OUT/script.log
 exec 3>&1
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$LOG"; }
+# say, and also into the archive's log: whoever reads the archive never sees the console.
+note() { say "$*"; log "$*"; }
 say "Results go to $OUT"
 log "kit=$KIT groups=$WANT label=$LABEL install=$INSTALL app=$APP test=$TEST checks=$CHECKS_APK"
 
@@ -122,28 +124,46 @@ ash dumpsys power | grep -i -E 'battery ?saver|low ?power|mSettingBatterySaver' 
 ash dumpsys audio >"$OUT/audio.txt"
 grep -E 'model=|device=|soc.model|fingerprint=|version.release|mi.os.version.incremental' "$OUT/device.txt"
 
-install_apk() { # file, what
-  say "Installing $2. Watch the phone: HyperOS and some other systems ask you to allow each install."
-  result=$(adb install -r -t "$1" 2>&1 | tr -d '\r')
-  printf '%s\n' "$result" >>"$LOG"
-  case $result in
-    *Success*) say "  installed" ;;
-    *INSTALL_FAILED_USER_RESTRICTED*)
-      die "the phone refused the install. On HyperOS turn on Settings > Additional settings > Developer options > 'Install via USB' (it needs a Xiaomi account and a SIM), then run this again and tap Install on the phone's prompt." ;;
-    *INSTALL_FAILED_UPDATE_INCOMPATIBLE*)
-      die "another build of Ensomi with a different signature is installed. Uninstall it (adb uninstall $PKG; this removes its model) and run this again." ;;
-    *) die "adb install $1 failed: $result" ;;
-  esac
+# The USB link can drop for a few seconds, and adb then fails every command: wait for the phone rather than fail too.
+wait_device() {
+  [ "$(adb get-state 2>/dev/null | tr -d '\r')" = device ] && return 0
+  note "  the phone is not connected: waiting for it to come back"
+  adb wait-for-device
+  note "  the phone is back"
 }
 
+# On failure leaves the reason in INSTALL_ERROR and returns non-zero: the caller decides whether that stops the run.
+install_apk() { # file, what
+  for try in 1 2 3; do
+    wait_device
+    # HyperOS's prompt closes itself unanswered, so it has to come up on a lit screen.
+    adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1
+    say "Installing $2. Look at the phone now: HyperOS and some other systems ask you to allow each install."
+    result=$(adb install -r -t "$1" 2>&1 | tr -d '\r')
+    printf '%s\n' "$result" >>"$LOG"
+    case $result in
+      *Success*) say "  installed"; return 0 ;;
+      *INSTALL_FAILED_USER_RESTRICTED*)
+        INSTALL_ERROR="the phone refused the install three times: its prompt went unanswered, or 'Install via USB' is off. On HyperOS that toggle is in Settings > Additional settings > Developer options (it asks for a Xiaomi account; a phone may also need a SIM). Next time, watch for the prompt and tap Install."
+        [ "$try" = 3 ] || note "  the install prompt went unanswered; it closes itself after a few seconds. Asking again ($((try + 1)) of 3)." ;;
+      *INSTALL_FAILED_UPDATE_INCOMPATIBLE*)
+        INSTALL_ERROR="another build of Ensomi with a different signature is installed. Uninstall it (adb uninstall $PKG; this removes its model) and run this again."
+        return 1 ;;
+      *) INSTALL_ERROR="adb install $1 failed: $result"; return 1 ;;
+    esac
+  done
+  return 1
+}
+
+# Ahead of the installs, so the screen stays on for their prompts.
+adb shell svc power stayon usb >/dev/null 2>&1
 if [ "$INSTALL" = yes ]; then
   step "Installing"
   [ -n "$APP" ] || die "app-debug.apk is not in $KIT"
   [ -n "$TEST" ] || die "app-debug-androidTest.apk is not in $KIT"
-  install_apk "$APP" "the app (debug build)"
-  install_apk "$TEST" "its checks"
+  install_apk "$APP" "the app (debug build)" || die "$INSTALL_ERROR"
+  install_apk "$TEST" "its checks" || die "$INSTALL_ERROR"
 fi
-adb shell svc power stayon usb >/dev/null 2>&1
 # Room for a whole check's log (and a manual game's) in logcat's buffer.
 adb logcat -G 16M >/dev/null 2>&1
 adb shell pm list instrumentation | tr -d '\r' | grep -q "$PKG.test" || die "the checks are not installed (pm list instrumentation)"
@@ -240,14 +260,22 @@ SUITE=no
 for group in runtime model decode generation determinism audio frames lifecycle; do wanted $group && SUITE=yes; done
 [ "$SUITE" = yes ] && ash rm -rf "$RESULTS" >/dev/null
 FAILED=
+LOST=
+# am instrument ends with INSTRUMENTATION_CODE or says why it could not run. Output with neither stopped at the
+# connection: adb's own error, or nothing more at all.
+connection_lost() { ! grep -q -E 'INSTRUMENTATION_(CODE:|FAILED|ABORTED)|Exception' "$1"; }
 run_check() { # name, class, then am instrument -e pairs
   name=$1; class=$2; shift 2
+  wait_device
   say "  $name"
   adb logcat -c
   adb shell am instrument -w -r -e class "$CHECKS.$class" "$@" $RUNNER >"$OUT/instrument-$name.txt" 2>&1
   adb logcat -d -v threadtime >"$OUT/logcat-$name.txt" 2>&1
   if grep -q 'OK (' "$OUT/instrument-$name.txt"; then
     if grep -q -E 'INSTRUMENTATION_STATUS_CODE: -(3|4)' "$OUT/instrument-$name.txt"; then say "    skipped (see the results)"; else say "    passed"; fi
+  elif connection_lost "$OUT/instrument-$name.txt"; then
+    note "    connection lost during this check: not a failed check. Run its group again with -g (instrument-$name.txt)"
+    LOST="$LOST $name"
   else
     say "    did not pass: see instrument-$name.txt"
     FAILED="$FAILED $name"
@@ -281,10 +309,20 @@ fi
 if wanted frames; then
   run_check frames-debug FramePacingCheck $(label_args)
   if [ -n "$CHECKS_APK" ]; then
-    # The checks build is the same app, not debuggable: installed over the debug build it keeps the model.
-    install_apk "$CHECKS_APK" "the checks build (not debuggable) for frame pacing"
-    run_check frames-checks-build FramePacingCheck $(label_args)
-    if [ -n "$APP" ]; then install_apk "$APP" "the debug build again"; fi
+    # The checks build is the same app, not debuggable: installed over the debug build it keeps the model. No install
+    # here stops the run: what the groups found so far is only collected at the end.
+    if install_apk "$CHECKS_APK" "the checks build (not debuggable) for frame pacing"; then
+      run_check frames-checks-build FramePacingCheck $(label_args)
+      if [ -n "$APP" ] && ! install_apk "$APP" "the debug build again"; then
+        note "  The checks build stays installed. Leave this run going; before the checklist put the debug build back: adb install -r -t $APP"
+        note "  Why: $INSTALL_ERROR"
+        FAILED="$FAILED debug-reinstall (the checks build stays installed)"
+      fi
+    else
+      note "  Skipping frame pacing in the checks build; the debug build is still installed. Leave this run going; for that pass run this again with -n -g frames after it."
+      note "  Why: $INSTALL_ERROR"
+      FAILED="$FAILED frames-checks-build (not installed, skipped)"
+    fi
   else
     say "  app-checks.apk is not in the kit: frame pacing ran in the debug build only"
   fi
@@ -307,19 +345,21 @@ if wanted manual; then
   say "  collected the logs, the last game's clock, frame and touch logs, settings.json and library.json"
 fi
 
+wait_device
 step "Collecting"
 if [ "$SUITE" = yes ]; then
   adb pull "$RESULTS" "$OUT/results" >>"$LOG" 2>&1 || say "  no result files on the phone"
 fi
 adb shell am force-stop $PKG
 cp "$0" "$OUT/" 2>/dev/null
+OUTCOME=${FAILED:+; did not pass:$FAILED}${LOST:+; connection lost during:$LOST}
 if [ -f "$OUT/results/results.jsonl" ]; then
   grep '"ok":false' "$OUT/results/results.jsonl" >"$OUT/not-ok.jsonl"
   bad=$(wc -l <"$OUT/not-ok.jsonl" | tr -d ' ')
   total=$(wc -l <"$OUT/results/results.jsonl" | tr -d ' ')
-  say "$total results, $bad not ok${FAILED:+; did not pass:$FAILED}"
+  note "$total results, $bad not ok$OUTCOME"
 elif [ "$SUITE" = yes ]; then
-  say "no results.jsonl was pulled${FAILED:+; did not pass:$FAILED}"
+  note "no results.jsonl was pulled$OUTCOME"
 fi
 # COPYFILE_DISABLE keeps macOS tar from adding ._ metadata files.
 (cd "$OUT_PARENT" && COPYFILE_DISABLE=1 tar -czf "$NAME.tar.gz" "$NAME") || die "could not pack $OUT"
