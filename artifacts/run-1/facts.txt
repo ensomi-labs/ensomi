@@ -1,9 +1,33 @@
-Connection precheck: adb devices -l
-Exit code: 0
-Raw stdout follows:
-List of devices attached
-
-End raw stdout.
-No devices were listed. Stopped at step 1 as instructed.
-Requested getprop and shell facts were not collected; no raw property values are available.
+getprop ro.product.model
+25079RPDCC
+getprop ro.product.device
+turner
+getprop ro.product.marketname
+REDMI K Pad
+getprop ro.soc.manufacturer
+Mediatek
+getprop ro.soc.model
+MT8799
+getprop ro.build.version.release
+16
+getprop ro.build.version.sdk
+36
+getprop ro.build.version.incremental
+OS3.0.310.0.WAOCNXM
+getprop ro.mi.os.version.name
+OS3.0
+getprop ro.mi.os.version.incremental
+OS3.0.310.0.WAOCNXM
+getprop ro.product.cpu.abi
+arm64-v8a
+getprop persist.security.adbinstall
+1
+getprop persist.security.adbinput
+1
+getconf PAGE_SIZE
+4096
+wm size
+Physical size: 1880x3008
+wm density
+Physical density: 450
 FACTS-DONE
