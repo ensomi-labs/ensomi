@@ -8,8 +8,7 @@ runs the automated checks and packs their results into one file to send back; a 
 The checks work on any arm64 phone or tablet with Android 13 or later; "phone" below covers a tablet too. The first two
 devices are the Snapdragon 8 Gen 3 HyperOS phone, a Redmi K80 (`24117RK2CC`, `zorn`, HyperOS `OS3.0.307.0.WOKCNXM`,
 120 Hz, held by Swd146296), and a Redmi K Pad tablet (`25079RPDCC`, `turner`, HyperOS `OS3.0.310.0.WAOCNXM`,
-Dimensity 9400+). Where the plan or gameplay.md say "the Xiaomi" or "the HyperOS phone", they mean the Redmi K80; where
-they say "the Dimensity 9400+", the Redmi K Pad.
+Dimensity 9400+). Where the plan or gameplay.md say "the Xiaomi" or "the HyperOS phone", they mean the Redmi K80.
 
 ## What you get
 
@@ -43,15 +42,24 @@ On the phone:
 4. For the run: charge above 50 %, turn off battery saver, set the screen lock to None or Swipe (the lifecycle check
    turns the screen off and on), media volume at about a third, Do not disturb on (calls and notifications pause the
    game). Leave HyperOS's refresh rate setting as it is: the script records it.
+5. For hand play on HyperOS (the checklist), turn off the three-finger gesture with
+   `adb shell settings put system enable_three_gesture 0`, and restore it afterwards with `1`. Left on, it makes the
+   game drop every finger on a chord: three fingers landing within 280 ms count as the gesture, and the app cannot
+   block it. While it is off, three-finger screenshots and split-screen swipes do not work.
 
-**The install prompt.** HyperOS (and some other systems) show their own dialog for every `adb install`, sometimes with a
-countdown; tap **Install** each time. The script installs up to four times (the app, its checks, the checks build, the
-app again); it wakes the screen and tells you to look at the phone before each try. An unanswered prompt closed itself
-after about 12 seconds in the one case seen, and adb then reported `Install canceled by user`. The script asks again,
-up to three times for each install. If the app or its checks still do not install, the run stops. A prompt missed in
-the `frames` group skips that pass and does not stop the run: `lifecycle` and the archive still follow, and the last
-lines say what was skipped. If the debug build could not go back on after the checks build, the checks build stays
-installed; put the debug build back (`adb install -r -t app-debug.apk`) before the checklist.
+**The install prompt.** HyperOS (and some other systems) show their own dialog for an `adb install`. On the K Pad it is
+titled `USB安装提示`. The grey `继续安装` button on the left approves. The blue `拒绝 (10)` button on the right refuses, and
+the countdown is on that one: doing nothing refuses at zero. Leave the checkbox `拒绝后下次安装不再提示` unticked. Tap
+`继续安装` each time. The English wording is not known. Installing the checks build over the debug build, the same key,
+gave no prompt in the one case seen, so one may not come.
+
+The script installs up to four times (the app, its checks, the checks build, the app again; `-n` skips only the first
+two); it wakes the screen and tells you to look at the phone before each try. Unanswered, adb reports
+`INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`. The script asks again, up to three times for each install.
+If the app or its checks still do not install, the run stops. A prompt missed in the `frames` group skips that pass and
+does not stop the run: `lifecycle` and the archive still follow, and the last lines say what was skipped. If the debug
+build could not go back on after the checks build, the checks build stays installed; put the debug build back
+(`adb install -r -t app-debug.apk`) before the checklist.
 
 This is also why Android Studio's or Gradle's `connectedDebugAndroidTest` does not work on these phones: the
 dialog goes unanswered, the install fails with `INSTALL_FAILED_USER_RESTRICTED`, and Gradle still prints
@@ -85,7 +93,8 @@ sh phone-checks.sh
 
 It takes about 30 to 45 minutes. Leave the phone on the desk, screen up, unlocked, connected. The script keeps the
 screen on while it runs. It prints each step; when it needs you (an install prompt, Install from files) it says so.
-At the end it prints the file to send back, `phone-checks-<model>-<date>.tar.gz`.
+At the end it prints the file to send back, `phone-checks-<model>-<date>.tar.gz`. Each check has a time limit of 30
+minutes (`-t SECONDS` changes it): at the limit the script stops the check and goes on to the next.
 
 What it runs, each group in its own process (`-g` picks groups, comma-separated):
 
@@ -107,10 +116,24 @@ A check without what it needs (no songs, no click tracks) reports `"skipped"` an
 
 **Each output.** The audio check measures the output the phone plays on. After the main run, plug in wired headphones
 (or a USB-C adapter) and run `sh phone-checks.sh -n -g audio -l wired`; then connect Bluetooth headphones and run
-`sh phone-checks.sh -n -g audio -l bt`. `-n` skips the installs. Each run makes its own archive.
+`sh phone-checks.sh -n -g audio -l bt`. `-n` skips the two installs at the start; the `frames` group still installs
+the checks build and then the debug build, and their prompts still need an answer. Each run makes its own archive.
 
 **Without songs** the generation checks make a synthetic four-minute song, so there is always a number; real songs
 from the kit's `songs/` give the numbers that count.
+
+## HyperOS refuses the checks' launch
+
+On the K Pad, HyperOS would not let `FramePacingCheck` open the app. Its logcat shows
+`ActivityStarterImpl: MIUILOG- Permission Denied Activity ... io.ensomi.android/.MainActivity`, then
+`START ... result code=102`, and the check then hangs. `LifecycleCheck` launches the app in a similar way.
+
+`adb shell appops set io.ensomi.android 10021 allow` fixed it, in a control differing only by that grant: `appops get`
+showed `MIUIOP(10021): ignore` before and `allow` after, the launch gave `result code=0`, and frames were recorded.
+Replacing the APK loses the grant, so on HyperOS and MIUI the script grants it again before every check, reads it back
+and says so if it does not read `allow`. When exactly a replacement resets it was not measured.
+
+The Settings toggle for the same thing is believed to be 后台弹出界面 in the app's permissions; that is unconfirmed.
 
 ## The checklist
 
@@ -131,7 +154,7 @@ frame files, and send that archive too. Write the answers in a text file named `
 | 8 | Mobile data (plan 4) | Where Hugging Face is reachable: Settings › Chart model › Remove, then Download on mobile data, then again on Wi-Fi | The time each took, and whether it resumed after a dropped connection; skip where Hugging Face is blocked |
 | 9 | The lean in hand (plan 9a) | Settings › Playfield: play the preview and a real game at 0°, 40° and 55° in landscape, and in portrait | Whether 40° reads at speed; whether the far notes are big enough; whether your thumbs land in their lanes; whether the top corners ever cover a lane |
 | 10 | Edge gestures (gameplay.md, Input) | In landscape, play the outer lanes hard, sliding a little towards the edges | Whether Back or Home ever fired during play |
-| 11 | Heat (gameplay.md) | Play for 10 minutes (the playfield preview loops), then at once run `sh phone-checks.sh -n -g frames -l hot` | Nothing more: the frames results hold the thermal state before and after |
+| 11 | Heat (gameplay.md) | Play for 10 minutes (the playfield preview loops), then at once run `sh phone-checks.sh -n -g frames -l hot` (it still installs two builds: answer the prompts) | Nothing more: the frames results hold the thermal state before and after |
 | 12 | Refresh rate (gameplay.md) | Note the phone's display refresh setting (HyperOS: Settings › Display › Refresh rate) and whether battery saver was on | The setting's name and value |
 
 ## What to send back
@@ -139,7 +162,8 @@ frame files, and send that archive too. Write the answers in a text file named `
 - Every `phone-checks-*.tar.gz` the script made (the main run, each output, `manual`, `hot`).
 - `checklist.txt` and the videos and screenshots it names.
 
-The archive holds the console's log (`script.log`), the device's facts (`device.txt`: model, SoC, build, HyperOS
+The archive holds the script's own log (`script.log`: its settings, adb's install, push and pull output, and the
+warnings and the summary, not all the console showed), the device's facts (`device.txt`: model, SoC, build, HyperOS
 version; `getprop.txt`; `display.txt` with the display modes; `surfaceflinger.txt`; `refresh-settings.txt`; memory,
 battery, thermal, power and audio dumps), how the model came (`model-install.txt`), each group's instrumentation output
 and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is personal: no songs, no accounts.
@@ -164,9 +188,9 @@ and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is pers
 ## When something goes wrong
 
 - `INSTALL_FAILED_USER_RESTRICTED`: Install via USB is off, or the install prompt was refused or timed out. Turn it on,
-  run again, tap Install.
-- `Install canceled by user`, after that code: the install prompt closed unanswered, perhaps unseen. Watch the screen
-  when the script says to look at the phone, and tap Install. On the K Pad with Install via USB on,
+  run again, tap `继续安装`.
+- `Install canceled by user`, after that code: the install prompt's countdown ran out, perhaps unseen. Watch the screen
+  when the script says to look at the phone, and tap `继续安装`. On the K Pad with Install via USB on,
   `adb shell getprop persist.security.adbinstall` reads `1`.
 - `INSTALL_FAILED_UPDATE_INCOMPATIBLE`: an Ensomi signed with another key is installed. `adb uninstall
   io.ensomi.android` (this removes its model too) and run again.
@@ -175,6 +199,19 @@ and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is pers
   data cable, or a port with no hub. `transport_id` rising in `adb devices -l` means it keeps reconnecting. The script
   waits for the phone before each check and before collecting, then goes on. A check cut off by a drop is reported as
   `connection lost`, not as failed: run its group again with `-n -g`.
+- A check says `timed out`: it hung, or needed more than its limit. The script stopped it and the app and went on; the
+  last line lists it under `timed out`, apart from `did not pass` and `connection lost`. Read its `logcat-<name>.txt`
+  and run its group again with `-n -g`. If it was only slow, add `-t`: `determinism` makes its chart twice, so a slow
+  phone may need a longer limit there.
+- `Permission Denied Activity` in a check's logcat: HyperOS refused the launch (see
+  [above](#hyperos-refuses-the-checks-launch)), and `FramePacingCheck` then hangs until its limit. If the script also
+  said `MIUIOP(10021) does not read allow`, its grant did not hold: try the Settings toggle.
+- `The pull failed twice`: the results are still on the phone, and running the script again deletes them. Get them
+  first with the `adb pull` it prints.
+- Chords drop in a hand-played game on HyperOS, with `MiuiMultiFingerGestureManager: Pilfer pointers because gesture
+  detected` in logcat and `ACTION_CANCEL` in the app: the three-finger gesture took the fingers, and the app cannot
+  block it. Turn it off with `adb shell settings put system enable_three_gesture 0` and restore it afterwards with `1`
+  (step 5 of "On the phone"). The script says so when it reads `1`, and `device.txt` records the value.
 - The lifecycle check fails with no pause panel after `screen-off`: the phone has a screen lock; set it to None for
   the run.
 - `Install from files` says the folder has no `ensomi-package.json`: pick the `ensomi-r2` folder itself, not Download.

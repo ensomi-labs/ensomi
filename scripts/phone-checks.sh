@@ -12,13 +12,16 @@
 #              runtime,model,decode,generation,determinism,audio,frames,lifecycle
 #              and, on its own after the checklist's manual checks, manual (the app's logs and its last game's files)
 #   -l LABEL   a name for this run's output, such as speaker, wired or bt (the audio group); recorded in the results
-#   -n         do not install the APKs (they are installed already)
+#   -n         do not install the APKs at the start (they are installed already); the frames group still installs the
+#              checks build and then the debug build again
+#   -t SECONDS the time limit of each check (default: 1800)
 #
 # Steps: install the debug app and its checks with adb install (HyperOS asks on the phone each time); make sure the
 # chart model is installed, by the app's own download from Hugging Face first and, if that fails, by "Install from
 # files" with the kit's model/ensomi-r2 copied to the phone's Download folder; push the click tracks and songs;
-# run each group of checks in its own process with am instrument; for the frames group also with the checks build,
-# which is not debuggable; pull the results, logcat and the device's facts; pack them into OUT/<name>.tar.gz.
+# run each group of checks in its own process with am instrument, up to the time limit; for the frames group also with
+# the checks build, which is not debuggable; pull the results, logcat and the device's facts; pack them into
+# OUT/<name>.tar.gz.
 set -u
 
 # Git Bash would turn /data/... and /sdcard/... arguments into Windows paths.
@@ -34,6 +37,8 @@ RESULTS=/sdcard/Android/media/$PKG/phone-checks
 # The pinned package's manifest SHA-256 (ModelSource.PINNED_MANIFEST_SHA256).
 PINNED_MANIFEST=6e05317427cc24f3d46c0e8dcdd7a44078954437129c60f8797acb80bea6a1fb
 ALL_GROUPS=runtime,model,decode,generation,determinism,audio,frames,lifecycle
+# One check's time limit in seconds (-t): a hang costs this much, and the run still reaches "Collecting".
+CHECK_LIMIT=1800
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 KIT=$HERE
@@ -41,15 +46,16 @@ OUT_PARENT=$(pwd)
 WANT=$ALL_GROUPS
 LABEL=
 INSTALL=yes
-while getopts k:o:s:g:l:nh opt; do
+while getopts k:o:s:g:l:t:nh opt; do
   case $opt in
     k) KIT=$OPTARG ;;
     o) OUT_PARENT=$OPTARG ;;
     s) ANDROID_SERIAL=$OPTARG; export ANDROID_SERIAL ;;
     g) WANT=$OPTARG ;;
     l) LABEL=$OPTARG ;;
+    t) CHECK_LIMIT=$OPTARG ;;
     n) INSTALL=no ;;
-    *) sed -n '2,22p' "$0"; exit 2 ;;
+    *) sed -n '2,24p' "$0"; exit 2 ;;
   esac
 done
 
@@ -59,6 +65,7 @@ die() { printf 'Stopped: %s\n' "$*" >&2; exit 1; }
 wanted() { case ",$WANT," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 # adb shell output without the carriage returns old adb versions add.
 ash() { adb shell "$@" 2>&1 | tr -d '\r'; }
+case $CHECK_LIMIT in '' | 0* | *[!0-9]*) die "-t needs a whole number of seconds above zero." ;; esac
 
 command -v adb >/dev/null 2>&1 || die "adb is not on PATH. Install Android platform-tools and try again."
 count=$(adb devices | tr -d '\r' | awk 'NR > 1 && $2 == "device"' | wc -l | tr -d ' ')
@@ -90,10 +97,13 @@ log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >>"$LOG"; }
 # say, and also into the archive's log: whoever reads the archive never sees the console.
 note() { say "$*"; log "$*"; }
 say "Results go to $OUT"
-log "kit=$KIT groups=$WANT label=$LABEL install=$INSTALL app=$APP test=$TEST checks=$CHECKS_APK"
+log "kit=$KIT groups=$WANT label=$LABEL install=$INSTALL limit=$CHECK_LIMIT app=$APP test=$TEST checks=$CHECKS_APK"
 
+# The running am instrument client: in the background it ignores Ctrl-C, so stopping the script has to stop it too.
+CLIENT=
 # Keep the screen on while plugged in, so a long check is never paused by the screen going off; put back at the end.
 restore() {
+  [ -z "$CLIENT" ] || kill "$CLIENT" 2>/dev/null
   adb shell svc power stayon false >/dev/null 2>&1
 }
 trap restore EXIT
@@ -123,6 +133,15 @@ ash dumpsys thermalservice >"$OUT/thermal.txt"
 ash dumpsys power | grep -i -E 'battery ?saver|low ?power|mSettingBatterySaver' >"$OUT/power.txt"
 ash dumpsys audio >"$OUT/audio.txt"
 grep -E 'model=|device=|soc.model|fingerprint=|version.release|mi.os.version.incremental' "$OUT/device.txt"
+# Non-empty on HyperOS or MIUI. A USB gap just now would count too, which costs only a needless grant.
+XIAOMI_OS=$(grep -E '^ro\.(mi\.os\.version\.name|miui\.ui\.version\.name)=.' "$OUT/device.txt")
+# A chord lands three fingers, and HyperOS's three-finger gesture then takes them from the app. Only read here: the
+# automated checks do not play by hand, and the setting is the tester's.
+if [ -n "$XIAOMI_OS" ]; then
+  three_gesture=$(ash settings get system enable_three_gesture)
+  printf 'enable_three_gesture=%s\n' "$three_gesture" >>"$OUT/device.txt"
+  [ "$three_gesture" != 1 ] || note "HyperOS's three-finger gesture is on (enable_three_gesture=1): hand play will lose chords. See the runbook."
+fi
 
 # The USB link can drop for a few seconds, and adb then fails every command: wait for the phone rather than fail too.
 wait_device() {
@@ -261,17 +280,56 @@ for group in runtime model decode generation determinism audio frames lifecycle;
 [ "$SUITE" = yes ] && ash rm -rf "$RESULTS" >/dev/null
 FAILED=
 LOST=
+TIMED_OUT=
 # am instrument ends with INSTRUMENTATION_CODE or says why it could not run. Output with neither stopped at the
 # connection: adb's own error, or nothing more at all.
 connection_lost() { ! grep -q -E 'INSTRUMENTATION_(CODE:|FAILED|ABORTED)|Exception' "$1"; }
+# HyperOS refuses a check's launch of the app, which then hangs, without this app-op; replacing the APK loses it. So
+# every check grants it, whichever way the APKs got there. appops get lists every op: only 10021's line counts.
+grant_launch() {
+  [ -n "$XIAOMI_OS" ] || return 0
+  adb shell appops set $PKG 10021 allow >/dev/null 2>&1
+  mode=$(ash appops get $PKG | grep 10021)
+  case $mode in
+    *': allow'*) ;;
+    *) note "    MIUIOP(10021) does not read allow (${mode:-nothing}): HyperOS may refuse this check's launch of the app" ;;
+  esac
+}
+# In the background against the clock: macOS has no timeout command. Non-zero at the limit. TERM, then KILL: a client
+# that stayed would hold up the wait, and the limit with it. The braces keep the shell's "Terminated" off the console.
+instrument() { # output file, then am instrument's arguments
+  file=$1; shift
+  adb shell am instrument -w -r "$@" $RUNNER >"$file" 2>&1 &
+  CLIENT=$!
+  waited=0
+  while kill -0 "$CLIENT" 2>/dev/null; do
+    if [ "$waited" -ge "$CHECK_LIMIT" ]; then
+      { kill "$CLIENT"; sleep 1; kill -9 "$CLIENT"; wait "$CLIENT"; } 2>/dev/null
+      CLIENT=
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$CLIENT"
+  CLIENT=
+}
 run_check() { # name, class, then am instrument -e pairs
   name=$1; class=$2; shift 2
   wait_device
   say "  $name"
   adb logcat -c
-  adb shell am instrument -w -r -e class "$CHECKS.$class" "$@" $RUNNER >"$OUT/instrument-$name.txt" 2>&1
+  grant_launch
+  limit_reached=no
+  if ! instrument "$OUT/instrument-$name.txt" -e class "$CHECKS.$class" "$@"; then
+    limit_reached=yes
+    adb shell am force-stop $PKG >/dev/null 2>&1
+  fi
   adb logcat -d -v threadtime >"$OUT/logcat-$name.txt" 2>&1
-  if grep -q 'OK (' "$OUT/instrument-$name.txt"; then
+  if [ "$limit_reached" = yes ]; then
+    note "    timed out after $CHECK_LIMIT s: stopped, going on. Run its group again with -g, or longer with -t (logcat-$name.txt)"
+    TIMED_OUT="$TIMED_OUT $name"
+  elif grep -q 'OK (' "$OUT/instrument-$name.txt"; then
     if grep -q -E 'INSTRUMENTATION_STATUS_CODE: -(3|4)' "$OUT/instrument-$name.txt"; then say "    skipped (see the results)"; else say "    passed"; fi
   elif connection_lost "$OUT/instrument-$name.txt"; then
     note "    connection lost during this check: not a failed check. Run its group again with -g (instrument-$name.txt)"
@@ -347,12 +405,26 @@ fi
 
 wait_device
 step "Collecting"
+PULL_FAILED=
 if [ "$SUITE" = yes ]; then
-  adb pull "$RESULTS" "$OUT/results" >>"$LOG" 2>&1 || say "  no result files on the phone"
+  if ! adb pull "$RESULTS" "$OUT/results" >>"$LOG" 2>&1; then
+    wait_device
+    # Into the directory a broken pull left, adb would put the results one level down.
+    rm -rf "$OUT/results"
+    if ! adb pull "$RESULTS" "$OUT/results" >>"$LOG" 2>&1; then
+      # Only the phone's own word means there is nothing: the next run deletes whatever is left there.
+      case $(ash ls -d "$RESULTS") in
+        *'No such file'*) say "  no result files on the phone" ;;
+        *)
+          note "  The pull failed twice, so the results are still on the phone at $RESULTS (a results folder here holds only part of them). Running this script again deletes them: first get them with adb pull $RESULTS"
+          PULL_FAILED="; the pull failed: the results are still on the phone" ;;
+      esac
+    fi
+  fi
 fi
 adb shell am force-stop $PKG
 cp "$0" "$OUT/" 2>/dev/null
-OUTCOME=${FAILED:+; did not pass:$FAILED}${LOST:+; connection lost during:$LOST}
+OUTCOME=${FAILED:+; did not pass:$FAILED}${LOST:+; connection lost during:$LOST}${TIMED_OUT:+; timed out:$TIMED_OUT}$PULL_FAILED
 if [ -f "$OUT/results/results.jsonl" ]; then
   grep '"ok":false' "$OUT/results/results.jsonl" >"$OUT/not-ok.jsonl"
   bad=$(wc -l <"$OUT/not-ok.jsonl" | tr -d ' ')

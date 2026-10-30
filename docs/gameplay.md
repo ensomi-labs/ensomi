@@ -385,7 +385,7 @@ the runtime calls, which draw nothing, took about three times as long as on a qu
 
 ## Measurements a phone must make
 
-On the Snapdragon 8 Gen 3 HyperOS phone, a Redmi K80 (`24117RK2CC`, `zorn`, 120 Hz), and the Dimensity 9400+ phone, on
+On the Snapdragon 8 Gen 3 HyperOS phone, a Redmi K80 (`24117RK2CC`, `zorn`, 120 Hz), and the Redmi K Pad, on
 speaker, wired and Bluetooth output where it applies. [phone-checks.md](phone-checks.md) is how they are run:
 
 | What | How | Good when |
