@@ -32,6 +32,10 @@ data object Calibration : NavKey
 @Serializable
 data object Diagnostics : NavKey
 
+/** The recognition session's test screen and its game; reachable only in debug and checks builds (docs/recognition.md). */
+@Serializable
+data object RecognitionSession : NavKey
+
 /** The licence notices of the chart model and of ONNX Runtime. */
 @Serializable
 data object Notices : NavKey

@@ -53,6 +53,7 @@ import java.text.NumberFormat
 import io.ensomi.android.play.ResultsScreen
 import io.ensomi.android.prototype.AppGraph
 import io.ensomi.android.prototype.Scenario
+import io.ensomi.android.recognition.RecognitionEntry
 import io.ensomi.android.settings.CalibrationScreen
 import io.ensomi.android.settings.SettingsScreen
 import kotlinx.coroutines.launch
@@ -103,6 +104,16 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val settings by graph.settings.settings.collectAsStateWithLifecycle()
     val route by graph.settings.route.collectAsStateWithLifecycle()
 
+    // A share that reached the recognition session, or a session that survived the process, opens its screen.
+    val recognition = scenario.real && graph.debug.debuggable
+    LaunchedEffect(recognition) {
+        if (recognition) {
+            RecognitionEntry.followOpens(context) {
+                if (backStack.lastOrNull() !is RecognitionSession) backStack.add(RecognitionSession)
+            }
+        }
+    }
+
     // The game, from the count-in to the results, holds the play orientation; the other screens follow the phone.
     val inGame = backStack.lastOrNull().let { it is Play || it is Results }
     GameOrientation(if (inGame) settings.orientation else null)
@@ -131,6 +142,9 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onDownloadModel = graph.model::download,
                         onCancelDownload = graph.model::cancel,
                         onInstallModelFromFolder = graph.model::installFromFolder,
+                        extraAction = {
+                            if (recognition) RecognitionEntry.LibraryAction { backStack.add(RecognitionSession) }
+                        },
                     )
                 }
                 entry<MakeChart> { key ->
@@ -231,6 +245,9 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     )
                 }
                 entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
+                entry<RecognitionSession> {
+                    RecognitionEntry.Content(settings = settings, onBack = { backStack.removeLastOrNull() })
+                }
             },
         )
         SnackbarHost(

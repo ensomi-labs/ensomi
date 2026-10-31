@@ -61,6 +61,8 @@ fun LibraryScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onInstallModelFromFolder: (android.net.Uri) -> Unit,
+    /** Debug tools: one more action in the top app bar. */
+    extraAction: @Composable () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -69,6 +71,7 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.app_name)) },
                 actions = {
+                    extraAction()
                     IconButton(onClick = onOpenSettings) {
                         Icon(painterResource(R.drawable.ic_settings), contentDescription = stringResource(R.string.settings_title))
                     }

@@ -101,6 +101,7 @@ import io.ensomi.android.ui.theme.Brand
 import io.ensomi.android.ui.theme.GameTheme
 import io.ensomi.runtime.Judge
 import java.util.Locale
+import kotlin.math.ceil
 import kotlinx.coroutines.delay
 
 private enum class PlayPhase { PLAYING, PAUSED, COUNTDOWN }
@@ -119,6 +120,20 @@ class SongGame(
     val autoplay: Boolean = false,
     /** Debug builds: every frame's times go to `clock-log.csv`, and the debug broadcasts are taken. */
     val debuggable: Boolean = false,
+)
+
+/**
+ * A game along with music heard in the room (docs/recognition.md): the app plays nothing, [clock] follows the room,
+ * and [chart] holds only the notes from [joinMs] on, so the game joins the song where it has got to.
+ */
+class AmbientGame(
+    val chart: PlayChart,
+    val clock: PlayClock,
+    val joinMs: Double,
+    /** In place of the audio offset, since no output plays: a tester's trim of how the join feels. */
+    val offsetMs: Double,
+    /** Debug: the autoplay plays the game. */
+    val autoplay: Boolean = false,
 )
 
 /** The parts of a running game the screen reaches from the main thread; made on the render thread. */
@@ -152,6 +167,8 @@ fun PlayScreen(
     onFinished: (PlayResult) -> Unit,
     onQuit: () -> Unit,
     game: SongGame? = null,
+    /** A game along with the music in the room, in place of [game]; the recognition session's join. */
+    ambient: AmbientGame? = null,
     /** Debug scenarios only: pause after this long, and hold the count-in on its first beat. */
     autoPauseAfterMs: Long? = null,
     holdCountdown: Boolean = false,
@@ -243,6 +260,20 @@ fun PlayScreen(
                 visualOffsetMs = settings.visualOffsetMs.toDouble(),
                 scrollTimeMs = settings.scrollTimeMs,
             )
+            if (ambient != null) {
+                val clockLog = if (debuggable) ClockLog() else null
+                return PlayController(
+                    chart = ambient.chart,
+                    judge = settings.judge.toRuntime(),
+                    clock = ambient.clock,
+                    timing = timing.copy(audioOffsetMs = ambient.offsetMs),
+                    clockLog = clockLog,
+                    onClose = { clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } } },
+                    script = if (ambient.autoplay) Autoplay.inputs(ambient.chart) else emptyList(),
+                    hud = hud,
+                    nextSequence = sequence,
+                )
+            }
             if (game == null) {
                 return PlayController(
                     chart = SampleCharts.PREVIEW,
@@ -331,9 +362,14 @@ fun PlayScreen(
             )
 
             when (phase) {
-                PlayPhase.PLAYING -> if (talkBackNotice) TalkBackNotice(onStart = { talkBackNoticeSeen = true }, onBack = onQuit)
+                PlayPhase.PLAYING -> {
+                    if (talkBackNotice) TalkBackNotice(onStart = { talkBackNoticeSeen = true }, onBack = onQuit)
+                    if (ambient != null) AmbientCountIn(ambient)
+                }
                 PlayPhase.PAUSED -> PausePanel(
                     movedTo = movedTo,
+                    // The music in the room cannot start again.
+                    canRestart = ambient == null,
                     onResume = { phase = PlayPhase.COUNTDOWN },
                     onRestart = {
                         restarts++
@@ -574,7 +610,13 @@ private fun PlayHudRow(
 }
 
 @Composable
-private fun PausePanel(movedTo: String?, onResume: () -> Unit, onRestart: () -> Unit, onQuit: () -> Unit) {
+private fun PausePanel(
+    movedTo: String?,
+    canRestart: Boolean,
+    onResume: () -> Unit,
+    onRestart: () -> Unit,
+    onQuit: () -> Unit,
+) {
     Box(Modifier.fillMaxSize().background(Brand.Plum.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
         Surface(
             // The brand's card shape: round corners, a tighter one at the bottom left.
@@ -610,8 +652,10 @@ private fun PausePanel(movedTo: String?, onResume: () -> Unit, onRestart: () -> 
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = onRestart, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.play_restart))
+                    if (canRestart) {
+                        OutlinedButton(onClick = onRestart, modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.play_restart))
+                        }
                     }
                     OutlinedButton(onClick = onQuit, modifier = Modifier.weight(1f)) {
                         Text(stringResource(R.string.play_quit))
@@ -723,6 +767,37 @@ private fun Countdown(reduceMotion: Boolean, hold: Boolean, onDone: () -> Unit) 
     }
 }
 
+/**
+ * The seconds until a game along with the room's music reaches its first possible note: the music is already going,
+ * so the count runs on its clock and ends at the join, and nothing waits for it.
+ */
+@Composable
+private fun AmbientCountIn(game: AmbientGame) {
+    var seconds by remember { mutableIntStateOf(0) }
+    var over by remember { mutableStateOf(false) }
+    LaunchedEffect(game) {
+        while (!over) {
+            val song = game.clock.songTimeMs(System.nanoTime())
+            val left = if (song != null) game.joinMs - song else null
+            if (left != null && left <= 0) over = true else if (left != null) seconds = ceil(left / 1000).toInt()
+            delay(AMBIENT_COUNT_POLL_MS)
+        }
+    }
+    if (over || seconds <= 0) return
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                seconds.toString(),
+                fontSize = 96.sp,
+                fontWeight = FontWeight.Bold,
+                color = Brand.Text,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
+            )
+            Text(stringResource(R.string.play_get_ready), style = MaterialTheme.typography.titleMedium, color = Brand.MutedText)
+        }
+    }
+}
+
 /** Hides the status and navigation bars while playing (a swipe from an edge shows them for a moment). The
  * orientation is held by [GameOrientation], over the results too. */
 @Composable
@@ -769,6 +844,8 @@ fun JudgeDifficulty.toRuntime(): Judge = when (this) {
 }
 
 private const val COUNT_IN_BEAT_MS = 500L
+
+private const val AMBIENT_COUNT_POLL_MS = 50L
 
 private const val TAG = "EnsomiPlay"
 

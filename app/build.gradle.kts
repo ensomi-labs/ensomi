@@ -58,6 +58,18 @@ android {
         }
     }
 
+    // The recognition session (docs/recognition.md) exists only in debug and checks builds: its code, text, share target
+    // and permissions are in src/recognition. A release build gets src/release's empty RecognitionEntry instead.
+    sourceSets {
+        listOf("debug", "checks").forEach { buildType ->
+            getByName(buildType) {
+                kotlin.srcDir("src/recognition/kotlin")
+                res.srcDir("src/recognition/res")
+                manifest.srcFile("src/recognition/AndroidManifest.xml")
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

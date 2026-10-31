@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The recognition session (docs/recognition.md): merged into debug and checks builds only, never a release. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Sync listens to the room; nothing recorded leaves the device. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- MediaStore: the rows of songs another app downloaded. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- A FileObserver on another app's folder, and a sight of its .ncm files. A tester grants it with adb appops. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
+    <queries>
+        <package android:name="com.netease.cloudmusic" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="orpheus" />
+        </intent>
+    </queries>
+
+    <application>
+        <activity
+            android:name="io.ensomi.android.recognition.ShareActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
