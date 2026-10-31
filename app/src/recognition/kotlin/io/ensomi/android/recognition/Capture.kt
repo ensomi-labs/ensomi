@@ -24,6 +24,9 @@ interface CaptureSink {
     fun level(rmsDb: Double, peakDb: Double, stamps: String)
 
     fun failed(reason: String)
+
+    /** Capture timing totals, including the last partial second. */
+    fun stopped(stamps: String) = Unit
 }
 
 /** Where Sync's audio comes from. Nothing a capture records leaves the device; it goes only to the aligner. */
@@ -154,33 +157,48 @@ class MicCapture(context: Context) : CapturePort {
         var stamped = 0L
         var unstamped = 0L
         var lastGapMs = 0.0
-        while (running) {
-            val count = if (float) {
-                record.read(samples, 0, BLOCK_FRAMES, AudioRecord.READ_BLOCKING)
-            } else {
-                record.read(shorts, 0, BLOCK_FRAMES, AudioRecord.READ_BLOCKING).also { n ->
-                    for (i in 0 until n) samples[i] = shorts[i] / 32_768f
+        var maxGapMs = 0.0
+        var maxReadIntervalMs = 0.0
+        var maxPushMs = 0.0
+        var lastReturned: Long? = null
+        fun stamps() = "timestamp=$stamped read=$unstamped gap_ms=$lastGapMs frames=$frames " +
+            "max_gap_ms=$maxGapMs max_read_interval_ms=$maxReadIntervalMs max_push_ms=$maxPushMs"
+        try {
+            while (running) {
+                val count = if (float) {
+                    record.read(samples, 0, BLOCK_FRAMES, AudioRecord.READ_BLOCKING)
+                } else {
+                    record.read(shorts, 0, BLOCK_FRAMES, AudioRecord.READ_BLOCKING).also { n ->
+                        for (i in 0 until n) samples[i] = shorts[i] / 32_768f
+                    }
                 }
+                if (count < 0) {
+                    sink.failed("AudioRecord.read returned $count")
+                    return
+                }
+                if (count == 0) continue
+                val returned = System.nanoTime()
+                lastReturned?.let { maxReadIntervalMs = maxOf(maxReadIntervalMs, (returned - it) / 1e6) }
+                lastReturned = returned
+                val hasStamp = record.getTimestamp(timestamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS
+                val first = if (hasStamp) {
+                    stamped++
+                    timestamp.nanoTime + (frames - timestamp.framePosition) * NANOS_PER_SECOND / SAMPLE_RATE
+                } else {
+                    unstamped++
+                    returned - count * NANOS_PER_SECOND / SAMPLE_RATE
+                }
+                frames += count
+                // How long after the block's last sample this thread had it: large or negative means the stamps are wrong.
+                lastGapMs = (returned - (first + count * NANOS_PER_SECOND / SAMPLE_RATE)) / 1e6
+                maxGapMs = maxOf(maxGapMs, lastGapMs)
+                val pushStarted = System.nanoTime()
+                sink.block(samples, count, SAMPLE_RATE, first)
+                maxPushMs = maxOf(maxPushMs, (System.nanoTime() - pushStarted) / 1e6)
+                meter.add(samples, count, SAMPLE_RATE, ::stamps)
             }
-            if (count < 0) {
-                sink.failed("AudioRecord.read returned $count")
-                return
-            }
-            if (count == 0) continue
-            val returned = System.nanoTime()
-            val hasStamp = record.getTimestamp(timestamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS
-            val first = if (hasStamp) {
-                stamped++
-                timestamp.nanoTime + (frames - timestamp.framePosition) * NANOS_PER_SECOND / SAMPLE_RATE
-            } else {
-                unstamped++
-                returned - count * NANOS_PER_SECOND / SAMPLE_RATE
-            }
-            frames += count
-            // How long after the block's last sample this thread had it: large or negative means the stamps are wrong.
-            lastGapMs = (returned - (first + count * NANOS_PER_SECOND / SAMPLE_RATE)) / 1e6
-            sink.block(samples, count, SAMPLE_RATE, first)
-            meter.add(samples, count, SAMPLE_RATE) { "timestamp=$stamped read=$unstamped gap_ms=$lastGapMs frames=$frames" }
+        } finally {
+            sink.stopped(stamps())
         }
     }
 

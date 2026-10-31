@@ -142,8 +142,8 @@ private class SessionSongLibrary : SongLibrary {
 /**
  * The session's chart, on the app's own path: [RuntimeChartMaker] on the session's song, kept in the same [ChartStore]
  * as every other chart, so that a chart already made from the same bytes, in a session or from the library, is used
- * as it is. The whole chart is made before Sync starts, however long that takes: the music in the room moves on
- * meanwhile, and the join goes to wherever it has got to.
+ * as it is. Generation runs alongside Sync once the audio is ready. The game waits for both the chart and a final
+ * capture anchor; the join advances that anchor to wherever the room's music has got to.
  */
 class SessionCharts(
     context: Context,

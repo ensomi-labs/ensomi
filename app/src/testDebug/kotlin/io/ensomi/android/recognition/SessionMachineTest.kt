@@ -155,7 +155,8 @@ class SessionMachineTest {
         bench.on(SessionEvent.ChartPhase("TIMING"))
         assertEquals("TIMING", bench.state.stage(Stage.CHART).detail)
         val sync = bench.on(SessionEvent.ChartReady(ChartFacts("song", 900, stored = false), 60.0))
-        assertTrue(sync.single() is SessionEffect.BuildReference)
+        assertTrue(sync.isEmpty())
+        assertTrue(ready.any { it is SessionEffect.BuildReference })
         assertEquals(listOf<SessionEffect>(SessionEffect.StartCapture), bench.on(SessionEvent.ReferenceReady("runtime", 1.0)))
         bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING)))
         bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LOCKING)))
@@ -615,6 +616,78 @@ class SessionMachineTest {
     }
 
     @Test
+    fun captureAndFinalLockCanFinishWhileTheChartIsStillRunning() {
+        val bench = Bench()
+        bench.on(SessionEvent.Frontmost(true))
+        bench.listening()
+        bench.audioReady()
+        assertTrue(bench.effects.any { it is SessionEffect.MakeChart })
+        assertTrue(bench.effects.any { it is SessionEffect.BuildReference })
+        assertEquals(listOf<SessionEffect>(SessionEffect.StartCapture), bench.on(SessionEvent.ReferenceReady("runtime", 0.2)))
+        val capturedAt = bench.nanos
+        assertEquals(listOf<SessionEffect>(SessionEffect.StopCapture), bench.on(lock(12_000.0, capturedAt)))
+        assertEquals(StageStatus.RUNNING, bench.status(Stage.CHART))
+        assertEquals(StageStatus.DONE, bench.status(Stage.SYNC))
+        assertEquals(StageStatus.WAITING, bench.status(Stage.PLAY))
+        bench.advance(40_000)
+        bench.chartReady()
+        val anchor = LockAnchor(12_000.0, capturedAt)
+        assertEquals(listOf<SessionEffect>(SessionEffect.Join(anchor)), bench.effects)
+        assertEquals(52_000.0, AmbientPlayClock(anchor).heardMs(bench.nanos), 1e-9)
+        // A duplicate completion must not open another game or restart capture.
+        bench.chartReady()
+        assertTrue(bench.effects.isEmpty())
+    }
+
+    @Test
+    fun chartCompletionDoesNotTurnAProvisionalPositionIntoALock() {
+        val bench = Bench()
+        bench.on(SessionEvent.Frontmost(true))
+        bench.listening()
+        bench.audioReady()
+        bench.on(SessionEvent.ReferenceReady("runtime", 0.2))
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LOCKING, referenceMs = 12_000.0, captureNanos = bench.nanos)))
+        bench.chartReady()
+        assertTrue(bench.effects.isEmpty())
+        assertTrue(bench.state.capturing)
+        assertNull(bench.state.lock)
+        assertTrue(bench.on(lock()).any { it is SessionEffect.Join })
+    }
+
+    @Test
+    fun anEarlyLockSurvivesRestoreAndWaitsForTheChartAndForeground() {
+        val bench = Bench()
+        bench.on(SessionEvent.Frontmost(true))
+        bench.listening()
+        bench.audioReady()
+        bench.on(SessionEvent.ReferenceReady("runtime", 0.2))
+        bench.on(lock())
+        val effects = bench.restoredFrom(bench.state)
+        assertTrue(effects.any { it is SessionEffect.MakeChart })
+        assertTrue(effects.none { it is SessionEffect.BuildReference })
+        bench.chartReady()
+        assertTrue(bench.effects.isEmpty())
+        assertEquals(listOf<SessionEffect>(SessionEffect.Join(LockAnchor(61_000.0, 5_000))), bench.on(SessionEvent.Frontmost(true)))
+    }
+
+    @Test
+    fun chartRetryRestartsBothWorkersAndDiscardsTheOldAnchor() {
+        val bench = Bench()
+        bench.on(SessionEvent.Frontmost(true))
+        bench.listening()
+        bench.audioReady()
+        bench.on(SessionEvent.ReferenceReady("runtime", 0.2))
+        bench.on(lock())
+        bench.on(SessionEvent.ChartFailed("generation failed"))
+        val effects = bench.on(SessionEvent.Retry(Stage.CHART))
+        assertTrue(effects.any { it is SessionEffect.MakeChart })
+        assertTrue(effects.any { it is SessionEffect.BuildReference })
+        assertNull(bench.state.lock)
+        bench.chartReady()
+        assertTrue(bench.effects.isEmpty())
+    }
+
+    @Test
     fun captureWaitsForEnsomiToBeInFront() {
         val bench = Bench()
         bench.listening()
@@ -852,6 +925,7 @@ class SessionMachineTest {
         assertTrue(SessionEffect.StartListening in effects)
         assertTrue(SessionEffect.BuildIndex in effects)
         assertTrue(effects.any { it is SessionEffect.MakeChart })
+        assertTrue(effects.any { it is SessionEffect.BuildReference })
         assertFalse(bench.state.foreground)
         assertEquals(1, bench.events("session.restored").size)
         assertEquals("晴天", bench.state.song?.title)

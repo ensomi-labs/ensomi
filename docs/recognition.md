@@ -12,9 +12,8 @@ session's screen shows:
 4. **Download.** The song's download action is used; the host does not download a song twice.
 5. **Share.** The song is shared to Ensomi with `ACTION_SEND`. This is also how the person lands back in Ensomi.
 6. **Audio.** A complete, decodable file of the song is found, already there or arriving.
-7. **Chart.** The whole chart is made from that file, or a stored one is used.
-8. **Sync.** The microphone is aligned against the song until a final lock.
-9. **Play.** The game joins the music.
+7. **Chart and Sync.** The chart is made (or a stored one used) while the microphone aligns against the decoded song.
+8. **Play.** Once both the chart and a final lock are ready, the game joins the music.
 
 Steps 2 to 5 happen in another app, and the session does not depend on how: it goes on from what it observes, a share
 arriving, a file appearing and decoding. `HostDriver` is the interface for those steps. The session says which is due,
@@ -96,12 +95,16 @@ track is protected; download a purchased MP3 instead"), not a route, and an MP3 
 ## From the audio to the game
 
 **Chart.** `RuntimeChartMaker` makes it, kept in the app's `ChartStore`. A chart made from the same bytes is used as it
-is, whether by a session or from the Library. On a Redmi K Pad a 3 to 5 minute song takes 60 to 130 s, so the music moves
-on meanwhile. That is expected: Sync runs after the chart exists, and the join uses wherever the music has got to.
+is, whether by a session or from the Library. Chart generation and reference building start independently once the
+complete audio is decoded. Capture still waits for Ensomi to be in front. Either may finish first: the game waits for
+both the chart and a final lock, and advances the lock's capture anchor to the current time when planning the join.
+Chart completion never restarts an active capture or turns a provisional position into a final lock. A chart retry
+restarts both tasks; restoring an interrupted chart retains an existing final anchor on the same monotonic timeline.
 
 **Sync.** Android gives the microphone to the app on top, so capture starts only with Ensomi in front, and a person
 sent away is asked to come back. `AudioRecord` runs at 48 kHz mono in float, from `UNPROCESSED` where the device has it,
-else `VOICE_RECOGNITION`. A block's time comes from `AudioRecord.getTimestamp` on the monotonic clock, not from when
+else `VOICE_RECOGNITION`. The capture trace includes maximum delivery lag, read interval and aligner push time,
+including the final partial second, to expose contention with generation. A block's time comes from `AudioRecord.getTimestamp` on the monotonic clock, not from when
 `read()` returned, which is used only while no timestamp is there, and the trace says which. The runtime does the
 alignment (`SyncReference`, `SyncSession`), against the mono PCM the chart was made from, so a reference time is a chart
 time and the file's MP3 lead needs no adding. Blocks are pushed from the capture thread, as the runtime asks, until the

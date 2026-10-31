@@ -10,6 +10,7 @@ import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.model.ModelState
 import io.ensomi.android.play.AmbientGame
 import io.ensomi.android.play.PlayResult
+import io.ensomi.runtime.RuntimeWorker
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,6 +70,7 @@ class RecognitionController private constructor(context: Context) {
     private var aligner: AmbientAligner? = null
     private var syncRun: SyncRun? = null
     private var syncGeneration = 0
+    private val referenceWorker = RuntimeWorker()
     private var decoded: Pair<String, DecodedSong>? = null
 
     @Volatile
@@ -315,13 +317,13 @@ class RecognitionController private constructor(context: Context) {
 
     private fun buildReference(audio: ReadyAudio) {
         closeSync()
-        val generation = ++syncGeneration
+        val generation = syncGeneration
         val kept = decoded?.takeIf { it.first == audio.file.path }?.second
         scope.launch {
             val started = SystemClock.elapsedRealtimeNanos()
             try {
                 val song = kept ?: probe.decode(audio.file)
-                val opened = RuntimeSync.port.open(song.samples, song.sampleRate)
+                val opened = referenceWorker.run { RuntimeSync.port.open(song.samples, song.sampleRate) }
                 val seconds = (SystemClock.elapsedRealtimeNanos() - started) / 1e9
                 post {
                     if (generation != syncGeneration) {
@@ -335,7 +337,7 @@ class RecognitionController private constructor(context: Context) {
             } catch (failure: Exception) {
                 Log.w(TAG, "The reference could not be built", failure)
                 val reason = failure.message ?: failure.javaClass.simpleName
-                post { feed(SessionEvent.ReferenceFailed(reason)) }
+                post { if (generation == syncGeneration) feed(SessionEvent.ReferenceFailed(reason)) }
             }
         }
     }
@@ -363,6 +365,7 @@ class RecognitionController private constructor(context: Context) {
     }
 
     private fun closeSync() {
+        syncGeneration++
         stopCapture()
         aligner?.close()
         aligner = null
@@ -420,6 +423,7 @@ class RecognitionController private constructor(context: Context) {
      * buffer holds the few milliseconds a search takes. Pushing stops at the first final lock.
      */
     private inner class SyncRun(private val target: AmbientAligner, private val capture: CapturePort) : CaptureSink {
+        private val runTrace = trace
         private var last: SyncReading? = null
         private var done = false
 
@@ -441,12 +445,12 @@ class RecognitionController private constructor(context: Context) {
                     done = true
                     logTruth(reading)
                 }
-                post { feed(SessionEvent.SyncUpdate(reading)) }
+                post { if (syncRun === this@SyncRun) feed(SessionEvent.SyncUpdate(reading)) }
             } catch (failure: Exception) {
                 Log.w(TAG, "The aligner failed", failure)
                 done = true
                 val reading = SyncReading(SyncState.FAILED, detail = failure.message ?: failure.javaClass.simpleName)
-                post { feed(SessionEvent.SyncUpdate(reading)) }
+                post { if (syncRun === this@SyncRun) feed(SessionEvent.SyncUpdate(reading)) }
             }
         }
 
@@ -459,11 +463,15 @@ class RecognitionController private constructor(context: Context) {
 
         override fun level(rmsDb: Double, peakDb: Double, stamps: String) {
             trace?.log("capture.stamps", mapOf("stamps" to stamps))
-            post { feed(SessionEvent.CaptureLevel(rmsDb, peakDb)) }
+            post { if (syncRun === this@SyncRun) feed(SessionEvent.CaptureLevel(rmsDb, peakDb)) }
+        }
+
+        override fun stopped(stamps: String) {
+            runTrace?.log("capture.stopped", mapOf("stamps" to stamps))
         }
 
         override fun failed(reason: String) {
-            post { feed(SessionEvent.CaptureFailed(reason)) }
+            post { if (syncRun === this@SyncRun) feed(SessionEvent.CaptureFailed(reason)) }
         }
     }
 

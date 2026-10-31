@@ -761,6 +761,7 @@ class SessionMachine private constructor(
         setStage(Stage.AUDIO, StageStatus.DONE, file.name)
         song?.songId?.let { effects += SessionEffect.Remember(it, file.path) }
         startChart(audio)
+        startSync()
     }
 
     private fun startChart(audio: ReadyAudio) {
@@ -783,7 +784,7 @@ class SessionMachine private constructor(
         clearFailure(Stage.CHART)
         state = state.copy(chart = event.chart)
         setStage(Stage.CHART, StageStatus.DONE, if (event.chart.stored) STORED else event.chart.noteCount.toString())
-        startSync()
+        joinIfReady()
     }
 
     private fun startSync() {
@@ -845,11 +846,18 @@ class SessionMachine private constructor(
             state = state.copy(lock = lock)
             setStage(Stage.SYNC, StageStatus.DONE, name)
             stopCapture()
-            join(lock)
+            joinIfReady()
         } else if (reading.state == SyncState.FAILED) {
             stopCapture()
             fail(FailureKind.SYNC_FAILED, Stage.SYNC, reading.detail)
         }
+    }
+
+    /** Chart generation and alignment finish independently. Only a final capture anchor can open play. */
+    private fun joinIfReady() {
+        val lock = state.lock ?: return
+        if (state.chart == null || !state.foreground || state.stage(Stage.PLAY).status != StageStatus.WAITING) return
+        join(lock)
     }
 
     private fun join(lock: LockAnchor) {
@@ -885,6 +893,7 @@ class SessionMachine private constructor(
         state = state.copy(foreground = front)
         if (front) {
             captureIfWanted()
+            joinIfReady()
             // Events are not delivered to a frozen process: what happened meanwhile is looked for.
             if (state.audio == null && state.stage(Stage.LISTEN).status == StageStatus.DONE) effects += SessionEffect.BuildIndex
         } else {
@@ -978,6 +987,7 @@ class SessionMachine private constructor(
                     resetFrom(Stage.CHART)
                     state = state.copy(chart = null, lock = null, joined = null)
                     startChart(audio)
+                    startSync()
                 }
             }
             Stage.SYNC -> {
@@ -1086,10 +1096,9 @@ class SessionMachine private constructor(
         effects += SessionEffect.StartListening
         effects += SessionEffect.BuildIndex
         val audio = state.audio
-        when {
-            audio == null -> Unit
-            state.stage(Stage.CHART).status == StageStatus.RUNNING -> startChart(audio)
-            state.stage(Stage.SYNC).status == StageStatus.RUNNING -> startSync()
+        if (audio != null) {
+            if (state.stage(Stage.CHART).status == StageStatus.RUNNING) startChart(audio)
+            if (state.stage(Stage.SYNC).status == StageStatus.RUNNING) startSync()
         }
     }
 
