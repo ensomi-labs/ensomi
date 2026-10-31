@@ -1,0 +1,668 @@
+Ensomi Android jitter — build round 2 — 2026-10-31
+
+HEAD: 842942e482be1baae5a48553b7a4f27a8649cd8d.
+VARIANT: 11abfa39d883f794fea55acc15a084cd0ebb12fa (origin/claude/android-jitter-canvas-variant).
+Branch: codex/android-jitter-b2.
+HEAD worktree: /Users/l/ensomi/ensomi--android-jitter-b2.
+VARIANT worktree: /Users/l/ensomi/ensomi--android-jitter-variant (detached).
+Only PlayfieldView.kt differs between the two revisions: the variant reverts the app-owned HardwareRenderer to lockHardwareCanvas.
+No app source, UI, repository scripts, or docs were changed. This report is the committed deliverable.
+
+Artifacts: /Users/l/ensomi/ensomi--android-jitter-b2/artifacts/jitter-b2
+The pre-existing artifacts symlink resolves to /Users/l/ensomi/ensomi/artifacts/jitter-b2.
+APKs: apks/{head,variant}/{app-debug.apk,app-debug-androidTest.apk,app-checks.apk}; SHA-256 hashes in apks/sha256.txt.
+
+Builds and environment
+
+HEAD command: ./gradlew assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint
+HEAD exact result: BUILD SUCCESSFUL in 46s
+130 JVM tests, 0 failures, 0 errors, 0 skipped.
+Lint: 0 errors, 1 warning. Exact finding:
+/Users/l/ensomi/ensomi--android-jitter-b2/gradle/libs.versions.toml:4: Warning: A newer version of com.android.application than 9.4.1 is available: 9.5.0 [AndroidGradlePluginVersion]
+agp = "9.4.1"
+      ~~~~~~~
+This is an advisory about the intentionally pinned toolchain, unchanged by the renderer variant. No other lint finding. No pin was changed.
+
+VARIANT command: ./gradlew assembleDebug assembleDebugAndroidTest assembleChecks
+VARIANT exact result: BUILD SUCCESSFUL in 14s
+VARIANT unit tests/lint were not requested or run.
+Both build logs include these non-fatal messages:
+Unable to strip the following libraries, packaging them as they are: libjnidispatch.so. Run with --info option to learn more.
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+HEAD Kotlin warning:
+w: file:///Users/l/ensomi/ensomi--android-jitter-b2/app/src/androidTest/kotlin/io/ensomi/android/checks/FramePacingCheck.kt:96:59 Expression is unused.
+VARIANT Kotlin warning:
+w: file:///Users/l/ensomi/ensomi--android-jitter-variant/app/src/androidTest/kotlin/io/ensomi/android/checks/FramePacingCheck.kt:96:59 Expression is unused.
+Complete logs: builds/head.log and builds/variant.log; lint and tests: builds/reports and builds/test-results.
+
+Both local.properties files contain:
+sdk.dir=/Users/l/Library/Android/sdk
+ensomi.runtime.aar=/Users/l/ensomi/ensomi-runtime--android-aar/build/android/ensomi-runtime.aar
+JAVA_HOME=/Applications/Android Studio.app/Contents/jbr/Contents/Home
+Runtime AAR SHA-256: 4ba0aff26a36de38cee602c34d0288d606bfc2ea77348c2d57b91599a82ca2bf
+Runtime worktree commit: affb60ade90af2fb6646e8e40d6e39cc17f298de. JNA pin: 5.19.1.
+
+AVD ensomi-36, emulator-5554, arm64, 60.0 Hz, booted with:
+emulator -avd ensomi-36 -no-window -gpu host -no-snapshot -no-boot-anim -no-audio
+Waited for sys.boot_completed=1. Emulator output identifies Android Emulator OpenGL ES Translator (Apple M5), OpenGL ES 3.0 (4.1 Metal - 91.7).
+Exact emulator startup warning:
+WARNING      | API level '36' requires GLES 3.1, please consider using 'software' rendering mode or GuestAngle for better compatibility and stability. Hardware rendering for OpenGL is deprecated on macOS.
+The requested host GPU setting was retained. These are AVD comparisons, not phone timing or evidence about actual displayed-frame loss.
+
+Initial adb devices was empty. Every device operation used adb -s emulator-5554, with ANDROID_SERIAL=emulator-5554 exported before the measurement runner. No physical phone was accessed. Gradle was stopped before measurements. No builds or trace analysis ran during measurement. Existing macOS background services remained; variant-1's starting host snapshot showed mds_stores 41.7% and mds 21.4% CPU, so the host was not absolutely idle. Snapshots for all runs are saved as host-processes.txt.
+Both packages were uninstalled on each V/H switch, followed by debug APK and test APK installation with -r -t, then checks over debug for checks measurements. The frame check dismisses an available Got it prompt before the measurement period. All 16 scenario rows report pauses=[].
+All eight pacing instrumentations and all six runtime instrumentations returned OK (1 test). Performance targets were not met: all 16 pacing rows have meetsTarget=false (workMsP99 >3 ms), and all six runtime rows have underOneMsPerFrameAtP99=false. These checks report timing rather than asserting the performance targets. Every step cleared logcat first, saved playfield.log, full logcat and crash log, pulled the phone-checks directory, and then deleted that directory on the emulator. No instrumentation failures or FATAL EXCEPTION were found in the saved instrumentation/crash logs.
+
+Question 1 — Does the app-owned HardwareRenderer block more?
+
+In this alternating AVD sample, yes: HEAD spent much more time in long posts and finished late more often. It was not just a longer wait caused by starting the post earlier while preserving the same completion time. HEAD-1 flat and HEAD-3 at 40 degrees had sustained roughly one-refresh posting delays: postNanos medians 15,268,667 and 15,818,937.5 ns; done-minus-vsync medians 19,901,500 and 20,094,787 ns. Their median posting start was 4,192,667 and 4,213,981.5 ns after vsync, later than the corresponding variants' 2,079,891 and 2,101,527 ns. The variant also had a shorter sustained-delay episode in its first flat run.
+
+After the first 5 s, HEAD had 4,256 posts >8 ms and 2,013 >16 ms; VARIANT had 593 and 291. Across the test's own summary windows, HEAD had 4,439 overruns / 4,438 late frames versus VARIANT's 775 / 775. Pooled median completion was 3,883,870 ns for HEAD versus 3,548,379 ns for VARIANT. This difference is dominated by intermittent sustained-delay episodes, not a uniform fixed overhead: in most later steady scenarios the posting medians were similar. HEAD's 40-degree maximum work was 11.559, 9.308, 25.807, 11.238 ms; the round-1 pattern of a 20+ ms frame in most HEAD runs did not reproduce here.
+
+All scenario fps values still round to 60.0, and missed-vsync counters total only 4 for HEAD and 2 for VARIANT. Therefore the evidence shows longer synchronous posting and later completion in this sample, without establishing a corresponding loss of displayed frames. The host/GLES environment and run-to-run variation limit causal attribution beyond this comparison. It does not establish phone behavior or explain why the renderer entered the delayed phase.
+
+Metric caveat: VARIANT recordNanos starts after lockHardwareCanvas, whereas HEAD's includes target.begin and recording. VARIANT syncResult is a constant zero; HEAD records HardwareRenderer's result. All HEAD results were zero, but VARIANT's zero count does not prove HWUI success. FPS and percentiles are not additive; build totals below sum counters and pool CSV rows for quantiles.
+
+Per-run JSON values, unchanged. The test excludes the first 2 s from these statistics.
+
+| run | scenario | fps | missedVsyncs | overranFrames | lateFrames | workMsP50 | workMsP99 | workMsMax |
+|---|---|---|---|---|---|---|---|---|
+| variant-1 | pacing-flat | 60.0 | 1 | 762 | 762 | 2.335 | 20.269 | 46.376 |
+| variant-1 | pacing | 60.0 | 0 | 3 | 3 | 1.632 | 5.587 | 19.118 |
+| head-1 | pacing-flat | 60.0 | 2 | 2127 | 2126 | 16.077 | 21.425 | 35.7 |
+| head-1 | pacing | 60.0 | 0 | 1 | 1 | 2.139 | 6.09 | 11.559 |
+| variant-2 | pacing-flat | 60.0 | 0 | 2 | 2 | 2.24 | 5.811 | 25.98 |
+| variant-2 | pacing | 60.0 | 1 | 0 | 0 | 2.152 | 5.762 | 9.002 |
+| head-2 | pacing-flat | 60.0 | 1 | 2 | 2 | 2.161 | 5.683 | 18.777 |
+| head-2 | pacing | 60.0 | 1 | 0 | 0 | 2.208 | 5.683 | 9.308 |
+| variant-3 | pacing-flat | 60.0 | 0 | 3 | 3 | 2.281 | 5.917 | 25.101 |
+| variant-3 | pacing | 60.0 | 0 | 1 | 1 | 2.155 | 5.927 | 9.894 |
+| head-3 | pacing-flat | 60.0 | 0 | 2 | 2 | 2.236 | 5.975 | 26.165 |
+| head-3 | pacing | 60.0 | 0 | 2305 | 2305 | 16.29 | 21.555 | 25.807 |
+| variant-4 | pacing-flat | 60.0 | 0 | 3 | 3 | 2.223 | 5.854 | 31.99 |
+| variant-4 | pacing | 60.0 | 0 | 1 | 1 | 2.148 | 5.659 | 16.328 |
+| head-4 | pacing-flat | 60.0 | 0 | 2 | 2 | 1.387 | 4.527 | 31.282 |
+| head-4 | pacing | 60.0 | 0 | 0 | 0 | 2.155 | 5.779 | 11.238 |
+
+CSV rows with vsyncNanos >= first vsyncNanos + 5,000,000,000. Medians use the midpoint for even counts. P99 uses sorted[floor((N-1)*0.99)], matching the test quantile. All durations in this table are ns, exactly; pooled values use every retained row, not averages of medians.
+
+| run | scenario | rows | recordNanosMedian | recordNanosP99 | postNanosMedian | postNanosP99 | doneMinusVsyncMedian | postOver8ms | postOver16ms | nonzeroSync |
+|---|---|---|---|---|---|---|---|---|---|---|
+| variant-1 | pacing-flat | 2625 | 166625 | 750000 | 1456500 | 19300458 | 3646431 | 582 | 287 | 0 |
+| variant-1 | pacing | 2619 | 189916 | 783917 | 771209 | 4816375 | 3065947 | 3 | 1 | 0 |
+| head-1 | pacing-flat | 2619 | 193791 | 784500 | 15268667 | 20973834 | 19901500 | 1946 | 868 | 0 |
+| head-1 | pacing | 2619 | 207292 | 697625 | 1401417 | 5268417 | 3491564 | 1 | 0 | 0 |
+| variant-2 | pacing-flat | 2627 | 185792 | 805375 | 1424583 | 4988625 | 3597307 | 3 | 1 | 0 |
+| variant-2 | pacing | 2618 | 189333.5 | 797000 | 1440729.5 | 5022042 | 3471188.5 | 0 | 0 | 0 |
+| head-2 | pacing-flat | 2619 | 206417 | 970875 | 1373500 | 4867500 | 3553379 | 2 | 2 | 0 |
+| head-2 | pacing | 2618 | 216188.0 | 856459 | 1479541.5 | 4910917 | 3582018.0 | 1 | 0 | 0 |
+| variant-3 | pacing-flat | 2623 | 205167 | 891958 | 1454458 | 5179458 | 3801379 | 2 | 1 | 0 |
+| variant-3 | pacing | 2620 | 189020.5 | 755625 | 1461500.0 | 5175459 | 3714975.5 | 1 | 0 | 0 |
+| head-3 | pacing-flat | 2621 | 217084 | 805791 | 1422500 | 4924958 | 3673115 | 2 | 1 | 0 |
+| head-3 | pacing | 2618 | 174812.5 | 567833 | 15818937.5 | 20864708 | 20094787.0 | 2300 | 1141 | 0 |
+| variant-4 | pacing-flat | 2623 | 191042 | 820042 | 1399292 | 4920708 | 3560942 | 1 | 1 | 0 |
+| variant-4 | pacing | 2628 | 199854.0 | 693958 | 1414520.5 | 4954167 | 3471957.5 | 1 | 0 | 0 |
+| head-4 | pacing-flat | 2618 | 224270.5 | 860000 | 507833.0 | 3821958 | 2992244.5 | 1 | 1 | 0 |
+| head-4 | pacing | 2631 | 224875 | 733584 | 1412208 | 4865417 | 3573553 | 3 | 0 | 0 |
+| variant pooled | all | 20983 | 189167 | 805208 | 1392709 | 16419541 | 3548379 | 593 | 291 | 0 |
+| head pooled | all | 20963 | 207333 | 806459 | 1527750 | 19186125 | 3883870 | 4256 | 2013 | 0 |
+
+Totals of the reported JSON counters (both scenarios, all four runs):
+
+| build | frames | missedVsyncs | overranFrames | lateFrames |
+|---|---|---|---|---|
+| variant | 22423 | 2 | 775 | 775 |
+| head | 22403 | 4 | 4439 | 4438 |
+
+Supplemental posting phase check. Same CSV filter: >= first vsync + 5 s. Values are exact ns medians.
+
+| run | scenario | start minus vsync | post start minus vsync | done minus vsync |
+|---|---|---|---|---|
+| variant-1 | pacing-flat | 1354165 | 2079891 | 3646431 |
+| variant-1 | pacing | 1285731 | 2014780 | 3065947 |
+| head-1 | pacing-flat | 3465721 | 4192667 | 19901500 |
+| head-1 | pacing | 1225044 | 1925416 | 3491564 |
+| variant-2 | pacing-flat | 1268297 | 2048607 | 3597307 |
+| variant-2 | pacing | 1228944.5 | 1908935.0 | 3471188.5 |
+| head-2 | pacing-flat | 1280177 | 2082530 | 3553379 |
+| head-2 | pacing | 1261121.5 | 1984852.5 | 3582018.0 |
+| variant-3 | pacing-flat | 1355086 | 2204710 | 3801379 |
+| variant-3 | pacing | 1356184.0 | 2101527.0 | 3714975.5 |
+| head-3 | pacing-flat | 1312132 | 2119736 | 3673115 |
+| head-3 | pacing | 3618259.0 | 4213981.5 | 20094787.0 |
+| variant-4 | pacing-flat | 1255639 | 2061183 | 3560942 |
+| variant-4 | pacing | 1221002.5 | 1932581.5 | 3471957.5 |
+| head-4 | pacing-flat | 1398622.0 | 2236104.0 | 2992244.5 |
+| head-4 | pacing | 1297242 | 2029893 | 3573553 |
+
+Question 2 — What is the long stall?
+
+All six traces identify the approximately 200 ms stall as an allocation waiting for ART background concurrent mark-compact GC to complete. In every trace the worker has a GC: Wait For Completion Alloc slice, a roughly 196–199 ms Sleeping interval, and a HeapTaskDaemon wakeup at GC completion. The collector is almost continuously on CPU during that collection, with substantial root/mark-stack scanning, reference processing, and compaction. This is not first-use JIT or a long JNA monitor wait in these captures. It occurs in all three checks runs too.
+
+Short JNA Cleaner monitor contention does exist, with Cleaner.register waiting against Cleaner.remove / the cleaner monitor. The longest such worker slice per run is listed below; all are sub-millisecond. No contention/monitor slice on the worker is >=5 ms in any of these six traces. Thus the suggested JNA-cleanup monitor cause is not confirmed for the long stall. The checks traces have additional 10–13 ms FullSuspendCheck waits overlapping GC marking pauses; two are awakened by JNA Cleaner, but the overlapping ART slices identify GC suspension, and a wakeup by JNA Cleaner does not identify it as a lock owner.
+
+The trace does not provide a Java lock object/owner for GC: Wait For Completion Alloc, and blocked_function is NULL in all selected state rows. There is no observed long monitor lock to name. The relevant GC thread, wakeup, and exact overlapping slices are reported below. The short monitor slices do name JNA Cleaner and Cleaner.register/remove explicitly.
+
+These captures name the AVD tight-loop stall. They do not prove that the phone's separately observed 60–93 ms gameplay stalls have the same cause, nor identify which allocation sites account for the GC pressure. No phone was touched.
+
+Exact runtime-call-cost values (ms; worstMsAndFrame text unchanged). All runs have 27,200 frames:
+
+| run | worstMsAndFrame | frameMsMax | frameMsP99 |
+|---|---|---|---|
+| runtime-debug-1 | advance 1.159 at 2593; visible 0.914 at 12524; geometry 196.457 at 2353; feedback 17.919 at 628; score 9.635 at 261 | 197.186 | 2.299 |
+| runtime-debug-2 | advance 0.796 at 4292; visible 0.782 at 10029; geometry 57.998 at 2061; feedback 198.169 at 2353; score 9.028 at 261 | 198.71 | 2.27 |
+| runtime-debug-3 | advance 4.936 at 2466; visible 0.733 at 25348; geometry 199.991 at 2353; feedback 16.718 at 628; score 8.891 at 261 | 201.231 | 2.278 |
+| runtime-checks-1 | advance 1.156 at 19344; visible 0.948 at 22599; geometry 24.045 at 2061; feedback 199.768 at 2363; score 1.533 at 261 | 200.065 | 1.098 |
+| runtime-checks-2 | advance 1.084 at 18897; visible 8.84 at 3705; geometry 199.2 at 2366; feedback 10.318 at 3187; score 9.458 at 2591 | 199.459 | 1.12 |
+| runtime-checks-3 | advance 8.529 at 3365; visible 199.665 at 2366; geometry 24.634 at 2061; feedback 5.636 at 3628; score 1.359 at 261 | 200.117 | 1.118 |
+
+GC attribution (exact ms):
+
+| run | worker tid | GC wait slice | Sleeping | waker | background GC wall | collector Running |
+|---|---|---|---|---|---|---|
+| runtime-debug-1 | 5786 | 195.979708 | 195.829291 | HeapTaskDaemon (5775) | 199.241167 | 198.897416 |
+| runtime-debug-2 | 5859 | 197.780583 | 197.631833 | HeapTaskDaemon (5848) | 200.778166 | 200.762999 |
+| runtime-debug-3 | 5943 | 199.100208 | 199.021709 | HeapTaskDaemon (5931) | 202.29925 | 202.085082 |
+| runtime-checks-1 | 6088 | 199.505041 | 199.240292 | HeapTaskDaemon (6077) | 200.810791 | 200.41396 |
+| runtime-checks-2 | 6174 | 198.826667 | 198.723584 | HeapTaskDaemon (6163) | 200.043126 | 200.038584 |
+| runtime-checks-3 | 6246 | 199.546166 | 199.413417 | HeapTaskDaemon (6235) | 200.797709 | 200.478042 |
+
+Largest short JNA Cleaner monitor contention on the worker (exact ms, full recorded name):
+
+| run | duration | slice |
+|---|---|---|
+| runtime-debug-1 | 0.155834 | monitor contention with owner JNA Cleaner (5787) at boolean com.sun.jna.internal.Cleaner.remove(com.sun.jna.internal.Cleaner$CleanerRef)(Cleaner.java:-1) waiters=0 blocking from com.sun.jna.internal.Cleaner$Cleanable com.sun.jna.internal.Cleaner.register(java.lang.Object, java.lang.Runnable)(Cleaner.java:-1) |
+| runtime-debug-2 | 0.218375 | monitor contention with owner JNA Cleaner (5860) at boolean com.sun.jna.internal.Cleaner.remove(com.sun.jna.internal.Cleaner$CleanerRef)(Cleaner.java:-1) waiters=0 blocking from com.sun.jna.internal.Cleaner$Cleanable com.sun.jna.internal.Cleaner.register(java.lang.Object, java.lang.Runnable)(Cleaner.java:-1) |
+| runtime-debug-3 | 0.386 | monitor contention with owner JNA Cleaner (5944) at boolean com.sun.jna.internal.Cleaner.remove(com.sun.jna.internal.Cleaner$CleanerRef)(Cleaner.java:-1) waiters=0 blocking from com.sun.jna.internal.Cleaner$Cleanable com.sun.jna.internal.Cleaner.register(java.lang.Object, java.lang.Runnable)(Cleaner.java:-1) |
+| runtime-checks-1 | 0.181792 | monitor contention with owner JNA Cleaner (6089) waiters=0 blocking from com.sun.jna.internal.Cleaner$Cleanable com.sun.jna.internal.Cleaner.register(java.lang.Object, java.lang.Runnable)(Cleaner.java:-1) |
+| runtime-checks-2 | 0.650375 | monitor contention with owner JNA Cleaner (6175) at boolean com.sun.jna.internal.Cleaner.remove(com.sun.jna.internal.Cleaner$CleanerRef)(Cleaner.java:-1) waiters=0 blocking from com.sun.jna.internal.Cleaner$Cleanable com.sun.jna.internal.Cleaner.register(java.lang.Object, java.lang.Runnable)(Cleaner.java:-1) |
+| runtime-checks-3 | 0.28675 | monitor contention with owner JNA Cleaner (6247) waiters=0 blocking from com.sun.jna.internal.Cleaner$Cleanable com.sun.jna.internal.Cleaner.register(java.lang.Object, java.lang.Runnable)(Cleaner.java:-1) |
+
+Requested daemon CPU totals (scheduled Running ms):
+
+| run | window ms | HeapTaskDaemon | Jit thread pool | ReferenceQueueDaemon | FinalizerDaemon | JNA Cleaner |
+|---|---|---|---|---|---|---|
+| runtime-debug-1 | 21184.29976 | 6995.879979 | 92.954036 | 148.405018 | 15.051626 | 5156.35195 |
+| runtime-debug-2 | 20793.63726 | 6910.643979 | 92.261704 | 152.535574 | 14.686864 | 5092.944859 |
+| runtime-debug-3 | 21207.074093 | 7046.912204 | 91.549669 | 152.817546 | 15.599084 | 5141.434421 |
+| runtime-checks-1 | 7984.962128 | 4350.727441 | 33.128949 | 127.322455 | 6.396784 | 3731.365711 |
+| runtime-checks-2 | 7981.184087 | 4485.545083 | 30.365959 | 151.463041 | 6.393833 | 3905.097892 |
+| runtime-checks-3 | 7951.694921 | 4399.454964 | 31.108078 | 154.998676 | 6.025621 | 3820.262277 |
+
+CPU window limitation: the unchanged test has no marker around the measured loop. These exact totals use the fresh RuntimeWorker's first through last scheduled CPU interval; that includes loading, the 500-iteration warmup, the complete measured loop, and cleanup. Exact loop-only totals cannot be isolated from this trace. ReferenceQueueDaemon is recorded under the truncated kernel name ReferenceQueueD. Both the window endpoints and each daemon tid are in the per-trace tables below. The selected runtime thread is verified as the busiest process thread by total scheduled CPU in every trace.
+
+Perfetto configuration (same as round 1, duration 40 s and binder_driver added):
+
+buffers { size_kb: 131072 fill_policy: RING_BUFFER }
+data_sources { config { name: "linux.ftrace" ftrace_config {
+  atrace_categories: "gfx" atrace_categories: "view" atrace_categories: "dalvik" atrace_categories: "sched" atrace_categories: "binder_driver"
+  atrace_apps: "io.ensomi.android"
+  ftrace_events: "sched/sched_switch" ftrace_events: "sched/sched_wakeup" ftrace_events: "sched/sched_blocked_reason"
+  ftrace_events: "task/task_newtask" ftrace_events: "task/task_rename"
+} } }
+data_sources { config { name: "linux.process_stats" process_stats_config { scan_all_processes_on_start: true } } }
+duration_ms: 40000
+
+The config was pushed to /data/misc/perfetto-configs/ensomi-jitter-b2.cfg and perfetto used --background-wait --txt. Every run force-stopped the app before instrumentation, and all six have distinct process IDs. Traces are in runs/runtime-{debug,checks}-{1,2,3}/trace.pftrace. The corresponding queries.sql, trace-analysis.json/txt, trace-audit.json, setup-errors.txt and full logs preserve the evidence.
+
+All six traces report ftrace_setup_errors=41 for unavailable kernel/vendor events. No nonzero lost/overrun statistic was returned by the saved stats query. The requested sched_switch, sched_wakeup and sched_blocked_reason are not in the unavailable list. Exact unavailable-event output (identical in all six):
+
+unknown_ftrace_events: ['dpu/disp_dpu_underrun', 'dpu/tracing_mark_write', 'g2d/g2d_perf_update_qos', 'g2d/tracing_mark_write', 'mali/tracing_mark_write', 'mdss/mdp_cmd_kickoff', 'mdss/mdp_cmd_pingpong_done', 'mdss/mdp_cmd_readptr_done', 'mdss/mdp_cmd_release_bw', 'mdss/mdp_cmd_wait_pingpong', 'mdss/mdp_commit', 'mdss/mdp_compare_bw', 'mdss/mdp_misr_crc', 'mdss/mdp_mixer_update', 'mdss/mdp_perf_prefill_calc', 'mdss/mdp_perf_set_ot', 'mdss/mdp_perf_set_panic_luts', 'mdss/mdp_perf_set_qos_luts', 'mdss/mdp_perf_set_wm_levels', 'mdss/mdp_perf_update_bus', 'mdss/mdp_sspp_change', 'mdss/mdp_sspp_set', 'mdss/mdp_trace_counter', 'mdss/mdp_video_underrun_done', 'mdss/rotator_bw_ao_as_context', 'mdss/tracing_mark_write', 'panel/panel_write_generic', 'sched/sched_cpu_hotplug', 'scm/scm_call_end', 'scm/scm_call_start', 'sde/sde_cmd_release_bw', 'sde/sde_encoder_underrun', 'sde/sde_evtlog', 'sde/sde_perf_calc_crtc', 'sde/sde_perf_crtc_update', 'sde/sde_perf_set_danger_luts', 'sde/sde_perf_set_ot', 'sde/sde_perf_set_qos_luts', 'sde/sde_perf_update_bus', 'sde/tracing_mark_write', 'systrace/0']
+
+Detailed trace tables
+
+Every non-Running thread-state interval >=10 ms within the worker window follows, with every process-thread slice of full duration >=5 ms intersecting it. The slice tables include the runner/test parent slices as requested, even though those parents do not identify the blocking cause. All worker slices >=5 ms are listed separately so ART/dalvik slices that stayed Running cannot be missed. Atrace B/E packets do not preserve a category label; those worker slices are identified by their recorded ART names. Slice IDs refer to that trace's Perfetto database. State S means Sleeping. Times are exact integer ns converted to ms without rounding.
+
+runtime-debug-1
+
+Process io.ensomi.android pid 5770; busiest thread Ensomi runtime tid 5786, Running 19885.041403 ms.
+Analysis window: first through last scheduled CPU interval of this fresh RuntimeWorker: [857853862992, 879038162752) ns; duration 21184.29976 ms. This includes runtime loading, the 500-iteration warmup, measured loop, and cleanup. The app has no trace markers delimiting the measured loop, so exact loop-only daemon CPU times cannot be isolated. This conservative window contains the whole loop.
+All relative starts and durations below are exact ms. Non-Running intervals are individual thread_state rows, not merged. Parent/child slice durations overlap and must not be added. NULL means the trace did not record the field. Waker uses this state or the immediately following Runnable state, where Perfetto records the wakeup.
+
+Non-Running intervals >=10 ms:
+
+| interval | start | duration | state | blocked_function | waker |
+|---|---|---|---|---|---|
+| 1 | 1461.544834 | 195.829291 | S | NULL | HeapTaskDaemon tid 5775 (io.ensomi.android) |
+
+Every process-thread slice >=5 ms overlapping each interval:
+
+Interval 1:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 14910 | roidJUnitRunner (5784) | None | AndroidJUnitRunner#onStart | -17.227417 | 21210.773385 | 195.829291 |
+| 15964 | roidJUnitRunner (5784) | None | execute tests | -8.804084 | 21202.349385 | 195.829291 |
+| 16233 | roidJUnitRunner (5784) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -5.807334 | 21196.809969 | 195.829291 |
+| 23224 | HeapTaskDaemon (5775) | None | Background concurrent mark compact GC | 1458.126 | 199.241167 | 195.822333 |
+| 23233 | HeapTaskDaemon (5775) | None | MarkingPhase | 1458.249209 | 114.077208 | 110.781583 |
+| 23235 | HeapTaskDaemon (5775) | None | MarkRoots | 1458.314542 | 92.220208 | 88.989916 |
+| 23236 | HeapTaskDaemon (5775) | None | MarkRootsCheckpoint | 1458.314959 | 91.30525 | 88.075375 |
+| 23255 | HeapTaskDaemon (5775) | None | ProcessMarkStack | 1458.362125 | 91.257375 | 88.074666 |
+| 23256 | Ensomi runtime (5786) | None | GC: Wait For Completion Alloc | 1461.541334 | 195.979708 | 195.829291 |
+| 23313 | HeapTaskDaemon (5775) | None | PreCleanCards | 1551.1955 | 21.124875 | 21.124875 |
+| 23339 | HeapTaskDaemon (5775) | None | ScanGrayAllocSpaceObjects | 1551.334417 | 20.964583 | 20.964583 |
+| 23432 | HeapTaskDaemon (5775) | None | ReclaimPhase | 1572.481417 | 49.781125 | 49.781125 |
+| 23433 | HeapTaskDaemon (5775) | None | ProcessReferences | 1572.481875 | 49.593209 | 49.593209 |
+| 23478 | HeapTaskDaemon (5775) | None | CompactionPhase | 1624.440292 | 32.701667 | 32.701667 |
+| 23479 | HeapTaskDaemon (5775) | None | CompactMovingSpace | 1624.440667 | 32.403292 | 32.403292 |
+
+Worker ART/dalvik and all other slices >=5 ms, including those that stayed Running (atrace B/E packets have no category field):
+
+| id | slice | start | duration |
+|---|---|---|---|
+| 23256 | GC: Wait For Completion Alloc | 1461.541334 | 195.979708 |
+
+Requested daemon scheduled CPU within the conservative worker window:
+
+| thread | tid | Running ms |
+|---|---|---|
+| FinalizerDaemon | 5777 | 15.051626 |
+| HeapTaskDaemon | 5775 | 6995.879979 |
+| JNA Cleaner | 5787 | 5156.35195 |
+| Jit thread pool | 5774 | 92.954036 |
+| ReferenceQueueD | 5776 | 148.405018 |
+
+Trace stats:
+
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+
+
+runtime-debug-2
+
+Process io.ensomi.android pid 5843; busiest thread Ensomi runtime tid 5859, Running 19501.82767 ms.
+Analysis window: first through last scheduled CPU interval of this fresh RuntimeWorker: [900198527928, 920992165188) ns; duration 20793.63726 ms. This includes runtime loading, the 500-iteration warmup, measured loop, and cleanup. The app has no trace markers delimiting the measured loop, so exact loop-only daemon CPU times cannot be isolated. This conservative window contains the whole loop.
+All relative starts and durations below are exact ms. Non-Running intervals are individual thread_state rows, not merged. Parent/child slice durations overlap and must not be added. NULL means the trace did not record the field. Waker uses this state or the immediately following Runnable state, where Perfetto records the wakeup.
+
+Non-Running intervals >=10 ms:
+
+| interval | start | duration | state | blocked_function | waker |
+|---|---|---|---|---|---|
+| 1 | 1419.127001 | 197.631833 | S | NULL | HeapTaskDaemon tid 5848 (io.ensomi.android) |
+
+Every process-thread slice >=5 ms overlapping each interval:
+
+Interval 1:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 12583 | roidJUnitRunner (5857) | None | AndroidJUnitRunner#onStart | -17.543208 | 20818.686177 | 197.631833 |
+| 13596 | roidJUnitRunner (5857) | None | execute tests | -9.279666 | 20810.422051 | 197.631833 |
+| 13903 | roidJUnitRunner (5857) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -6.1405 | 20805.882594 | 197.631833 |
+| 20451 | HeapTaskDaemon (5848) | None | Background concurrent mark compact GC | 1415.972918 | 200.778166 | 197.624083 |
+| 20453 | HeapTaskDaemon (5848) | None | MarkingPhase | 1415.983959 | 99.758 | 96.614958 |
+| 20455 | HeapTaskDaemon (5848) | None | MarkRoots | 1416.043668 | 77.905041 | 74.821708 |
+| 20456 | HeapTaskDaemon (5848) | None | MarkRootsCheckpoint | 1416.044084 | 76.964417 | 73.8815 |
+| 20475 | HeapTaskDaemon (5848) | None | ProcessMarkStack | 1416.089543 | 76.918083 | 73.880625 |
+| 20483 | Ensomi runtime (5859) | None | GC: Wait For Completion Alloc | 1419.110626 | 197.780583 | 197.631833 |
+| 20533 | HeapTaskDaemon (5848) | None | PreCleanCards | 1494.543209 | 21.192292 | 21.192292 |
+| 20559 | HeapTaskDaemon (5848) | None | ScanGrayAllocSpaceObjects | 1494.679501 | 21.033333 | 21.033333 |
+| 20659 | HeapTaskDaemon (5848) | None | ReclaimPhase | 1515.910668 | 65.12375 | 65.12375 |
+| 20660 | HeapTaskDaemon (5848) | None | ProcessReferences | 1515.911043 | 64.960583 | 64.960583 |
+| 20712 | HeapTaskDaemon (5848) | None | CompactionPhase | 1583.253751 | 33.258958 | 33.258958 |
+| 20713 | HeapTaskDaemon (5848) | None | CompactMovingSpace | 1583.254251 | 32.94175 | 32.94175 |
+
+Worker ART/dalvik and all other slices >=5 ms, including those that stayed Running (atrace B/E packets have no category field):
+
+| id | slice | start | duration |
+|---|---|---|---|
+| 20483 | GC: Wait For Completion Alloc | 1419.110626 | 197.780583 |
+
+Requested daemon scheduled CPU within the conservative worker window:
+
+| thread | tid | Running ms |
+|---|---|---|
+| FinalizerDaemon | 5850 | 14.686864 |
+| HeapTaskDaemon | 5848 | 6910.643979 |
+| JNA Cleaner | 5860 | 5092.944859 |
+| Jit thread pool | 5847 | 92.261704 |
+| ReferenceQueueD | 5849 | 152.535574 |
+
+Trace stats:
+
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+
+
+runtime-debug-3
+
+Process io.ensomi.android pid 5926; busiest thread Ensomi runtime tid 5943, Running 19895.713295 ms.
+Analysis window: first through last scheduled CPU interval of this fresh RuntimeWorker: [942607593324, 963814667417) ns; duration 21207.074093 ms. This includes runtime loading, the 500-iteration warmup, measured loop, and cleanup. The app has no trace markers delimiting the measured loop, so exact loop-only daemon CPU times cannot be isolated. This conservative window contains the whole loop.
+All relative starts and durations below are exact ms. Non-Running intervals are individual thread_state rows, not merged. Parent/child slice durations overlap and must not be added. NULL means the trace did not record the field. Waker uses this state or the immediately following Runnable state, where Perfetto records the wakeup.
+
+Non-Running intervals >=10 ms:
+
+| interval | start | duration | state | blocked_function | waker |
+|---|---|---|---|---|---|
+| 1 | 1455.8215 | 199.021709 | S | NULL | HeapTaskDaemon tid 5931 (io.ensomi.android) |
+
+Every process-thread slice >=5 ms overlapping each interval:
+
+Interval 1:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 12654 | roidJUnitRunner (5941) | None | AndroidJUnitRunner#onStart | -16.841334 | 21233.244844 | 199.021709 |
+| 13677 | roidJUnitRunner (5941) | None | execute tests | -8.539375 | 21224.941135 | 199.021709 |
+| 13922 | roidJUnitRunner (5941) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -5.991959 | 21220.425885 | 199.021709 |
+| 20429 | HeapTaskDaemon (5931) | None | Background concurrent mark compact GC | 1452.53725 | 202.29925 | 199.015 |
+| 20431 | HeapTaskDaemon (5931) | None | MarkingPhase | 1452.551917 | 100.261042 | 96.991459 |
+| 20433 | HeapTaskDaemon (5931) | None | MarkRoots | 1452.624459 | 78.202375 | 75.005334 |
+| 20434 | HeapTaskDaemon (5931) | None | MarkRootsCheckpoint | 1452.624875 | 77.291084 | 74.094459 |
+| 20454 | HeapTaskDaemon (5931) | None | ProcessMarkStack | 1452.673542 | 77.241375 | 74.093417 |
+| 20455 | Ensomi runtime (5943) | None | GC: Wait For Completion Alloc | 1455.817042 | 199.100208 | 199.021709 |
+| 20512 | HeapTaskDaemon (5931) | None | PreCleanCards | 1531.461834 | 21.345625 | 21.345625 |
+| 20539 | HeapTaskDaemon (5931) | None | ScanGrayAllocSpaceObjects | 1531.614292 | 21.171167 | 21.171167 |
+| 20632 | HeapTaskDaemon (5931) | None | ReclaimPhase | 1552.98275 | 65.7265 | 65.7265 |
+| 20633 | HeapTaskDaemon (5931) | None | ProcessReferences | 1552.983209 | 65.556333 | 65.556333 |
+| 20685 | HeapTaskDaemon (5931) | None | CompactionPhase | 1620.94525 | 33.65975 | 33.65975 |
+| 20686 | HeapTaskDaemon (5931) | None | CompactMovingSpace | 1620.945667 | 33.332542 | 33.332542 |
+
+Worker ART/dalvik and all other slices >=5 ms, including those that stayed Running (atrace B/E packets have no category field):
+
+| id | slice | start | duration |
+|---|---|---|---|
+| 20455 | GC: Wait For Completion Alloc | 1455.817042 | 199.100208 |
+
+Requested daemon scheduled CPU within the conservative worker window:
+
+| thread | tid | Running ms |
+|---|---|---|
+| FinalizerDaemon | 5933 | 15.599084 |
+| HeapTaskDaemon | 5931 | 7046.912204 |
+| JNA Cleaner | 5944 | 5141.434421 |
+| Jit thread pool | 5930 | 91.549669 |
+| ReferenceQueueD | 5932 | 152.817546 |
+
+Trace stats:
+
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+
+
+runtime-checks-1
+
+Process io.ensomi.android pid 6072; busiest thread Ensomi runtime tid 6088, Running 7212.805367 ms.
+Analysis window: first through last scheduled CPU interval of this fresh RuntimeWorker: [985311812386, 993296774514) ns; duration 7984.962128 ms. This includes runtime loading, the 500-iteration warmup, measured loop, and cleanup. The app has no trace markers delimiting the measured loop, so exact loop-only daemon CPU times cannot be isolated. This conservative window contains the whole loop.
+All relative starts and durations below are exact ms. Non-Running intervals are individual thread_state rows, not merged. Parent/child slice durations overlap and must not be added. NULL means the trace did not record the field. Waker uses this state or the immediately following Runnable state, where Perfetto records the wakeup.
+
+Non-Running intervals >=10 ms:
+
+| interval | start | duration | state | blocked_function | waker |
+|---|---|---|---|---|---|
+| 1 | 517.624583 | 199.240292 | S | NULL | HeapTaskDaemon tid 6077 (io.ensomi.android) |
+| 2 | 800.655 | 12.390292 | S | NULL | JNA Cleaner tid 6089 (io.ensomi.android) |
+
+Every process-thread slice >=5 ms overlapping each interval:
+
+Interval 1:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1354 | roidJUnitRunner (6086) | None | AndroidJUnitRunner#onStart | -5.046084 | 7995.493004 | 199.240292 |
+| 1689 | roidJUnitRunner (6086) | None | execute tests | -2.162459 | 7992.608962 | 199.240292 |
+| 1736 | roidJUnitRunner (6086) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -1.341542 | 7991.527629 | 199.240292 |
+| 4209 | HeapTaskDaemon (6077) | None | Background concurrent mark compact GC | 516.047792 | 200.810791 | 199.234 |
+| 4211 | HeapTaskDaemon (6077) | None | MarkingPhase | 516.060708 | 97.658 | 96.094125 |
+| 4220 | HeapTaskDaemon (6077) | None | MarkRoots | 516.16575 | 75.510125 | 74.051292 |
+| 4221 | HeapTaskDaemon (6077) | None | MarkRootsCheckpoint | 516.166167 | 74.6195 | 73.161084 |
+| 4241 | HeapTaskDaemon (6077) | None | ProcessMarkStack | 516.352667 | 74.432333 | 73.160417 |
+| 4242 | Ensomi runtime (6088) | None | GC: Wait For Completion Alloc | 517.621542 | 199.505041 | 199.240292 |
+| 4294 | HeapTaskDaemon (6077) | None | PreCleanCards | 592.321667 | 21.390875 | 21.390875 |
+| 4320 | HeapTaskDaemon (6077) | None | ScanGrayAllocSpaceObjects | 592.427292 | 21.263541 | 21.263541 |
+| 4413 | HeapTaskDaemon (6077) | None | ReclaimPhase | 613.826167 | 66.185791 | 66.185791 |
+| 4414 | HeapTaskDaemon (6077) | None | ProcessReferences | 613.826583 | 66.078042 | 66.078042 |
+| 4466 | HeapTaskDaemon (6077) | None | CompactionPhase | 682.09675 | 34.556333 | 34.556333 |
+| 4467 | HeapTaskDaemon (6077) | None | CompactMovingSpace | 682.097083 | 34.291959 | 34.291959 |
+
+Interval 2:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1354 | roidJUnitRunner (6086) | None | AndroidJUnitRunner#onStart | -5.046084 | 7995.493004 | 12.390292 |
+| 1689 | roidJUnitRunner (6086) | None | execute tests | -2.162459 | 7992.608962 | 12.390292 |
+| 1736 | roidJUnitRunner (6086) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -1.341542 | 7991.527629 | 12.390292 |
+| 5284 | HeapTaskDaemon (6077) | None | Background concurrent mark compact GC | 738.940167 | 106.897083 | 12.390292 |
+| 5477 | JNA Cleaner (6089) | None | FullSuspendCheck | 800.626417 | 12.42925 | 12.390292 |
+| 5478 | Ensomi runtime (6088) | None | FullSuspendCheck | 800.626583 | 12.455917 | 12.390292 |
+| 5480 | HeapTaskDaemon (6077) | None | Mutator threads suspended for ScopedPause | 800.691125 | 12.2975 | 12.2975 |
+| 5481 | HeapTaskDaemon (6077) | None | (Paused)MarkingPause | 800.691958 | 12.295542 | 12.295542 |
+| 5488 | HeapTaskDaemon (6077) | None | (Paused)ScanGrayAllocSpaceObjects | 800.891167 | 11.7955 | 11.7955 |
+| 5526 | HeapTaskDaemon (6077) | None | ReclaimPhase | 813.004875 | 7.387542 | 0.040417 |
+| 5527 | HeapTaskDaemon (6077) | None | ProcessReferences | 813.005542 | 7.309625 | 0.03975 |
+
+Worker ART/dalvik and all other slices >=5 ms, including those that stayed Running (atrace B/E packets have no category field):
+
+| id | slice | start | duration |
+|---|---|---|---|
+| 4242 | GC: Wait For Completion Alloc | 517.621542 | 199.505041 |
+| 5478 | FullSuspendCheck | 800.626583 | 12.455917 |
+
+Requested daemon scheduled CPU within the conservative worker window:
+
+| thread | tid | Running ms |
+|---|---|---|
+| FinalizerDaemon | 6079 | 6.396784 |
+| HeapTaskDaemon | 6077 | 4350.727441 |
+| JNA Cleaner | 6089 | 3731.365711 |
+| Jit thread pool | 6076 | 33.128949 |
+| ReferenceQueueD | 6078 | 127.322455 |
+
+Trace stats:
+
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+
+
+runtime-checks-2
+
+Process io.ensomi.android pid 6158; busiest thread Ensomi runtime tid 6174, Running 7175.737057 ms.
+Analysis window: first through last scheduled CPU interval of this fresh RuntimeWorker: [1027725583781, 1035706767868) ns; duration 7981.184087 ms. This includes runtime loading, the 500-iteration warmup, measured loop, and cleanup. The app has no trace markers delimiting the measured loop, so exact loop-only daemon CPU times cannot be isolated. This conservative window contains the whole loop.
+All relative starts and durations below are exact ms. Non-Running intervals are individual thread_state rows, not merged. Parent/child slice durations overlap and must not be added. NULL means the trace did not record the field. Waker uses this state or the immediately following Runnable state, where Perfetto records the wakeup.
+
+Non-Running intervals >=10 ms:
+
+| interval | start | duration | state | blocked_function | waker |
+|---|---|---|---|---|---|
+| 1 | 493.0625 | 198.723584 | S | NULL | HeapTaskDaemon tid 6163 (io.ensomi.android) |
+| 2 | 999.792167 | 10.122792 | S | NULL | HeapTaskDaemon tid 6163 (io.ensomi.android) |
+
+Every process-thread slice >=5 ms overlapping each interval:
+
+Interval 1:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1264 | roidJUnitRunner (6172) | None | AndroidJUnitRunner#onStart | -4.152042 | 7991.402296 | 198.723584 |
+| 1585 | roidJUnitRunner (6172) | None | execute tests | -1.485875 | 7988.73567 | 198.723584 |
+| 1633 | roidJUnitRunner (6172) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -0.637292 | 7987.215004 | 198.723584 |
+| 2710 | HeapTaskDaemon (6163) | None | Background concurrent mark compact GC | 491.735333 | 200.043126 | 198.715959 |
+| 2712 | HeapTaskDaemon (6163) | None | MarkingPhase | 491.7485 | 115.59975 | 114.28575 |
+| 2714 | HeapTaskDaemon (6163) | None | MarkRoots | 491.821333 | 54.14375 | 52.902583 |
+| 2715 | HeapTaskDaemon (6163) | None | MarkRootsCheckpoint | 491.821792 | 53.21125 | 51.970542 |
+| 2735 | HeapTaskDaemon (6163) | None | ProcessMarkStack | 491.874542 | 53.157375 | 51.969417 |
+| 2736 | Ensomi runtime (6174) | None | GC: Wait For Completion Alloc | 493.058333 | 198.826667 | 198.723584 |
+| 2779 | HeapTaskDaemon (6163) | None | ProcessMarkStack | 546.63925 | 37.517875 | 37.517875 |
+| 2794 | HeapTaskDaemon (6163) | None | PreCleanCards | 584.157833 | 23.183792 | 23.183792 |
+| 2820 | HeapTaskDaemon (6163) | None | ScanGrayAllocSpaceObjects | 584.367417 | 22.876625 | 22.876625 |
+| 2924 | HeapTaskDaemon (6163) | None | ReclaimPhase | 607.53275 | 48.871583 | 48.871583 |
+| 2925 | HeapTaskDaemon (6163) | None | ProcessReferences | 607.53325 | 48.7595 | 48.7595 |
+| 2970 | HeapTaskDaemon (6163) | None | CompactionPhase | 658.564625 | 33.000834 | 33.000834 |
+| 2971 | HeapTaskDaemon (6163) | None | CompactMovingSpace | 658.565 | 32.7775 | 32.7775 |
+
+Interval 2:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1264 | roidJUnitRunner (6172) | None | AndroidJUnitRunner#onStart | -4.152042 | 7991.402296 | 10.122792 |
+| 1585 | roidJUnitRunner (6172) | None | execute tests | -1.485875 | 7988.73567 | 10.122792 |
+| 1633 | roidJUnitRunner (6172) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -0.637292 | 7987.215004 | 10.122792 |
+| 5108 | HeapTaskDaemon (6163) | None | Background concurrent mark compact GC | 948.351209 | 91.587791 | 10.122792 |
+| 5473 | Ensomi runtime (6174) | None | FullSuspendCheck | 999.788167 | 10.175 | 10.122792 |
+| 5474 | JNA Cleaner (6175) | None | FullSuspendCheck | 999.798292 | 10.195292 | 10.116667 |
+| 5475 | HeapTaskDaemon (6163) | None | Mutator threads suspended for ScopedPause | 999.849542 | 10.061333 | 10.061333 |
+| 5476 | HeapTaskDaemon (6163) | None | (Paused)MarkingPause | 999.85025 | 10.059667 | 10.059667 |
+| 5483 | HeapTaskDaemon (6163) | None | (Paused)ScanGrayAllocSpaceObjects | 999.913417 | 9.970833 | 9.970833 |
+
+Worker ART/dalvik and all other slices >=5 ms, including those that stayed Running (atrace B/E packets have no category field):
+
+| id | slice | start | duration |
+|---|---|---|---|
+| 2736 | GC: Wait For Completion Alloc | 493.058333 | 198.826667 |
+| 3418 | FullSuspendCheck | 771.788292 | 9.39925 |
+| 4370 | FullSuspendCheck | 885.857875 | 9.776709 |
+| 5473 | FullSuspendCheck | 999.788167 | 10.175 |
+| 6791 | FullSuspendCheck | 1105.697084 | 5.906833 |
+
+Requested daemon scheduled CPU within the conservative worker window:
+
+| thread | tid | Running ms |
+|---|---|---|
+| FinalizerDaemon | 6165 | 6.393833 |
+| HeapTaskDaemon | 6163 | 4485.545083 |
+| JNA Cleaner | 6175 | 3905.097892 |
+| Jit thread pool | 6162 | 30.365959 |
+| ReferenceQueueD | 6164 | 151.463041 |
+
+Trace stats:
+
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+
+
+runtime-checks-3
+
+Process io.ensomi.android pid 6230; busiest thread Ensomi runtime tid 6246, Running 7160.724348 ms.
+Analysis window: first through last scheduled CPU interval of this fresh RuntimeWorker: [1070161576426, 1078113271347) ns; duration 7951.694921 ms. This includes runtime loading, the 500-iteration warmup, measured loop, and cleanup. The app has no trace markers delimiting the measured loop, so exact loop-only daemon CPU times cannot be isolated. This conservative window contains the whole loop.
+All relative starts and durations below are exact ms. Non-Running intervals are individual thread_state rows, not merged. Parent/child slice durations overlap and must not be added. NULL means the trace did not record the field. Waker uses this state or the immediately following Runnable state, where Perfetto records the wakeup.
+
+Non-Running intervals >=10 ms:
+
+| interval | start | duration | state | blocked_function | waker |
+|---|---|---|---|---|---|
+| 1 | 487.985542 | 199.413417 | S | NULL | HeapTaskDaemon tid 6235 (io.ensomi.android) |
+| 2 | 772.995334 | 10.738041 | S | NULL | JNA Cleaner tid 6247 (io.ensomi.android) |
+| 3 | 889.125251 | 12.517875 | S | NULL | HeapTaskDaemon tid 6235 (io.ensomi.android) |
+
+Every process-thread slice >=5 ms overlapping each interval:
+
+Interval 1:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1276 | roidJUnitRunner (6244) | None | AndroidJUnitRunner#onStart | -4.377792 | 7962.131088 | 199.413417 |
+| 1595 | roidJUnitRunner (6244) | None | execute tests | -1.599458 | 7959.352379 | 199.413417 |
+| 1650 | roidJUnitRunner (6244) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -0.706042 | 7958.154546 | 199.413417 |
+| 2711 | HeapTaskDaemon (6235) | None | Background concurrent mark compact GC | 486.59575 | 200.797709 | 199.407917 |
+| 2713 | HeapTaskDaemon (6235) | None | MarkingPhase | 486.609625 | 116.770042 | 115.394125 |
+| 2715 | HeapTaskDaemon (6235) | None | MarkRoots | 486.682084 | 93.028625 | 91.725167 |
+| 2716 | HeapTaskDaemon (6235) | None | MarkRootsCheckpoint | 486.6825 | 92.078292 | 90.77525 |
+| 2735 | HeapTaskDaemon (6235) | None | ProcessMarkStack | 486.733625 | 92.026334 | 90.774417 |
+| 2736 | Ensomi runtime (6246) | None | GC: Wait For Completion Alloc | 487.982084 | 199.546166 | 199.413417 |
+| 2794 | HeapTaskDaemon (6235) | None | PreCleanCards | 580.474417 | 22.899458 | 22.899458 |
+| 2820 | HeapTaskDaemon (6235) | None | ScanGrayAllocSpaceObjects | 580.574042 | 22.701625 | 22.701625 |
+| 2924 | HeapTaskDaemon (6235) | None | ReclaimPhase | 603.47875 | 48.731917 | 48.731917 |
+| 2925 | HeapTaskDaemon (6235) | None | ProcessReferences | 603.479167 | 48.618667 | 48.618667 |
+| 2970 | HeapTaskDaemon (6235) | None | CompactionPhase | 654.2385 | 32.914917 | 32.914917 |
+| 2971 | HeapTaskDaemon (6235) | None | CompactMovingSpace | 654.238792 | 32.721083 | 32.721083 |
+
+Interval 2:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1276 | roidJUnitRunner (6244) | None | AndroidJUnitRunner#onStart | -4.377792 | 7962.131088 | 10.738041 |
+| 1595 | roidJUnitRunner (6244) | None | execute tests | -1.599458 | 7959.352379 | 10.738041 |
+| 1650 | roidJUnitRunner (6244) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -0.706042 | 7958.154546 | 10.738041 |
+| 3543 | HeapTaskDaemon (6235) | None | Background concurrent mark compact GC | 708.738167 | 103.560208 | 10.738041 |
+| 3774 | Ensomi runtime (6246) | None | FullSuspendCheck | 772.977125 | 10.810167 | 10.738041 |
+| 3775 | HeapTaskDaemon (6235) | None | Mutator threads suspended for ScopedPause | 773.026 | 10.671584 | 10.671584 |
+| 3776 | HeapTaskDaemon (6235) | None | (Paused)MarkingPause | 773.026667 | 10.670125 | 10.670125 |
+| 3783 | HeapTaskDaemon (6235) | None | (Paused)ScanGrayAllocSpaceObjects | 773.291125 | 10.380584 | 10.380584 |
+| 3823 | HeapTaskDaemon (6235) | None | ReclaimPhase | 783.710792 | 8.033125 | 0.022583 |
+| 3824 | HeapTaskDaemon (6235) | None | ProcessReferences | 783.711334 | 7.354916 | 0.022041 |
+
+Interval 3:
+
+| id | thread | category | slice | start | duration | overlap |
+|---|---|---|---|---|---|---|
+| 1276 | roidJUnitRunner (6244) | None | AndroidJUnitRunner#onStart | -4.377792 | 7962.131088 | 12.517875 |
+| 1595 | roidJUnitRunner (6244) | None | execute tests | -1.599458 | 7959.352379 | 12.517875 |
+| 1650 | roidJUnitRunner (6244) | None | RuntimeCheck#measuresTheCostOfRuntimeCalls | -0.706042 | 7958.154546 | 12.517875 |
+| 3935 | HeapTaskDaemon (6235) | None | Background concurrent mark compact GC | 831.511 | 101.265751 | 12.517875 |
+| 4085 | Ensomi runtime (6246) | None | FullSuspendCheck | 889.121417 | 12.57575 | 12.517875 |
+| 4086 | JNA Cleaner (6247) | None | FullSuspendCheck | 889.121501 | 12.602333 | 12.517875 |
+| 4088 | HeapTaskDaemon (6235) | None | Mutator threads suspended for ScopedPause | 889.177667 | 12.462 | 12.462 |
+| 4089 | HeapTaskDaemon (6235) | None | (Paused)MarkingPause | 889.178542 | 12.460375 | 12.460375 |
+| 4096 | HeapTaskDaemon (6235) | None | (Paused)ScanGrayAllocSpaceObjects | 889.446209 | 12.167625 | 12.167625 |
+
+Worker ART/dalvik and all other slices >=5 ms, including those that stayed Running (atrace B/E packets have no category field):
+
+| id | slice | start | duration |
+|---|---|---|---|
+| 2736 | GC: Wait For Completion Alloc | 487.982084 | 199.546166 |
+| 3774 | FullSuspendCheck | 772.977125 | 10.810167 |
+| 4085 | FullSuspendCheck | 889.121417 | 12.57575 |
+| 4406 | FullSuspendCheck | 997.260542 | 8.490584 |
+
+Requested daemon scheduled CPU within the conservative worker window:
+
+| thread | tid | Running ms |
+|---|---|---|
+| FinalizerDaemon | 6237 | 6.025621 |
+| HeapTaskDaemon | 6235 | 4399.454964 |
+| JNA Cleaner | 6247 | 3820.262277 |
+| Jit thread pool | 6234 | 31.108078 |
+| ReferenceQueueD | 6236 | 154.998676 |
+
+Trace stats:
+
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+
+
+What remains / not run
+
+All requested builds, eight alternating pacing runs, and six runtime traces were completed. Exact measured-loop-only daemon CPU totals could not be extracted because the test does not mark its boundaries; conservative whole-worker totals are supplied instead. No physical-device timing, displayed-frame presentation trace, allocation-site profile, 16 KB AVD, or VARIANT lint/unit tests were requested or run. The AVD measurements establish the GC allocation wait, but allocation-site attribution and whether the phone's gameplay stalls match require separate work. No source fix was attempted.
+
+The emulator was shut down after capture; final adb devices was empty. Exact shutdown output:
+OK: killing emulator, bye bye
+OK
+
+Artifact tools created only under artifacts/jitter-b2: run_measurements.py, analyse_pacing.py, analyse_runtime.py, audit_traces.py, make_report.py. No existing app script was edited. The report is jitter-b2-report.txt on codex/android-jitter-b2.
