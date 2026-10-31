@@ -2,7 +2,10 @@ package io.ensomi.android.play
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.HardwareRenderer
 import android.graphics.Rect
+import android.graphics.RenderNode
 import android.os.Build
 import android.os.Debug
 import android.os.Looper
@@ -277,7 +280,7 @@ class PlayfieldView @JvmOverloads constructor(
     /**
      * A thread with its own `Looper` and `Choreographer`, and the 8 MiB stack the runtime's worker uses, since the
      * runtime is called from it. Each vsync it runs one frame for the frame's expected presentation time and draws it
-     * with `lockHardwareCanvas`. The display's priority, above the app's other threads: a frame cannot wait for them.
+     * on a [SurfaceCanvas]. The display's priority, above the app's other threads: a frame cannot wait for them.
      */
     private inner class RenderThread(
         private val surfaceHolder: SurfaceHolder,
@@ -310,6 +313,7 @@ class PlayfieldView @JvmOverloads constructor(
             visualOffsetMs?.let { playController.visualOffsetMs = it }
             scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
+            val target = SurfaceCanvas(surfaceHolder.surface)
             val choreographer = Choreographer.getInstance()
             val stats = FrameStats { display?.refreshRate ?: 60f }
             val log = frameLog.takeIf { frameLogFile != null }
@@ -321,11 +325,12 @@ class PlayfieldView @JvmOverloads constructor(
                     // the next frame runs as soon as this one ends, for its own vsync's presentation time.
                     choreographer.postVsyncCallback(this)
                     val timeline = data.preferredFrameTimeline
-                    drawFrame(playController, timeline.expectedPresentationTimeNanos, timeline.deadlineNanos, data.frameTimeNanos, stats, log)
+                    drawFrame(playController, target, timeline.expectedPresentationTimeNanos, timeline.deadlineNanos, data.frameTimeNanos, stats, log)
                 }
             }
             choreographer.postVsyncCallback(callback)
             Looper.loop()
+            target.close()
         }
 
         /**
@@ -334,6 +339,7 @@ class PlayfieldView @JvmOverloads constructor(
          */
         private fun drawFrame(
             playController: PlayController,
+            target: SurfaceCanvas,
             presentNanos: Long,
             deadlineNanos: Long,
             vsyncNanos: Long,
@@ -351,22 +357,18 @@ class PlayfieldView @JvmOverloads constructor(
                     Trace.endSection()
                 }
                 val runtimeDone = System.nanoTime()
-                var recordStart = 0L
                 var recordDone = 0L
+                var syncResult = 0
                 Trace.beginSection("EnsomiDraw")
                 try {
-                    val canvas = try {
-                        surfaceHolder.lockHardwareCanvas()
-                    } catch (failure: IllegalStateException) {
-                        Log.w(TAG, "Playfield surface not ready", failure)
-                        null
-                    } ?: return
-                    recordStart = System.nanoTime()
+                    val size = surfaceHolder.surfaceFrame
+                    if (size.isEmpty) return
+                    val canvas = target.begin(size.width(), size.height())
                     try {
                         renderer.draw(canvas, frame, g)
                     } finally {
                         recordDone = System.nanoTime()
-                        surfaceHolder.unlockCanvasAndPost(canvas)
+                        syncResult = target.post()
                     }
                 } finally {
                     Trace.endSection()
@@ -375,10 +377,10 @@ class PlayfieldView @JvmOverloads constructor(
                 stats.record(vsyncNanos, runtimeDone - start, done - runtimeDone, done, late = done > deadlineNanos)
                 log?.record(
                     vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone, deadlineNanos, done,
-                    start, recordDone - recordStart, done - recordDone,
+                    start, recordDone - runtimeDone, done - recordDone,
                     if (frame != null) (frame.renderMs * 1000).toLong() else 0L,
                     frame?.visible?.size?.toLong() ?: -1L,
-                    0L,
+                    syncResult.toLong(),
                 )
             } finally {
                 Trace.endSection()
@@ -402,10 +404,51 @@ class PlayfieldView @JvmOverloads constructor(
 }
 
 /**
+ * The render thread's way onto the surface: what `Surface.lockHardwareCanvas` does inside, a [RenderNode] recorded here
+ * and a [HardwareRenderer] on the process's HWUI thread, with the frame's stamp in the app's hands. HWUI takes a frame
+ * stamped within 2 ms of the last for the same vsync and drops it without a word, and `lockHardwareCanvas` stamps a
+ * frame with the moment it is posted, so a short frame that runs right after a late one would vanish. The stamps here
+ * stay apart, and [post] gives HWUI's answer for the frame log. It also spares a log line per frame: HyperOS logs every
+ * `lockHardwareCanvas` from the calling thread. Used on one thread.
+ */
+private class SurfaceCanvas(surface: Surface) : AutoCloseable {
+    private val node = RenderNode("EnsomiPlayfield").apply { setClipToBounds(false) }
+    private val hardware = HardwareRenderer().apply {
+        setContentRoot(node)
+        setSurface(surface)
+        setLightSourceAlpha(0f, 0f)
+        setLightSourceGeometry(0f, 0f, 0f, 0f)
+    }
+    private var lastStampNanos = 0L
+
+    fun begin(width: Int, height: Int): Canvas {
+        node.setPosition(0, 0, width, height)
+        return node.beginRecording(width, height)
+    }
+
+    /** Ends the recording begun by [begin] and hands it to HWUI, which draws it on its own thread. */
+    fun post(): Int {
+        node.endRecording()
+        lastStampNanos = maxOf(System.nanoTime(), lastStampNanos + MIN_STAMP_GAP_NANOS)
+        return hardware.createRenderRequest().setVsyncTime(lastStampNanos).syncAndDraw()
+    }
+
+    override fun close() {
+        hardware.destroy()
+        node.discardDisplayList()
+    }
+
+    private companion object {
+        /** HWUI's "already drew for this vsync" is under 2 ms (`CanvasContext::prepareTree`). */
+        const val MIN_STAMP_GAP_NANOS = 2_100_000L
+    }
+}
+
+/**
  * The render thread's own account of pacing, logged under `EnsomiPlayfield` every two seconds: frames drawn, the
  * display's refresh rate, vsyncs that came more than 1.5 refresh intervals after the previous one (frames the thread
  * missed), frames still working when the next vsync came, frames finished after their deadline, the time each frame
- * spent in the runtime (inputs, advance, reads) and in drawing (lock, draw, post) on average and at most, the whole
+ * spent in the runtime (inputs, advance, reads) and in drawing (record, post) on average and at most, the whole
  * frame's work at the median and the 99th percentile (gameplay.md's target is 3 ms at p99), and what the process
  * allocated per frame. It allocates nothing per frame.
  */
