@@ -1,6 +1,11 @@
 package io.ensomi.android.checks
 
 import android.content.Intent
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.HandlerThread
+import android.view.Choreographer
+import android.view.Display
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -8,6 +13,8 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import io.ensomi.android.MainActivity
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,10 +26,11 @@ import org.junit.runner.RunWith
  * display for its fastest mode as play does.
  *
  * From the render thread's own record of every frame (`files/frame-log.csv`, debuggable builds): the frame rate,
- * vsyncs missed (a gap over 1.5 refresh intervals), frames finished after their deadline, and the work per frame at
- * the median, the 99th percentile and the most, in the runtime and in drawing. Also the refresh rate the display ran at
- * during play and the modes it offers. The target is under 0.5 % of frames late and a p99 of work under 3 ms at every
- * lean; this decides whether GLES is ever needed. Nothing is asserted but that frames were drawn.
+ * vsyncs missed (a gap over 1.5 refresh intervals), frames still working when the next vsync came, frames finished after
+ * their deadline, and the work per frame at the median, the 99th percentile and the most, in the runtime and in
+ * drawing. Also the refresh rate the display ran at during play and the modes it offers. The target is under 0.5 % of
+ * vsyncs missed, under 0.5 % of frames late and a p99 of work under 3 ms at every lean; this decides whether GLES is
+ * ever needed. Nothing is asserted but that frames were drawn.
  *
  * `pacing` names the scenarios (`pacing-flat,pacing,pacing-lean-max,pacing-portrait`).
  */
@@ -39,6 +47,61 @@ class FramePacingCheck {
             if (frames == 0) empty += name
         }
         assertTrue("No frames recorded for $empty", empty.isEmpty())
+    }
+
+    /**
+     * What a loop on Android's own `Choreographer` loses to a frame that runs past the next vsync, by when it asks for
+     * that vsync: after the frame, as most examples do, or at its start, as the playfield does. One frame in ten is
+     * held to 1.15 refresh intervals after its vsync, short of the deadline; the others are empty. The same on any
+     * device, the emulator's 60 Hz too, since this is `Choreographer`'s behaviour and not a phone's speed.
+     */
+    @Test
+    fun aLongFrameKeepsTheNextVsync() {
+        val refresh = PhoneCheck.context.getSystemService(DisplayManager::class.java)
+            .getDisplay(Display.DEFAULT_DISPLAY).refreshRate.toDouble()
+        val interval = (1e9 / refresh).toLong()
+        for (askFirst in listOf(false, true)) {
+            val times = holdEveryTenthFrame(interval, askFirst)
+            val gaps = DoubleArray(times.size - 1) { (times[it + 1] - times[it]).toDouble() }
+            val missed = gaps.count { it > interval * 1.5 }
+            PhoneCheck.report(
+                "vsync-after-long-frame",
+                linkedMapOf<String, Any?>(
+                    "askedFor" to if (askFirst) "start of frame" else "end of frame",
+                    "refreshHz" to PhoneCheck.round(refresh, 1),
+                    "frames" to times.size,
+                    "longFrames" to times.size / HELD_EVERY,
+                    "missedVsyncs" to missed,
+                    "ok" to true,
+                ),
+            )
+        }
+    }
+
+    private fun holdEveryTenthFrame(interval: Long, askFirst: Boolean): LongArray {
+        val times = LongArray(HELD_FRAMES)
+        val finished = CountDownLatch(1)
+        val thread = HandlerThread("EnsomiVsyncCheck").apply { start() }
+        Handler(thread.looper).post {
+            val choreographer = Choreographer.getInstance()
+            var count = 0
+            choreographer.postVsyncCallback(object : Choreographer.VsyncCallback {
+                override fun onVsync(data: Choreographer.FrameData) {
+                    val more = count + 1 < times.size
+                    if (askFirst && more) choreographer.postVsyncCallback(this)
+                    val vsync = data.frameTimeNanos
+                    times[count++] = vsync
+                    if (count % HELD_EVERY == 0) {
+                        val until = vsync + interval * 115 / 100
+                        while (System.nanoTime() < until) Unit
+                    }
+                    if (!more) finished.countDown() else if (!askFirst) choreographer.postVsyncCallback(this)
+                }
+            })
+        }
+        assertTrue("The frames did not finish", finished.await(HELD_FRAMES * 100L, TimeUnit.MILLISECONDS))
+        thread.quitSafely()
+        return times
     }
 
     private fun measure(name: String, seconds: Int, device: UiDevice): Int {
@@ -84,6 +147,7 @@ class FramePacingCheck {
         val summary = analyse(rows)
         val workP99 = summary["workMsP99"] as? Double ?: Double.NaN
         val latePct = summary["latePct"] as? Double ?: Double.NaN
+        val missedPct = summary["missedPct"] as? Double ?: Double.NaN
         PhoneCheck.report(
             "frame-pacing",
             linkedMapOf<String, Any?>(
@@ -99,14 +163,14 @@ class FramePacingCheck {
                 "thermalBefore" to thermalBefore,
                 "thermalAfter" to PhoneCheck.thermal(),
                 "file" to file,
-                "meetsTarget" to (latePct < 0.5 && workP99 < 3.0),
+                "meetsTarget" to (missedPct < 0.5 && latePct < 0.5 && workP99 < 3.0),
                 "ok" to rows.isNotEmpty(),
             ),
         )
         return rows.size
     }
 
-    /** `vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos` rows. */
+    /** Rows of the frame log: `vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos,...`. */
     private fun parse(csv: String): List<LongArray> = csv.lineSequence().drop(1).filter { it.isNotBlank() }.mapNotNull { line ->
         val parts = line.split(',')
         if (parts.size < 4) null else LongArray(parts.size) { parts[it].trim().toLongOrNull() ?: 0L }
@@ -121,6 +185,8 @@ class FramePacingCheck {
         val missed = intervals.count { it > interval * 1.5 }
         val hasDeadline = rows.first().size >= 6
         val late = if (hasDeadline) rows.count { it[5] > it[4] } else null
+        // Still working when the next vsync came: such a frame must not cost the next one.
+        val overran = if (hasDeadline) rows.count { it[5] - it[0] > interval } else null
         val runtime = DoubleArray(rows.size) { rows[it][2] / 1e6 }
         val draw = DoubleArray(rows.size) { rows[it][3] / 1e6 }
         val work = DoubleArray(rows.size) { runtime[it] + draw[it] }
@@ -137,6 +203,7 @@ class FramePacingCheck {
             "vsyncIntervalMs" to PhoneCheck.round(interval / 1e6),
             "missedVsyncs" to missed,
             "missedPct" to PhoneCheck.round(100.0 * missed / intervals.size, 2),
+            "overranFrames" to overran,
             "lateFrames" to late,
             "latePct" to late?.let { PhoneCheck.round(100.0 * it / rows.size, 2) },
             "presentationStepsBack" to presentBack,
@@ -158,6 +225,8 @@ class FramePacingCheck {
             "pacing-portrait" to "portrait 0°",
         )
         const val FRAME_LOG = "frame-log.csv"
+        const val HELD_FRAMES = 1_000
+        const val HELD_EVERY = 10
         const val SETTLE_MS = 3_000L
         const val SAMPLE_MS = 5_000L
         const val WARM_UP_NANOS = 2_000_000_000L

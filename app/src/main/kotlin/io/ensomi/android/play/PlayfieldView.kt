@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
 import android.os.Build
+import android.os.Debug
 import android.os.Looper
 import android.os.Trace
 import android.util.AttributeSet
@@ -345,6 +346,8 @@ class PlayfieldView @JvmOverloads constructor(
                     Trace.endSection()
                 }
                 val runtimeDone = System.nanoTime()
+                var recordStart = 0L
+                var recordDone = 0L
                 Trace.beginSection("EnsomiDraw")
                 try {
                     val canvas = try {
@@ -353,17 +356,25 @@ class PlayfieldView @JvmOverloads constructor(
                         Log.w(TAG, "Playfield surface not ready", failure)
                         null
                     } ?: return
+                    recordStart = System.nanoTime()
                     try {
                         renderer.draw(canvas, frame, g)
                     } finally {
+                        recordDone = System.nanoTime()
                         surfaceHolder.unlockCanvasAndPost(canvas)
                     }
                 } finally {
                     Trace.endSection()
                 }
                 val done = System.nanoTime()
-                stats.record(vsyncNanos, runtimeDone - start, done - runtimeDone, late = done > deadlineNanos)
-                log?.record(vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone, deadlineNanos, done)
+                stats.record(vsyncNanos, runtimeDone - start, done - runtimeDone, done, late = done > deadlineNanos)
+                log?.record(
+                    vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone, deadlineNanos, done,
+                    start, recordDone - recordStart, done - recordDone,
+                    if (frame != null) (frame.renderMs * 1000).toLong() else 0L,
+                    frame?.visible?.size?.toLong() ?: -1L,
+                    0L,
+                )
             } finally {
                 Trace.endSection()
             }
@@ -388,27 +399,31 @@ class PlayfieldView @JvmOverloads constructor(
 /**
  * The render thread's own account of pacing, logged under `EnsomiPlayfield` every two seconds: frames drawn, the
  * display's refresh rate, vsyncs that came more than 1.5 refresh intervals after the previous one (frames the thread
- * missed), frames finished after their deadline, the time each frame spent in the runtime (inputs, advance, reads) and
- * in drawing (lock, draw, post) on average and at most, and the whole frame's work at the median and the 99th
- * percentile (gameplay.md's target is 3 ms at p99). It allocates nothing per frame.
+ * missed), frames still working when the next vsync came, frames finished after their deadline, the time each frame
+ * spent in the runtime (inputs, advance, reads) and in drawing (lock, draw, post) on average and at most, the whole
+ * frame's work at the median and the 99th percentile (gameplay.md's target is 3 ms at p99), and what the process
+ * allocated per frame. It allocates nothing per frame.
  */
 private class FrameStats(private val refreshRateHz: () -> Float) {
     private var intervalNanos = (1e9 / refreshRateHz()).toLong()
     private var windowStartNanos = 0L
     private var frames = 0
     private var missed = 0
+    private var overran = 0
     private var late = 0
     private var lastVsyncNanos = 0L
+    private var allocatedBytes = allocatedEver()
     private var runtimeSumNanos = 0L
     private var runtimeMaxNanos = 0L
     private var drawSumNanos = 0L
     private var drawMaxNanos = 0L
     private val work = LongArray(MAX_FRAMES)
 
-    fun record(vsyncNanos: Long, runtimeNanos: Long, drawNanos: Long, late: Boolean) {
+    fun record(vsyncNanos: Long, runtimeNanos: Long, drawNanos: Long, doneNanos: Long, late: Boolean) {
         if (windowStartNanos == 0L) windowStartNanos = vsyncNanos
         if (lastVsyncNanos != 0L && vsyncNanos - lastVsyncNanos > intervalNanos * 3 / 2) missed++
         lastVsyncNanos = vsyncNanos
+        if (doneNanos - vsyncNanos > intervalNanos) overran++
         if (late) this.late++
         if (frames < MAX_FRAMES) work[frames] = runtimeNanos + drawNanos
         frames++
@@ -421,21 +436,25 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
             val counted = minOf(frames, MAX_FRAMES)
             Arrays.sort(work, 0, counted)
             val refresh = refreshRateHz()
+            val allocated = allocatedEver()
             Log.i(
                 "EnsomiPlayfield",
                 String.format(
                     Locale.ROOT,
                     "fps=%.1f frames=%d refresh=%.1fHz missed=%d late=%d runtime_avg=%.2fms runtime_max=%.2fms " +
-                        "draw_avg=%.2fms draw_max=%.2fms work_p50=%.2fms work_p99=%.2fms",
+                        "draw_avg=%.2fms draw_max=%.2fms work_p50=%.2fms work_p99=%.2fms overran=%d alloc=%.1fKB/frame",
                     frames * 1e9 / elapsed, frames, refresh, missed, this.late,
                     runtimeSumNanos / 1e6 / frames, runtimeMaxNanos / 1e6, drawSumNanos / 1e6 / frames, drawMaxNanos / 1e6,
                     work[(counted - 1) / 2] / 1e6, work[((counted - 1) * 99) / 100] / 1e6,
+                    overran, (allocated - allocatedBytes) / 1024.0 / frames,
                 ),
             )
+            allocatedBytes = allocated
             intervalNanos = (1e9 / refresh).toLong()
             windowStartNanos = vsyncNanos
             frames = 0
             missed = 0
+            overran = 0
             this.late = 0
             runtimeSumNanos = 0
             runtimeMaxNanos = 0
@@ -443,6 +462,9 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
             drawMaxNanos = 0
         }
     }
+
+    /** The bytes this process has allocated so far, every thread's; its reading allocates, so it is read per window. */
+    private fun allocatedEver(): Long = Debug.getRuntimeStat("art.gc.bytes-allocated")?.toLongOrNull() ?: 0L
 
     private companion object {
         const val WINDOW_NANOS = 2_000_000_000L
@@ -453,16 +475,32 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
 }
 
 /**
- * Debug builds: every frame of a playfield, kept across surfaces, and written as CSV when it closes
- * (`vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos`: the frame's deadline from `FrameData` and
- * when its drawing was posted; README). [summary] goes to the log then.
+ * Debug builds: every frame of a playfield, kept across surfaces, and written as CSV when it closes: `vsyncNanos`,
+ * `presentNanos`, `runtimeNanos`, `drawNanos`, `deadlineNanos`, `doneNanos` (the frame's deadline from `FrameData` and
+ * when its drawing was posted); `startNanos` (when its work began); `recordNanos` and `postNanos` (the two parts of
+ * drawing that matter: recording the canvas, handing it to HWUI); `renderUs` (the song time drawn, in microseconds);
+ * `notes` (objects in the frame, -1 before the clock runs); `syncResult` (HWUI's answer for the frame). README lists
+ * them. Room for about nine minutes is made up front, so that no frame copies the log. [summary] goes to the log then.
  */
 class FrameLog {
-    private var data = LongArray(COLUMNS * 8_192)
+    private var data = LongArray(COLUMNS * (1 shl 16))
     private var size = 0
 
     @Synchronized
-    fun record(vsyncNanos: Long, presentNanos: Long, runtimeNanos: Long, drawNanos: Long, deadlineNanos: Long, doneNanos: Long) {
+    fun record(
+        vsyncNanos: Long,
+        presentNanos: Long,
+        runtimeNanos: Long,
+        drawNanos: Long,
+        deadlineNanos: Long,
+        doneNanos: Long,
+        startNanos: Long,
+        recordNanos: Long,
+        postNanos: Long,
+        renderUs: Long,
+        notes: Long,
+        syncResult: Long,
+    ) {
         if (size + COLUMNS > data.size) data = data.copyOf(data.size * 2)
         data[size] = vsyncNanos
         data[size + 1] = presentNanos
@@ -470,6 +508,12 @@ class FrameLog {
         data[size + 3] = drawNanos
         data[size + 4] = deadlineNanos
         data[size + 5] = doneNanos
+        data[size + 6] = startNanos
+        data[size + 7] = recordNanos
+        data[size + 8] = postNanos
+        data[size + 9] = renderUs
+        data[size + 10] = notes
+        data[size + 11] = syncResult
         size += COLUMNS
     }
 
@@ -488,7 +532,8 @@ class FrameLog {
 
     @Synchronized
     fun csv(): String = buildString {
-        append("vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos\n")
+        append("vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos,")
+        append("startNanos,recordNanos,postNanos,renderUs,notes,syncResult\n")
         var i = 0
         while (i < size) {
             for (column in 0 until COLUMNS) {
@@ -501,7 +546,7 @@ class FrameLog {
     }
 
     private companion object {
-        const val COLUMNS = 6
+        const val COLUMNS = 12
     }
 }
 
