@@ -174,17 +174,25 @@ adb logcat -d -s EnsomiDiagnostics:I -v raw
 JSON that fits in one logcat line is printed as is. Longer JSON is split into lines that start with
 `part i/n `; remove that prefix and join the pieces in order.
 
+## The recognition session
+
+Debug and checks builds, and only those, have a test path from music playing in a room to a game joined at the position
+the music has reached, with a share target, the microphone and access to music files. It has its own document:
+[docs/recognition.md](docs/recognition.md). They need a runtime AAR with the `SyncSession` binding.
+
 ## Project layout
 
 - `app/src/main/kotlin/io/ensomi/android/`: the app. `Destinations.kt` and `EnsomiApp.kt` hold the
   navigation, `AppStores.kt` the app's stores; each feature has its own package: `library/`, `model/`, `chart/`,
   `play/`, `settings/`, `audio/`, `diagnostics/`.
-- `docs/`: the design, the gameplay design, the build plan and the phone checks' runbook.
+- `docs/`: the design, the gameplay design, the build plan, the phone checks' runbook and the recognition session.
 - `scripts/`: the screenshot capture script, the Perfetto frame-timeline script, the click-track generator, the phone
   checks' collection script and the kit script.
 - `app/src/test/kotlin/`: unit tests that run on the JVM.
 - `app/src/androidTest/kotlin/`: the phone checks, instrumented tests that measure on a device and log their results.
 - `app/src/checks/`: the checks build's resources (the debug tools on in a build that is not debuggable).
+- `app/src/recognition/`: the recognition session, compiled into debug and checks builds only; `app/src/release/` holds
+  what a release build has in its place, and `app/src/testDebug/` its JVM tests.
 - `gradle/libs.versions.toml`: every pinned version.
 
 ## License

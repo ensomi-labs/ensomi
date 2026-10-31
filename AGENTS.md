@@ -6,7 +6,7 @@ and the timing contract. Design how the Android way; do not port, copy or transl
 or history with this branch.
 
 UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gameplay.md`, the order of work in
-`docs/plan.md`. Keep them current when a decision changes. `docs/release.md` is a proposed design for CI and releases; nothing in it is enabled.
+`docs/plan.md`, the recognition session in `docs/recognition.md`. Keep them current when a decision changes. `docs/release.md` is a proposed design for CI and releases; nothing in it is enabled.
 
 ## Layout
 
@@ -33,6 +33,11 @@ UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gamep
     fakes behind them (`Fakes.kt`); a normal launch uses the app's stores. The feature packages hold no samples,
     apart from the sample charts the playfield preview and the calibration's picture step play (`SampleCharts`).
   - `ui/`: shared components and the Material 3 theme. `json/`: a small JSON encoder.
+- `app/src/recognition/`: the recognition session (`docs/recognition.md`), a test path from music in a room to a game
+  joined at its position. It is in the debug and checks builds' source sets, with its text, share target and permissions,
+  and never in a release, which compiles `app/src/release/`'s empty `RecognitionEntry` instead. Its `SessionMachine` is
+  plain state and rules, moved by what it observes; `HostDriver` is the interface for the steps in the host app, and
+  `ManualHostDriver` hands each to the person. Its JVM tests are in `app/src/testDebug/`.
 - `app/src/test/kotlin/`: JVM unit tests for logic that does not need a device.
 - `app/src/androidTest/kotlin/io/ensomi/android/checks/`: the phone checks, instrumented tests that measure on a device
   (runtime, model, decoders, generation time and memory, determinism, the audio clock, frame pacing, pauses) and log
@@ -47,13 +52,14 @@ UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gamep
   and NDK. Change a pin only there.
 - The runtime is a local AAR named by `ensomi.runtime.aar` in `local.properties`. It has no dependency
   metadata, so the app declares JNA (as an AAR) and kotlinx-coroutines. A pinned runtime release
-  replaces it once one exists.
+  replaces it once one exists. Debug and checks builds need one with the `SyncSession` binding (ensomi-runtime's
+  `scripts/build-android.sh` turns its `sync` feature on).
 - Run blocking runtime calls through the runtime's `RuntimeWorker`, never on the main thread.
 - The logcat tag `EnsomiDiagnostics` carries only the Diagnostics JSON, `EnsomiDecodeCheck` only the decode check's
   JSON lines, `EnsomiModelInstall` only each model install's start and outcome as a JSON line, and `EnsomiPhoneCheck`
   only the phone checks' results, one JSON object each (README). Scripts read them. `EnsomiCharts`, `EnsomiPlay`, `EnsomiAudio`,
-  `EnsomiPlayfield` and `EnsomiCalibration` are for people reading a check's log; the README lists the debug launch
-  extras, broadcasts and files the checks use.
+  `EnsomiPlayfield`, `EnsomiCalibration` and `EnsomiRecognition` are for people reading a check's log; the README lists the
+  debug launch extras, broadcasts and files the checks use.
 - The model comes only as the pinned package: `ModelSource` names the tag and its manifest's SHA-256, and both ways in,
   the download and Install from files, refuse any other manifest. Change both together, nowhere else.
 - `app/lint.xml` ignores lint findings that restate a decision, each with its reason. Fix other

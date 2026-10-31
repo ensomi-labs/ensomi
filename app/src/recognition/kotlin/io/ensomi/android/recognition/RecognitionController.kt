@@ -418,7 +418,10 @@ class RecognitionController private constructor(context: Context) {
         private var last: SyncReading? = null
         private var done = false
 
-        fun start() = capture.start(this)
+        fun start() {
+            target.restart()
+            capture.start(this)
+        }
 
         fun stop() = capture.stop()
 

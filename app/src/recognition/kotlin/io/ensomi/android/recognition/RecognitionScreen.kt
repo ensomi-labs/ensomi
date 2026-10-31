@@ -282,7 +282,18 @@ private fun SongFacts(state: SessionState) {
             song.songId?.let { Text(stringResource(R.string.recognition_song_id, it.toString()), style = MaterialTheme.typography.bodyMedium) }
         }
         audio?.let { Text(it.file.path, style = MaterialTheme.typography.bodySmall) }
-        state.syncState?.let { Text(stringResource(R.string.recognition_sync_state, it), style = MaterialTheme.typography.bodyMedium) }
+        state.syncState?.let { sync ->
+            Text(
+                stringResource(
+                    R.string.recognition_sync_state,
+                    sync,
+                    state.syncDetail ?: "—",
+                    state.syncConfidence?.let { String.format(Locale.ROOT, "%.2f", it) } ?: "—",
+                    state.listenedMs / 1000,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
         state.rmsDb?.let {
             Text(stringResource(R.string.recognition_level, String.format(Locale.ROOT, "%.1f", it)), style = MaterialTheme.typography.bodyMedium)
         }

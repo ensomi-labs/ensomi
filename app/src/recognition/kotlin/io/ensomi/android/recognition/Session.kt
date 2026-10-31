@@ -139,6 +139,9 @@ data class SessionState(
     /** How long capture has run in this sync. */
     val listenedMs: Long = 0,
     val syncState: String? = null,
+    /** Why the aligner holds no position, in its words. */
+    val syncDetail: String? = null,
+    val syncConfidence: Double? = null,
     val rmsDb: Double? = null,
     val silentSeconds: Int = 0,
     /** Why the session is over; null while it goes on. */
@@ -149,7 +152,7 @@ data class SessionState(
     val running: Boolean get() = ended == null
 
     /** What a snapshot needs: the parts that change every second are left out of the comparison. */
-    fun persistable(): SessionState = copy(listenedMs = 0, rmsDb = null, silentSeconds = 0)
+    fun persistable(): SessionState = copy(listenedMs = 0, rmsDb = null, silentSeconds = 0, syncConfidence = null)
 }
 
 /** The time limits of a session: generous, since a person is in the loop. */
@@ -315,7 +318,6 @@ class SessionMachine private constructor(
     private var known: Map<Long, String> = emptyMap()
     private val candidates = LinkedHashMap<String, Candidate>()
     private var probing: String? = null
-    private var syncDetail: String? = null
 
     /** What the session remembers of one file. */
     private class Candidate(
@@ -785,7 +787,14 @@ class SessionMachine private constructor(
 
     private fun startSync() {
         val audio = state.audio ?: return
-        state = state.copy(referenceReady = false, listenedMs = 0, syncState = null, silentSeconds = 0)
+        state = state.copy(
+            referenceReady = false,
+            listenedMs = 0,
+            syncState = null,
+            syncDetail = null,
+            syncConfidence = null,
+            silentSeconds = 0,
+        )
         setStage(Stage.SYNC, StageStatus.RUNNING)
         effects += SessionEffect.BuildReference(audio)
     }
@@ -813,7 +822,7 @@ class SessionMachine private constructor(
     private fun syncUpdate(reading: SyncReading) {
         if (state.stage(Stage.SYNC).status != StageStatus.RUNNING) return
         val name = reading.state.name
-        if (name != state.syncState || reading.detail != syncDetail || reading.finalLock) {
+        if (name != state.syncState || reading.detail != state.syncDetail || reading.finalLock) {
             log(
                 "sync.state",
                 "state" to name,
@@ -823,10 +832,9 @@ class SessionMachine private constructor(
                 "confidence" to reading.confidence,
                 "detail" to reading.detail,
             )
-            syncDetail = reading.detail
-            state = state.copy(syncState = name)
-            setStage(Stage.SYNC, StageStatus.RUNNING, name)
+            setStage(Stage.SYNC, StageStatus.RUNNING, listOfNotNull(name, reading.detail).joinToString(" · "))
         }
+        state = state.copy(syncState = name, syncDetail = reading.detail, syncConfidence = reading.confidence)
         if (reading.finalLock) {
             val referenceMs = reading.referenceMs
             val captureNanos = reading.captureNanos

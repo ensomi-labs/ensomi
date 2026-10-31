@@ -40,6 +40,9 @@ interface AmbientAligner : AutoCloseable {
 
     fun read(): SyncReading
 
+    /** Capture stopped and starts again: what comes next does not continue what came before. */
+    fun restart() = Unit
+
     override fun close() = Unit
 }
 
@@ -66,13 +69,20 @@ private class RuntimeAligner(private val reference: SyncReference) : AmbientAlig
         val current = session ?: SyncSession(reference, sampleRate.toDouble()).also { session = it }
         last = try {
             current.push(samples, captureNanos / NANOS_PER_MS, count).toReading()
-        } catch (refused: SyncException) {
+        } catch (refused: SyncException.Refused) {
             // A refused block changes nothing, and the next is taken.
-            last.copy(detail = "refused: ${refused.message}")
+            last.copy(detail = "refused: ${refused.detail}")
         }
     }
 
     override fun read(): SyncReading = last
+
+    /** A session has no reset; the reference outlives it. */
+    override fun restart() {
+        session?.close()
+        session = null
+        last = SyncReading(SyncState.READY)
+    }
 
     override fun close() {
         session?.close()

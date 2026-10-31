@@ -19,7 +19,9 @@ The loop: **pick a song → make a chart → play → see the result → play ag
 
 This round is drop-in play only: install the model, add songs, make a chart with the settings the Swift app offers,
 play it with the runtime's judgements, pause, results, offsets and calibration. Not in it: Listen & Play (microphone
-sync), recognition, the Chart Inspector, any network service, and saving `.osu`/`.osz` files.
+sync), recognition, the Chart Inspector, any network service, and saving `.osu`/`.osz` files. A test path through
+recognition and sync exists in debug and checks builds only, on one plain screen of its own
+([recognition.md](recognition.md)); it is no part of this design.
 
 ## Information architecture and navigation
 

@@ -32,8 +32,7 @@ enum class HostStep {
 }
 
 /**
- * What a driver, or anything else that watches the host app, reports to the session. Every call is an observation, not
- * a command: the session goes on from what it sees, in whatever order it sees it, and a share or a file arriving moves
+ * What is reported to the session about the host app's steps. Every call is an observation, not a command: the session goes on from what it sees, in whatever order it sees it, and a share or a file arriving moves
  * it past any step that was never reported. Safe from any thread; a call after the session ended is dropped.
  */
 interface HostReports {
@@ -56,8 +55,8 @@ interface HostReports {
 }
 
 /**
- * What the pipeline needs from anything that acts inside the host app. Nothing in the session depends on a driver
- * doing anything: it asks for a step and goes on watching for what follows. [perform] returns at once and may be asked
+ * The host app's steps, as the session sees them. Nothing in the session depends on a driver doing anything: it asks
+ * for a step and goes on watching for what follows. [perform] returns at once and may be asked
  * for a later step while an earlier one has been handed to the person; [cancel] says the session no longer wants the
  * last step asked for.
  */
@@ -70,7 +69,7 @@ interface HostDriver {
     fun cancel()
 }
 
-/** No automation: every step is the person's, and the screen says what to do. */
+/** Every step is the person's, and the screen says what to do. */
 object ManualHostDriver : HostDriver {
     override val name = "manual"
 
@@ -82,9 +81,9 @@ object ManualHostDriver : HostDriver {
 }
 
 /**
- * The driver in use, and the session's [reports] for code that sees something without having been asked. A driver in
- * the same process installs itself when it is ready and removes itself when it goes; until then, and after, the person
- * does the steps. The reports are always there: with no session they drop what they get.
+ * The driver in use, and the session's [reports], for what is seen without having been asked for. A driver in the same
+ * process installs itself when it is ready and removes itself when it goes; until then, and after, the person does the
+ * steps. The reports are always there: with no session they drop what they get.
  */
 object HostDrivers {
     @Volatile

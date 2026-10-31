@@ -709,10 +709,14 @@ class SessionMachineTest {
         bench.audioReady()
         bench.chartReady()
         bench.on(SessionEvent.ReferenceReady("runtime", 1.0))
-        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "InsufficientDuration")))
-        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "InsufficientDuration")))
-        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "WeakAlignmentPeak")))
-        assertEquals(listOf("InsufficientDuration", "WeakAlignmentPeak"), bench.events("sync.state").map { it["detail"] })
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "INSUFFICIENT_DURATION")))
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "INSUFFICIENT_DURATION")))
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, confidence = 0.4, detail = "WEAK_ALIGNMENT_PEAK")))
+        assertEquals(listOf("INSUFFICIENT_DURATION", "WEAK_ALIGNMENT_PEAK"), bench.events("sync.state").map { it["detail"] })
+        // The screen shows it as it stands.
+        assertEquals("WEAK_ALIGNMENT_PEAK", bench.state.syncDetail)
+        assertEquals(0.4, bench.state.syncConfidence!!, 0.0)
+        assertEquals("LISTENING · WEAK_ALIGNMENT_PEAK", bench.state.stage(Stage.SYNC).detail)
     }
 
     @Test
