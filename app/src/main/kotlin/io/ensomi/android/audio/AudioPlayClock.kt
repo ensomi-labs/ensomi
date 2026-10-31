@@ -47,6 +47,9 @@ class AudioPlayClock(
     }
 
     private var started = false
+
+    /** Read without the lock by [isPaused]: a touch asks on the main thread, and must not contend with a frame. */
+    @Volatile
     private var paused = false
 
     /** Waiting for the first timestamp presented after [waitFromNanos], with a frame past [waitFrame]. */
@@ -174,7 +177,7 @@ class AudioPlayClock(
     }
 
     override val isPaused: Boolean
-        @Synchronized get() = paused
+        get() = paused
 
     private fun waitFor(nanoTime: Long, frame: Long) {
         waiting = true
