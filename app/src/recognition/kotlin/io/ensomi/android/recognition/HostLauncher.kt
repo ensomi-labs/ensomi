@@ -34,7 +34,9 @@ object HostLauncher {
     }
 
     private fun start(context: Context, intent: Intent, how: String): LaunchResult = try {
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        // Clearing the deep-link task on NetEase 9.6.15 reroutes through startup notices.
+        val flags = Intent.FLAG_ACTIVITY_NEW_TASK or if (how == "launcher") Intent.FLAG_ACTIVITY_CLEAR_TASK else 0
+        context.startActivity(intent.addFlags(flags))
         LaunchResult.Started(how)
     } catch (failure: ActivityNotFoundException) {
         LaunchResult.Failed("$how: ${failure.message}")
