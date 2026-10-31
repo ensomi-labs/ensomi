@@ -3,7 +3,7 @@ package io.ensomi.android.recognition
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -24,7 +24,7 @@ object HostLauncher {
 
     fun launch(context: Context, path: LaunchPath): LaunchResult {
         val launcher = context.packageManager.getLaunchIntentForPackage(PACKAGE) ?: return LaunchResult.NotInstalled
-        val link = Intent(Intent.ACTION_VIEW, Uri.parse(RECOGNITION_LINK)).setPackage(PACKAGE)
+        val link = Intent(Intent.ACTION_VIEW, RECOGNITION_LINK.toUri()).setPackage(PACKAGE)
         return when (path) {
             LaunchPath.A -> start(context, launcher, "launcher")
             LaunchPath.B -> start(context, link, "deep_link")

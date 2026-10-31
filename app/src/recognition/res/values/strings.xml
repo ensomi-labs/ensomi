@@ -19,7 +19,7 @@
     <string name="recognition_song_id">Song ID %1$s</string>
     <string name="recognition_sync_state">Sync: %1$s, held back by %2$s, agreement %3$s, %4$d s listened</string>
     <string name="recognition_level">Room level: %1$s dB</string>
-    <string name="recognition_joined">Joined at %1$s, heard at %2$s: %3$d notes kept, %4$d skipped</string>
+    <string name="recognition_joined">Joined at %1$s, heard at %2$s. Notes kept: %3$d, skipped: %4$d</string>
     <string name="recognition_result">Perfect %1$d, Good %2$d, Miss %3$d, longest combo %4$d</string>
     <string name="recognition_mean_offset">Mean hit error: %1$s ms</string>
     <string name="recognition_ambient_offset">Ambient offset</string>
