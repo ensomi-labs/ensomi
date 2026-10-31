@@ -5,7 +5,7 @@
 # the game first; the trace covers the next SECONDS.
 #
 # FrameTimeline lists the frames that carry a vsync id: the app window's (the HUD, the pause panel). The playfield's
-# SurfaceView frames, drawn with lockHardwareCanvas, carry none, so their pacing is the render thread's sections here
+# SurfaceView frames, drawn through HardwareRenderer, carry none, so their pacing is the render thread's sections here
 # and its own log (EnsomiPlayfield: missed vsyncs, frames past their deadline).
 #
 #   scripts/capture-frame-timeline.sh OUT_DIR NAME [SECONDS]

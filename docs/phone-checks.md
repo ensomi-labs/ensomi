@@ -106,7 +106,7 @@ What it runs, each group in its own process (`-g` picks groups, comma-separated)
 | generation | `GenerationCheck` | 5 (T10) | A whole song through the app's own path (decode, `prepare`, the chart), with `lowMemory` off and then on, each in its own process: the time of each stage, peak resident memory per stage, the least memory the system had left |
 | determinism | `DeterminismCheck` | 5 | The same song, stars, seed and `lowMemory` twice: the same `.osu` (its SHA-256 compares phones too) |
 | audio | `AudioClockCheck` | 6 | Three minutes of quiet clicks on the game's `AudioTrack` and clock, with a pause: timestamp jitter (line fit), drift, steps back, the song time between frames against the presentation time, the time to move again after the resume, underruns, the output used |
-| frames | `FramePacingCheck` | 9 | 60 s of the sample game at 0°, 40° and 55° in landscape and in portrait: frame rate, the refresh rate the display ran at, missed vsyncs, frames past their deadline, work per frame (p50, p99), in the debug build and again in the checks build (not debuggable, as a release) |
+| frames | `FramePacingCheck` | 9 | 60 s of the sample game at 0°, 40° and 55° in landscape and in portrait: frame rate, the refresh rate the display ran at, missed vsyncs, frames still working at the next vsync, frames past their deadline, work per frame (p50, p99), in the debug build and again in the checks build (not debuggable, as a release); and what a long frame costs a `Choreographer` loop, by when it asks for the next vsync |
 | lifecycle | `LifecycleCheck` | 7 | The game pauses on Back, Home, Recents, the notification shade and the screen turning off, and shows the pause panel when it comes back |
 
 Each check logs one JSON object per result under the logcat tag `EnsomiPhoneCheck` and appends it to
@@ -145,7 +145,7 @@ frame files, and send that archive too. Write the answers in a text file named `
 | # | Check | What to do | What to record |
 | --- | --- | --- | --- |
 | 1 | Touch to light (plan 7) | Film a finger tapping one lane in a game with the phone's slow-motion camera (240 fps or more) | The video |
-| 2 | A full game by hand (plan 7) | Play one whole song with your fingers, then run the `manual` collection before playing again | The results screen (screenshot); anything that felt late or wrong (the `manual` archive holds the game's late inputs, its clock log and every touch's handling delay) |
+| 2 | A full game by hand (plan 7, 9) | Play one whole song with your fingers, then run the `manual` collection before playing again | The results screen (screenshot); anything that felt late, wrong or uneven (the `manual` archive holds the game's late inputs, its clock log, its frame log and every touch's handling delay) |
 | 3 | Multi-touch (plan 7) | In a game, play chords with four fingers and hold two lanes while tapping the others; then the same with both thumbs in landscape | Whether any lane stayed lit after your fingers left; whether any press was missed; a screen recording if something went wrong |
 | 4 | Calibration by ear (plan 8) | Settings › Calibrate, three times on the speaker, three on wired headphones, three on Bluetooth | The suggestion of each run, per output (for example `speaker: +12, +10, +13`) |
 | 5 | Change of output (plan 7) | During a game: plug in wired headphones; resume; unplug them; then connect and disconnect Bluetooth headphones | Whether the game paused each time, what the pause panel said, and whether the sound went on on the new output after Resume |
@@ -172,11 +172,12 @@ and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is pers
 
 - `results/results.jsonl`: one JSON object per line with `check` (`runtime-load`, `uniffi-checksums`,
   `runtime-call-cost`, `model-integrity`, `model-install-from-files`, `decode-click`, `decode-clicks`, `generation`,
-  `determinism`, `audio-clock`, `frame-pacing`, `lifecycle-pause`, `lifecycle`), `ok`, `debuggable` (false for the
+  `determinism`, `audio-clock`, `frame-pacing`, `vsync-after-long-frame`, `lifecycle-pause`, `lifecycle`), `ok`, `debuggable` (false for the
   checks build), the `label` given and the check's own fields. `not-ok.jsonl` lists the results with `"ok": false`.
 - Targets, from gameplay.md: clock residual sd under 0.5 ms and no step back (`fitResidualSdMs`, `songTimeStepsBack`);
-  the picture step sd under 0.5 ms (`pictureStepSdMs`); under 0.5 % of frames late and work p99 under 3 ms at every
-  lean (`latePct`, `workMsP99`, `meetsTarget`); a frame's runtime calls under about 1 ms (`runtime-call-cost`'s
+  the picture step sd under 0.5 ms (`pictureStepSdMs`); under 0.5 % of vsyncs missed, under 0.5 % of frames late and
+  work p99 under 3 ms at every lean (`missedPct`, `latePct`, `workMsP99`, `meetsTarget`); a frame's runtime calls
+  under about 1 ms (`runtime-call-cost`'s
   `frameMsP99`). The frames numbers of the checks build are the ones that decide whether GLES is needed; the debug
   build's are slower by ART's debuggable mode.
 - `uniffi-checksums`: the runtime's AAR is built with UniFFI's checksum comparison left out, because UniFFI 0.31 gets
