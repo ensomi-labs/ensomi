@@ -49,7 +49,7 @@ its merged manifest is the same as without it. The app's main code knows only th
 whatever it unblocks: a file before the share waits for the song to be known; a share before the file waits for the
 file; a share at any time closes the host's stages, as "not observed" if nothing reported them. A failure stops nothing.
 It is shown with the stage it happened at and the stage to try again from, and the session goes on listening, so what
-arrives late still counts. A session is over only when its game ends or it is stopped.
+arrives late still counts. Any stage that has started can be tried again from the list on the screen, failed or not. A session is over only when its game ends or it is stopped.
 
 A share with no session starts one, without opening the host. A share of a different song starts a new session. The text
 may be any of the host's forms: `分享xxx的单曲《xxx》: https://… (来自@网易云音乐)` with a link to `music.163.com/song?id=`,

@@ -1,6 +1,7 @@
 package io.ensomi.android.recognition
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -50,6 +51,8 @@ object RecognitionEntry {
             RecognitionScreen(controller, onBack)
         } else {
             GameOrientation(settings.orientation)
+            // Before the game's own: it takes Back to pause, and this is the Back after that.
+            BackHandler(onBack = controller::gameQuit)
             PlayScreen(
                 title = session?.audio?.title.orEmpty(),
                 detail = session?.audio?.artist.orEmpty(),

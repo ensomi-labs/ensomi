@@ -43,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -52,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -81,6 +83,12 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
     LifecycleResumeEffect(controller) {
         controller.setFrontmost(true)
         onPauseOrDispose { controller.setFrontmost(false) }
+    }
+    // A screen that sleeps stops the microphone, and Sync may take minutes with nobody touching it.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
     }
     var granted by remember { mutableStateOf(permissionsMissing(context).isEmpty()) }
     LifecycleResumeEffect(context) {
@@ -131,7 +139,9 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                     item(key = "asks") { AsksCard(session.asks) }
                 }
                 current?.failure?.let { failure ->
-                    item(key = "failure") { FailureCard(failure, onRetry = { controller.retry(failure.kind.retryFrom) }) }
+                    item(key = "failure") {
+                        FailureCard(failure, canRetry = current.running, onRetry = { controller.retry(failure.kind.retryFrom) })
+                    }
                 }
                 item(key = "controls") {
                     Controls(
@@ -153,7 +163,7 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                 current?.result?.let { result -> item(key = "result") { ResultCard(result) } }
                 if (current != null) {
                     item(key = "song") { SongFacts(current) }
-                    item(key = "stages") { StagesCard(current) }
+                    item(key = "stages") { StagesCard(current, onRetry = controller::retry) }
                     if (current.held.isNotEmpty()) {
                         item(key = "held-title") { SectionTitle(R.string.recognition_held) }
                         items(current.held, key = { it.path }) { file ->
@@ -216,7 +226,7 @@ private fun AsksCard(asks: List<Ask>) {
 }
 
 @Composable
-private fun FailureCard(failure: Failure, onRetry: () -> Unit) {
+private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -230,8 +240,10 @@ private fun FailureCard(failure: Failure, onRetry: () -> Unit) {
             Text(stringResource(chinese), fontSize = 24.sp, lineHeight = 30.sp, style = MaterialTheme.typography.titleLarge)
             Text(stringResource(english), fontSize = 18.sp, lineHeight = 24.sp, style = MaterialTheme.typography.bodyLarge)
             failure.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            OutlinedButton(onClick = onRetry) {
-                Text(stringResource(R.string.recognition_retry_from, stringResource(failure.kind.retryFrom.label())))
+            if (canRetry) {
+                OutlinedButton(onClick = onRetry) {
+                    Text(stringResource(R.string.recognition_retry_from, stringResource(failure.kind.retryFrom.label())))
+                }
             }
         }
     }
@@ -307,7 +319,7 @@ private fun SongFacts(state: SessionState) {
 }
 
 @Composable
-private fun StagesCard(state: SessionState) {
+private fun StagesCard(state: SessionState, onRetry: (Stage) -> Unit) {
     var nowNanos by remember { mutableLongStateOf(SystemClock.elapsedRealtimeNanos()) }
     LaunchedEffect(state.running) {
         while (state.running) {
@@ -326,9 +338,20 @@ private fun StagesCard(state: SessionState) {
                         Icon(painterResource(view.status.icon()), contentDescription = null, modifier = Modifier.size(24.dp))
                     },
                     trailingContent = {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(stringResource(view.status.label()), style = MaterialTheme.typography.labelLarge)
-                            stageTime(view, nowNanos)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(stringResource(view.status.label()), style = MaterialTheme.typography.labelLarge)
+                                stageTime(view, nowNanos)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            }
+                            if (state.running && view.stage in RETRY_STAGES && view.status != StageStatus.WAITING) {
+                                val label = stringResource(view.stage.label())
+                                IconButton(onClick = { onRetry(view.stage) }) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_refresh),
+                                        contentDescription = stringResource(R.string.recognition_retry_from, label),
+                                    )
+                                }
+                            }
                         }
                     },
                 )
@@ -509,6 +532,9 @@ private fun FailureKind.words(): Pair<Int, Int> = when (this) {
     FailureKind.GAME_QUIT -> R.string.recognition_failure_quit_zh to R.string.recognition_failure_quit_en
     FailureKind.SESSION_LOST -> R.string.recognition_failure_lost_zh to R.string.recognition_failure_lost_en
 }
+
+/** Where the session can start again from. */
+private val RETRY_STAGES = setOf(Stage.OPEN, Stage.AUDIO, Stage.CHART, Stage.SYNC, Stage.PLAY)
 
 private const val CLOCK_TICK_MS = 500L
 private const val OFFSET_STEP_MS = 5

@@ -213,6 +213,8 @@ class SessionCharts(
         )
         // The library's background work on another song would slow this down, and nobody is waiting for it.
         stores.charts.quiet()
+        // A chart stopped a moment ago may still be stopping, and the maker takes one at a time.
+        maker.states.first { it[id] !is MakeState.Making }
         making = id
         maker.make(id, ChartRequest(stars, seed = null, sections = emptyList()))
         val outcome = maker.states.map { it[id] }.distinctUntilChanged().first { state ->
