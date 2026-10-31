@@ -10,8 +10,7 @@ only the owner can do.
 | Runtime AAR | A runtime release asset, fetched by Gradle and pinned by SHA-256. `ensomi.runtime.aar` stays as the local override. |
 | Emulators | No hosted runner can run an arm64 image, so arm64 AVDs stay on the Mac. One hosted experiment with x86_64 translation. No self-hosted runner, no device farm. |
 | Phones | The human-run kit, built on the Mac from a commit whose CI passed. |
-| Release | A signed arm64-v8a APK built by CI from a tag. Draft: internal. Prerelease: public, on the owner's word. No AAB yet. |
-| Versions | Tags `android-vX.Y.Z[-rc.N]`; `versionCode` a plain counter in the catalog. |
+| Release | A signed arm64-v8a APK built by CI from an `android-v*` tag. Draft: internal. Prerelease: public, on the owner's word. No AAB yet. |
 | Signing | One key for all channels, used only by `apksigner` in a job that runs no repository code. |
 | Testers | The draft release, or the owner forwards the zip; the SHA-256 is checked. |
 | Coordinated release | Runtime and model first; one commit moves the app's pins; the app goes last. |
@@ -23,27 +22,24 @@ workflow that is present in the associated commit SHA or Git ref of the event", 
 on `dev/swift`. Only `schedule` and `workflow_dispatch` need the file on the default branch, and nothing here uses them.
 
 **Triggers.** Pushes to `dev/android`, `claude/**` and `codex/**`, and pull requests into `dev/android`, unless they touch only
-docs. Agent branches are in so that an agent without the toolchain gets a build from a push. Swift branches have no
-`android.yml`, so they start nothing. There is no required check: `dev/android` keeps taking direct pushes and its ruleset stays.
+docs. Agent branches are in so that an agent without the toolchain gets a build from a push; Swift branches have no
+`android.yml` and start nothing. No required check: `dev/android` keeps taking direct pushes.
 
 **What runs.** One job: `assembleDebug assembleDebugAndroidTest assembleChecks assembleRelease testDebugUnitTest lint`, the
 16 KB check, and a check that `scripts/phone-checks.sh` and `ModelSource.kt` pin the same model. The
 [appendix](#appendix-the-first-workflow) is the complete file.
 
-**Runner.** `ubuntu-24.04`: 4 CPUs, 16 GB, free on a public repository. Its image already holds the pinned SDK packages; the
-workflow still installs the catalog's pins, so they stay written in one place.
-
-**Gradle cache.** `setup-gradle` with `cache-provider: basic` (MIT), not its proprietary default. By default it writes only on
-the default branch, `dev/swift`, so the workflow sets `cache-read-only` itself. A new agent branch builds cold once: a run
-restores caches only from its own branch, the default branch and a pull request's base.
+**Runner and cache.** `ubuntu-24.04`: 4 CPUs, 16 GB, free on a public repository, with the pinned SDK packages already in its
+image; the workflow still installs the catalog's pins, so they stay written in one place. `setup-gradle` uses `cache-provider:
+basic` (MIT), not its proprietary default. Left alone it writes caches only on the default branch, `dev/swift`, so the workflow
+sets `cache-read-only` itself. A new agent branch builds cold once.
 
 **Forks and secrets.** The workflow has no secrets and runs with `contents: read`. A fork's pull request gets a read-only token
-and no secrets, and first-time contributors wait for approval (today's setting). `pull_request_target` and `workflow_run` are
-never used. No APK goes into artifacts: anyone signed in to GitHub can read a public repository's artifacts, which would
-distribute `checks`.
+and no secrets, and first-time contributors wait for approval. `pull_request_target` and `workflow_run` are never used. No APK
+goes into artifacts: anyone signed in to GitHub can read a public repository's, which would distribute `checks`.
 
-**Beside `dev/swift`'s CI.** `ci.yml` exists only on `dev/swift` and `android.yml` only on `dev/android`, so neither sees the
-other's pushes. They share only the repository's cache allowance.
+**Beside `dev/swift`'s CI.** `ci.yml` lives only on `dev/swift` and `android.yml` only on `dev/android`, so neither sees the
+other's pushes.
 
 ## 2. The runtime AAR
 
@@ -114,8 +110,8 @@ Tested with Gradle 9.8.2 on the `v0.3.2` xcframework asset: 46.8 MB through GitH
 builds, a wrong or missing one stops the build. Not yet through AGP; JNA's line uses the same `artifact` form.
 
 **The runtime's side, first (step 1).** A prerelease `android-aar-affb60a` with the AAR the Mac builds from `codex/android-aar`.
-No runtime workflow fires (`release.yml` takes `v*`, `ci.yml` branches), and `main`, npm and `Package.swift` stay untouched. It
-has no CI build or attestation, and claims 0.3.2 with API that 0.3.2 lacks, so it serves CI and internal builds only. The plan
+No runtime workflow fires, and `main`, npm and `Package.swift` stay untouched. It has no CI build or attestation and claims
+0.3.2 with API that 0.3.2 lacks, so it serves CI and internal builds only. The plan
 was a runtime CI job with the first release carrying the AAR, so this needs the owner's yes; without it, steps 2 and 3 wait for
 step 8.
 
@@ -133,26 +129,24 @@ step 8.
 | --- | --- | --- |
 | arm64 image on `ubuntu-24.04` | No | The emulator refuses an arm64 AVD of API 28 or later on an x86_64 host: "System image must match the host architecture" (`main-emulator.cpp`). |
 | arm64 image on `ubuntu-24.04-arm` | No | The SDK repository has no Linux arm64 emulator: its hosts are Linux x64, macOS x64 and aarch64, Windows x64. |
-| arm64 image on hosted Apple silicon | No | GitHub: "Nested-virtualization is not supported due to the limitation of Apple's Virtualization Framework." Google: "You can't run a VM-accelerated emulator inside another VM." |
-| x86_64 image on `ubuntu-24.04` with KVM | **Try once** | "GitHub-hosted Linux runners support hardware acceleration for Android SDK tools." The API 34 to 37.0 x86_64 images declare `arm64-v8a` through `libndk_translation.so` in their `build.prop`, so this arm64-only APK should install. API 33's does not. |
+| arm64 image on hosted Apple silicon | No | GitHub: "Nested-virtualization is not supported due to the limitation of Apple's Virtualization Framework." |
+| x86_64 image on `ubuntu-24.04` with KVM | **Try once** | GitHub's Linux runners "support hardware acceleration for Android SDK tools". The API 34 to 37.0 x86_64 images declare `arm64-v8a` through `libndk_translation.so` in their `build.prop`, so this arm64-only APK should install. API 33's does not. |
 | Self-hosted Mac runner | No | GitHub: they "should almost never be used for public repositories". The Mac holds private data; a fork's pull request must not reach it. |
 | Firebase Test Lab | No | Deprecated, shut down on 2027-09-30; its replacement requires billing. |
 
-**The experiment (step 5).** On a branch, with the API 36 x86_64 image: install the debug APK, launch it, read
-`EnsomiDiagnostics`, run `RuntimeCheck`; if that holds, launch the release APK, which catches what R8 broke. Translated code says
-nothing about timing, and whether JNA and ONNX Runtime run under `libndk_translation` is unknown. Keep it if a week of runs is
-stable; otherwise drop it and say why here.
+**The experiment (step 5).** On a branch, with the API 36 x86_64 image: install the debug APK, read `EnsomiDiagnostics`, run
+`RuntimeCheck`; then launch the release APK, which catches what R8 broke. It says nothing about timing, and whether JNA and ONNX
+Runtime run under translation is unknown. Keep it if a week of runs is stable; otherwise drop it and say why here.
 
 | Where | What runs | When |
 | --- | --- | --- |
 | `ubuntu-24.04` | Builds, JVM tests, lint, 16 KB check | Every push |
-| `ubuntu-24.04`, x86_64 with KVM | The experiment, if it holds | `dev/android` and tags |
 | Mac, arm64 AVDs `ensomi-36` and `ensomi-36-16k` | Screens, flows, real 16 KB loading, the phone checks on an emulator, the release APK's smoke test | A build brief through Astra |
 | Phones | Timing, audio, HyperOS, the checklist | A person, before a release |
 
 **The kit.** Built on the Mac from a commit whose CI passed, without the override, by `scripts/make-phone-kit.sh`, which should
-refuse a dirty tree and record the commit and pins in a `KIT.txt`. Not from CI: an artifact would be public, CI's debug key is
-new on each run so kits would not install over each other, and the model, click tracks and songs need the Mac anyway.
+refuse a dirty tree and record the commit and pins. Not from CI: an artifact would be public, CI's debug key changes each run,
+and the model, click tracks and songs need the Mac anyway.
 
 ## 4. What a release is
 
@@ -171,21 +165,19 @@ use `--latest=false`, so Swift's `v0.1.0` keeps Latest.
 **Versions.** `appVersionName` and `appVersionCode` move into the catalog. `versionCode` goes up by one for every tag and is never
 reused. The release job fails unless the tag is `android-v<appVersionName>` and the code is above the last tag's.
 
-**Changelog.** The annotated tag's message. The workflow appends the commit, the SHA-256 of the APK and the certificate, the runtime
-and model tags, and links to the model card and the site's data provenance page. `--generate-notes` would compare histories that
-share nothing.
+**Changelog.** The annotated tag's message, plus the commit, the APK's SHA-256, the pins, and links to the model card and the data
+provenance page. `--generate-notes` would compare histories that share nothing.
 
 **Notices.** The Notices screen has the model's and ONNX Runtime's. A public APK also needs AndroidX, Compose, Kotlin, kotlinx, JNA
 (under Apache-2.0), libc++ and the Rust crates: a generated list for the Kotlin side, the AAR for the native side.
 
-**R8.** `release` today is unsigned and without R8. Google: "You should always enable optimization for your app's release build".
-On AGP 9.3 and later that is `optimization { enable = true }`. Add JNA's rules, widened from its FAQ: `-dontwarn java.awt.**`,
-`-keep class com.sun.jna.** { *; }`, `-keep class * extends com.sun.jna.** { *; }`. JNA's AAR ships none, and the runtime's consumer
-rules keep only `io.ensomi.runtime.**`. `checks` has no R8, so phone-check numbers do not cover this: the release APK gets its own
-smoke test on the Mac AVD and by hand on both devices.
+**R8.** `release` today is unsigned and without R8. Google: "You should always enable optimization for your app's release build"; on
+AGP 9.3 and later that is `optimization { enable = true }`. Add JNA's rules, which neither its AAR nor the runtime's consumer rules
+carry: `-dontwarn java.awt.**`, `-keep class com.sun.jna.** { *; }`, `-keep class * extends com.sun.jna.** { *; }`. `checks` has no R8,
+so the release APK gets its own smoke test on the Mac AVD and by hand on both devices.
 
-**Mapping, symbols, 16 KB.** `mapping.txt` stays on the release. There is no crash service, so nothing is uploaded; native symbols,
-if ever needed, come from rebuilding the runtime at its tag. CI checks zip alignment and every library's `LOAD` segments, and `sign`
+**Mapping, symbols, 16 KB.** `mapping.txt` stays on the release. With no crash service nothing is uploaded; native symbols, if ever
+needed, come from rebuilding the runtime at its tag. CI checks zip alignment and every library's `LOAD` segments, and `sign`
 checks the zip again.
 
 **The workflow.** `android-release.yml` on `dev/android`, on a push of `android-v*`. Job `build`, no secrets: check the tag and
@@ -222,37 +214,33 @@ Release certificate SHA-256: none yet.
 **Fixed by the first public APK:** the certificate, since another one means uninstalling and losing the library and the model ("You
 cannot regenerate a previously generated key"), and `io.ensomi.android`, which matches Swift's `io.ensomi.ios` and should stay.
 
-**Loss and rotation.** A lost key ends upgrades. A held key can be retired with `apksigner rotate`; rotated keys are supported from
-Android 13, this app's minSdk. Rotation does not undo a leak: a device that has not updated still trusts the old key.
+**Loss and rotation.** A lost key ends upgrades. A held key can be retired with `apksigner rotate`; rotated keys work from Android 13,
+this app's minSdk. Rotation does not undo a leak: a device that has not updated still trusts the old key.
 
-**Play later.** Give Google a copy of this key at enrolment ("Generate the app signing key you want to use for all app stores"), with
-a new upload key. A Google-generated key would stop Play and GitHub builds upgrading each other.
-
-**Developer verification.** Google's rule covers four countries' participating stores since 2026-09-30, and "all apps on certified
-Android devices" in 2027. Direct sideloads are not covered yet and ADB is exempt. A public APK will need the package and this key
-registered.
+**Later.** For Play, give Google a copy of this key at enrolment, with a new upload key: a Google-generated key would stop Play and
+GitHub builds upgrading each other. Android developer verification covers "all apps on certified Android devices" in 2027 (direct
+sideloads are not covered yet, ADB is exempt), so a public APK will need the package and this key registered.
 
 ## 6. Getting a build to the testers
 
-Both testers have write access and see the draft. Public GreatFire probes, none from the teammate's network: `github.com` is
+Both testers have write access and see the draft. GreatFire's public probes, none from the teammate's network: `github.com` is
 intermittent (42 of 62 tests disturbed), `release-assets.githubusercontent.com`, where downloads redirect, connected in 5 of 5 (last
 on 2026-10-10), `huggingface.co` is blocked (15 of 15). At step 7 the teammate tries one download. If it fails, the owner sends the APK
-zipped over whatever the two already use, and the teammate checks the SHA-256. Behind the block the model comes from the kit's folder
-by Install from files; the app takes only the pinned package, so the channel does not matter.
+zipped over whatever the two already use, and the teammate checks the SHA-256. Behind the block the model comes from the kit by
+Install from files.
 
 **On HyperOS.** `adb install -r`, tapping `继续安装` within 10 s ([the runbook](phone-checks.md)), or open the APK in the file manager and
-allow that app to install unknown apps. The second way has not been done with a signed build; step 7 records the dialogs in the
-runbook. From a debug build, `adb uninstall io.ensomi.android` first, which also removes the model, settings and library; the phone
-checks need the debug build back the same way.
+allow that app to install unknown apps; nobody has seen those dialogs with a signed build, so step 7 records them. From a debug build,
+`adb uninstall io.ensomi.android` first, which also removes the model, settings and library.
 
 ## 7. The model pin and coordinated releases
 
 **Pins.** The runtime: the catalog and `verification-metadata.xml`. The model: `ModelSource.kt`; `scripts/phone-checks.sh` restates its
-hash (CI checks it) and the runbook its tag.
+hash, which CI checks.
 
 **What an update does.** On the first start after an upgrade the app downloads the pinned tag over the old install, which stays in use
-until the new one is in place. Where Hugging Face is blocked the download stops and waits, and Install from files takes the new
-package. Stored charts stay. The same seed makes the same chart only on the same model and runtime, so a release that moves either says
+until the new one is in place. Where Hugging Face is blocked the download waits, and Install from files takes the new package. Stored
+charts stay. The same seed makes the same chart only on the same model and runtime, so a release that moves either says
 so.
 
 **Order,** as ensomi-model's `docs/ecosystem.md` says: a release or upload comes before those who take it.
@@ -262,7 +250,7 @@ so.
 2. The app, last: one commit moves every pin; CI; a kit with the new package; the phone checks; a tag.
 
 The Swift app pins independently. That page still calls this repository "the macOS and iOS app"; step 9 adds Android. A mirror of the
-model for China is a new host for the weights: it goes through the project's review of weights releases, not this document.
+model for China is a new host for the weights, so it goes through the project's review of weights releases, not this document.
 
 ## 8. Provenance and supply chain
 
@@ -276,18 +264,20 @@ not take the key.
 
 S is under half a day of an agent's work, M about a day.
 
-| # | Step | Size | Needs | Gives |
-| --- | --- | --- | --- | --- |
-| 0 | **Owner:** take this design | S | | The no-CI rule lifted |
-| 1 | The snapshot: Astra builds `affb60a`, then `gh release create android-aar-affb60a ensomi-runtime.aar -R ensomi-labs/runtime --prerelease --latest=false --target affb60ade90af2fb6646e8e40d6e39cc17f298de` | S | **Owner's yes** | A public AAR |
-| 2 | Section 2's app changes; check on the Mac with the override unset | S | 1 | Builds without a local AAR |
-| 3 | `android.yml`; AGENTS.md and README updated | S | 2 | **First value:** every push built, tested and linted |
-| 4 | Optimization and JNA's rules; the smoke test on the Mac AVD, signed with the debug key | S | 3 | A release build that loads |
-| 5 | The hosted experiment | M | 3 | A device-level check in CI, or a closed question |
-| 6 | **Owner:** environment, key, copies, secrets | S | | Signing possible |
-| 7 | `android-release.yml`, `.gitignore` for `*.p12`, `android-v0.1.0-rc.1`; **the owner approves**; both testers install | M | 4, 6 | First internal build |
-| 8 | The runtime's `v0.4.0` with the AAR; the app pins it | M | Parity on the Mac | A released, attested runtime |
-| 9 | Notices complete; phone checks and smoke test pass on both devices; ecosystem page updated; **the owner decides** on a public prerelease and turns on immutable releases | M | 7, 8 | First public build |
+| # | Step | Size | Needs |
+| --- | --- | --- | --- |
+| 0 | **Owner:** take this design, lifting the no-CI rule | S | |
+| 1 | The snapshot: Astra builds `affb60a`, then `gh release create android-aar-affb60a ensomi-runtime.aar -R ensomi-labs/runtime --prerelease --latest=false --target affb60ade90af2fb6646e8e40d6e39cc17f298de` | S | **Owner's yes** |
+| 2 | Section 2's app changes; check on the Mac with the override unset | S | 1 |
+| 3 | `android.yml`; AGENTS.md and README updated | S | 2 |
+| 4 | Optimization and JNA's rules; the smoke test on the Mac AVD, signed with the debug key | S | 3 |
+| 5 | The hosted experiment | M | 3 |
+| 6 | **Owner:** environment, key, copies, secrets | S | |
+| 7 | `android-release.yml`, `.gitignore` for `*.p12`, `android-v0.1.0-rc.1`; **the owner approves**; both testers install | M | 4, 6 |
+| 8 | The runtime's `v0.4.0` with the AAR; the app pins it | M | Parity on the Mac |
+| 9 | Notices complete; phone checks and smoke test pass on both devices; ecosystem page updated; **the owner decides** on a public prerelease and turns on immutable releases | M | 7, 8 |
+
+Steps 1 to 3 are the smallest thing that gives value: every push built, tested and linted, without Astra.
 
 **Stays on the Mac:** arm64 AVD runs, screenshots, the kit, the runtime's parity checks, builds of a runtime branch.
 
@@ -300,8 +290,8 @@ tree alone.
 - A Gradle download task: custom code for what verification does.
 - The AAR in git: 15.7 MB in public history at each bump.
 - `v0.4.0-rc.1` as the first asset: it needs `main`, and drags npm and `Package.swift` along.
-- Whole-graph dependency verification: churn at every bump, little gain over exact pins.
-- SBOMs, Dependabot on the pins, `sha_pinning_required` (it would fail `dev/swift`'s `@v7` tags).
+- Whole-graph dependency verification, SBOMs, Dependabot on the pins: churn for a small team.
+- `sha_pinning_required`: it would fail `dev/swift`'s `@v7` tags.
 - A second key for internal builds: testers would uninstall at the first public build.
 - `signingConfigs` fed from secrets: the key would sit in a Gradle process with third-party plugins.
 - `applicationIdSuffix` on debug: scripts name the package, and each install would hold its own model.
