@@ -142,7 +142,8 @@ class MediaListening(
     private fun report(file: File, evidence: Evidence) {
         if (!file.isFile) return
         val facts = stat(file, withTags = evidence != Evidence.WRITING)
-        reported[facts.path] = facts.sizeBytes to facts.modifiedWallMs
+        // A file being written is not yet news to the others: a row or the poll may be what says it finished.
+        if (evidence.finished) reported[facts.path] = facts.sizeBytes to facts.modifiedWallMs
         listener.seen(facts, evidence)
     }
 
@@ -195,11 +196,14 @@ class MediaListening(
                 val pending = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.IS_PENDING)
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(data) ?: continue
+                    // The file's own size and time, as the other sources see them: a row's time is in whole seconds,
+                    // and two sources must not make one file look as if it keeps changing.
+                    val disk = File(path)
                     found += FileFacts(
                         path = path,
-                        name = cursor.getString(name) ?: File(path).name,
-                        sizeBytes = cursor.getLong(size),
-                        modifiedWallMs = cursor.getLong(modified) * 1000,
+                        name = cursor.getString(name) ?: disk.name,
+                        sizeBytes = disk.length().takeIf { it > 0 } ?: cursor.getLong(size),
+                        modifiedWallMs = disk.lastModified().takeIf { it > 0 } ?: (cursor.getLong(modified) * 1000),
                         title = cursor.getString(title)?.takeIf { it.isNotBlank() },
                         artist = cursor.getString(artist)?.takeIf { it.isNotBlank() && it != UNKNOWN_ARTIST },
                         durationMs = cursor.getLong(duration).takeIf { it > 0 },

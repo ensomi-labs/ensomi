@@ -65,8 +65,8 @@ class AudioProbe(context: Context) {
                 codec = song.codec,
                 tookMs = (System.nanoTime() - started) / 1_000_000,
                 sha256 = hash,
-                sizeBytes = disk.length(),
-                modifiedWallMs = disk.lastModified(),
+                sizeBytes = disk.length().takeIf { it > 0 } ?: file.sizeBytes,
+                modifiedWallMs = disk.lastModified().takeIf { it > 0 } ?: file.modifiedWallMs,
             ) to song
         } catch (failure: DecodeException) {
             failed(file, started, failure)
@@ -87,8 +87,8 @@ class AudioProbe(context: Context) {
             decoded = false,
             tookMs = (System.nanoTime() - started) / 1_000_000,
             failure = failure.message ?: failure.javaClass.simpleName,
-            sizeBytes = disk.length(),
-            modifiedWallMs = disk.lastModified(),
+            sizeBytes = disk.length().takeIf { it > 0 } ?: file.sizeBytes,
+            modifiedWallMs = disk.lastModified().takeIf { it > 0 } ?: file.modifiedWallMs,
         ) to null
     }
 

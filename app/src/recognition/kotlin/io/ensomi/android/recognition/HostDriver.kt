@@ -32,8 +32,9 @@ enum class HostStep {
 }
 
 /**
- * What is reported to the session about the host app's steps. Every call is an observation, not a command: the session goes on from what it sees, in whatever order it sees it, and a share or a file arriving moves
- * it past any step that was never reported. Safe from any thread; a call after the session ended is dropped.
+ * What is reported to the session about the host app's steps. Every call is an observation, not a command: the session
+ * goes on from what it sees, in whatever order it sees it, and a share or a file arriving moves it past any step that was
+ * never reported. Safe from any thread; a call after the session ended is dropped.
  */
 interface HostReports {
     /** [step] has begun, with what the driver sees if it says anything useful for the trace. */

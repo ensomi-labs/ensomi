@@ -157,6 +157,8 @@ class RecognitionController private constructor(context: Context) {
 
     private fun now() = SessionNow(SystemClock.elapsedRealtimeNanos(), System.currentTimeMillis())
 
+    private fun limits() = SessionLimits(syncMs = mutableOptions.value.syncLimitMs)
+
     private suspend fun modelInstalled(): Boolean {
         // At a cold start the store is still looking at what is installed.
         withTimeoutOrNull(MODEL_CHECK_MS) { stores.model.state.first { it !is ModelState.Checking } }
@@ -174,7 +176,9 @@ class RecognitionController private constructor(context: Context) {
         trace = log
         val installed = modelInstalled()
         logDevice(log)
-        val (started, effects) = SessionMachine.start(cid, path, byShare, installed, time) { event, fields -> log.log(event, fields) }
+        val (started, effects) = SessionMachine.start(cid, path, byShare, installed, time, limits()) { event, fields ->
+            log.log(event, fields)
+        }
         machine = started
         published(started)
         effects.forEach { carryOut(it) }
@@ -211,7 +215,7 @@ class RecognitionController private constructor(context: Context) {
         if (!saved.running) return
         val log = SessionTrace(storage.traceFile(saved.cid), saved.cid, SystemClock::elapsedRealtimeNanos)
         trace = log
-        val (restored, effects) = SessionMachine.restored(saved, now()) { event, fields -> log.log(event, fields) }
+        val (restored, effects) = SessionMachine.restored(saved, now(), limits()) { event, fields -> log.log(event, fields) }
         machine = restored
         published(restored)
         effects.forEach { carryOut(it) }
