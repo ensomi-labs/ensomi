@@ -369,10 +369,10 @@ heads) for the output used, when it is at least 3 ms.
   thread logs, every two seconds under the tag `EnsomiPlayfield`, its frame rate and the display's, the vsyncs it
   missed, the frames still working when the next vsync came, the frames it finished after their deadline
   (`FrameData`'s preferred timeline), its average and longest time per frame in the runtime and in drawing, the whole
-  frame's work at the median and the 99th percentile, the number the table above sets, and what the process allocated
-  per frame; it allocates nothing to do so. Debug builds also keep every frame's vsync, expected presentation, deadline,
-  start, work by part, the song time drawn, its objects and HWUI's answer, written to `files/frame-log.csv` when the
-  playfield closes (README). Each frame is a trace section
+  frame's work at the median and the 99th percentile, the number the table above sets, what the process allocated per
+  frame, and the vsyncs that drew nothing to drain the queue; it allocates nothing to do so. Debug builds also keep every
+  frame's vsync, expected presentation, deadline, start, work by part, the song time drawn, its objects and HWUI's
+  answer, written to `files/frame-log.csv` when the playfield closes (README). Each frame is a trace section
   (`EnsomiFrame`, holding `EnsomiRuntime` and `EnsomiDraw`), so `scripts/capture-frame-timeline.sh` shows the render
   thread's work beside SurfaceFlinger's frame timeline in one Perfetto trace. The refresh-rate request is logged with
   the display's modes and the rate it runs at. FrameTimeline lists only frames that carry a vsync id: the app window's
