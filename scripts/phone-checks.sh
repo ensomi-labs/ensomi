@@ -398,8 +398,10 @@ if wanted manual; then
     # A file the app has not written (no game yet) is left out rather than kept as an error message.
     if grep -q -E 'No such file|run-as:' "$OUT/manual/$file"; then rm -f "$OUT/manual/$file"; fi
   done
+  # The last two: SurfaceFlinger's count of the layers' buffers each second on MediaTek phones, and ART's GC lines.
   adb logcat -d -v threadtime -s Ensomi:I EnsomiPlay:I EnsomiAudio:I EnsomiPlayfield:I EnsomiCalibration:I \
-    EnsomiCharts:I EnsomiModel:I EnsomiModelInstall:I EnsomiDiagnostics:I EnsomiDecodeCheck:I >"$OUT/manual/logcat.txt" 2>&1
+    EnsomiCharts:I EnsomiModel:I EnsomiModelInstall:I EnsomiDiagnostics:I EnsomiDecodeCheck:I \
+    BufferQueueProducer:I .ensomi.android:I >"$OUT/manual/logcat.txt" 2>&1
   say "  collected the logs, the last game's clock, frame and touch logs, settings.json and library.json"
 fi
 
