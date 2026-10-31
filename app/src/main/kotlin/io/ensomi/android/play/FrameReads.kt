@@ -1,9 +1,9 @@
 package io.ensomi.android.play
 
-/**
- * Asks the runtime what a frame must know as seldom as the answer can change. Every call through the bindings takes a
- * round trip through JNA with its allocations, and these are most of a frame's work on a phone. All three are plain
- * bookkeeping: what is drawn is the same as asking every frame.
+/*
+ * What a frame asks the runtime, as seldom as the answer can change: each call goes through JNA with its allocations,
+ * and they were most of a frame's work on a phone. These only decide when to ask; what is drawn is the same as asking
+ * every frame.
  */
 
 /**

@@ -58,7 +58,7 @@ class FramePacingCheck {
     @Test
     fun aLongFrameKeepsTheNextVsync() {
         val refresh = PhoneCheck.context.getSystemService(DisplayManager::class.java)
-            .getDisplay(Display.DEFAULT_DISPLAY).refreshRate.toDouble()
+            .getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate?.toDouble() ?: 60.0
         val interval = (1e9 / refresh).toLong()
         for (askFirst in listOf(false, true)) {
             val times = holdEveryTenthFrame(interval, askFirst)
