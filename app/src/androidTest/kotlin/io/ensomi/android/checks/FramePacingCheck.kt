@@ -93,7 +93,9 @@ class FramePacingCheck {
                     times[count++] = vsync
                     if (count % HELD_EVERY == 0) {
                         val until = vsync + interval * 115 / 100
-                        while (System.nanoTime() < until) Unit
+                        while (System.nanoTime() < until) {
+                            // Held on purpose.
+                        }
                     }
                     if (!more) finished.countDown() else if (!askFirst) choreographer.postVsyncCallback(this)
                 }
@@ -187,6 +189,7 @@ class FramePacingCheck {
         val late = if (hasDeadline) rows.count { it[5] > it[4] } else null
         // Still working when the next vsync came: such a frame must not cost the next one.
         val overran = if (hasDeadline) rows.count { it[5] - it[0] > interval } else null
+        val drained = rows.count { it.size > DRAINED_COLUMN && it[DRAINED_COLUMN] != 0L }
         val runtime = DoubleArray(rows.size) { rows[it][2] / 1e6 }
         val draw = DoubleArray(rows.size) { rows[it][3] / 1e6 }
         val work = DoubleArray(rows.size) { runtime[it] + draw[it] }
@@ -204,6 +207,7 @@ class FramePacingCheck {
             "missedVsyncs" to missed,
             "missedPct" to PhoneCheck.round(100.0 * missed / intervals.size, 2),
             "overranFrames" to overran,
+            "drainedFrames" to drained,
             "lateFrames" to late,
             "latePct" to late?.let { PhoneCheck.round(100.0 * it / rows.size, 2) },
             "presentationStepsBack" to presentBack,
@@ -225,6 +229,7 @@ class FramePacingCheck {
             "pacing-portrait" to "portrait 0°",
         )
         const val FRAME_LOG = "frame-log.csv"
+        const val DRAINED_COLUMN = 12
         const val HELD_FRAMES = 1_000
         const val HELD_EVERY = 10
         const val SETTLE_MS = 3_000L

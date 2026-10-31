@@ -223,6 +223,11 @@ request made before it, and at high refresh rates a frame's deadline lies past t
 its end and ended past that vsync lost it, though it was on time itself, and the picture held for a refresh. Asked at
 the start, a frame that runs long is followed at once by the next frame, for that vsync's own presentation time.
 
+The price is that nothing skips a frame by itself any more. A frame that reaches SurfaceFlinger late can leave a buffer
+more in the queue than the display takes, and then every frame waits most of a refresh in HWUI for a free buffer and is
+shown a refresh later than it was drawn for, which puts the notes a refresh behind the music for as long as it lasts. So
+when HWUI holds two frames in a row for over half a refresh, the next vsync draws nothing (`QueueDrain`).
+
 A frame that misses its deadline is not redrawn late; the next vsync draws for its own time, so motion never stalls or
 jumps backwards. The HUD in Compose observes only accuracy and the end of the game, which change when a judgement
 does, not every frame. The judgement word and combo are drawn by the render thread, on the same timeline as the notes.

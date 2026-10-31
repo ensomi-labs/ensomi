@@ -156,6 +156,7 @@ frame files, and send that archive too. Write the answers in a text file named `
 | 10 | Edge gestures (gameplay.md, Input) | In landscape, play the outer lanes hard, sliding a little towards the edges | Whether Back or Home ever fired during play |
 | 11 | Heat (gameplay.md) | Play for 10 minutes (the playfield preview loops), then at once run `sh phone-checks.sh -n -g frames -l hot` (it still installs two builds: answer the prompts) | Nothing more: the frames results hold the thermal state before and after |
 | 12 | Refresh rate (gameplay.md) | Note the phone's display refresh setting (HyperOS: Settings › Display › Refresh rate) and whether battery saver was on | The setting's name and value |
+| 13 | Smooth motion by hand (plan 9) | `adb install -r -t app-checks.apk`, play one whole song without touching the volume keys, leave the results open, `adb install -r -t app-debug.apk` (its data stays, and only a debuggable build can hand the files over), then run the `manual` collection | Whether the notes ever stuttered or jumped, and when in the song; the `manual` archive holds the rest |
 
 ## What to send back
 
@@ -180,6 +181,13 @@ and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is pers
   under about 1 ms (`runtime-call-cost`'s
   `frameMsP99`). The frames numbers of the checks build are the ones that decide whether GLES is needed; the debug
   build's are slower by ART's debuggable mode.
+- A hand-played game, `manual/`: in `frame-log.csv` a gap in `vsyncNanos` over 1.5 refresh intervals is a vsync the render
+  thread missed, and the picture held for a refresh; `drained` marks the frame after a vsync skipped on purpose;
+  `postNanos` is the time HWUI held the frame, `recordNanos` the time the frame took to draw, `syncResult` other than 0
+  something HWUI said about it (8 is a frame dropped). Only frames of the played part count: paused frames are cheap
+  and pile up while the panel is open. On MediaTek phones
+  `manual/logcat.txt` has SurfaceFlinger's own count of the playfield's buffers each second
+  (`BufferQueueProducer ... SurfaceView ... queueBuffer: fps= dur= max= min=`).
 - `uniffi-checksums`: the runtime's AAR is built with UniFFI's checksum comparison left out, because UniFFI 0.31 gets
   it wrong on AArch64 for values of 0x8000 and above. The check reads every checksum function as the bindings declare
   it. `low16Sha256` must be the same on every device and the emulator for the same AAR; `rawWithHighBits` counts
