@@ -295,7 +295,6 @@ class PlayfieldView @JvmOverloads constructor(
         private var running = true
 
         override fun run() {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
             Looper.prepare()
             looper = Looper.myLooper()
             // The game of an earlier surface goes on; otherwise this thread makes it and starts it.
@@ -313,6 +312,8 @@ class PlayfieldView @JvmOverloads constructor(
             visualOffsetMs?.let { playController.visualOffsetMs = it }
             scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
+            // After the game is made, so that the threads it starts do not inherit this.
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
             val target = SurfaceCanvas(surfaceHolder.surface)
             val choreographer = Choreographer.getInstance()
             val stats = FrameStats { display?.refreshRate ?: 60f }

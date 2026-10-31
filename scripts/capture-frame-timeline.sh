@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Records a Perfetto trace of whatever plays on the one booted emulator or device: SurfaceFlinger's FrameTimeline
-# (each frame's expected and actual presentation and its jank, per layer), the graphics and view atrace categories,
-# the scheduler, and the app's own trace sections (EnsomiFrame, EnsomiRuntime, EnsomiDraw on the render thread). Start
-# the game first; the trace covers the next SECONDS.
+# (each frame's expected and actual presentation and its jank, per layer), the graphics, view and ART atrace categories
+# (GC, class loading, lock contention), the scheduler, and the app's own trace sections (EnsomiFrame, EnsomiRuntime,
+# EnsomiDraw on the render thread). Start the game first; the trace covers the next SECONDS.
 #
 # FrameTimeline lists the frames that carry a vsync id: the app window's (the HUD, the pause panel). The playfield's
 # SurfaceView frames, drawn through HardwareRenderer, carry none, so their pacing is the render thread's sections here
@@ -34,8 +34,11 @@ data_sources {
       atrace_categories: "gfx"
       atrace_categories: "view"
       atrace_categories: "input"
+      atrace_categories: "dalvik"
       atrace_apps: "$PKG"
       ftrace_events: "sched/sched_switch"
+      ftrace_events: "sched/sched_wakeup"
+      ftrace_events: "sched/sched_blocked_reason"
       ftrace_events: "task/task_newtask"
       ftrace_events: "task/task_rename"
     }
