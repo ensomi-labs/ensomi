@@ -188,7 +188,7 @@ Every line has `elapsed_ns` (`SystemClock.elapsedRealtimeNanos`), `cid`, `seq` a
 | `share.received`, `share.link`, `song.identity` | The text, what was read from it, the short link's outcome |
 | `audio.candidate`, `audio.gone`, `decode`, `audio.ready` | Each file with its evidence, match and verdict, and what decoding it showed |
 | `chart.phase`, `chart.ready`, `chart.failed` | The phases, the notes, whether it was stored, the time |
-| `sync.reference`, `capture.start`, `capture.level`, `capture.stamps`, `sync.state`, `sync.truth` | The aligner, the source and format, the room's level each second, how blocks are stamped, each change of state with the reason no position is held, and for a replay the lock's error against the file |
+| `sync.reference`, `capture.start`, `capture.level`, `capture.stamps`, `capture.stopped`, `sync.state`, `sync.truth` | The aligner, the source and format, the room's level each second, how blocks are stamped (including cumulative read and push maxima when capture stops), each change of state with the reason no position is held, and for a replay the lock's error against the file |
 | `game.plan`, `game.join`, `game.end`, `game.quit` | Where the music was, how old the lock was, where the game joined, what it skipped, the score |
 | `failure`, `retry`, `foreground` | What stopped, what was tried again, Ensomi coming and going |
 
