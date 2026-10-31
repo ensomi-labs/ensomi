@@ -6,7 +6,7 @@ and the timing contract. Design how the Android way; do not port, copy or transl
 or history with this branch.
 
 UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gameplay.md`, the order of work in
-`docs/plan.md`. Keep them current when a decision changes.
+`docs/plan.md`. Keep them current when a decision changes. `docs/release.md` is a proposed design for CI and releases; nothing in it is enabled.
 
 ## Layout
 
