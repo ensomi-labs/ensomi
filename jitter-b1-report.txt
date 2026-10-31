@@ -1,0 +1,1110 @@
+Ensomi Android jitter — build round 1 — 2026-10-31
+
+BEFORE b71b4db; AFTER 092865a789104e543ca0684e8014e4abb1c69cca.
+Worktree /Users/l/ensomi/ensomi--android-jitter-b1, branch codex/android-jitter-b1.
+BEFORE worktree /Users/l/ensomi/ensomi--android-jitter-before (detached b71b4db).
+
+AFTER passed assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint: BUILD SUCCESSFUL in 35s.
+130 unit tests, zero failures, errors or skips. BEFORE passed assembleDebug assembleDebugAndroidTest assembleChecks: BUILD SUCCESSFUL in 11s.
+BEFORE unit tests/lint were not requested or run. AFTER lint has zero errors and one warning:
+gradle/libs.versions.toml:4:7 [AndroidGradlePluginVersion] A newer version of com.android.application than 9.4.1 is available: 9.5.0
+The pin is unchanged between BEFORE and AFTER. No other lint finding. This is an unchanged pinned-toolchain advisory, not a jitter-code finding; no measured BEFORE lint baseline was produced.
+Both compile logs contain:
+w: file:///Users/l/ensomi/ensomi--android-jitter-b1/app/src/androidTest/kotlin/io/ensomi/android/checks/FramePacingCheck.kt:96:59 Expression is unused.
+(The BEFORE warning has /Users/l/ensomi/ensomi--android-jitter-before as its worktree prefix.)
+Unable to strip the following libraries, packaging them as they are: libjnidispatch.so. Run with --info option to learn more.
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+These did not fail either build. Full logs and lint/unit-test reports are in builds/.
+
+Both local.properties files use the requested SDK and runtime AAR; JAVA_HOME was Android Studio's bundled JDK.
+All six APKs are in apks/{before,after}; hashes are in apks/sha256.txt.
+
+Device: ensomi-36, arm64-v8a, emulator-5554, 60.0 Hz. Booted with -no-window -gpu host -no-snapshot -no-boot-anim -no-audio and waited for sys.boot_completed=1.
+Initial adb devices was empty. No physical phone was accessed. Every adb operation was pinned to emulator-5554, with ANDROID_SERIAL exported before scripts.
+Gradle was stopped before measurements; no builds or trace analysis ran concurrently with timing measurements. Host process snapshots are retained for each instrumented run. These are emulator comparisons, not phone latency measurements.
+Both packages were uninstalled between commits. Checks builds were installed over debug plus its test APK. No permissions were granted by hand.
+Every instrumented run cleared logcat first and retained instrumentation output, results JSONL, CSVs, playfield.log, full logcat and crash log in its own runs/ directory. The remote phone-checks directory was pulled then removed.
+
+2a. Frame pacing: all eight instrumentations passed (two scenarios each). All sixteen rows have meetsTarget=false because workMsP99 exceeds 3 ms.
+Allocation medians fell from 81.95–83.7 to 23.4–23.95 KB/frame. Runtime and recording medians fell, but posting medians rose; p99 work did not consistently improve and occasional long frames remain.
+BEFORE writes syncResult=0 as a constant; AFTER records HardwareRenderer's result. BEFORE recordNanos excludes lockHardwareCanvas; AFTER includes target.begin and recording. The final-30-second notes median is 9 BEFORE and 10 AFTER.
+
+
+Allocation median uses every two-second alloc line in that instrumented run, across both scenarios. JSON statistics are copied without recalculation. Last 30 s are selected independently from each CSV using vsyncNanos >= final vsyncNanos - 30,000,000,000. CSV and allocation medians use the arithmetic midpoint for even counts.
+
+| run | scenario | fps | missedVsyncs | missedPct | overranFrames | lateFrames | workMsP50 | workMsP99 | workMsMax | runtimeMsP50 | runtimeMsP99 | drawMsP50 | drawMsP99 | allocMedianKBPerFrame |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| before-debug-1 | pacing-flat | 59.9 | 3 | 0.11 | 2 | 2 | 2.541 | 5.544 | 22.937 | 1.365 | 3.255 | 1.031 | 3.884 | 83.7 |
+| before-debug-1 | pacing | 60.0 | 0 | 0.0 | 0 | 0 | 2.564 | 5.378 | 9.812 | 1.369 | 3.082 | 1.057 | 3.672 | 83.7 |
+| before-debug-2 | pacing-flat | 59.9 | 3 | 0.11 | 2 | 2 | 2.769 | 4.768 | 24.382 | 1.56 | 3.339 | 1.151 | 2.258 | 82.25 |
+| before-debug-2 | pacing | 60.0 | 0 | 0.0 | 0 | 0 | 2.727 | 4.549 | 7.626 | 1.503 | 3.234 | 1.144 | 2.027 | 82.25 |
+| after-debug-1 | pacing-flat | 60.0 | 1 | 0.04 | 3 | 3 | 2.102 | 5.968 | 24.886 | 0.862 | 4.251 | 1.0 | 4.523 | 23.95 |
+| after-debug-1 | pacing | 60.0 | 0 | 0.0 | 1 | 1 | 1.999 | 5.83 | 26.802 | 0.756 | 3.431 | 1.054 | 4.885 | 23.95 |
+| after-debug-2 | pacing-flat | 60.0 | 0 | 0.0 | 4 | 4 | 2.176 | 5.742 | 26.658 | 0.966 | 4.336 | 0.976 | 4.379 | 23.65 |
+| after-debug-2 | pacing | 60.0 | 0 | 0.0 | 1 | 1 | 2.102 | 5.622 | 23.055 | 0.82 | 3.648 | 1.067 | 4.399 | 23.65 |
+| before-checks-1 | pacing-flat | 60.0 | 1 | 0.04 | 2 | 2 | 2.121 | 5.919 | 23.642 | 0.646 | 2.351 | 1.357 | 5.076 | 81.95 |
+| before-checks-1 | pacing | 60.0 | 0 | 0.0 | 0 | 0 | 2.103 | 5.782 | 7.355 | 0.59 | 1.893 | 1.412 | 5.102 | 81.95 |
+| before-checks-2 | pacing-flat | 60.0 | 2 | 0.07 | 2 | 2 | 2.168 | 6.125 | 24.443 | 0.675 | 2.419 | 1.36 | 5.342 | 82.1 |
+| before-checks-2 | pacing | 60.0 | 1 | 0.04 | 0 | 0 | 1.696 | 3.484 | 4.729 | 0.638 | 2.117 | 0.989 | 2.355 | 82.1 |
+| after-checks-1 | pacing-flat | 60.0 | 1 | 0.04 | 2 | 2 | 2.075 | 5.855 | 29.886 | 0.426 | 2.253 | 1.559 | 5.12 | 23.8 |
+| after-checks-1 | pacing | 60.0 | 0 | 0.0 | 2 | 2 | 2.073 | 5.906 | 21.554 | 0.378 | 1.935 | 1.603 | 5.41 | 23.8 |
+| after-checks-2 | pacing-flat | 60.0 | 1 | 0.04 | 3 | 2 | 2.208 | 6.136 | 36.068 | 0.46 | 2.405 | 1.667 | 5.509 | 23.4 |
+| after-checks-2 | pacing | 60.0 | 0 | 0.0 | 0 | 0 | 2.226 | 5.929 | 10.353 | 0.382 | 1.638 | 1.768 | 5.414 | 23.4 |
+
+| Run | Scenario | Last 30 s rows | recordNanos median | postNanos median | notes median | syncResult != 0 |
+|---|---|---|---|---|---|---|
+| before-debug-1 | pacing-flat | 1799 | 824083 | 194667 | 9 | 0 |
+| before-debug-1 | pacing | 1801 | 816542 | 204000 | 9 | 0 |
+| before-debug-2 | pacing-flat | 1800 | 885500.5 | 226749.5 | 9.0 | 0 |
+| before-debug-2 | pacing | 1801 | 878459 | 226458 | 9 | 0 |
+| after-debug-1 | pacing-flat | 1801 | 334167 | 596083 | 10 | 0 |
+| after-debug-1 | pacing | 1801 | 323500 | 630917 | 10 | 0 |
+| after-debug-2 | pacing-flat | 1801 | 357833 | 510959 | 10 | 0 |
+| after-debug-2 | pacing | 1801 | 356750 | 546167 | 10 | 0 |
+| before-checks-1 | pacing-flat | 1800 | 424687.5 | 892312.5 | 9.0 | 0 |
+| before-checks-1 | pacing | 1801 | 416500 | 904500 | 9 | 0 |
+| before-checks-2 | pacing-flat | 1800 | 424229.0 | 905875.0 | 9.0 | 0 |
+| before-checks-2 | pacing | 1801 | 435167 | 467375 | 9 | 0 |
+| after-checks-1 | pacing-flat | 1800 | 177145.5 | 1405646.0 | 10.0 | 0 |
+| after-checks-1 | pacing | 1801 | 195917 | 1422000 | 10 | 0 |
+| after-checks-2 | pacing-flat | 1800 | 197500.0 | 1487187.5 | 10.0 | 0 |
+| after-checks-2 | pacing | 1801 | 197000 | 1560333 | 10 | 0 |
+
+
+2b. A long frame and the next vsync. AFTER debug, OK (1 test).
+
+| check | debuggable | askedFor | refreshHz | frames | longFrames | missedVsyncs | ok |
+|---|---|---|---|---|---|---|---|
+| vsync-after-long-frame | true | end of frame | 60.0 | 1000 | 100 | 78 | true |
+| vsync-after-long-frame | true | start of frame | 60.0 | 1000 | 100 | 0 | true |
+
+Exact JSONL:
+
+{"check":"vsync-after-long-frame","debuggable":true,"askedFor":"end of frame","refreshHz":60.0,"frames":1000,"longFrames":100,"missedVsyncs":78,"ok":true}
+{"check":"vsync-after-long-frame","debuggable":true,"askedFor":"start of frame","refreshHz":60.0,"frames":1000,"longFrames":100,"missedVsyncs":0,"ok":true}
+
+2c. Isolated first calls in separate fresh processes. Both OK (1 test). Milliseconds except metadata. Complete rows:
+
+| field | debug | checks |
+|---|---|---|
+| check | runtime-first-calls | runtime-first-calls |
+| debuggable | true | false |
+| session | 18.955 | 4.938 |
+| feedback | 0.398 | 0.035 |
+| visibleObjects | 0.626 | 0.129 |
+| advance | 0.407 | 0.077 |
+| score | 0.506 | 0.089 |
+| noteGeometryTap | 1.476 | 0.107 |
+| noteGeometryHold | 0.569 | 0.073 |
+| noteYPosition | 0.22 | 0.016 |
+| laneBrightnessDark | 0.469 | 0.067 |
+| presentationNone | 0.299 | 0.068 |
+| batchesNone | 0.267 | 0.062 |
+| perfect.recordInput | 0.395 | 0.074 |
+| perfect.input | 0.839 | 0.185 |
+| perfect.recordEvents | 0.217 | 0.058 |
+| perfect.score | 0.393 | 0.05 |
+| perfect.batches | 0.305 | 0.067 |
+| perfect.presentation | 0.175 | 0.07 |
+| perfect.brightness | 0.627 | 0.062 |
+| perfect.release | 0.458 | 0.094 |
+| good.recordInput | 0.414 | 0.06 |
+| good.input | 0.653 | 0.089 |
+| good.recordEvents | 0.467 | 0.062 |
+| good.score | 0.244 | 0.057 |
+| good.batches | 0.377 | 0.057 |
+| good.presentation | 1.056 | 0.094 |
+| good.brightness | 0.405 | 0.052 |
+| good.release | 0.428 | 0.069 |
+| miss.advance | 0.27 | 0.048 |
+| miss.recordEvents | 0.388 | 0.059 |
+| miss.batches | 0.257 | 0.051 |
+| miss.presentation | 0.504 | 0.05 |
+| hold.recordInput | 0.487 | 0.061 |
+| hold.input | 0.404 | 0.076 |
+| hold.recordEvents | 0.287 | 0.06 |
+| hold.score | 0.51 | 0.074 |
+| hold.batches | 0.254 | 0.07 |
+| hold.presentation | 0.389 | 0.073 |
+| hold.brightness | 0.415 | 0.198 |
+| hold.release | 0.287 | 0.149 |
+| hold.visible | 0.155 | 0.058 |
+| isResolved | 0.093 | 0.038 |
+| close | 0.087 | 0.033 |
+| ok | true | true |
+
+Exact debug JSONL:
+
+{"check":"runtime-first-calls","debuggable":true,"session":18.955,"feedback":0.398,"visibleObjects":0.626,"advance":0.407,"score":0.506,"noteGeometryTap":1.476,"noteGeometryHold":0.569,"noteYPosition":0.22,"laneBrightnessDark":0.469,"presentationNone":0.299,"batchesNone":0.267,"perfect.recordInput":0.395,"perfect.input":0.839,"perfect.recordEvents":0.217,"perfect.score":0.393,"perfect.batches":0.305,"perfect.presentation":0.175,"perfect.brightness":0.627,"perfect.release":0.458,"good.recordInput":0.414,"good.input":0.653,"good.recordEvents":0.467,"good.score":0.244,"good.batches":0.377,"good.presentation":1.056,"good.brightness":0.405,"good.release":0.428,"miss.advance":0.27,"miss.recordEvents":0.388,"miss.batches":0.257,"miss.presentation":0.504,"hold.recordInput":0.487,"hold.input":0.404,"hold.recordEvents":0.287,"hold.score":0.51,"hold.batches":0.254,"hold.presentation":0.389,"hold.brightness":0.415,"hold.release":0.287,"hold.visible":0.155,"isResolved":0.093,"close":0.087,"ok":true}
+
+Exact checks JSONL:
+
+{"check":"runtime-first-calls","debuggable":false,"session":4.938,"feedback":0.035,"visibleObjects":0.129,"advance":0.077,"score":0.089,"noteGeometryTap":0.107,"noteGeometryHold":0.073,"noteYPosition":0.016,"laneBrightnessDark":0.067,"presentationNone":0.068,"batchesNone":0.062,"perfect.recordInput":0.074,"perfect.input":0.185,"perfect.recordEvents":0.058,"perfect.score":0.05,"perfect.batches":0.067,"perfect.presentation":0.07,"perfect.brightness":0.062,"perfect.release":0.094,"good.recordInput":0.06,"good.input":0.089,"good.recordEvents":0.062,"good.score":0.057,"good.batches":0.057,"good.presentation":0.094,"good.brightness":0.052,"good.release":0.069,"miss.advance":0.048,"miss.recordEvents":0.059,"miss.batches":0.051,"miss.presentation":0.05,"hold.recordInput":0.061,"hold.input":0.076,"hold.recordEvents":0.06,"hold.score":0.074,"hold.batches":0.07,"hold.presentation":0.073,"hold.brightness":0.198,"hold.release":0.149,"hold.visible":0.058,"isResolved":0.038,"close":0.033,"ok":true}
+
+Whole RuntimeCheck on debug: OK (5 tests). theTapLineIsTheRuntimesGeometry passed (INSTRUMENTATION_STATUS_CODE: 0). Full runtime-call-cost row:
+
+{"check":"runtime-call-cost","debuggable":true,"frames":27200,"visibleMax":18,"advanceUs":37.6,"visibleObjectsUs":38.1,"noteGeometryUsEach":41.7,"feedbackUs":231.0,"scoreUs":36.1,"worstMsAndFrame":["advance 58.952 at 2059","visible 0.725 at 3441","geometry 200.212 at 2330","feedback 32.036 at 1222","score 9.672 at 256"],"frameMeanMs":0.728,"frameMsP50":0.628,"frameMsP99":2.112,"frameMsMax":201.375,"underOneMsPerFrameAtP99":false,"ok":true}
+
+All class rows, including load/checksum results:
+
+{"check":"runtime-first-calls","debuggable":true,"session":17.797,"feedback":0.182,"visibleObjects":0.297,"advance":0.192,"score":0.239,"noteGeometryTap":0.89,"noteGeometryHold":0.236,"noteYPosition":0.047,"laneBrightnessDark":0.311,"presentationNone":0.316,"batchesNone":0.21,"perfect.recordInput":0.246,"perfect.input":0.595,"perfect.recordEvents":0.199,"perfect.score":0.204,"perfect.batches":0.277,"perfect.presentation":0.237,"perfect.brightness":0.183,"perfect.release":0.316,"good.recordInput":0.187,"good.input":0.271,"good.recordEvents":0.191,"good.score":0.183,"good.batches":0.176,"good.presentation":0.748,"good.brightness":0.282,"good.release":0.242,"miss.advance":0.199,"miss.recordEvents":0.173,"miss.batches":0.169,"miss.presentation":0.241,"hold.recordInput":0.167,"hold.input":0.239,"hold.recordEvents":0.421,"hold.score":0.655,"hold.batches":0.202,"hold.presentation":0.186,"hold.brightness":0.316,"hold.release":0.434,"hold.visible":0.924,"isResolved":0.131,"close":0.126,"ok":true}
+{"check":"runtime-load","debuggable":true,"loaded":true,"initMs":0.9,"noticeFiles":[],"packageCheck":"Model: ensomi-package.json: format null; this runtime reads ensomi-package/1","missingModelOpen":"refused: runtime.json: No such file or directory (os error 2)","error":null,"ok":true}
+{"check":"runtime-call-cost","debuggable":true,"frames":27200,"visibleMax":18,"advanceUs":37.6,"visibleObjectsUs":38.1,"noteGeometryUsEach":41.7,"feedbackUs":231.0,"scoreUs":36.1,"worstMsAndFrame":["advance 58.952 at 2059","visible 0.725 at 3441","geometry 200.212 at 2330","feedback 32.036 at 1222","score 9.672 at 256"],"frameMeanMs":0.728,"frameMsP50":0.628,"frameMsP99":2.112,"frameMsMax":201.375,"underOneMsPerFrameAtP99":false,"ok":true}
+{"check":"uniffi-checksums","debuggable":true,"contractVersion":30,"checksums":52,"rawWithHighBits":0,"atLeast0x8000":26,"stableAcrossCalls":true,"low16Sha256":"3c85aeaba1cb97e5a66ffee0829e18b9071a1a8309a5fe1fddf64e0c19d90729","file":"uniffi-checksums.txt","ok":true}
+
+2d. Perfetto, first 20 seconds of each fresh pacing-flat game. The supplied 25-second configuration was used unchanged.
+The first capture attempt failed before launch with the exact output:
+
+
+[904.520]     perfetto_cmd.cc:328 Could not open /data/local/tmp/ensomi-jitter.cfg. If this is a permission denied error, try placing the config in /data/misc/perfetto-configs: Perfetto should always be able to access this directory. (errno: 13, Permission denied)
+
+
+The config was moved to /data/misc/perfetto-configs/ensomi-jitter.cfg, then both traces captured successfully. No permission change was needed.
+On EnsomiPlayfield all selected long frames spend most of their time sleeping in postAndWait under EnsomiDraw. No other nested render-thread slice >1 ms indicated class loading, JIT, GC waiting or lock contention. In both builds 14/15 selected frame windows overlap a RenderThread dequeueBuffer slice >5 ms. This evidence points to HWUI/buffer waits on this AVD; it does not establish the cause of a phone's early stalls.
+Debug's longest frame is 25.884375 ms at +14.318166 ms (runtime 0.023666, draw 25.839417, Sleeping 25.682542).
+Checks' longest frame is 17.283792 ms at +0 ms (runtime 1.148208, draw 16.122458, Sleeping 15.964917). Its first window overlaps a 17.227875 ms allocateHelper slice; its second overlaps 8.66075 ms flush commands.
+No Uninterruptible time or blocked_function is present in the selected windows. Running/Runnable/Sleeping times are clipped exactly to each frame; nested/parent times overlap and are not additive. All timestamps and durations remain integer ns in trace-analysis.json and are converted exactly to ms in the tables.
+The 211 debug and 253 checks cross-thread table rows deliberately include all >5 ms slices overlapping a selected window, including parent slices and repeated slices where windows overlap.
+Both traces have ftrace_setup_errors=41 (unavailable vendor/kernel events). Explicit sched_switch, sched_wakeup, sched_blocked_reason, task_newtask and task_rename were not listed as unknown. No trace-loss/overrun counter was reported by the query. Exact setup event list follows:
+
+
+unknown_ftrace_events: ['dpu/disp_dpu_underrun', 'dpu/tracing_mark_write', 'g2d/g2d_perf_update_qos', 'g2d/tracing_mark_write', 'mali/tracing_mark_write', 'mdss/mdp_cmd_kickoff', 'mdss/mdp_cmd_pingpong_done', 'mdss/mdp_cmd_readptr_done', 'mdss/mdp_cmd_release_bw', 'mdss/mdp_cmd_wait_pingpong', 'mdss/mdp_commit', 'mdss/mdp_compare_bw', 'mdss/mdp_misr_crc', 'mdss/mdp_mixer_update', 'mdss/mdp_perf_prefill_calc', 'mdss/mdp_perf_set_ot', 'mdss/mdp_perf_set_panic_luts', 'mdss/mdp_perf_set_qos_luts', 'mdss/mdp_perf_set_wm_levels', 'mdss/mdp_perf_update_bus', 'mdss/mdp_sspp_change', 'mdss/mdp_sspp_set', 'mdss/mdp_trace_counter', 'mdss/mdp_video_underrun_done', 'mdss/rotator_bw_ao_as_context', 'mdss/tracing_mark_write', 'panel/panel_write_generic', 'sched/sched_cpu_hotplug', 'scm/scm_call_end', 'scm/scm_call_start', 'sde/sde_cmd_release_bw', 'sde/sde_encoder_underrun', 'sde/sde_evtlog', 'sde/sde_perf_calc_crtc', 'sde/sde_perf_crtc_update', 'sde/sde_perf_set_danger_luts', 'sde/sde_perf_set_ot', 'sde/sde_perf_set_qos_luts', 'sde/sde_perf_update_bus', 'sde/tracing_mark_write', 'systrace/0']
+
+
+Query script: /Users/l/ensomi/ensomi/artifacts/jitter-b1/analyse_trace.py; exact SQL: runs/trace-{debug,checks}/queries.sql. Config: perfetto.cfg. Setup decoder: trace_setup.py.
+
+Trace debug — complete 15-frame and cross-thread tables:
+
+First 20 s from first EnsomiFrame; 15 longest completed frames, descending duration. All times below in ms. Nested durations overlap and must not be added. Cross-thread rows include every completed slice >5 ms that overlaps the window (including parents); full duration and overlap are both shown.
+
+| Rank | Start | Frame | Runtime | Draw | Render-thread states | Nested render-thread slices >1 ms |
+|---|---|---|---|---|---|---|
+| 1 | 14.318166 | 25.884375 | 0.023666 | 25.839417 | Sleeping 25.682542<br>Running 0.168417<br>Runnable 0.033416<br>Uninterruptible 0 | EnsomiDraw: 25.839417<br>postAndWait: 25.723875 |
+| 2 | 432.155 | 23.719708 | 0.008375 | 23.703 | Sleeping 23.539<br>Runnable 0.118791<br>Running 0.061917<br>Uninterruptible 0 | EnsomiDraw: 23.703<br>postAndWait: 23.665125 |
+| 3 | 3400.847876 | 23.585959 | 0.944 | 22.578833 | Sleeping 21.943333<br>Running 1.448459<br>Runnable 0.194167<br>Uninterruptible 0 | EnsomiDraw: 22.578833<br>postAndWait: 22.080375 |
+| 4 | 14215.704506 | 23.544375 | 0.959416 | 22.509375 | Sleeping 22.226791<br>Running 1.224334<br>Runnable 0.09325<br>Uninterruptible 0 | EnsomiDraw: 22.509375<br>postAndWait: 22.288333 |
+| 5 | 9882.756004 | 23.414292 | 0.406291 | 22.963875 | Sleeping 22.593542<br>Running 0.77125<br>Runnable 0.0495<br>Uninterruptible 0 | EnsomiDraw: 22.963875<br>postAndWait: 22.688791 |
+| 6 | 398.542083 | 23.337542 | 0.01175 | 23.317458 | Sleeping 23.214042<br>Running 0.074583<br>Runnable 0.048917<br>Uninterruptible 0 | EnsomiDraw: 23.317458<br>postAndWait: 23.270125 |
+| 7 | 18364.964717 | 23.28675 | 1.205542 | 22.067292 | Sleeping 21.776125<br>Running 1.461167<br>Runnable 0.049458<br>Uninterruptible 0 | EnsomiRuntime: 1.205542<br>EnsomiDraw: 22.067292<br>postAndWait: 21.831667 |
+| 8 | 6583.150461 | 22.705542 | 1.572792 | 21.11775 | Sleeping 20.764167<br>Running 1.892542<br>Runnable 0.048833<br>Uninterruptible 0 | EnsomiRuntime: 1.572792<br>EnsomiDraw: 21.11775<br>postAndWait: 20.8285 |
+| 9 | 8432.510295 | 22.468584 | 0.976458 | 21.441875 | Sleeping 21.070375<br>Running 1.311959<br>Runnable 0.08625<br>Uninterruptible 0 | EnsomiDraw: 21.441875<br>postAndWait: 21.165083 |
+| 10 | 7500.060128 | 22.418834 | 1.086208 | 21.298292 | Sleeping 20.430416<br>Running 1.891251<br>Runnable 0.097167<br>Uninterruptible 0 | EnsomiRuntime: 1.086208<br>EnsomiDraw: 21.298292<br>postAndWait: 20.515291 |
+| 11 | 11616.834464 | 22.310916 | 1.135041 | 21.118208 | Sleeping 20.560375<br>Running 1.699249<br>Runnable 0.051292<br>Uninterruptible 0 | EnsomiRuntime: 1.135041<br>EnsomiDraw: 21.118208<br>postAndWait: 20.619166 |
+| 12 | 19699.562176 | 22.221916 | 0.472 | 21.50325 | Sleeping 21.27975<br>Running 0.879458<br>Runnable 0.062708<br>Uninterruptible 0 | EnsomiDraw: 21.50325<br>postAndWait: 21.351916 |
+| 13 | 15767.251424 | 22.1825 | 0.934708 | 21.219166 | Sleeping 20.744625<br>Running 1.345458<br>Runnable 0.092417<br>Uninterruptible 0 | EnsomiDraw: 21.219166<br>postAndWait: 20.854791 |
+| 14 | 3768.017418 | 22.011625 | 0.82825 | 21.136792 | Sleeping 20.535209<br>Running 1.151166<br>Runnable 0.32525<br>Uninterruptible 0 | EnsomiDraw: 21.136792<br>postAndWait: 20.877417 |
+| 15 | 11999.012922 | 21.992917 | 0.928917 | 21.051834 | Sleeping 20.541166<br>Running 1.239792<br>Runnable 0.211959<br>Uninterruptible 0 | EnsomiDraw: 21.051834<br>postAndWait: 20.763916 |
+
+Every process-thread slice >5 ms intersecting each selected frame:
+
+| Frame rank | Thread (tid) | Slice | Start relative to first frame (ms) | Full duration (ms) | Overlap (ms) |
+|---|---|---|---|---|---|
+| 1 | .ensomi.android (5836) | Choreographer#doFrame 513903 | -5.835125 | 48.215958 | 25.884375 |
+| 1 | .ensomi.android (5836) | traversal | -1.994709 | 44.3715 | 25.884375 |
+| 1 | .ensomi.android (5836) | draw-VRI[MainActivity] | 1.6085 | 37.066541 | 24.356875 |
+| 1 | RenderThread (5858) | DrawFrames -1 | 2.073166 | 36.246917 | 24.001917 |
+| 1 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 2.232375 | 36.086916 | 24.001125 |
+| 1 | .ensomi.android (5836) | postAndWait | 4.077458 | 34.58925 | 24.348542 |
+| 1 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 11.230208 | 27.071625 | 23.983667 |
+| 1 | RenderThread (5858) | queueBuffer | 12.660625 | 25.09 | 23.432459 |
+| 1 | RenderThread (5858) | queueBuffer | 12.6725 | 25.073208 | 23.427542 |
+| 1 | RenderThread (5858) | onFrameAvailable - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(f:0,a:0) | 12.705916 | 25.0385 | 23.42625 |
+| 1 | RenderThread (5858) | acquireNextBufferLocked - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(f:0,a:0)frame=1 | 12.712125 | 25.030458 | 23.424417 |
+| 1 | EnsomiPlayfield (5869) | Choreographer#doFrame 514010 | 14.261791 | 25.958417 | 25.884375 |
+| 1 | EnsomiPlayfield (5869) | animation | 14.268541 | 25.941542 | 25.884375 |
+| 1 | EnsomiPlayfield (5869) | EnsomiFrame | 14.318166 | 25.884375 | 25.884375 |
+| 1 | EnsomiPlayfield (5869) | EnsomiDraw | 14.348208 | 25.839417 | 25.839417 |
+| 1 | EnsomiPlayfield (5869) | postAndWait | 14.458875 | 25.723875 | 25.723875 |
+| 2 | RenderThread (5858) | DrawFrames -1 | 431.942875 | 23.789167 | 23.577042 |
+| 2 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 431.967 | 23.76425 | 23.57625 |
+| 2 | EnsomiPlayfield (5869) | Choreographer#doFrame 514938 | 432.126417 | 23.753416 | 23.719708 |
+| 2 | EnsomiPlayfield (5869) | animation | 432.128083 | 23.747959 | 23.719708 |
+| 2 | EnsomiPlayfield (5869) | EnsomiFrame | 432.155 | 23.719708 | 23.719708 |
+| 2 | EnsomiPlayfield (5869) | EnsomiDraw | 432.165333 | 23.703 | 23.703 |
+| 2 | EnsomiPlayfield (5869) | postAndWait | 432.199583 | 23.665125 | 23.665125 |
+| 2 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 432.273083 | 23.451792 | 23.451792 |
+| 2 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 432.583417 | 23.09475 | 23.09475 |
+| 2 | RenderThread (5858) | dequeueBuffer | 432.583917 | 23.089875 | 23.089875 |
+| 2 | RenderThread (5858) | DrawFrames -1 | 455.73425 | 9.386292 | 0.140458 |
+| 2 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 455.759583 | 9.360334 | 0.115125 |
+| 3 | RenderThread (5858) | DrawFrames -1 | 3400.206835 | 23.949166 | 23.308125 |
+| 3 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 3400.278501 | 23.873959 | 23.304584 |
+| 3 | EnsomiPlayfield (5869) | Choreographer#doFrame 516460 | 3400.597001 | 23.886917 | 23.585959 |
+| 3 | EnsomiPlayfield (5869) | animation | 3400.604335 | 23.843958 | 23.585959 |
+| 3 | EnsomiPlayfield (5869) | EnsomiFrame | 3400.847876 | 23.585959 | 23.585959 |
+| 3 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 3400.995626 | 23.115334 | 23.115334 |
+| 3 | EnsomiPlayfield (5869) | EnsomiDraw | 3401.800793 | 22.578833 | 22.578833 |
+| 3 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 3402.032126 | 22.017792 | 22.017792 |
+| 3 | RenderThread (5858) | dequeueBuffer | 3402.033585 | 21.999 | 21.999 |
+| 3 | EnsomiPlayfield (5869) | postAndWait | 3402.264585 | 22.080375 | 22.080375 |
+| 3 | RenderThread (5858) | DrawFrames -1 | 3424.17546 | 9.106666 | 0.258375 |
+| 3 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 3424.27171 | 9.007833 | 0.162125 |
+| 4 | RenderThread (5858) | DrawFrames -1 | 14215.366506 | 23.674959 | 23.336959 |
+| 4 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 14215.403465 | 23.635625 | 23.334584 |
+| 4 | EnsomiPlayfield (5869) | Choreographer#doFrame 522877 | 14215.50509 | 23.784625 | 23.544375 |
+| 4 | EnsomiPlayfield (5869) | animation | 14215.509756 | 23.748334 | 23.544375 |
+| 4 | EnsomiPlayfield (5869) | EnsomiFrame | 14215.704506 | 23.544375 | 23.544375 |
+| 4 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 14215.800798 | 23.208667 | 23.208667 |
+| 4 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 14216.310048 | 22.662125 | 22.662125 |
+| 4 | RenderThread (5858) | dequeueBuffer | 14216.310881 | 22.650292 | 22.650292 |
+| 4 | EnsomiPlayfield (5869) | EnsomiDraw | 14216.668173 | 22.509375 | 22.509375 |
+| 4 | EnsomiPlayfield (5869) | postAndWait | 14216.861798 | 22.288333 | 22.288333 |
+| 4 | RenderThread (5858) | DrawFrames -1 | 14239.055631 | 13.141584 | 0.19325 |
+| 4 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 14239.12334 | 13.071166 | 0.125541 |
+| 5 | RenderThread (5858) | DrawFrames -1 | 9882.588296 | 23.428875 | 23.261167 |
+| 5 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 9882.622504 | 23.392667 | 23.259167 |
+| 5 | EnsomiPlayfield (5869) | Choreographer#doFrame 520328 | 9882.714004 | 23.480584 | 23.414292 |
+| 5 | EnsomiPlayfield (5869) | animation | 9882.716754 | 23.458834 | 23.414292 |
+| 5 | EnsomiPlayfield (5869) | EnsomiFrame | 9882.756004 | 23.414292 | 23.414292 |
+| 5 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 9883.079171 | 22.913167 | 22.913167 |
+| 5 | EnsomiPlayfield (5869) | EnsomiDraw | 9883.165796 | 22.963875 | 22.963875 |
+| 5 | EnsomiPlayfield (5869) | postAndWait | 9883.420963 | 22.688791 | 22.688791 |
+| 5 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 9883.557463 | 22.391708 | 22.391708 |
+| 5 | RenderThread (5858) | dequeueBuffer | 9883.558254 | 22.383292 | 22.383292 |
+| 5 | RenderThread (5858) | DrawFrames -1 | 9906.029129 | 12.921417 | 0.141167 |
+| 5 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 9906.080338 | 12.867791 | 0.089958 |
+| 6 | .ensomi.android (5836) | Choreographer#doFrame 514836 | 383.373292 | 37.160125 | 21.991334 |
+| 6 | .ensomi.android (5836) | Choreographer#doFrame - resynced to 514838 in 30.2ms | 383.414417 | 37.118583 | 21.990917 |
+| 6 | .ensomi.android (5836) | traversal | 386.694458 | 33.835584 | 21.987959 |
+| 6 | .ensomi.android (5836) | draw-VRI[MainActivity] | 386.73625 | 33.788292 | 21.982459 |
+| 6 | .ensomi.android (5836) | postAndWait | 386.867958 | 33.654084 | 21.979959 |
+| 6 | RenderThread (5858) | DrawFrames -1 | 398.389417 | 21.978833 | 21.826167 |
+| 6 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 398.41075 | 21.956917 | 21.825584 |
+| 6 | EnsomiPlayfield (5869) | Choreographer#doFrame 514894 | 398.490042 | 23.393791 | 23.337542 |
+| 6 | EnsomiPlayfield (5869) | animation | 398.491708 | 23.38925 | 23.337542 |
+| 6 | EnsomiPlayfield (5869) | EnsomiFrame | 398.542083 | 23.337542 | 23.337542 |
+| 6 | EnsomiPlayfield (5869) | EnsomiDraw | 398.556042 | 23.317458 | 23.317458 |
+| 6 | EnsomiPlayfield (5869) | postAndWait | 398.6 | 23.270125 | 23.270125 |
+| 6 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 398.661792 | 21.698541 | 21.698541 |
+| 6 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 399.011375 | 21.277167 | 21.277167 |
+| 6 | RenderThread (5858) | dequeueBuffer | 399.011792 | 21.27275 | 21.27275 |
+| 6 | RenderThread (5858) | DrawFrames -1 | 421.362042 | 10.577666 | 0.517583 |
+| 6 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 421.833958 | 10.105125 | 0.045667 |
+| 7 | RenderThread (5858) | DrawFrames -1 | 18364.836133 | 23.326709 | 23.198125 |
+| 7 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 18364.858717 | 23.303333 | 23.197333 |
+| 7 | EnsomiPlayfield (5869) | Choreographer#doFrame 525289 | 18364.935133 | 23.324084 | 23.28675 |
+| 7 | EnsomiPlayfield (5869) | animation | 18364.936967 | 23.316458 | 23.28675 |
+| 7 | EnsomiPlayfield (5869) | EnsomiFrame | 18364.964717 | 23.28675 | 23.28675 |
+| 7 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 18365.152925 | 22.997417 | 22.997417 |
+| 7 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 18365.842175 | 22.284333 | 22.284333 |
+| 7 | RenderThread (5858) | dequeueBuffer | 18365.842633 | 22.278417 | 22.278417 |
+| 7 | EnsomiPlayfield (5869) | EnsomiDraw | 18366.173008 | 22.067292 | 22.067292 |
+| 7 | EnsomiPlayfield (5869) | postAndWait | 18366.405758 | 21.831667 | 21.831667 |
+| 7 | .ensomi.android (5836) | Choreographer#doFrame 525297 | 18387.251508 | 27.926 | 0.999959 |
+| 7 | RenderThread (5858) | DrawFrames -1 | 18388.165883 | 10.212 | 0.085584 |
+| 7 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 18388.204217 | 10.172958 | 0.04725 |
+| 8 | .ensomi.android (5836) | Choreographer#doFrame 518308 | 6567.467503 | 35.552875 | 19.869917 |
+| 8 | .ensomi.android (5836) | Choreographer#doFrame - resynced to 518310 in 29.4ms | 6567.619378 | 35.400458 | 19.869375 |
+| 8 | .ensomi.android (5836) | traversal | 6572.24292 | 30.752916 | 19.845375 |
+| 8 | .ensomi.android (5836) | draw-VRI[MainActivity] | 6572.310795 | 30.662625 | 19.822959 |
+| 8 | .ensomi.android (5836) | postAndWait | 6575.400878 | 27.554458 | 19.804875 |
+| 8 | RenderThread (5858) | DrawFrames -1 | 6582.947003 | 19.756417 | 19.552959 |
+| 8 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 6583.005211 | 19.695917 | 19.550667 |
+| 8 | EnsomiPlayfield (5869) | Choreographer#doFrame 518338 | 6583.102836 | 22.760875 | 22.705542 |
+| 8 | EnsomiPlayfield (5869) | animation | 6583.106253 | 22.752375 | 22.705542 |
+| 8 | EnsomiPlayfield (5869) | EnsomiFrame | 6583.150461 | 22.705542 | 22.705542 |
+| 8 | EnsomiPlayfield (5869) | EnsomiDraw | 6584.728295 | 21.11775 | 21.11775 |
+| 8 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 6584.95192 | 17.717958 | 17.717958 |
+| 8 | EnsomiPlayfield (5869) | postAndWait | 6585.012045 | 20.8285 | 20.8285 |
+| 8 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 6585.799836 | 16.818834 | 16.818834 |
+| 8 | RenderThread (5858) | dequeueBuffer | 6585.800795 | 16.805041 | 16.805041 |
+| 8 | RenderThread (5858) | DrawFrames -1 | 6604.698753 | 11.803292 | 1.15725 |
+| 8 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 6605.797253 | 10.703833 | 0.05875 |
+| 9 | RenderThread (5858) | DrawFrames -1 | 8432.328087 | 22.438042 | 22.255834 |
+| 9 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 8432.36267 | 22.401584 | 22.253959 |
+| 9 | EnsomiPlayfield (5869) | Choreographer#doFrame 519443 | 8432.465004 | 22.553541 | 22.468584 |
+| 9 | EnsomiPlayfield (5869) | animation | 8432.467754 | 22.523958 | 22.468584 |
+| 9 | EnsomiPlayfield (5869) | EnsomiFrame | 8432.510295 | 22.468584 | 22.468584 |
+| 9 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 8432.821295 | 21.916 | 21.916 |
+| 9 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 8433.271462 | 21.431 | 21.431 |
+| 9 | RenderThread (5858) | dequeueBuffer | 8433.272295 | 21.420292 | 21.420292 |
+| 9 | EnsomiPlayfield (5869) | EnsomiDraw | 8433.49067 | 21.441875 | 21.441875 |
+| 9 | EnsomiPlayfield (5869) | postAndWait | 8433.740587 | 21.165083 | 21.165083 |
+| 9 | RenderThread (5858) | DrawFrames -1 | 8454.776629 | 12.063125 | 0.20225 |
+| 9 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 8454.84592 | 11.991709 | 0.132959 |
+| 10 | .ensomi.android (5836) | Choreographer#doFrame 518868 | 7481.998337 | 36.18775 | 18.125959 |
+| 10 | .ensomi.android (5836) | traversal | 7487.00317 | 31.160583 | 18.103625 |
+| 10 | .ensomi.android (5836) | draw-VRI[MainActivity] | 7487.073462 | 31.070083 | 18.083417 |
+| 10 | .ensomi.android (5836) | postAndWait | 7491.335503 | 26.789542 | 18.064917 |
+| 10 | RenderThread (5858) | DrawFrames -1 | 7499.564962 | 18.305416 | 17.81025 |
+| 10 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 7499.632587 | 18.234875 | 17.807334 |
+| 10 | EnsomiPlayfield (5869) | Choreographer#doFrame 518890 | 7499.979628 | 22.5165 | 22.418834 |
+| 10 | EnsomiPlayfield (5869) | animation | 7499.986128 | 22.500542 | 22.418834 |
+| 10 | EnsomiPlayfield (5869) | EnsomiFrame | 7500.060128 | 22.418834 | 22.418834 |
+| 10 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 7500.463628 | 17.361584 | 17.361584 |
+| 10 | EnsomiPlayfield (5869) | EnsomiDraw | 7501.153753 | 21.298292 | 21.298292 |
+| 10 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 7501.815712 | 15.964666 | 15.964666 |
+| 10 | RenderThread (5858) | dequeueBuffer | 7501.81842 | 15.94925 | 15.94925 |
+| 10 | EnsomiPlayfield (5869) | postAndWait | 7501.924712 | 20.515291 | 20.515291 |
+| 10 | RenderThread (5858) | DrawFrames -1 | 7521.17717 | 14.248375 | 1.301792 |
+| 10 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 7522.39542 | 13.027583 | 0.083542 |
+| 11 | RenderThread (5858) | DrawFrames -1 | 11616.641547 | 22.306167 | 22.11325 |
+| 11 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 11616.695964 | 22.24925 | 22.11075 |
+| 11 | EnsomiPlayfield (5869) | Choreographer#doFrame 521328 | 11616.793755 | 22.390292 | 22.310916 |
+| 11 | EnsomiPlayfield (5869) | animation | 11616.796714 | 22.359791 | 22.310916 |
+| 11 | EnsomiPlayfield (5869) | EnsomiFrame | 11616.834464 | 22.310916 | 22.310916 |
+| 11 | EnsomiPlayfield (5869) | EnsomiDraw | 11617.973172 | 21.118208 | 21.118208 |
+| 11 | EnsomiPlayfield (5869) | postAndWait | 11618.441714 | 20.619166 | 20.619166 |
+| 11 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 11618.44338 | 20.46625 | 20.46625 |
+| 11 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 11619.006464 | 19.842666 | 19.842666 |
+| 11 | RenderThread (5858) | dequeueBuffer | 11619.007255 | 19.829625 | 19.829625 |
+| 11 | RenderThread (5858) | DrawFrames -1 | 11638.966255 | 11.579917 | 0.179125 |
+| 11 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 11639.03913 | 11.503709 | 0.10625 |
+| 12 | .ensomi.android (5836) | Choreographer#doFrame 526167 | 19697.902926 | 36.116625 | 22.221916 |
+| 12 | RenderThread (5858) | DrawFrames -1 | 19699.346217 | 22.031709 | 21.81575 |
+| 12 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 19699.398259 | 21.976542 | 21.812625 |
+| 12 | EnsomiPlayfield (5869) | Choreographer#doFrame 526174 | 19699.510051 | 22.304375 | 22.221916 |
+| 12 | EnsomiPlayfield (5869) | animation | 19699.513467 | 22.279459 | 22.221916 |
+| 12 | EnsomiPlayfield (5869) | EnsomiFrame | 19699.562176 | 22.221916 | 22.221916 |
+| 12 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 19699.984176 | 21.352625 | 21.352625 |
+| 12 | EnsomiPlayfield (5869) | EnsomiDraw | 19700.038176 | 21.50325 | 21.50325 |
+| 12 | .ensomi.android (5836) | traversal | 19700.098467 | 33.897125 | 21.685625 |
+| 12 | .ensomi.android (5836) | draw-VRI[MainActivity] | 19700.127259 | 33.847042 | 21.656833 |
+| 12 | EnsomiPlayfield (5869) | postAndWait | 19700.166426 | 21.351916 | 21.351916 |
+| 12 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 19700.624592 | 20.652167 | 20.652167 |
+| 12 | RenderThread (5858) | dequeueBuffer | 19700.626009 | 20.637375 | 20.637375 |
+| 12 | .ensomi.android (5836) | postAndWait | 19702.020842 | 31.934709 | 19.76325 |
+| 12 | RenderThread (5858) | DrawFrames -1 | 19721.395509 | 12.345917 | 0.388583 |
+| 12 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 19721.486217 | 12.245375 | 0.297875 |
+| 13 | .ensomi.android (5836) | Choreographer#doFrame 523711 | 15747.878341 | 36.8655 | 17.492417 |
+| 13 | .ensomi.android (5836) | traversal | 15753.090966 | 31.621833 | 17.461375 |
+| 13 | .ensomi.android (5836) | draw-VRI[MainActivity] | 15753.162799 | 31.517875 | 17.42925 |
+| 13 | .ensomi.android (5836) | postAndWait | 15756.838799 | 27.817458 | 17.404833 |
+| 13 | RenderThread (5858) | DrawFrames -1 | 15766.831924 | 17.573458 | 17.153958 |
+| 13 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 15766.901132 | 17.502584 | 17.152292 |
+| 13 | EnsomiPlayfield (5869) | Choreographer#doFrame 523733 | 15767.175757 | 22.277084 | 22.1825 |
+| 13 | EnsomiPlayfield (5869) | animation | 15767.182674 | 22.261083 | 22.1825 |
+| 13 | EnsomiPlayfield (5869) | EnsomiFrame | 15767.251424 | 22.1825 | 22.1825 |
+| 13 | EnsomiPlayfield (5869) | EnsomiDraw | 15768.191591 | 21.219166 | 21.219166 |
+| 13 | EnsomiPlayfield (5869) | postAndWait | 15768.548341 | 20.854791 | 20.854791 |
+| 13 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 15769.210507 | 15.160917 | 15.160917 |
+| 13 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 15770.407382 | 13.925709 | 13.925709 |
+| 13 | RenderThread (5858) | dequeueBuffer | 15770.409132 | 13.912292 | 13.912292 |
+| 13 | RenderThread (5858) | DrawFrames -1 | 15788.457507 | 11.269292 | 0.976417 |
+| 13 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 15789.338341 | 10.387125 | 0.095583 |
+| 14 | RenderThread (5858) | DrawFrames -1 | 3767.423751 | 22.079667 | 21.486 |
+| 14 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 3767.511626 | 21.989334 | 21.483542 |
+| 14 | EnsomiPlayfield (5869) | Choreographer#doFrame 516636 | 3767.895126 | 22.166126 | 22.011625 |
+| 14 | EnsomiPlayfield (5869) | animation | 3767.903668 | 22.133584 | 22.011625 |
+| 14 | EnsomiPlayfield (5869) | EnsomiFrame | 3768.017418 | 22.011625 | 22.011625 |
+| 14 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 3768.445085 | 21.025167 | 21.025167 |
+| 14 | EnsomiPlayfield (5869) | EnsomiDraw | 3768.853793 | 21.136792 | 21.136792 |
+| 14 | EnsomiPlayfield (5869) | postAndWait | 3769.08721 | 20.877417 | 20.877417 |
+| 14 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 3769.513543 | 19.888042 | 19.888042 |
+| 14 | RenderThread (5858) | dequeueBuffer | 3769.515251 | 19.871292 | 19.871292 |
+| 14 | RenderThread (5858) | DrawFrames -1 | 3789.514502 | 11.448125 | 0.514541 |
+| 14 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 3789.789502 | 11.163166 | 0.239541 |
+| 15 | .ensomi.android (5836) | Choreographer#doFrame 521532 | 11981.167672 | 36.921625 | 19.076375 |
+| 15 | .ensomi.android (5836) | traversal | 11985.145839 | 32.916166 | 19.049083 |
+| 15 | .ensomi.android (5836) | draw-VRI[MainActivity] | 11985.179047 | 32.858208 | 19.024333 |
+| 15 | .ensomi.android (5836) | postAndWait | 11986.824547 | 31.19375 | 19.005375 |
+| 15 | RenderThread (5858) | DrawFrames -1 | 11998.781089 | 18.925208 | 18.693375 |
+| 15 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 11998.824047 | 18.878958 | 18.690083 |
+| 15 | EnsomiPlayfield (5869) | Choreographer#doFrame 521554 | 11998.967714 | 22.0445 | 21.992917 |
+| 15 | EnsomiPlayfield (5869) | animation | 11998.971714 | 22.03625 | 21.992917 |
+| 15 | EnsomiPlayfield (5869) | EnsomiFrame | 11999.012922 | 21.992917 | 21.992917 |
+| 15 | RenderThread (5858) | eglSwapBuffersWithDamageKHR | 11999.307755 | 18.22575 | 18.22575 |
+| 15 | RenderThread (5858) | dequeueBuffer - 59f3ee3 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 11999.83413 | 17.659584 | 17.659584 |
+| 15 | RenderThread (5858) | dequeueBuffer | 11999.835172 | 17.649625 | 17.649625 |
+| 15 | EnsomiPlayfield (5869) | EnsomiDraw | 11999.945505 | 21.051834 | 21.051834 |
+| 15 | EnsomiPlayfield (5869) | postAndWait | 12000.229339 | 20.763916 | 20.763916 |
+| 15 | RenderThread (5858) | DrawFrames -1 | 12019.897839 | 12.939 | 1.108 |
+| 15 | RenderThread (5858) | Drawing  0.00  0.00 2424.00 1080.00 | 12020.803297 | 12.031542 | 0.202542 |
+
+Trace statistics requiring inspection:
+
+```json
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+```
+
+
+Trace checks — complete 15-frame and cross-thread tables:
+
+First 20 s from first EnsomiFrame; 15 longest completed frames, descending duration. All times below in ms. Nested durations overlap and must not be added. Cross-thread rows include every completed slice >5 ms that overlaps the window (including parents); full duration and overlap are both shown.
+
+| Rank | Start | Frame | Runtime | Draw | Render-thread states | Nested render-thread slices >1 ms |
+|---|---|---|---|---|---|---|
+| 1 | 0 | 17.283792 | 1.148208 | 16.122458 | Sleeping 15.964917<br>Running 0.663<br>Runnable 0.655875<br>Uninterruptible 0 | EnsomiRuntime: 1.148208<br>EnsomiDraw: 16.122458<br>postAndWait: 16.028709 |
+| 2 | 17.328084 | 10.923833 | 0.010584 | 10.901 | Sleeping 10.80375<br>Running 0.080625<br>Runnable 0.039458<br>Uninterruptible 0 | EnsomiDraw: 10.901<br>postAndWait: 10.849209 |
+| 3 | 184.375167 | 10.432 | 0.019667 | 10.395709 | Sleeping 10.182167<br>Running 0.125125<br>Runnable 0.124708<br>Uninterruptible 0 | EnsomiDraw: 10.395709<br>postAndWait: 10.315875 |
+| 4 | 201.13375 | 9.835 | 0.028833 | 9.79675 | Sleeping 8.12275<br>Runnable 1.545542<br>Running 0.166708<br>Uninterruptible 0 | EnsomiDraw: 9.79675<br>postAndWait: 9.678417 |
+| 5 | 217.556125 | 7.474 | 0.023167 | 7.442375 | Sleeping 6.998459<br>Runnable 0.258958<br>Running 0.216583<br>Uninterruptible 0 | EnsomiDraw: 7.442375<br>postAndWait: 7.133375 |
+| 6 | 7517.748754 | 7.067083 | 0.905708 | 6.144167 | Sleeping 5.650208<br>Running 1.313125<br>Runnable 0.10375<br>Uninterruptible 0 | EnsomiDraw: 6.144167<br>postAndWait: 5.773125 |
+| 7 | 8537.600338 | 6.66125 | 0.580167 | 6.056833 | Sleeping 5.53475<br>Running 0.975084<br>Runnable 0.151416<br>Uninterruptible 0 | EnsomiDraw: 6.056833<br>postAndWait: 5.703459 |
+| 8 | 4117.760961 | 6.600375 | 1.68975 | 4.897875 | Sleeping 3.63325<br>Running 2.507292<br>Runnable 0.459833<br>Uninterruptible 0 | EnsomiRuntime: 1.68975<br>EnsomiDraw: 4.897875<br>postAndWait: 3.981166 |
+| 9 | 8134.002129 | 6.541167 | 1.740709 | 4.786333 | Sleeping 4.141584<br>Running 2.203459<br>Runnable 0.196124<br>Uninterruptible 0 | EnsomiRuntime: 1.740709<br>EnsomiDraw: 4.786333<br>postAndWait: 4.239 |
+| 10 | 5716.670336 | 6.526709 | 0.694083 | 5.818417 | Sleeping 5.406833<br>Running 1.059918<br>Runnable 0.059958<br>Uninterruptible 0 | EnsomiDraw: 5.818417<br>postAndWait: 5.48625 |
+| 11 | 6402.081545 | 6.316958 | 0.67925 | 5.627834 | Sleeping 4.841458<br>Running 1.030042<br>Runnable 0.445458<br>Uninterruptible 0 | EnsomiDraw: 5.627834<br>postAndWait: 5.308 |
+| 12 | 284.35175 | 6.269084 | 0.0145 | 6.238959 | Sleeping 4.200458<br>Runnable 1.958583<br>Running 0.110043<br>Uninterruptible 0 | EnsomiDraw: 6.238959<br>postAndWait: 6.168375 |
+| 13 | 6566.64492 | 6.268375 | 2.270542 | 3.983167 | Sleeping 3.536542<br>Running 2.686208<br>Runnable 0.045625<br>Uninterruptible 0 | EnsomiRuntime: 2.270542<br>EnsomiDraw: 3.983167<br>postAndWait: 3.586083 |
+| 14 | 4133.830127 | 6.256334 | 0.902833 | 5.343708 | Sleeping 4.839709<br>Running 1.087167<br>Runnable 0.329458<br>Uninterruptible 0 | EnsomiDraw: 5.343708<br>postAndWait: 5.156042 |
+| 15 | 14150.189465 | 6.121542 | 1.563625 | 4.542625 | Sleeping 3.398042<br>Running 2.197833<br>Runnable 0.508501<br>Runnable (preempted) 0.017166<br>Uninterruptible 0 | EnsomiRuntime: 1.563625<br>EnsomiDraw: 4.542625<br>postAndWait: 3.880083 |
+
+Every process-thread slice >5 ms intersecting each selected frame:
+
+| Frame rank | Thread (tid) | Slice | Start relative to first frame (ms) | Full duration (ms) | Overlap (ms) |
+|---|---|---|---|---|---|
+| 1 | RenderThread (6011) | DrawFrames 531587 | -4.330125 | 21.417292 | 17.087167 |
+| 1 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | -4.276791 | 21.362958 | 17.086167 |
+| 1 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | -3.620083 | 19.799833 | 16.17975 |
+| 1 | RenderThread (6011) | dequeueBuffer - VRI[MainActivity]#0(BLAST Consumer)0 | -1.080875 | 17.245042 | 16.164167 |
+| 1 | RenderThread (6011) | dequeueBuffer | -1.08 | 17.239959 | 16.159959 |
+| 1 | RenderThread (6011) | allocateHelper | -1.074166 | 17.227875 | 16.153709 |
+| 1 | EnsomiPlayfield (6018) | Choreographer#doFrame 531852 | -0.177166 | 17.463666 | 17.283792 |
+| 1 | EnsomiPlayfield (6018) | animation | -0.174958 | 17.459958 | 17.283792 |
+| 1 | EnsomiPlayfield (6018) | EnsomiFrame | 0 | 17.283792 | 17.283792 |
+| 1 | .ensomi.android (5995) | Choreographer#doFrame 531845 | 0.129459 | 34.668 | 17.154333 |
+| 1 | EnsomiPlayfield (6018) | EnsomiDraw | 1.152667 | 16.122458 | 16.122458 |
+| 1 | EnsomiPlayfield (6018) | postAndWait | 1.241875 | 16.028709 | 16.028709 |
+| 1 | .ensomi.android (5995) | traversal | 4.430959 | 30.365166 | 12.852833 |
+| 1 | .ensomi.android (5995) | draw-VRI[MainActivity] | 5.235917 | 27.551083 | 12.047875 |
+| 1 | RenderThread (6011) | DrawFrames -1 | 17.091334 | 11.072916 | 0.192458 |
+| 1 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 17.222667 | 10.939458 | 0.061125 |
+| 2 | .ensomi.android (5995) | Choreographer#doFrame 531845 | 0.129459 | 34.668 | 10.923833 |
+| 2 | .ensomi.android (5995) | traversal | 4.430959 | 30.365166 | 10.923833 |
+| 2 | .ensomi.android (5995) | draw-VRI[MainActivity] | 5.235917 | 27.551083 | 10.923833 |
+| 2 | RenderThread (6011) | DrawFrames -1 | 17.091334 | 11.072916 | 10.836166 |
+| 2 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 17.222667 | 10.939458 | 10.834041 |
+| 2 | EnsomiPlayfield (6018) | Choreographer#doFrame 531916 | 17.302209 | 10.955625 | 10.923833 |
+| 2 | EnsomiPlayfield (6018) | animation | 17.303042 | 10.950917 | 10.923833 |
+| 2 | EnsomiPlayfield (6018) | EnsomiFrame | 17.328084 | 10.923833 | 10.923833 |
+| 2 | EnsomiPlayfield (6018) | EnsomiDraw | 17.339667 | 10.901 | 10.901 |
+| 2 | RenderThread (6011) | flush commands | 17.355 | 8.66075 | 8.66075 |
+| 2 | EnsomiPlayfield (6018) | postAndWait | 17.384375 | 10.849209 | 10.849209 |
+| 2 | RenderThread (6011) | auto skgpu::ganesh::OpsTask::onExecute(GrOpFlushState *)::(anonymous class)::operator()() const | 17.755 | 8.250917 | 8.250917 |
+| 3 | .ensomi.android (5995) | Choreographer#doFrame 532401 | 169.324292 | 21.408208 | 6.357333 |
+| 3 | RenderThread (6011) | DrawFrames -1 | 169.860709 | 19.546666 | 5.032208 |
+| 3 | .ensomi.android (5995) | traversal | 169.876334 | 20.851041 | 6.352208 |
+| 3 | .ensomi.android (5995) | draw-VRI[MainActivity] | 169.887917 | 20.830875 | 6.343625 |
+| 3 | .ensomi.android (5995) | postAndWait | 170.311667 | 20.403292 | 6.339792 |
+| 3 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 170.86925 | 18.536875 | 5.030958 |
+| 3 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 171.159792 | 18.23425 | 5.018875 |
+| 3 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 171.787459 | 17.58675 | 4.999042 |
+| 3 | RenderThread (6011) | dequeueBuffer | 171.787875 | 17.579209 | 4.991917 |
+| 3 | EnsomiPlayfield (6018) | Choreographer#doFrame 532458 | 184.344542 | 10.64575 | 10.432 |
+| 3 | EnsomiPlayfield (6018) | animation | 184.34675 | 10.639292 | 10.432 |
+| 3 | EnsomiPlayfield (6018) | EnsomiFrame | 184.375167 | 10.432 | 10.432 |
+| 3 | EnsomiPlayfield (6018) | EnsomiDraw | 184.396 | 10.395709 | 10.395709 |
+| 3 | EnsomiPlayfield (6018) | postAndWait | 184.465 | 10.315875 | 10.315875 |
+| 3 | .ensomi.android (5995) | Choreographer#doFrame 532451 | 190.906959 | 15.273416 | 3.900208 |
+| 3 | .ensomi.android (5995) | traversal | 191.871417 | 14.304667 | 2.93575 |
+| 3 | .ensomi.android (5995) | draw-VRI[MainActivity] | 191.947167 | 14.222083 | 2.86 |
+| 3 | .ensomi.android (5995) | postAndWait | 192.83 | 13.336125 | 1.977167 |
+| 3 | RenderThread (6011) | DrawFrames -1 | 193.328917 | 12.684917 | 1.47825 |
+| 3 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 194.676625 | 11.335875 | 0.130542 |
+| 4 | .ensomi.android (5995) | Choreographer#doFrame 532451 | 190.906959 | 15.273416 | 5.046625 |
+| 4 | .ensomi.android (5995) | traversal | 191.871417 | 14.304667 | 5.042334 |
+| 4 | .ensomi.android (5995) | draw-VRI[MainActivity] | 191.947167 | 14.222083 | 5.0355 |
+| 4 | .ensomi.android (5995) | postAndWait | 192.83 | 13.336125 | 5.032375 |
+| 4 | RenderThread (6011) | DrawFrames -1 | 193.328917 | 12.684917 | 4.880084 |
+| 4 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 194.676625 | 11.335875 | 4.87875 |
+| 4 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 195.33825 | 10.661667 | 4.866167 |
+| 4 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 196.961959 | 8.920333 | 4.748542 |
+| 4 | RenderThread (6011) | dequeueBuffer | 196.96275 | 8.911584 | 4.740584 |
+| 4 | EnsomiPlayfield (6018) | Choreographer#doFrame 532515 | 201.071834 | 9.9 | 9.835 |
+| 4 | EnsomiPlayfield (6018) | animation | 201.075167 | 9.894917 | 9.835 |
+| 4 | EnsomiPlayfield (6018) | EnsomiFrame | 201.13375 | 9.835 | 9.835 |
+| 4 | EnsomiPlayfield (6018) | EnsomiDraw | 201.16525 | 9.79675 | 9.79675 |
+| 4 | EnsomiPlayfield (6018) | postAndWait | 201.28175 | 9.678417 | 9.678417 |
+| 4 | .ensomi.android (5995) | Choreographer#doFrame 532508 | 206.338459 | 16.655 | 4.630291 |
+| 4 | RenderThread (6011) | DrawFrames -1 | 209.307875 | 11.660292 | 1.660875 |
+| 4 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 209.417709 | 11.548791 | 1.551041 |
+| 4 | .ensomi.android (5995) | traversal | 209.709167 | 13.279667 | 1.259583 |
+| 4 | .ensomi.android (5995) | draw-VRI[MainActivity] | 209.73975 | 13.241125 | 1.229 |
+| 4 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 210.2265 | 10.720834 | 0.74225 |
+| 4 | .ensomi.android (5995) | postAndWait | 210.906459 | 12.070833 | 0.062291 |
+| 5 | .ensomi.android (5995) | Choreographer#doFrame 532508 | 206.338459 | 16.655 | 5.437334 |
+| 5 | RenderThread (6011) | DrawFrames -1 | 209.307875 | 11.660292 | 3.412042 |
+| 5 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 209.417709 | 11.548791 | 3.410375 |
+| 5 | .ensomi.android (5995) | traversal | 209.709167 | 13.279667 | 5.432709 |
+| 5 | .ensomi.android (5995) | draw-VRI[MainActivity] | 209.73975 | 13.241125 | 5.42475 |
+| 5 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 210.2265 | 10.720834 | 3.391209 |
+| 5 | .ensomi.android (5995) | postAndWait | 210.906459 | 12.070833 | 5.421167 |
+| 5 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 211.21225 | 9.592667 | 3.248792 |
+| 5 | RenderThread (6011) | dequeueBuffer | 211.212709 | 9.574 | 3.230584 |
+| 5 | EnsomiPlayfield (6018) | Choreographer#doFrame 532572 | 217.190625 | 7.842 | 7.474 |
+| 5 | EnsomiPlayfield (6018) | animation | 217.193125 | 7.837875 | 7.474 |
+| 5 | EnsomiPlayfield (6018) | EnsomiFrame | 217.556125 | 7.474 | 7.474 |
+| 5 | EnsomiPlayfield (6018) | EnsomiDraw | 217.581625 | 7.442375 | 7.442375 |
+| 5 | EnsomiPlayfield (6018) | postAndWait | 217.886375 | 7.133375 | 7.133375 |
+| 5 | .ensomi.android (5995) | Choreographer#doFrame 532565 | 223.167834 | 13.45675 | 1.862291 |
+| 5 | RenderThread (6011) | DrawFrames -1 | 224.633834 | 11.623833 | 0.396291 |
+| 5 | .ensomi.android (5995) | traversal | 224.654209 | 11.966041 | 0.375916 |
+| 5 | .ensomi.android (5995) | draw-VRI[MainActivity] | 224.956375 | 11.644 | 0.07375 |
+| 5 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 224.98425 | 11.271792 | 0.045875 |
+| 6 | .ensomi.android (5995) | Choreographer#doFrame 536985 | 7500.908129 | 19.807542 | 2.966917 |
+| 6 | RenderThread (6011) | DrawFrames -1 | 7503.171837 | 17.287459 | 2.710542 |
+| 6 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 7503.231171 | 17.226375 | 2.708792 |
+| 6 | .ensomi.android (5995) | traversal | 7504.051796 | 16.658791 | 2.961833 |
+| 6 | .ensomi.android (5995) | draw-VRI[MainActivity] | 7504.108379 | 16.588833 | 2.948458 |
+| 6 | .ensomi.android (5995) | postAndWait | 7506.007254 | 14.686083 | 2.944583 |
+| 6 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 7506.448587 | 13.988959 | 2.688792 |
+| 6 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 7507.715546 | 12.687875 | 2.654667 |
+| 6 | RenderThread (6011) | dequeueBuffer | 7507.717337 | 12.676917 | 2.6455 |
+| 6 | EnsomiPlayfield (6018) | Choreographer#doFrame 537007 | 7517.605754 | 7.216083 | 7.067083 |
+| 6 | EnsomiPlayfield (6018) | animation | 7517.615754 | 7.203208 | 7.067083 |
+| 6 | EnsomiPlayfield (6018) | EnsomiFrame | 7517.748754 | 7.067083 | 7.067083 |
+| 6 | EnsomiPlayfield (6018) | EnsomiDraw | 7518.658587 | 6.144167 | 6.144167 |
+| 6 | EnsomiPlayfield (6018) | postAndWait | 7519.025171 | 5.773125 | 5.773125 |
+| 6 | RenderThread (6011) | DrawFrames -1 | 7523.490337 | 12.981167 | 1.3255 |
+| 6 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 7524.717629 | 11.751917 | 0.098208 |
+| 7 | .ensomi.android (5995) | Choreographer#doFrame 537585 | 8518.617171 | 21.994833 | 3.011666 |
+| 7 | RenderThread (6011) | DrawFrames -1 | 8521.066796 | 19.218542 | 2.685 |
+| 7 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 8521.128463 | 19.154916 | 2.683041 |
+| 7 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 8521.736463 | 18.521625 | 2.65775 |
+| 7 | .ensomi.android (5995) | traversal | 8522.274963 | 18.331875 | 3.0065 |
+| 7 | .ensomi.android (5995) | draw-VRI[MainActivity] | 8522.337004 | 18.257375 | 2.994041 |
+| 7 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 8522.987504 | 17.217125 | 2.604291 |
+| 7 | RenderThread (6011) | dequeueBuffer | 8522.991254 | 17.201042 | 2.591958 |
+| 7 | .ensomi.android (5995) | postAndWait | 8525.175671 | 15.413667 | 2.989 |
+| 7 | EnsomiPlayfield (6018) | Choreographer#doFrame 537607 | 8537.443338 | 6.828958 | 6.66125 |
+| 7 | EnsomiPlayfield (6018) | animation | 8537.453254 | 6.813459 | 6.66125 |
+| 7 | EnsomiPlayfield (6018) | EnsomiFrame | 8537.600338 | 6.66125 | 6.66125 |
+| 7 | EnsomiPlayfield (6018) | EnsomiDraw | 8538.183921 | 6.056833 | 6.056833 |
+| 7 | EnsomiPlayfield (6018) | postAndWait | 8538.528629 | 5.703459 | 5.703459 |
+| 7 | RenderThread (6011) | DrawFrames -1 | 8542.964171 | 9.809125 | 1.297417 |
+| 7 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 8544.136379 | 8.634917 | 0.125209 |
+| 8 | .ensomi.android (5995) | Choreographer#doFrame 534905 | 4099.893586 | 19.924958 | 2.057583 |
+| 8 | RenderThread (6011) | DrawFrames -1 | 4101.843127 | 17.497875 | 1.580041 |
+| 8 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 4101.909877 | 17.429084 | 1.578 |
+| 8 | .ensomi.android (5995) | traversal | 4103.805961 | 16.00875 | 2.05375 |
+| 8 | .ensomi.android (5995) | draw-VRI[MainActivity] | 4103.843294 | 15.737833 | 1.820166 |
+| 8 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 4104.522794 | 14.78475 | 1.546583 |
+| 8 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 4105.445961 | 13.78425 | 1.46925 |
+| 8 | RenderThread (6011) | dequeueBuffer | 4105.447127 | 13.773875 | 1.460041 |
+| 8 | .ensomi.android (5995) | postAndWait | 4107.115419 | 12.462875 | 1.817333 |
+| 8 | EnsomiPlayfield (6018) | Choreographer#doFrame 534927 | 4117.680461 | 6.68725 | 6.600375 |
+| 8 | EnsomiPlayfield (6018) | animation | 4117.686877 | 6.677042 | 6.600375 |
+| 8 | EnsomiPlayfield (6018) | EnsomiFrame | 4117.760961 | 6.600375 | 6.600375 |
+| 8 | .ensomi.android (5995) | Choreographer#doFrame 534920 | 4120.418252 | 15.911667 | 3.943084 |
+| 8 | .ensomi.android (5995) | traversal | 4122.439336 | 13.887791 | 1.922 |
+| 8 | .ensomi.android (5995) | draw-VRI[MainActivity] | 4122.471502 | 13.848125 | 1.889834 |
+| 8 | RenderThread (6011) | DrawFrames -1 | 4123.620127 | 12.193667 | 0.741209 |
+| 8 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 4124.072877 | 11.739625 | 0.288459 |
+| 9 | .ensomi.android (5995) | Choreographer#doFrame 537344 | 8118.206213 | 18.409791 | 2.613875 |
+| 9 | RenderThread (6011) | DrawFrames -1 | 8120.468379 | 15.845542 | 2.311792 |
+| 9 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 8120.528546 | 15.783417 | 2.309834 |
+| 9 | .ensomi.android (5995) | traversal | 8121.621213 | 14.990666 | 2.60975 |
+| 9 | .ensomi.android (5995) | draw-VRI[MainActivity] | 8121.666421 | 14.934042 | 2.598334 |
+| 9 | .ensomi.android (5995) | postAndWait | 8123.556713 | 13.038958 | 2.593542 |
+| 9 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 8124.094171 | 12.195083 | 2.287125 |
+| 9 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 8125.310963 | 10.941125 | 2.249959 |
+| 9 | RenderThread (6011) | dequeueBuffer | 8125.312379 | 10.92775 | 2.238 |
+| 9 | EnsomiPlayfield (6018) | Choreographer#doFrame 537366 | 8133.913713 | 6.634958 | 6.541167 |
+| 9 | EnsomiPlayfield (6018) | animation | 8133.921629 | 6.623667 | 6.541167 |
+| 9 | EnsomiPlayfield (6018) | EnsomiFrame | 8134.002129 | 6.541167 | 6.541167 |
+| 9 | .ensomi.android (5995) | Choreographer#doFrame 537359 | 8137.142713 | 15.696916 | 3.400583 |
+| 9 | RenderThread (6011) | DrawFrames -1 | 8139.589463 | 12.970208 | 0.953833 |
+| 9 | .ensomi.android (5995) | traversal | 8140.137796 | 12.6965 | 0.4055 |
+| 9 | .ensomi.android (5995) | draw-VRI[MainActivity] | 8140.180129 | 12.641834 | 0.363167 |
+| 9 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 8140.477254 | 12.080709 | 0.066042 |
+| 10 | .ensomi.android (5995) | Choreographer#doFrame 535897 | 5699.978961 | 19.233 | 2.541625 |
+| 10 | RenderThread (6011) | DrawFrames -1 | 5702.188711 | 16.734375 | 2.25275 |
+| 10 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 5702.270795 | 16.6505 | 2.250959 |
+| 10 | .ensomi.android (5995) | traversal | 5703.338795 | 15.867 | 2.535459 |
+| 10 | .ensomi.android (5995) | draw-VRI[MainActivity] | 5703.39492 | 15.797416 | 2.522 |
+| 10 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 5704.618295 | 14.27225 | 2.220209 |
+| 10 | .ensomi.android (5995) | postAndWait | 5705.61117 | 13.575083 | 2.515917 |
+| 10 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 5705.814378 | 13.039458 | 2.1835 |
+| 10 | RenderThread (6011) | dequeueBuffer | 5705.81592 | 13.024958 | 2.170542 |
+| 10 | EnsomiPlayfield (6018) | Choreographer#doFrame 535919 | 5716.571295 | 6.630916 | 6.526709 |
+| 10 | EnsomiPlayfield (6018) | animation | 5716.584503 | 6.614958 | 6.526709 |
+| 10 | EnsomiPlayfield (6018) | EnsomiFrame | 5716.670336 | 6.526709 | 6.526709 |
+| 10 | EnsomiPlayfield (6018) | EnsomiDraw | 5717.367336 | 5.818417 | 5.818417 |
+| 10 | EnsomiPlayfield (6018) | postAndWait | 5717.695461 | 5.48625 | 5.48625 |
+| 10 | RenderThread (6011) | DrawFrames -1 | 5722.096336 | 14.390959 | 1.100709 |
+| 10 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 5723.150795 | 13.335333 | 0.04625 |
+| 11 | .ensomi.android (5995) | Choreographer#doFrame 536309 | 6387.896295 | 16.957458 | 2.772208 |
+| 11 | RenderThread (6011) | DrawFrames -1 | 6389.676128 | 14.953 | 2.547583 |
+| 11 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 6389.740753 | 14.886417 | 2.545625 |
+| 11 | .ensomi.android (5995) | traversal | 6390.405045 | 14.442792 | 2.766292 |
+| 11 | .ensomi.android (5995) | draw-VRI[MainActivity] | 6390.445337 | 14.391375 | 2.755167 |
+| 11 | .ensomi.android (5995) | postAndWait | 6392.036462 | 12.795291 | 2.750208 |
+| 11 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 6392.378878 | 12.226584 | 2.523917 |
+| 11 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 6393.408712 | 11.162166 | 2.489333 |
+| 11 | RenderThread (6011) | dequeueBuffer | 6393.410045 | 11.151667 | 2.480167 |
+| 11 | EnsomiPlayfield (6018) | Choreographer#doFrame 536331 | 6402.001962 | 6.402375 | 6.316958 |
+| 11 | EnsomiPlayfield (6018) | animation | 6402.01142 | 6.389833 | 6.316958 |
+| 11 | EnsomiPlayfield (6018) | EnsomiFrame | 6402.081545 | 6.316958 | 6.316958 |
+| 11 | EnsomiPlayfield (6018) | EnsomiDraw | 6402.763128 | 5.627834 | 5.627834 |
+| 11 | EnsomiPlayfield (6018) | postAndWait | 6403.07867 | 5.308 | 5.308 |
+| 11 | RenderThread (6011) | DrawFrames -1 | 6406.733337 | 11.507958 | 1.665166 |
+| 11 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 6408.287378 | 9.952959 | 0.111125 |
+| 12 | .ensomi.android (5995) | Choreographer#doFrame 532701 | 270.71325 | 15.409125 | 1.770625 |
+| 12 | .ensomi.android (5995) | traversal | 271.176209 | 14.943333 | 1.767792 |
+| 12 | .ensomi.android (5995) | draw-VRI[MainActivity] | 271.18625 | 14.9295 | 1.764 |
+| 12 | .ensomi.android (5995) | postAndWait | 271.506875 | 14.606875 | 1.762 |
+| 12 | RenderThread (6011) | DrawFrames -1 | 271.870125 | 13.833792 | 1.352167 |
+| 12 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 272.286459 | 13.41625 | 1.350959 |
+| 12 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 272.773 | 12.914834 | 1.336084 |
+| 12 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 273.25325 | 12.382792 | 1.284292 |
+| 12 | RenderThread (6011) | dequeueBuffer | 273.253667 | 12.373208 | 1.275125 |
+| 12 | EnsomiPlayfield (6018) | Choreographer#doFrame 532744 | 283.784584 | 6.84075 | 6.269084 |
+| 12 | EnsomiPlayfield (6018) | animation | 283.788667 | 6.834 | 6.269084 |
+| 12 | EnsomiPlayfield (6018) | EnsomiFrame | 284.35175 | 6.269084 | 6.269084 |
+| 12 | EnsomiPlayfield (6018) | EnsomiDraw | 284.3675 | 6.238959 | 6.238959 |
+| 12 | EnsomiPlayfield (6018) | postAndWait | 284.423667 | 6.168375 | 6.168375 |
+| 12 | .ensomi.android (5995) | Choreographer#doFrame 532737 | 286.434334 | 16.396333 | 4.1865 |
+| 12 | RenderThread (6011) | DrawFrames -1 | 287.315375 | 15.287375 | 3.305459 |
+| 12 | .ensomi.android (5995) | traversal | 287.387334 | 15.441041 | 3.2335 |
+| 12 | .ensomi.android (5995) | draw-VRI[MainActivity] | 287.414834 | 15.408916 | 3.206 |
+| 12 | .ensomi.android (5995) | postAndWait | 287.755334 | 15.066791 | 2.8655 |
+| 12 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 288.638042 | 13.963833 | 1.982792 |
+| 12 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 289.260084 | 13.332875 | 1.36075 |
+| 13 | .ensomi.android (5995) | Choreographer#doFrame 536410 | 6550.314545 | 19.550167 | 3.219792 |
+| 13 | RenderThread (6011) | DrawFrames -1 | 6552.810753 | 16.749 | 2.914833 |
+| 13 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 6552.871003 | 16.686959 | 2.913042 |
+| 13 | .ensomi.android (5995) | traversal | 6553.671837 | 16.187125 | 3.214042 |
+| 13 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 6553.679087 | 15.858458 | 2.892625 |
+| 13 | .ensomi.android (5995) | draw-VRI[MainActivity] | 6553.72992 | 16.112042 | 3.197042 |
+| 13 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 6555.09917 | 14.401125 | 2.855375 |
+| 13 | RenderThread (6011) | dequeueBuffer | 6555.100837 | 14.388875 | 2.844792 |
+| 13 | .ensomi.android (5995) | postAndWait | 6556.515378 | 13.322042 | 3.1925 |
+| 13 | EnsomiPlayfield (6018) | Choreographer#doFrame 536432 | 6566.565212 | 6.354916 | 6.268375 |
+| 13 | EnsomiPlayfield (6018) | animation | 6566.575503 | 6.340584 | 6.268375 |
+| 13 | EnsomiPlayfield (6018) | EnsomiFrame | 6566.64492 | 6.268375 | 6.268375 |
+| 13 | .ensomi.android (5995) | Choreographer#doFrame 536425 | 6570.551462 | 15.98975 | 2.361833 |
+| 13 | RenderThread (6011) | DrawFrames -1 | 6572.356337 | 13.8745 | 0.556958 |
+| 13 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 6572.872712 | 13.355958 | 0.040583 |
+| 14 | .ensomi.android (5995) | Choreographer#doFrame 534920 | 4120.418252 | 15.911667 | 2.499792 |
+| 14 | .ensomi.android (5995) | traversal | 4122.439336 | 13.887791 | 2.497 |
+| 14 | .ensomi.android (5995) | draw-VRI[MainActivity] | 4122.471502 | 13.848125 | 2.4895 |
+| 14 | RenderThread (6011) | DrawFrames -1 | 4123.620127 | 12.193667 | 1.983667 |
+| 14 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 4124.072877 | 11.739625 | 1.982375 |
+| 14 | .ensomi.android (5995) | postAndWait | 4124.735919 | 11.580833 | 2.486625 |
+| 14 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 4125.241211 | 10.550666 | 1.96175 |
+| 14 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 4126.063711 | 9.701291 | 1.934875 |
+| 14 | RenderThread (6011) | dequeueBuffer | 4126.064544 | 9.690542 | 1.924959 |
+| 14 | EnsomiPlayfield (6018) | Choreographer#doFrame 534942 | 4133.689044 | 6.4005 | 6.256334 |
+| 14 | EnsomiPlayfield (6018) | animation | 4133.693919 | 6.394125 | 6.256334 |
+| 14 | EnsomiPlayfield (6018) | EnsomiFrame | 4133.830127 | 6.256334 | 6.256334 |
+| 14 | EnsomiPlayfield (6018) | EnsomiDraw | 4134.735919 | 5.343708 | 5.343708 |
+| 14 | EnsomiPlayfield (6018) | postAndWait | 4134.920794 | 5.156042 | 5.156042 |
+| 14 | RenderThread (6011) | DrawFrames -1 | 4138.919127 | 12.84125 | 1.167334 |
+| 14 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 4139.792544 | 11.966875 | 0.293917 |
+| 15 | .ensomi.android (5995) | Choreographer#doFrame 540932 | 14133.470215 | 19.460459 | 2.741209 |
+| 15 | RenderThread (6011) | DrawFrames -1 | 14135.550715 | 17.128 | 2.48925 |
+| 15 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 14135.625174 | 17.051875 | 2.487584 |
+| 15 | .ensomi.android (5995) | traversal | 14136.546549 | 16.379875 | 2.736959 |
+| 15 | .ensomi.android (5995) | draw-VRI[MainActivity] | 14136.610049 | 16.305791 | 2.726375 |
+| 15 | RenderThread (6011) | eglSwapBuffersWithDamageKHR | 14136.872757 | 15.786208 | 2.4695 |
+| 15 | RenderThread (6011) | dequeueBuffer - bf89547 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1 | 14137.999299 | 14.623375 | 2.433209 |
+| 15 | RenderThread (6011) | dequeueBuffer | 14138.001674 | 14.574208 | 2.386417 |
+| 15 | .ensomi.android (5995) | postAndWait | 14139.228424 | 13.683583 | 2.722542 |
+| 15 | EnsomiPlayfield (6018) | Choreographer#doFrame 540954 | 14150.068424 | 6.251083 | 6.121542 |
+| 15 | EnsomiPlayfield (6018) | animation | 14150.075965 | 6.239209 | 6.121542 |
+| 15 | EnsomiPlayfield (6018) | EnsomiFrame | 14150.189465 | 6.121542 | 6.121542 |
+| 15 | .ensomi.android (5995) | Choreographer#doFrame 540947 | 14153.495507 | 15.558167 | 2.8155 |
+| 15 | RenderThread (6011) | DrawFrames -1 | 14154.978049 | 13.829416 | 1.332958 |
+| 15 | RenderThread (6011) | Drawing  0.00  0.00 2424.00 1080.00 | 14155.875715 | 12.930084 | 0.435292 |
+
+Trace statistics requiring inspection:
+
+```json
+[
+  {
+    "name": "ftrace_setup_errors",
+    "idx": null,
+    "severity": "notice",
+    "value": 41
+  }
+]
+```
+
+
+2e. Visual and lifecycle checks.
+
+The requested capture-prototype.sh artifacts/jitter-b1/shots game lean completed successfully. Calibration-picture was reached directly and captured with both light/dark system settings (the calibration screen itself stays dark).
+Inspected full game states, landscape 0/40/55-degree and portrait flat/lean captures, light/dark settings previews and calibration picture. The playfield is drawn: lanes, tap/hold notes, tray, hit line and judgement words appear. Fixed-size previews are correctly scaled. No black/blank or stretched playfield was observed. Judgement text can be overlapped by a falling note (play-3.png, and the flat preview); this is an observation, not an established regression.
+Original LifecycleCheck failed. Exact output:
+
+
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.LifecycleCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+io.ensomi.android.checks.LifecycleCheck:
+INSTRUMENTATION_STATUS: test=theGamePausesOnEachInterruption
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.LifecycleCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: No pause, or no pause panel, after: [back, recents, notification-shade, screen-off]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at io.ensomi.android.checks.LifecycleCheck.theGamePausesOnEachInterruption(LifecycleCheck.kt:69)
+
+INSTRUMENTATION_STATUS: stream=
+Error in theGamePausesOnEachInterruption(io.ensomi.android.checks.LifecycleCheck):
+java.lang.AssertionError: No pause, or no pause panel, after: [back, recents, notification-shade, screen-off]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at io.ensomi.android.checks.LifecycleCheck.theGamePausesOnEachInterruption(LifecycleCheck.kt:69)
+
+INSTRUMENTATION_STATUS: test=theGamePausesOnEachInterruption
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 54.711
+There was 1 failure:
+1) theGamePausesOnEachInterruption(io.ensomi.android.checks.LifecycleCheck)
+java.lang.AssertionError: No pause, or no pause panel, after: [back, recents, notification-shade, screen-off]
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at io.ensomi.android.checks.LifecycleCheck.theGamePausesOnEachInterruption(LifecycleCheck.kt:69)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1
+
+
+Original result rows:
+
+| check | trigger | wasPlaying | causes | panelShown | seconds | ok |
+|---|---|---|---|---|---|---|
+| lifecycle-pause | back | true | [] | false | 12.1 | false |
+| lifecycle-pause | home | true | ["the app left the foreground (ON_PAUSE)"] | true | 4.9 | true |
+| lifecycle-pause | recents | false | [] | true | 4.0 | false |
+| lifecycle-pause | notification-shade | false | [] | true | 4.3 | false |
+| lifecycle-pause | screen-off | false | [] | true | 3.7 | false |
+| lifecycle | None | None | None | None | None | false |
+
+Exact JSONL:
+
+{"check":"lifecycle-pause","debuggable":true,"trigger":"back","wasPlaying":true,"causes":[],"panelShown":false,"seconds":12.1,"ok":false}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"home","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":4.9,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"recents","wasPlaying":false,"causes":[],"panelShown":true,"seconds":4.0,"ok":false}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"notification-shade","wasPlaying":false,"causes":[],"panelShown":true,"seconds":4.3,"ok":false}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"screen-off","wasPlaying":false,"causes":[],"panelShown":true,"seconds":3.7,"ok":false}
+{"check":"lifecycle","debuggable":true,"triggers":5,"failed":["back","recents","notification-shade","screen-off"],"ok":false}
+
+Supplemental lifecycle check: the capture script's EXIT handler deletes immersive_mode_confirmations. After the failed check, a fresh pacing launch visibly showed Android's Viewing full screen prompt. The UI dump and screenshot are in runs/lifecycle-followup-setup. Tapped the visible Got it button (no permission grant or settings override), then repeated the same LifecycleCheck in a fresh process. The original failure is retained above.
+
+
+START lifecycle-after-prompt 13:47:33
+END lifecycle-after-prompt
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.LifecycleCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+io.ensomi.android.checks.LifecycleCheck:
+INSTRUMENTATION_STATUS: test=theGamePausesOnEachInterruption
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=io.ensomi.android.checks.LifecycleCheck
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=theGamePausesOnEachInterruption
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 47.064
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1
+
+
+
+| check | trigger | wasPlaying | causes | panelShown | seconds | ok |
+|---|---|---|---|---|---|---|
+| lifecycle-pause | back | true | ["Back"] | true | 2.1 | true |
+| lifecycle-pause | home | true | ["the app left the foreground (ON_PAUSE)"] | true | 4.0 | true |
+| lifecycle-pause | recents | true | ["another window took focus"] | true | 3.1 | true |
+| lifecycle-pause | notification-shade | true | ["another window took focus"] | true | 4.2 | true |
+| lifecycle-pause | screen-off | true | ["the app left the foreground (ON_PAUSE)"] | true | 3.7 | true |
+| lifecycle | None | None | None | None | None | true |
+
+Exact supplemental JSONL:
+
+{"check":"lifecycle-pause","debuggable":true,"trigger":"back","wasPlaying":true,"causes":["Back"],"panelShown":true,"seconds":2.1,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"home","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":4.0,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"recents","wasPlaying":true,"causes":["another window took focus"],"panelShown":true,"seconds":3.1,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"notification-shade","wasPlaying":true,"causes":["another window took focus"],"panelShown":true,"seconds":4.2,"ok":true}
+{"check":"lifecycle-pause","debuggable":true,"trigger":"screen-off","wasPlaying":true,"causes":["the app left the foreground (ON_PAUSE)"],"panelShown":true,"seconds":3.7,"ok":true}
+{"check":"lifecycle","debuggable":true,"triggers":5,"failed":[],"ok":true}
+
+Log audit (exact app-PID findings; crash logs are separately preserved):
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/after-checks-1/logcat.txt; app PIDs: [5109]
+
+10-31 13:36:35.056  5109  5126 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:36:35.056  5109  5126 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:38:13.486  5109  5198 W LegacyMessageQueue: java.lang.IllegalStateException: Handler (android.view.Choreographer$FrameHandler) {cbf6bbb} sending message to a Handler on a dead thread
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/after-checks-2/logcat.txt; app PIDs: [5256]
+
+10-31 13:38:14.292  5256  5274 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:38:14.292  5256  5274 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/after-debug-1/logcat.txt; app PIDs: [4250]
+
+10-31 13:29:56.987  4250  4267 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:29:56.987  4250  4267 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:31:35.288  4250  4362 W LegacyMessageQueue: java.lang.IllegalStateException: Handler (android.view.Choreographer$FrameHandler) {fcb94f2} sending message to a Handler on a dead thread
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/after-debug-2/logcat.txt; app PIDs: [4457]
+
+10-31 13:31:36.331  4457  4474 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:31:36.331  4457  4474 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/before-checks-1/logcat.txt; app PIDs: [4706]
+
+10-31 13:33:16.011  4706  4723 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:33:16.011  4706  4723 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:34:04.822  4706  4706 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:34:04.822  4706  4723 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:34:04.822  4706  4723 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:34:04.822  4706  4723 E BufferQueueProducer: [7b14672 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1](id:126200000001,api:0,p:-1,c:4706) disconnect: not connected (req=1)
+
+10-31 13:34:54.425  4706  4723 E BufferQueueProducer: [c8cf95f SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:126200000003,api:0,p:-1,c:4706) requestBuffer: BufferQueue has no connected producer
+
+10-31 13:34:54.425  4706  4723 E Surface : dequeueBuffer: IGraphicBufferProducer::requestBuffer failed: -19
+
+10-31 13:34:54.425  4706  4723 E BufferQueueProducer: [c8cf95f SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:126200000003,api:0,p:-1,c:4706) cancelBuffer: BufferQueue has no connected producer
+
+10-31 13:34:54.425  4706  4723 W HWUI    : dequeueBuffer failed, error = -19; switching to fallback
+
+10-31 13:34:54.426  4706  4723 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:34:54.426  4706  4723 E BufferQueueProducer: [c8cf95f SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:126200000003,api:0,p:-1,c:4706) disconnect: not connected (req=1)
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/before-checks-2/logcat.txt; app PIDs: [4875]
+
+10-31 13:34:55.173  4875  4892 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:34:55.173  4875  4892 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:35:43.901  4875  4875 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:35:43.902  4875  4892 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:35:43.902  4875  4892 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:35:43.902  4875  4892 E BufferQueueProducer: [7b14672 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1](id:130b00000001,api:0,p:-1,c:4875) disconnect: not connected (req=1)
+
+10-31 13:36:33.117  4875  4875 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:36:33.117  4875  4892 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:36:33.117  4875  4892 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:36:33.117  4875  4892 E BufferQueueProducer: [c8cf95f SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:130b00000003,api:0,p:-1,c:4875) disconnect: not connected (req=1)
+
+10-31 13:35:43.901  4875  4901 W LegacyMessageQueue: java.lang.IllegalStateException: Handler (android.view.Choreographer$FrameHandler) {6ceda69} sending message to a Handler on a dead thread
+
+10-31 13:36:33.117  4875  4935 W LegacyMessageQueue: java.lang.IllegalStateException: Handler (android.view.Choreographer$FrameHandler) {543249f} sending message to a Handler on a dead thread
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/before-debug-1/logcat.txt; app PIDs: [3660]
+
+10-31 13:26:37.908  3660  3678 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:26:37.908  3660  3678 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:27:26.938  3660  3660 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:27:26.938  3660  3678 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:27:26.938  3660  3678 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:27:26.938  3660  3678 E BufferQueueProducer: [dc957be SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1](id:e4c00000001,api:0,p:-1,c:3660) disconnect: not connected (req=1)
+
+10-31 13:28:16.170  3660  3660 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:28:16.170  3660  3678 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:28:16.170  3660  3678 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:28:16.170  3660  3678 E BufferQueueProducer: [e7c1423 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:e4c00000003,api:0,p:-1,c:3660) disconnect: not connected (req=1)
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/before-debug-2/logcat.txt; app PIDs: [3950]
+
+10-31 13:28:17.118  3950  3968 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:28:17.118  3950  3968 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:29:06.008  3950  3950 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:29:06.008  3950  3968 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:29:06.008  3950  3968 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:29:06.008  3950  3968 E BufferQueueProducer: [8168f40 SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#1(BLAST Consumer)1](id:f6e00000001,api:0,p:-1,c:3950) disconnect: not connected (req=1)
+
+10-31 13:29:55.238  3950  3950 E Surface : freeAllBuffers: 1 buffers were freed while being dequeued!
+
+10-31 13:29:55.239  3950  3968 E BufferQueueProducer: [c8cf95f SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:f6e00000003,api:0,p:-1,c:3950) dequeueBuffer: BufferQueue has no connected producer
+
+10-31 13:29:55.239  3950  3968 W HWUI    : dequeueBuffer failed, error = -19; switching to fallback
+
+10-31 13:29:55.240  3950  3968 E Surface : getSlotFromBufferLocked: unknown buffer: 0x0
+
+10-31 13:29:55.240  3950  3968 E BufferQueueProducer: [c8cf95f SurfaceView[io.ensomi.android/io.ensomi.android.MainActivity]#3(BLAST Consumer)3](id:f6e00000003,api:0,p:-1,c:3950) disconnect: not connected (req=1)
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/first-calls-checks/logcat.txt; app PIDs: [5617]
+
+No matched renderer errors/warnings or exceptions.
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/first-calls-debug/logcat.txt; app PIDs: [5507]
+
+No matched renderer errors/warnings or exceptions.
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/lifecycle/logcat.txt; app PIDs: [7261]
+
+10-31 13:45:57.494  7261  7277 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:57.494  7261  7277 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/lifecycle-after-prompt/logcat.txt; app PIDs: [7509]
+
+10-31 13:47:33.174  7509  7526 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:47:33.174  7509  7526 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:47:49.969  7509  7533 W LegacyMessageQueue: java.lang.IllegalStateException: Handler (android.view.Choreographer$FrameHandler) {48286e0} sending message to a Handler on a dead thread
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/lifecycle-followup-setup/logcat.txt; app PIDs: [7414]
+
+10-31 13:47:16.469  7414  7430 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:47:16.469  7414  7430 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/long-frame/logcat.txt; app PIDs: [5407]
+
+No matched renderer errors/warnings or exceptions.
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/runtime-class/logcat.txt; app PIDs: [5679]
+
+No matched renderer errors/warnings or exceptions.
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/trace-checks/logcat.txt; app PIDs: [5995]
+
+10-31 13:42:01.552  5995  6011 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:42:01.552  5995  6011 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/trace-debug/logcat.txt; app PIDs: [5836]
+
+10-31 13:41:33.496  5836  5858 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:41:33.496  5836  5858 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/runs/visual-extra/logcat.txt; app PIDs: [7136, 7186]
+
+10-31 13:45:45.725  7136  7150 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:45.725  7136  7150 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:51.431  7186  7201 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:51.431  7186  7201 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+Log: /Users/l/ensomi/ensomi/artifacts/jitter-b1/shots-logcat.txt; app PIDs: [6179, 6278, 6346, 6394, 6446, 6513, 6571, 6621, 6667, 6713, 6761, 6811, 6854, 6896, 6951, 6992, 7034]
+
+10-31 13:42:48.615  6179  6198 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:42:48.615  6179  6198 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:42:59.342  6278  6292 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:42:59.342  6278  6292 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:43:35.394  6346  6362 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:43:35.394  6346  6362 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:43:51.024  6394  6409 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:43:51.024  6394  6409 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:08.692  6446  6461 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:08.692  6446  6461 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:16.620  6513  6529 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:16.620  6513  6529 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:22.507  6571  6590 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:22.507  6571  6590 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:31.104  6621  6637 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:31.104  6621  6637 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:39.694  6667  6682 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:39.694  6667  6682 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:48.322  6713  6728 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:48.322  6713  6728 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:44:56.959  6761  6776 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:44:56.959  6761  6776 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:07.627  6811  6826 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:07.627  6811  6826 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:12.344  6854  6869 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:12.344  6854  6869 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:17.094  6896  6910 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:17.094  6896  6910 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:23.891  6951  6965 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:23.891  6951  6965 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:28.596  6992  7007 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:28.596  6992  7007 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:45:33.320  7034  7048 W HWUI    : Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+10-31 13:45:33.320  7034  7048 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+10-31 13:43:30.269  6278  6298 W LegacyMessageQueue: java.lang.IllegalStateException: Handler (android.view.Choreographer$FrameHandler) {4a13251} sending message to a Handler on a dead thread
+
+The two common HWUI lines are warnings, not fatal exceptions. BEFORE pacing logs additionally contain Surface/BufferQueue errors during teardown; exact lines are above. Nonfatal LegacyMessageQueue IllegalStateException warnings occurred in before-checks-2, after-debug-1, after-checks-1, screenshot teardown and the supplemental lifecycle run. Lifecycle findings are listed separately above. Crash-buffer contents were empty for the captured runs.
+
+Artifacts via worktree: /Users/l/ensomi/ensomi--android-jitter-b1/artifacts/jitter-b1
+The existing artifacts symlink resolves to: /Users/l/ensomi/ensomi/artifacts/jitter-b1
+Screenshots: /Users/l/ensomi/ensomi--android-jitter-b1/artifacts/jitter-b1/shots
+Full screenshot manifest: screenshot-manifest.txt
+
+Only this standalone build report is committed. No app source, UI, repository scripts, docs or pins were edited. Machine-local local.properties and all generated measurement/query scripts remain outside the commit.
+The emulator was shut down with adb -s emulator-5554 emu kill (OK: killing emulator, bye bye).
+All requested steps were run; the original lifecycle failure is not erased by the supplemental run. Unavailable vendor trace events and the first Perfetto config-path failure are documented above. Phone timing was intentionally not measured.
+Supplemental LifecycleCheck passed all five interruptions after acknowledging the visible full-screen prompt, with wasPlaying=true throughout. Both lifecycle crash buffers were empty; the supplemental app PID did emit a nonfatal LegacyMessageQueue dead-thread exception warning, retained above.
+Left: review the original lifecycle prompt precondition and nonfatal teardown warnings; investigate remaining p99/long-frame HWUI waits. The AVD measurements do not prove the phone's early-stall cause.
