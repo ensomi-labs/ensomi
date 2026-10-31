@@ -235,6 +235,27 @@ class SongMatchTest {
     }
 
     @Test
+    fun aTvEpisodeCreditMatchesTheUncreditedFileTitle() {
+        val shared = SongIdentity(title = "春日影 (TV动画「BanG Dream! It's MyGO!!!!!」#3 插曲)", artist = "CRYCHIC")
+        assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, named("CRYCHIC - 春日影.mp3")))
+        assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, named("track.mp3").copy(title = "春日影", artist = "CRYCHIC")))
+        assertEquals(MatchStrength.TITLE_ONLY, strength(shared, named("Other artist - 春日影.mp3")))
+        assertEquals(MatchStrength.TITLE_ARTIST, strength(shared.copy(title = "春日影"), named("CRYCHIC - ${shared.title}.mp3")))
+    }
+
+    @Test
+    fun aTvCreditDoesNotEraseTakeOrVersionInformation() {
+        val credited = SongIdentity(title = "春日影 (TV动画「Example」#3 插曲)", artist = "CRYCHIC")
+        for (version in listOf("Live", "TV Size", "Remix", "Instrumental", "MyGO!!! ver.")) {
+            assertEquals(version, MatchStrength.NONE, strength(credited, named("CRYCHIC - 春日影 ($version).mp3")))
+            val other = credited.copy(title = "春日影 ($version) (TV动画「Example」#3 插曲)")
+            assertEquals(version, MatchStrength.NONE, strength(other, named("CRYCHIC - 春日影.mp3")))
+        }
+        val unknown = credited.copy(title = "春日影 (TV动画「Example」#3 插曲 Live)")
+        assertEquals(MatchStrength.NONE, strength(unknown, named("CRYCHIC - 春日影.mp3")))
+    }
+
+    @Test
     fun whatMediaStoreCallsATitleWithoutTagsIsTheName() {
         val row = FileFacts("/music/x", "x.mp3", 1, 1, title = "周杰伦 - 晴天")
         assertEquals(MatchStrength.TITLE_ARTIST, strength(song, row))

@@ -232,6 +232,15 @@ object CandidateRules {
 object SongMatch {
     private val ARTIST_SEPARATORS = charArrayOf('/', ',', '，', '、', '&', ';', '；')
     private const val NAME_SEPARATOR = " - "
+    // A distribution credit seen in shared titles but absent from the audio's tags. Keep all take/version labels,
+    // including unknown text inside the credit, rather than treating arbitrary parenthesized text as decoration.
+    private val TV_EPISODE_CREDIT = Regex("""\s*\(TV动画「[^」()\r\n]+」\s*#\d+\s+插曲\)$""", RegexOption.IGNORE_CASE)
+
+    private fun titleKey(text: String): String {
+        val folded = Normalizer.normalize(text, Normalizer.Form.NFKC).trim()
+        val withoutCredit = folded.replace(TV_EPISODE_CREDIT, "").trim()
+        return normalize(withoutCredit.ifEmpty { folded })
+    }
 
     /** Width and case folded, punctuation and spaces gone: what two spellings of one name have in common. */
     fun normalize(text: String): String {
@@ -242,11 +251,11 @@ object SongMatch {
     /** [knownPath] is where this app last found the song's id ([KnownSongs]), the only way a file shows an id here. */
     fun strength(song: SongIdentity, file: FileFacts, knownPath: String?): MatchStrength {
         if (knownPath != null && knownPath == file.path) return MatchStrength.SONG_ID
-        val title = song.title?.let(::normalize)?.takeIf { it.isNotEmpty() } ?: return MatchStrength.NONE
+        val title = song.title?.let(::titleKey)?.takeIf { it.isNotEmpty() } ?: return MatchStrength.NONE
         val wanted = artists(song.artist)
         var best = MatchStrength.NONE
         for ((claimedTitle, claimedArtist) in claims(file)) {
-            if (normalize(claimedTitle) != title) continue
+            if (titleKey(claimedTitle) != title) continue
             if (artists(claimedArtist).any { it in wanted }) return MatchStrength.TITLE_ARTIST
             best = MatchStrength.TITLE_ONLY
         }
