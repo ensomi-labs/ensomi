@@ -55,6 +55,12 @@ class MediaListening(
     private val reported = HashMap<String, Pair<Long, Long>>()
     private val lastWrite = HashMap<String, Long>()
 
+    /** The folder as the poll last saw it: what was there at the start is the index's, not news. */
+    private val polled = HashMap<String, Pair<Long, Long>>()
+
+    /** Which source has seen which file. Only the first report counts for the session, but a test wants to know them all. */
+    private val sightings = HashSet<String>()
+
     fun start() {
         thread.start()
         handler = Handler(thread.looper)
@@ -67,6 +73,7 @@ class MediaListening(
         val registered = runCatching { resolver.registerContentObserver(AUDIO, true, rows) }
         if (registered.isSuccess) observer = rows
         watchFolder()
+        handler.post { for (file in folder.listFiles().orEmpty()) polled[file.path] = file.length() to file.lastModified() }
         poll = scope.launch(Dispatchers.IO) {
             while (isActive) {
                 delay(POLL_MS)
@@ -99,8 +106,9 @@ class MediaListening(
     fun scan(): List<FileFacts> {
         val entries = LinkedHashMap<String, FileFacts>()
         for (row in rows(null)) entries[row.path] = row
+        // By name alone: a folder of songs is too many to open, and what MediaStore shows has its tags already.
         for (file in folder.listFiles().orEmpty()) {
-            if (file.isFile && file.path !in entries) entries[file.path] = stat(file, withTags = true)
+            if (file.isFile && file.path !in entries) entries[file.path] = stat(file, withTags = false)
         }
         return entries.values.toList()
     }
@@ -141,6 +149,7 @@ class MediaListening(
 
     private fun report(file: File, evidence: Evidence) {
         if (!file.isFile) return
+        sighted("file_observer", file.path)
         val facts = stat(file, withTags = evidence != Evidence.WRITING)
         // A file being written is not yet news to the others: a row or the poll may be what says it finished.
         if (evidence.finished) reported[facts.path] = facts.sizeBytes to facts.modifiedWallMs
@@ -150,7 +159,12 @@ class MediaListening(
     private fun forget(path: String) {
         reported.remove(path)
         lastWrite.remove(path)
+        polled.remove(path)
         listener.gone(path)
+    }
+
+    private fun sighted(source: String, path: String) {
+        if (sightings.add("$source $path")) trace("watch.seen", mapOf("source" to source, "path" to path))
     }
 
     private val readRows = Runnable { newRows() }
@@ -158,6 +172,7 @@ class MediaListening(
     private fun newRows() {
         val since = sinceWallMs / 1000 - ROW_TIME_SLACK_SECONDS
         for (row in rows("${MediaStore.Audio.Media.DATE_MODIFIED} >= $since")) {
+            sighted("media_store", row.path)
             val state = row.sizeBytes to row.modifiedWallMs
             if (reported[row.path] == state) continue
             reported[row.path] = state
@@ -171,9 +186,9 @@ class MediaListening(
         for (file in folder.listFiles().orEmpty()) {
             if (!file.isFile) continue
             val state = file.length() to file.lastModified()
-            if (reported[file.path] == state) continue
-            reported[file.path] = state
-            listener.seen(stat(file, withTags = true), Evidence.POLL)
+            if (polled.put(file.path, state) == state) continue
+            sighted("poll", file.path)
+            if (reported.put(file.path, state) != state) listener.seen(stat(file, withTags = true), Evidence.POLL)
         }
     }
 

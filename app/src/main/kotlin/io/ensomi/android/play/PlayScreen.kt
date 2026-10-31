@@ -328,8 +328,9 @@ fun PlayScreen(
                                 frameLogFile = File(viewContext.filesDir, FRAME_LOG)
                                 touchLogFile = File(viewContext.filesDir, TOUCH_LOG)
                             }
-                            // Held at the start of the lead-in until the window has focus (above).
-                            this.pause()
+                            // Held at the start of the lead-in until the window has focus (above). The music in the
+                            // room has no lead-in and does not wait: an ambient game's clock runs from its first frame.
+                            if (ambient == null) this.pause()
                             controllerFactory = ::controller
                             view = this
                         }

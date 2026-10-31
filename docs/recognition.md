@@ -179,7 +179,7 @@ Every line has `elapsed_ns` (`SystemClock.elapsedRealtimeNanos`), `cid`, `seq` a
 | `session.device` | The device, the host's version, the driver, the capture source, both clocks read together |
 | `session.start`, `session.restored`, `session.end`, `abort` | How it began, why it stopped, at which stage |
 | `stage` | A stage's status changing |
-| `watch.start`, `watch.folder`, `watch.failed` | Which sources are listening, and whether all-files access is on |
+| `watch.start`, `watch.folder`, `watch.seen`, `watch.failed` | Which sources are listening, whether all-files access is on, and each source's first sight of each new file, so that all of them answer whichever fired first |
 | `index.ready` | Audio files found |
 | `host.launch`, `driver.step`, `manual_intervention` | How the host started; what a driver was asked and said; what went to the person, and why |
 | `share.received`, `share.link`, `song.identity` | The text, what was read from it, the short link's outcome |

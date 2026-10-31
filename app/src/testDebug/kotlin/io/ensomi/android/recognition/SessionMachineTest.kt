@@ -261,6 +261,28 @@ class SessionMachineTest {
     }
 
     @Test
+    fun anOldFileThatIsNotTheSongLeavesNoLineHoweverItIsSeen() {
+        val bench = Bench(byShare = true)
+        bench.listening()
+        bench.on(shared)
+        val other = FileFacts("/music/other.mp3", "other.mp3", 1_000, bench.wallMs - 86_400_000)
+        bench.on(SessionEvent.FileSeen(other, Evidence.POLL))
+        assertTrue(bench.events("audio.candidate").isEmpty())
+    }
+
+    @Test
+    fun aNewerIndexOverrulesWhatACandidateRemembers() {
+        val bench = Bench(byShare = true)
+        val row = bench.song(modified = bench.wallMs - 5_000).copy(pending = true)
+        bench.on(SessionEvent.IndexReady(listOf(row), emptyMap()))
+        bench.on(shared)
+        assertEquals("UNFINISHED", bench.events("audio.candidate").last()["verdict"])
+        val done = row.copy(pending = false)
+        val effects = bench.on(SessionEvent.IndexReady(listOf(done), emptyMap()))
+        assertTrue(effects.toString(), SessionEffect.Probe(done) in effects)
+    }
+
+    @Test
     fun aShareStartsASessionWithoutTheHost() {
         val bench = Bench(byShare = true)
         val effects = bench.on(SessionEvent.IndexReady(emptyList(), emptyMap()))
@@ -783,6 +805,16 @@ class SessionMachineTest {
         assertEquals("SYNC", bench.events("abort").single()["stage"])
         assertTrue(bench.on(shared).isEmpty())
         assertTrue(bench.state.asks.isEmpty())
+    }
+
+    @Test
+    fun aFailureEndsWithItsSession() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(SessionEvent.HostNotInstalled)
+        assertEquals(FailureKind.HOST_NOT_INSTALLED, bench.state.failure?.kind)
+        bench.on(SessionEvent.Stop("person"))
+        assertNull(bench.state.failure)
     }
 
     @Test

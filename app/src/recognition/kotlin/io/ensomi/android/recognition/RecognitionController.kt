@@ -219,7 +219,8 @@ class RecognitionController private constructor(context: Context) {
         machine = restored
         published(restored)
         effects.forEach { carryOut(it) }
-        if (restored.state.running) mutableOpens.value = true
+        // Also for one that could not be picked up: the screen is where that is said.
+        mutableOpens.value = true
     }
 
     private suspend fun feed(event: SessionEvent) {

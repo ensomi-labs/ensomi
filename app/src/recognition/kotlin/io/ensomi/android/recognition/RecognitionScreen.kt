@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -90,6 +91,12 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
+    // A request or a failure comes in above whatever is in view, and it is what has to be read.
+    val list = rememberLazyListState()
+    LaunchedEffect(state?.failure, state?.asks) {
+        val session = state
+        if (session != null && (session.failure != null || session.asks.isNotEmpty())) list.animateScrollToItem(0)
+    }
     var granted by remember { mutableStateOf(permissionsMissing(context).isEmpty()) }
     LifecycleResumeEffect(context) {
         granted = permissionsMissing(context).isEmpty()
@@ -125,6 +132,7 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
     ) { padding ->
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
+                state = list,
                 modifier = Modifier.widthIn(max = 720.dp).fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 16.dp,
@@ -363,7 +371,8 @@ private fun StagesCard(state: SessionState, onRetry: (Stage) -> Unit) {
 /** How long a stage took, or has been running. */
 private fun stageTime(view: StageView, nowNanos: Long): String? {
     val started = view.startedNanos ?: return null
-    val ended = view.endedNanos ?: nowNanos
+    // The clock on the screen ticks, so a stage may have started after its last reading.
+    val ended = maxOf(view.endedNanos ?: nowNanos, started)
     return String.format(Locale.ROOT, "%.1f s", (ended - started) / 1e9)
 }
 

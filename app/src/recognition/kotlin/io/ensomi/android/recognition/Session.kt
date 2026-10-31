@@ -567,8 +567,9 @@ class SessionMachine private constructor(
     /** What is on the device and what has been seen, judged again: the song or its identity has changed. */
     private fun considerEverything() {
         if (state.audio != null) return
-        val seen = candidates.values.toList()
-        for (entry in index) if (entry.path !in candidates) consider(entry, Evidence.INDEX)
+        val seen = candidates.values.filter { candidate -> index.none { it.path == candidate.file.path } }
+        // The index first: its entries are newer than what a candidate remembers, a row no longer pending for one.
+        for (entry in index) consider(entry, Evidence.INDEX)
         for (candidate in seen) reconsider(candidate)
         probeNext()
     }
@@ -592,8 +593,8 @@ class SessionMachine private constructor(
             }
             else -> MatchStrength.NONE
         }
-        // The index holds every song on the device: only those that could be this one are worth a line of the trace.
-        if (evidence == Evidence.INDEX && previous == null && match == MatchStrength.NONE && !isNew) return
+        // The device holds many songs: only those that could be this one are worth a line of the trace.
+        if (previous == null && match == MatchStrength.NONE && !isNew) return
         val changed = previous != null &&
             (previous.file.sizeBytes != file.sizeBytes || previous.file.modifiedWallMs != file.modifiedWallMs)
         if (previous != null && !changed && previous.verdict in FINAL_FOR_THIS_FILE && previous.match == match) return
@@ -1015,7 +1016,9 @@ class SessionMachine private constructor(
         stopCapture()
         if (state.driverStep != null) effects += SessionEffect.CancelDriver
         effects += SessionEffect.StopListening
-        state = state.copy(ended = reason, driverStep = null, driverSinceNanos = null, personFrom = null)
+        // What stood in the way of a session that is over is over too, but for its having been lost.
+        val failure = state.failure?.takeIf { it.kind == FailureKind.SESSION_LOST }
+        state = state.copy(ended = reason, driverStep = null, driverSinceNanos = null, personFrom = null, failure = failure)
     }
 
     private fun currentStage(): Stage? = state.stages.lastOrNull { it.status !in setOf(StageStatus.WAITING) }?.stage
