@@ -287,6 +287,10 @@ class PlayfieldView @JvmOverloads constructor(
         private val makeController: () -> PlayController,
     ) : Thread(null, null, "EnsomiPlayfield", 8L shl 20) {
         private val ready = CountDownLatch(1)
+        private val drain = QueueDrain()
+
+        /** Whether the vsync before this frame drew nothing ([QueueDrain]), for the frame log. */
+        private var drained = false
 
         @Volatile
         private var looper: Looper? = null
@@ -325,6 +329,11 @@ class PlayfieldView @JvmOverloads constructor(
                     // even well before its own deadline, loses it and the picture holds for a refresh. Asked for here,
                     // the next frame runs as soon as this one ends, for its own vsync's presentation time.
                     choreographer.postVsyncCallback(this)
+                    if (drain.takeSkip()) {
+                        drained = true
+                        stats.drained()
+                        return
+                    }
                     val timeline = data.preferredFrameTimeline
                     drawFrame(playController, target, timeline.expectedPresentationTimeNanos, timeline.deadlineNanos, data.frameTimeNanos, stats, log)
                 }
@@ -375,6 +384,7 @@ class PlayfieldView @JvmOverloads constructor(
                     Trace.endSection()
                 }
                 val done = System.nanoTime()
+                drain.posted(done - recordDone, stats.intervalNanos)
                 stats.record(vsyncNanos, runtimeDone - start, done - runtimeDone, done, late = done > deadlineNanos)
                 log?.record(
                     vsyncNanos, presentNanos, runtimeDone - start, done - runtimeDone, deadlineNanos, done,
@@ -382,7 +392,9 @@ class PlayfieldView @JvmOverloads constructor(
                     if (frame != null) (frame.renderMs * 1000).toLong() else 0L,
                     frame?.visible?.size?.toLong() ?: -1L,
                     syncResult.toLong(),
+                    if (drained) 1L else 0L,
                 )
+                drained = false
             } finally {
                 Trace.endSection()
             }
@@ -450,15 +462,18 @@ private class SurfaceCanvas(surface: Surface) : AutoCloseable {
  * display's refresh rate, vsyncs that came more than 1.5 refresh intervals after the previous one (frames the thread
  * missed), frames still working when the next vsync came, frames finished after their deadline, the time each frame
  * spent in the runtime (inputs, advance, reads) and in drawing (record, post) on average and at most, the whole
- * frame's work at the median and the 99th percentile (gameplay.md's target is 3 ms at p99), and what the process
- * allocated per frame. It allocates nothing per frame.
+ * frame's work at the median and the 99th percentile (gameplay.md's target is 3 ms at p99), what the process
+ * allocated per frame, and the vsyncs that drew nothing to drain the queue ([QueueDrain]). It allocates nothing per frame.
  */
 private class FrameStats(private val refreshRateHz: () -> Float) {
-    private var intervalNanos = (1e9 / refreshRateHz()).toLong()
+    /** The display's refresh interval, as of the last window. */
+    var intervalNanos = (1e9 / refreshRateHz()).toLong()
+        private set
     private var windowStartNanos = 0L
     private var frames = 0
     private var missed = 0
     private var overran = 0
+    private var drained = 0
     private var late = 0
     private var lastVsyncNanos = 0L
     private var allocatedBytes = allocatedEver()
@@ -467,6 +482,11 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
     private var drawSumNanos = 0L
     private var drawMaxNanos = 0L
     private val work = LongArray(MAX_FRAMES)
+
+    /** This vsync drew nothing, on purpose. */
+    fun drained() {
+        drained++
+    }
 
     fun record(vsyncNanos: Long, runtimeNanos: Long, drawNanos: Long, doneNanos: Long, late: Boolean) {
         if (windowStartNanos == 0L) windowStartNanos = vsyncNanos
@@ -491,11 +511,11 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
                 String.format(
                     Locale.ROOT,
                     "fps=%.1f frames=%d refresh=%.1fHz missed=%d late=%d runtime_avg=%.2fms runtime_max=%.2fms " +
-                        "draw_avg=%.2fms draw_max=%.2fms work_p50=%.2fms work_p99=%.2fms overran=%d alloc=%.1fKB/frame",
+                        "draw_avg=%.2fms draw_max=%.2fms work_p50=%.2fms work_p99=%.2fms overran=%d drained=%d alloc=%.1fKB/frame",
                     frames * 1e9 / elapsed, frames, refresh, missed, this.late,
                     runtimeSumNanos / 1e6 / frames, runtimeMaxNanos / 1e6, drawSumNanos / 1e6 / frames, drawMaxNanos / 1e6,
                     work[(counted - 1) / 2] / 1e6, work[((counted - 1) * 99) / 100] / 1e6,
-                    overran, (allocated - allocatedBytes) / 1024.0 / frames,
+                    overran, drained, (allocated - allocatedBytes) / 1024.0 / frames,
                 ),
             )
             allocatedBytes = allocated
@@ -504,6 +524,7 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
             frames = 0
             missed = 0
             overran = 0
+            drained = 0
             this.late = 0
             runtimeSumNanos = 0
             runtimeMaxNanos = 0
@@ -528,8 +549,9 @@ private class FrameStats(private val refreshRateHz: () -> Float) {
  * `presentNanos`, `runtimeNanos`, `drawNanos`, `deadlineNanos`, `doneNanos` (the frame's deadline from `FrameData` and
  * when its drawing was posted); `startNanos` (when its work began); `recordNanos` and `postNanos` (the two parts of
  * drawing that matter: recording the canvas, handing it to HWUI); `renderUs` (the song time drawn, in microseconds);
- * `notes` (objects in the frame, -1 before the clock runs); `syncResult` (HWUI's answer for the frame). README lists
- * them. Room for about nine minutes is made up front, so that no frame copies the log. [summary] goes to the log then.
+ * `notes` (objects in the frame, -1 before the clock runs); `syncResult` (HWUI's answer for the frame); `drained` (1 when
+ * the vsync before it drew nothing, [QueueDrain]). README lists them. Room for about nine minutes is made up front, so
+ * that no frame copies the log. [summary] goes to the log then.
  */
 class FrameLog {
     private var data = LongArray(COLUMNS * (1 shl 16))
@@ -549,6 +571,7 @@ class FrameLog {
         renderUs: Long,
         notes: Long,
         syncResult: Long,
+        drained: Long,
     ) {
         if (size + COLUMNS > data.size) data = data.copyOf(data.size * 2)
         data[size] = vsyncNanos
@@ -563,6 +586,7 @@ class FrameLog {
         data[size + 9] = renderUs
         data[size + 10] = notes
         data[size + 11] = syncResult
+        data[size + 12] = drained
         size += COLUMNS
     }
 
@@ -582,7 +606,7 @@ class FrameLog {
     @Synchronized
     fun csv(): String = buildString {
         append("vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos,")
-        append("startNanos,recordNanos,postNanos,renderUs,notes,syncResult\n")
+        append("startNanos,recordNanos,postNanos,renderUs,notes,syncResult,drained\n")
         var i = 0
         while (i < size) {
             for (column in 0 until COLUMNS) {
@@ -595,7 +619,7 @@ class FrameLog {
     }
 
     private companion object {
-        const val COLUMNS = 12
+        const val COLUMNS = 13
     }
 }
 
