@@ -219,10 +219,9 @@ renderMs   = songMs(expectedPresentation) + audioOffset + visualOffset
 ```
 
 The next vsync is asked for at the start of a frame's work, not at its end. `Choreographer` delivers a vsync only to a
-request made before it, so a frame that asked at its end, and ended past the next vsync, lost that vsync even when it
-was well before its own deadline: the deadline lies about 1.4 refresh intervals after the vsync at 120 Hz, the next
-vsync one interval after it. Asked at the start, a frame that runs long is followed at once by the next frame, for that
-vsync's own presentation time.
+request made before it, and at high refresh rates a frame's deadline lies past the next vsync, so a frame that asked at
+its end and ended past that vsync lost it, though it was on time itself, and the picture held for a refresh. Asked at
+the start, a frame that runs long is followed at once by the next frame, for that vsync's own presentation time.
 
 A frame that misses its deadline is not redrawn late; the next vsync draws for its own time, so motion never stalls or
 jumps backwards. The HUD in Compose observes only accuracy and the end of the game, which change when a judgement
