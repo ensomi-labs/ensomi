@@ -163,20 +163,26 @@ class MediaListening(
         listener.gone(path)
     }
 
-    private fun sighted(source: String, path: String) {
-        if (sightings.add("$source $path")) trace("watch.seen", mapOf("source" to source, "path" to path))
+    private fun sighted(source: String, path: String, pending: Boolean = false) {
+        if (sightings.add("$source $pending $path")) {
+            trace("watch.seen", mapOf("source" to source, "path" to path, "pending" to pending))
+        }
     }
 
     private val readRows = Runnable { newRows() }
 
     private fun newRows() {
         val since = sinceWallMs / 1000 - ROW_TIME_SLACK_SECONDS
-        for (row in rows("${MediaStore.Audio.Media.DATE_MODIFIED} >= $since")) {
-            sighted("media_store", row.path)
+        // A row not scanned yet is pending and has no date, so a date alone would never find it.
+        val date = MediaStore.Audio.Media.DATE_MODIFIED
+        for (row in rows("($date >= $since OR $date IS NULL OR ${MediaStore.Audio.Media.IS_PENDING} = 1)")) {
+            sighted("media_store", row.path, pending = row.pending)
+            // A pending row says only that the file exists, which is no more than the other sources say.
+            if (row.pending) continue
             val state = row.sizeBytes to row.modifiedWallMs
             if (reported[row.path] == state) continue
             reported[row.path] = state
-            listener.seen(row, if (row.pending) Evidence.WRITING else Evidence.MEDIA_STORE)
+            listener.seen(row, Evidence.MEDIA_STORE)
         }
     }
 

@@ -1075,8 +1075,8 @@ class SessionMachine private constructor(
         val age = millisSince(state.startedNanos)
         val tooOld = age < 0 || age > limits.restoreMs
         if (inGame || tooOld) {
-            val detail = if (inGame) "game" else "too_old"
-            fail(FailureKind.SESSION_LOST, Stage.PLAY.takeIf { inGame } ?: Stage.LISTEN, detail)
+            log("session.lost", "in_game" to inGame, "age_ms" to age)
+            fail(FailureKind.SESSION_LOST, Stage.PLAY.takeIf { inGame } ?: Stage.LISTEN, null)
             end("lost", abort = true)
             return@collect
         }

@@ -66,7 +66,7 @@ advance which way of seeing a file would work on the test phone, so three run at
 | Source | Needs | Evidence it gives |
 | --- | --- | --- |
 | `FileObserver` on the folder | `MANAGE_EXTERNAL_STORAGE`, granted with `adb shell appops`; whether it fires through the FUSE layer is a question for the phone | `CLOSE_WRITE`, `MOVED_TO`; `CREATE` and `MODIFY` only say it is being written |
-| MediaStore's content observer | `READ_MEDIA_AUDIO` | A row no longer pending |
+| MediaStore's content observer | `READ_MEDIA_AUDIO`; it sees files in any folder | A row no longer pending; a row still pending only goes to the trace |
 | A poll of both, every five seconds | The same | A size and a time, which prove less |
 
 A candidate is judged in this order, the cheap and certain refusals first:
@@ -177,7 +177,7 @@ Every line has `elapsed_ns` (`SystemClock.elapsedRealtimeNanos`), `cid`, `seq` a
 | Event | Fields |
 | --- | --- |
 | `session.device` | The device, the host's version, the driver, the capture source, both clocks read together |
-| `session.start`, `session.restored`, `session.end`, `abort` | How it began, why it stopped, at which stage |
+| `session.start`, `session.restored`, `session.lost`, `session.end`, `abort` | How it began, why it stopped, at which stage |
 | `stage` | A stage's status changing |
 | `watch.start`, `watch.folder`, `watch.seen`, `watch.failed` | Which sources are listening, whether all-files access is on, and each source's first sight of each new file, so that all of them answer whichever fired first |
 | `index.ready` | Audio files found |
@@ -223,5 +223,6 @@ adb shell am start -a android.intent.action.SEND -t text/plain -n io.ensomi.andr
 ## What is not known yet
 
 Nobody has run this on the K Pad with the host: whether Ensomi shows in the host's share sheet, whether `FileObserver`
-fires through FUSE there, whether HyperOS keeps the app alive while the host is in front, how the host names a file
-while downloading it, and how the microphone hears a room. The trace is there to answer these.
+fires through FUSE there as it does on an AVD, what state the host's rows are in, whether HyperOS keeps the app alive while
+the host is in front, how the host names a file while downloading it, and how the microphone hears a room. The trace is
+there to answer these: `watch.seen` gives each source's answer apart from which fired first.

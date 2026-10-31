@@ -148,7 +148,7 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                 }
                 current?.failure?.let { failure ->
                     item(key = "failure") {
-                        FailureCard(failure, canRetry = current?.running == true, onRetry = { controller.retry(failure.kind.retryFrom) })
+                        FailureCard(failure, canRetry = current.running, onRetry = { controller.retry(failure.kind.retryFrom) })
                     }
                 }
                 item(key = "controls") {
