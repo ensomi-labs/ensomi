@@ -9,7 +9,6 @@ import android.os.Trace
 import android.util.AttributeSet
 import android.util.Log
 import android.view.Choreographer
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -102,9 +101,6 @@ class PlayfieldView @JvmOverloads constructor(
             field = value
             renderer.reduceMotion = value
         }
-
-    /** "Vibrate on lane touch": a `VIRTUAL_KEY` tick as a finger lands on a lane, as the player's touch feedback allows. */
-    var vibrateOnTouch = false
 
     /** Debug builds: where every frame's times go, as CSV, when the playfield closes ([FrameLog]); null for none. */
     var frameLogFile: File? = null
@@ -258,7 +254,6 @@ class PlayfieldView @JvmOverloads constructor(
                 val lane = g.laneAt(event.getX(index))
                 if (tracker.down(event.getPointerId(index), lane)) {
                     target.enqueue(LaneInput(lane, press = true, nanos, sequence.incrementAndGet()))
-                    if (vibrateOnTouch) performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {

@@ -23,7 +23,6 @@ data class PlaySettings(
     val musicVolume: Float = 0.8f,
     val audioOffsetMs: Int = 0,
     val visualOffsetMs: Int = 0,
-    val vibrateOnTouch: Boolean = false,
     val orientation: PlayOrientation = PlayOrientation.LANDSCAPE,
     /**
      * How far the lanes are tilted back, in degrees, 0 for flat: one value for each orientation, since landscape

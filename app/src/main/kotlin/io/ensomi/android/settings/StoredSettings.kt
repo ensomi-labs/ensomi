@@ -19,7 +19,6 @@ data class StoredSettings(
     val musicVolume: Float = PlaySettings().musicVolume,
     val audioOffsets: Map<String, Int> = emptyMap(),
     val visualOffsetMs: Int = 0,
-    val vibrateOnTouch: Boolean = false,
     val orientation: PlayOrientation = PlayOrientation.LANDSCAPE,
     val landscapeLean: Int = PlaySettings.DEFAULT_LANDSCAPE_LEAN,
     val portraitLean: Int = PlaySettings.DEFAULT_PORTRAIT_LEAN,
@@ -31,7 +30,6 @@ data class StoredSettings(
         musicVolume = musicVolume.coerceIn(0f, 1f),
         audioOffsetMs = (audioOffsets[outputKey] ?: 0).coerceIn(PlaySettings.OFFSETS),
         visualOffsetMs = visualOffsetMs.coerceIn(PlaySettings.OFFSETS),
-        vibrateOnTouch = vibrateOnTouch,
         orientation = orientation,
         landscapeLean = landscapeLean.coerceIn(PlaySettings.LEANS),
         portraitLean = portraitLean.coerceIn(PlaySettings.LEANS),
@@ -48,7 +46,6 @@ data class StoredSettings(
             audioOffsets + (outputKey to settings.audioOffsetMs)
         },
         visualOffsetMs = settings.visualOffsetMs,
-        vibrateOnTouch = settings.vibrateOnTouch,
         orientation = settings.orientation,
         landscapeLean = settings.landscapeLean,
         portraitLean = settings.portraitLean,

@@ -245,7 +245,6 @@ A Material list in sections:
   held upright and beside them in landscape, so it stays in sight while a slider moves. The preview follows
   the lean and the scroll speed while their sliders are dragged, so the player sees what a change does before playing.
   For the full-size look, About › Playfield preview opens the same sample as a game.
-- **Touch**: Vibrate on lane touch (off by default; see Haptics).
 - **Sound and timing**: music volume (a fraction of the song's own level), audio offset for the current output
   ("Audio offset for Phone speaker"), visual offset, both with −/+ steppers in 1 ms steps; Calibrate timing.
 - **Chart model**: the model panel above, its licence, the model card, the notices.
@@ -334,9 +333,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 
 - **Chrome**: Material components' own feedback; `CONFIRM` when a chart being made is ready (not when a stored one is
   opened) and when a calibration's or the results' suggested offset is applied, `REJECT` when a chart fails.
-- **Play**: off by default. "Vibrate on lane touch" adds a `VIRTUAL_KEY` tick per lane press. Off because the actuator
-  answers some milliseconds after the touch, a tick that feels late reads as a late hit, and a vibration can be heard
-  through the phone's speaker. The player may still like it with headphones; the phone measurements say how late it is.
+- **Play**: none (the owner's decision of 2026-10-31): the actuator answers late, and a late tick reads as a late hit.
 - **Calibration**: never while tapping. A tick would be a second cue competing with the click; the pad also turns off
   its click sound.
 
@@ -410,7 +407,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 | Audio offset per output device, one visual offset, the scroll-speed scale, judge C, music volume 0.8 | Offsets default to 0 until the phones are measured (the Swift −15 ms was tuned on a Mac); the output keyed by `AudioDeviceInfo` type and name |
 | Calibration: clicks every 500 ms after 1 s, median of 16 taps | Two steps; the visual step has no taps |
 | Results: accuracy, max combo, misses | Its own screen with all three tiers, a timing chart and the runtime's offset suggestion |
-| Settings sections: gameplay, sound and timing, chart model | Playfield section (orientation, lane lean, live preview); Touch section; About with the playfield preview and Diagnostics |
+| Settings sections: gameplay, sound and timing, chart model | Playfield section (orientation, lane lean, live preview); About with the playfield preview and Diagnostics |
 
 Not carried over in this round: Listen & Play, recognition, the Chart Inspector, the chart server, key bindings, saving
 `.osu` and `.osz`.

@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -68,7 +69,6 @@ class OutputSettingsTest {
             musicVolume = 0.35f,
             audioOffsets = mapOf("speaker/Pixel 9" to -7),
             visualOffsetMs = 9,
-            vibrateOnTouch = true,
             orientation = PlayOrientation.PORTRAIT,
             landscapeLean = 22,
             portraitLean = 10,
@@ -80,6 +80,25 @@ class OutputSettingsTest {
         assertEquals(JudgeDifficulty.C, read.judge)
         assertEquals(PlaySettings.LEANS.last, read.landscapeLean)
         assertEquals(PlaySettings.OFFSETS.last, read.audioOffsetMs)
+    }
+
+    @Test
+    fun aFileFromTheBuildThatOfferedVibrationKeepsEveryOtherValue() {
+        // As that build wrote it. A read that failed would be corruption, and the store would reset every setting.
+        val file = """{"scrollSpeed":31.5,"judge":"A","musicVolume":0.35,"audioOffsets":{"speaker/Pixel 9":-7},""" +
+            """"visualOffsetMs":9,"vibrateOnTouch":true,"orientation":"PORTRAIT","landscapeLean":22,"portraitLean":10}"""
+        val read = runBlocking { StoredSettingsSerializer.readFrom(file.byteInputStream()) }
+        val expected = StoredSettings(
+            scrollSpeed = 31.5,
+            judge = JudgeDifficulty.A,
+            musicVolume = 0.35f,
+            audioOffsets = mapOf("speaker/Pixel 9" to -7),
+            visualOffsetMs = 9,
+            orientation = PlayOrientation.PORTRAIT,
+            landscapeLean = 22,
+            portraitLean = 10,
+        )
+        assertEquals(expected, read)
     }
 
     @Test

@@ -380,7 +380,7 @@ the runtime calls, which draw nothing, took about three times as long as on a qu
 | Layout, insets, every screen and state, light and dark, font scale, landscape | 90 or 120 Hz: it has one 60 Hz vsync |
 | The playfield's look and motion (screen recordings), the frame order, the runtime judging the autoplay's inputs | Real audio timing: host audio, no meaningful `AudioTrack` timestamps or latency |
 | Single touches judged, from `adb shell input tap` | Touch latency, real multi-touch from a hand, palm rejection |
-| Pause on lifecycle, focus and Back; the count-in | Haptic delay; HyperOS refresh caps, power and thermal behaviour |
+| Pause on lifecycle, focus and Back; the count-in | HyperOS refresh caps, power and thermal behaviour |
 | That runtime calls stay off the main thread (logs) | Frame cost on a phone CPU and GPU |
 
 ## Measurements a phone must make
@@ -399,14 +399,13 @@ speaker, wired and Bluetooth output where it applies. [phone-checks.md](phone-ch
 | The lean in hand | Players who know 4K on phones play the samples in landscape at 0°, 40° and 55°, and in portrait | 40° reads at speed; far notes are big enough; thumbs land in their lanes; the HUD never covers a lane |
 | Refresh rate | `Display.getRefreshRate()` during play after `setFrameRate` | 120 Hz on the Redmi K80 unless battery saver is on |
 | Multi-touch | Four-finger chords and holds with real hands, presses and releases counted | Every press has its release; no lane stays lit |
-| Haptics | 240 fps video with Vibrate on lane touch | Its delay known, to say whether to offer it |
 | Heat | 10 minutes of play: thermal status and frame pacing | No drop in pacing |
 
 Which check makes each (`app/src/androidTest/.../checks/`, or the runbook's checklist): clock smoothness,
 `AudioClockCheck` (per output, the raw timestamps' line fit); picture against audio, `AudioClockCheck` on vsync-paced
 reads of the game's clock, and a hand-played game's `clock-log.csv` (checklist 2); unreported output latency, the
 calibration by ear (checklist 4); touch stamp, the runtime's `lateInputs` and each touch's handling delay (`touch-log.csv`) from a hand-played game
-(checklist 2); touch to light and haptics, slow-motion video (checklist 1); frame
+(checklist 2); touch to light, slow-motion video (checklist 1); frame
 pacing and refresh rate, `FramePacingCheck`, also in the checks build, which is not debuggable; the lean in hand,
 checklist 9; multi-touch, checklist 3; heat, checklist 11 with `FramePacingCheck`'s thermal state. The runtime's cost per
 call through JNA, the first thing the phone measures above, is `RuntimeCheck`.

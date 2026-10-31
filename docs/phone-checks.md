@@ -144,7 +144,7 @@ frame files, and send that archive too. Write the answers in a text file named `
 
 | # | Check | What to do | What to record |
 | --- | --- | --- | --- |
-| 1 | Touch to light, haptics (plan 7, 10) | Film a finger tapping one lane in a game with the phone's slow-motion camera (240 fps or more), once with Settings › Vibrate on lane touch off and once on | The two videos; your impression of the vibration's delay |
+| 1 | Touch to light (plan 7) | Film a finger tapping one lane in a game with the phone's slow-motion camera (240 fps or more) | The video |
 | 2 | A full game by hand (plan 7) | Play one whole song with your fingers, then run the `manual` collection before playing again | The results screen (screenshot); anything that felt late or wrong (the `manual` archive holds the game's late inputs, its clock log and every touch's handling delay) |
 | 3 | Multi-touch (plan 7) | In a game, play chords with four fingers and hold two lanes while tapping the others; then the same with both thumbs in landscape | Whether any lane stayed lit after your fingers left; whether any press was missed; a screen recording if something went wrong |
 | 4 | Calibration by ear (plan 8) | Settings › Calibrate, three times on the speaker, three on wired headphones, three on Bluetooth | The suggestion of each run, per output (for example `speaker: +12, +10, +13`) |

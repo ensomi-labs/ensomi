@@ -28,7 +28,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -56,7 +55,7 @@ import kotlin.math.roundToInt
 
 /**
  * Settings, reached from the library, never during a game, so nothing here changes while one is
- * in progress. Sections: gameplay, touch, sound and timing (with calibration), the chart model, and about (the
+ * in progress. Sections: gameplay, sound and timing (with calibration), the chart model, and about (the
  * playfield preview and Diagnostics).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -161,18 +160,6 @@ fun SettingsScreen(
                     item { OrientationSetting(settings, onChange) }
                     item { LeanSetting(settings, onChange) }
                     item { PlayfieldPreview(settings, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) }
-                }
-
-                item { Header(R.string.settings_touch) }
-                item {
-                    ListItem(
-                        modifier = Modifier.clickable { onChange { it.copy(vibrateOnTouch = !it.vibrateOnTouch) } },
-                        headlineContent = { Text(stringResource(R.string.settings_vibrate)) },
-                        supportingContent = { Text(stringResource(R.string.settings_vibrate_help)) },
-                        trailingContent = {
-                            Switch(checked = settings.vibrateOnTouch, onCheckedChange = { on -> onChange { it.copy(vibrateOnTouch = on) } })
-                        },
-                    )
                 }
 
                 item { Header(R.string.settings_sound_timing) }

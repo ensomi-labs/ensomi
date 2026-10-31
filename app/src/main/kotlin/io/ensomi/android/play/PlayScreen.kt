@@ -308,7 +308,6 @@ fun PlayScreen(
                         it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                         it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
                         it.reduceMotion = reduceMotion
-                        it.vibrateOnTouch = settings.vibrateOnTouch
                         it.excludeBackGesture = phase == PlayPhase.PLAYING && !tooSmall
                         // A view made while the game is paused (after a configuration change) starts paused.
                         if (phase != PlayPhase.PLAYING) it.pause()
