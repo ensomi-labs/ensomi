@@ -211,16 +211,29 @@ Then, in this order, as in the Swift app:
 2. `advance` the session to the gameplay time less the 100 ms input allowance.
 3. Read what to draw at the render time: `visibleObjects` from 700 ms before it to the scroll time plus 250 ms after,
    lane brightness, the recent judgement batches, the judgement presentation, the score.
-4. Draw on `lockHardwareCanvas()` and post.
+4. Draw on a recording canvas and hand it to HWUI, which renders on its own thread.
 
 ```text
 gameplayMs = songMs(now) + audioOffset
 renderMs   = songMs(expectedPresentation) + audioOffset + visualOffset
 ```
 
+The next vsync is asked for at the start of a frame's work, not at its end. `Choreographer` delivers a vsync only to a
+request made before it, so a frame that asked at its end, and ended past the next vsync, lost that vsync even when it
+was well before its own deadline: the deadline lies about 1.4 refresh intervals after the vsync at 120 Hz, the next
+vsync one interval after it. Asked at the start, a frame that runs long is followed at once by the next frame, for that
+vsync's own presentation time.
+
 A frame that misses its deadline is not redrawn late; the next vsync draws for its own time, so motion never stalls or
 jumps backwards. The HUD in Compose observes only accuracy and the end of the game, which change when a judgement
 does, not every frame. The judgement word and combo are drawn by the render thread, on the same timeline as the notes.
+
+The render thread draws through a `HardwareRenderer` and `RenderNode` of its own rather than `lockHardwareCanvas`, which
+is the same two objects inside `Surface`. HWUI takes a frame stamped within 2 ms of the last for the same vsync and drops
+it, and `lockHardwareCanvas` stamps a frame with the moment it is posted, so a short frame right after a late one would
+vanish; the app keeps its stamps at least 2 ms apart. Its result for each frame is in the frame log. HyperOS also logs
+every `lockHardwareCanvas` from the calling thread. The thread runs at `THREAD_PRIORITY_URGENT_DISPLAY`: the system
+boosts the main thread and HWUI's while a finger is down, and a frame cannot wait behind them.
 
 ## Input
 
@@ -327,15 +340,16 @@ heads) for the output used, when it is at least 3 ms.
   time, so the game is right at any rate it gets.
 - The render thread's work is the four steps above. The Swift app measured the runtime's frame (advance, visible
   objects, lane states) at 0.05 ms through its bindings. Through UniFFI's Kotlin bindings every call goes through JNA,
-  which marshals structures by reflection, and a frame makes about ten calls plus one `noteGeometry` per visible note
-  (up to about 70 in a dense frame). On the emulator with the host's GPU the runtime calls took 1.0 to 1.5 ms per
-  frame on average (a debug build; longest frames 3 to 18 ms), which says little about a phone but is too large to
-  assume away. It is the first thing the phone measures, in a release build. If it stays above about 1 ms, the fix is one
-  runtime call per frame that returns the visible notes with their positions, lane brightness, the recent batches,
-  the presentation and the score: a runtime change, listed in plan.md and not made. The prototype already asks only
-  what changed (the score after events, the tier words once).
-- The renderer allocates nothing per frame; the bindings return new lists each call (`visibleObjects`, batches), so
-  garbage collection pauses are watched in the traces.
+  which marshals structures by reflection and allocates a few structures per call, so a frame asks only what can have
+  changed (`FrameReads.kt`): the visible objects after an input or an event and every 100 ms of render time, with a
+  range that reaches that much further than a frame needs; a lane's light only while it is lit and after its input; the
+  batches after an event; the judgement word while one shows; the score after an event; the tier words once. Taps are
+  placed on a line in time, fixed by two answers from `noteYPosition` for a scroll time and a fall length, so only holds
+  call `noteGeometry` each frame; `RuntimeCheck` holds the line to the runtime's answer. If this stays above about 1 ms
+  in a release build, the fix is one runtime call per frame that returns the visible notes with their positions, lane
+  brightness, the recent batches, the presentation and the score: a runtime change, listed in plan.md and not made.
+- The renderer allocates nothing per frame; the bindings return new lists when they are called, so what the process
+  allocates per frame is in the render thread's log.
 - Drawing is a hardware canvas (HWUI's GPU renderer) of about 150 rounded rectangles, gradients and two text runs, with
   additive blending for lights. With a lean, the lanes and notes are drawn through one perspective matrix
   (`Canvas.concat`): the GPU projects them, and the CPU does no more work than for flat lanes. Hardware canvases have
@@ -349,14 +363,16 @@ heads) for the output used, when it is at least 3 ms.
 - Measured with per-frame logs on the render thread and Perfetto's FrameTimeline, which records expected and actual
   presentation and jank per layer ([FrameTimeline](https://perfetto.dev/docs/data-sources/frametimeline)). The render
   thread logs, every two seconds under the tag `EnsomiPlayfield`, its frame rate and the display's, the vsyncs it
-  missed, the frames it finished after their deadline (`FrameData`'s preferred timeline), its average and longest
-  time per frame in the runtime and in drawing, and the whole frame's work at the median and the 99th percentile, the
-  number the table above sets; it allocates nothing to do so. Debug builds also keep every frame's vsync, expected
-  presentation and work, written to `files/frame-log.csv` when the playfield closes. Each frame is a trace section
+  missed, the frames still working when the next vsync came, the frames it finished after their deadline
+  (`FrameData`'s preferred timeline), its average and longest time per frame in the runtime and in drawing, the whole
+  frame's work at the median and the 99th percentile, the number the table above sets, and what the process allocated
+  per frame; it allocates nothing to do so. Debug builds also keep every frame's vsync, expected presentation, deadline,
+  start, work by part, the song time drawn, its objects and HWUI's answer, written to `files/frame-log.csv` when the
+  playfield closes (README). Each frame is a trace section
   (`EnsomiFrame`, holding `EnsomiRuntime` and `EnsomiDraw`), so `scripts/capture-frame-timeline.sh` shows the render
   thread's work beside SurfaceFlinger's frame timeline in one Perfetto trace. The refresh-rate request is logged with
   the display's modes and the rate it runs at. FrameTimeline lists only frames that carry a vsync id: the app window's
-  (HUD, panels) do; the playfield's SurfaceView frames, drawn with `lockHardwareCanvas`, carry none and are not in it
+  (HUD, panels) do; the playfield's SurfaceView frames, drawn through `HardwareRenderer`, carry none and are not in it
   (seen on the AVD), so their pacing is the render thread's own log and sections, which count missed vsyncs and frames
   past `FrameData`'s deadline. A GLES path that queues buffers through `ASurfaceTransaction` with Choreographer's vsync
   id would bring them into FrameTimeline; that is not a reason on its own to leave the canvas.
@@ -395,7 +411,7 @@ speaker, wired and Bluetooth output where it applies. [phone-checks.md](phone-ch
 | Unreported output latency | The calibration's sound step, three runs per output; for speaker and wired also an external recording of a click against the logged clock | Runs within 5 ms of each other; gives each output's default offset |
 | Touch stamp | Event time against handling time for every touch of a game; the runtime's `lateInputs` | `lateInputs` 0 in normal play; handling delay p99 well under 100 ms |
 | Touch to light | 240 fps video of a finger tapping a lane | The light within two refreshes of the finger landing |
-| Frame pacing | Perfetto FrameTimeline over a 60 s autoplay of the densest sample, at 120 Hz, at no lean, 40° and 55° | Under 0.5 % of frames late; render-thread work p99 under 3 ms at every lean |
+| Frame pacing | Perfetto FrameTimeline over a 60 s autoplay of the densest sample, at 120 Hz, at no lean, 40° and 55°, and the frame log of a hand-played game | Under 0.5 % of vsyncs missed and of frames late; render-thread work p99 under 3 ms at every lean |
 | The lean in hand | Players who know 4K on phones play the samples in landscape at 0°, 40° and 55°, and in portrait | 40° reads at speed; far notes are big enough; thumbs land in their lanes; the HUD never covers a lane |
 | Refresh rate | `Display.getRefreshRate()` during play after `setFrameRate` | 120 Hz on the Redmi K80 unless battery saver is on |
 | Multi-touch | Four-finger chords and holds with real hands, presses and releases counted | Every press has its release; no lane stays lit |
@@ -406,6 +422,7 @@ Which check makes each (`app/src/androidTest/.../checks/`, or the runbook's chec
 reads of the game's clock, and a hand-played game's `clock-log.csv` (checklist 2); unreported output latency, the
 calibration by ear (checklist 4); touch stamp, the runtime's `lateInputs` and each touch's handling delay (`touch-log.csv`) from a hand-played game
 (checklist 2); touch to light, slow-motion video (checklist 1); frame
-pacing and refresh rate, `FramePacingCheck`, also in the checks build, which is not debuggable; the lean in hand,
+pacing and refresh rate, `FramePacingCheck`, also in the checks build, which is not debuggable, and a hand-played
+game's `frame-log.csv`; the lean in hand,
 checklist 9; multi-touch, checklist 3; heat, checklist 11 with `FramePacingCheck`'s thermal state. The runtime's cost per
 call through JNA, the first thing the phone measures above, is `RuntimeCheck`.

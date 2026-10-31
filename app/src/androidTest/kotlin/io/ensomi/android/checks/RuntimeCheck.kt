@@ -7,14 +7,18 @@ import io.ensomi.android.play.PlayChart
 import io.ensomi.android.play.PlayController
 import io.ensomi.android.play.PlayfieldGeometry
 import io.ensomi.android.play.SampleCharts
+import io.ensomi.android.play.TapLine
 import io.ensomi.runtime.GameplayFeedback
 import io.ensomi.runtime.GameplaySession
 import io.ensomi.runtime.GeneratorException
+import io.ensomi.runtime.Geometry
 import io.ensomi.runtime.InputEvent
 import io.ensomi.runtime.Judge
 import io.ensomi.runtime.Phase
 import io.ensomi.runtime.Ruleset
 import io.ensomi.runtime.RuntimeWorker
+import io.ensomi.runtime.VisibleObject
+import io.ensomi.runtime.VisibleState
 import io.ensomi.runtime.noteGeometry
 import io.ensomi.runtime.noteYPosition
 import java.io.File
@@ -135,6 +139,26 @@ class RuntimeCheck {
             }
         }
         PhoneCheck.report("runtime-call-cost", result + ("ok" to true))
+    }
+
+    /** The playfield's line for taps ([TapLine]) against the runtime's own answer, at the speeds and lengths a game uses. */
+    @Test
+    fun theTapLineIsTheRuntimesGeometry() {
+        for (scrollTimeMs in listOf(115.0, 459.0, 1_148.5)) {
+            for (fallLength in listOf(300.0, 1_400.0, 3_500.0)) {
+                val line = TapLine(::noteYPosition)
+                for (state in listOf(VisibleState.WAITING, VisibleState.MISSED_BUT_VISIBLE)) {
+                    for (renderMs in listOf(-1_865.25, 0.0, 12_345.678, 157_313.07)) {
+                        for (ahead in listOf(-700.0, -1.5, 0.0, 33.3, scrollTimeMs, scrollTimeMs + 250.0)) {
+                            val note = VisibleObject(0u, 0u, renderMs + ahead, null, state)
+                            val geometry = noteGeometry(note, renderMs, scrollTimeMs, fallLength) as Geometry.Tap
+                            val y = line.y(note.startTimeMs, renderMs, scrollTimeMs, fallLength)
+                            assertEquals(geometry.y, y, 1e-6)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /**

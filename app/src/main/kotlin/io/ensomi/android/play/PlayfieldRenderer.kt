@@ -17,6 +17,7 @@ import io.ensomi.runtime.Judgement
 import io.ensomi.runtime.Tier
 import io.ensomi.runtime.VisibleState
 import io.ensomi.runtime.noteGeometry
+import io.ensomi.runtime.noteYPosition
 import io.ensomi.runtime.tierJudgement
 
 /** The play screen's colours, from the brand's dark plum theme and the web player, as ARGB for the canvas. */
@@ -74,7 +75,11 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
     private val perspective = Matrix()
     private val farFade = LinearGradient(0f, 0f, 0f, 1f, PlayPalette.GROUND, PlayPalette.GROUND and 0x00FFFFFF, Shader.TileMode.CLAMP)
     private val diagonal = Path()
-    private var diagonalSize = 0f to 0f
+    private var diagonalWidth = 0f
+    private var diagonalHeight = 0f
+    private val tapLine = TapLine(::noteYPosition)
+    private var comboShown = -1
+    private var comboText = ""
     private val bold = Typeface.create(Typeface.DEFAULT, 700, false)
     private val wordPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = bold
@@ -137,14 +142,15 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
 
     private fun drawGround(canvas: Canvas, g: PlayfieldGeometry) {
         canvas.drawColor(PlayPalette.GROUND)
-        if (diagonalSize != g.width to g.height) {
+        if (diagonalWidth != g.width || diagonalHeight != g.height) {
             // The brand's diagonal division: the lighter half below a line from the bottom left to the top right.
             diagonal.reset()
             diagonal.moveTo(g.width * 0.12f, g.height)
             diagonal.lineTo(g.width, g.height * 0.08f)
             diagonal.lineTo(g.width, g.height)
             diagonal.close()
-            diagonalSize = g.width to g.height
+            diagonalWidth = g.width
+            diagonalHeight = g.height
         }
         fill.color = PlayPalette.GROUND_SECOND_HALF
         canvas.drawPath(diagonal, fill)
@@ -203,7 +209,8 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
     /**
      * Lane space. Notes hit are gone; a miss still on screen is greyed. A hold being held keeps its head on the line
      * and glows. Each note is cut to the lanes, from the far end to just under the top edge of its key cap, so a note
-     * centred on the line is drawn whole and then slips under the cap.
+     * centred on the line is drawn whole and then slips under the cap. A tap's place comes from [tapLine]: a call to
+     * the runtime per note per frame was most of the frame's drawing. A hold's shape is the runtime's to say.
      */
     private fun drawNotes(canvas: Canvas, frame: PlayFrame, g: PlayfieldGeometry) {
         val inset = g.dp(5f)
@@ -219,14 +226,16 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             val noteWidth = g.laneWidth - inset * 2
             val missed = obj.state == VisibleState.MISSED_BUT_VISIBLE
             val held = obj.state == VisibleState.HOLDING
+            if (obj.endTimeMs == null && !held && obj.state != VisibleState.OPEN_ENDED) {
+                val y = top + tapLine.y(obj.startTimeMs, frame.renderMs, frame.scrollTimeMs, fallLength).toFloat()
+                val half = noteHeight / 2 * g.keepShape(y)
+                fill.color = if (missed) PlayPalette.MISSED_NOTE else PlayPalette.TAP
+                fill.alpha = if (missed) 128 else 255
+                drawCut(canvas, noteLeft, y - half, noteLeft + noteWidth, y + half, corner, top, bottom, fill)
+                continue
+            }
             when (val geometry = noteGeometry(obj, frame.renderMs, frame.scrollTimeMs, fallLength)) {
-                is Geometry.Tap -> {
-                    val y = top + geometry.y.toFloat()
-                    val half = noteHeight / 2 * g.keepShape(y)
-                    fill.color = if (missed) PlayPalette.MISSED_NOTE else PlayPalette.TAP
-                    fill.alpha = if (missed) 128 else 255
-                    drawCut(canvas, noteLeft, y - half, noteLeft + noteWidth, y + half, corner, top, bottom, fill)
-                }
+                is Geometry.Tap -> Unit
                 is Geometry.Hold -> {
                     val bodyWidth = noteWidth * 0.72f
                     val bodyLeft = noteLeft + (noteWidth - bodyWidth) / 2
@@ -407,7 +416,11 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
             comboPaint.alpha = 230
             comboPaint.textSize = 46f * text
             val comboY = wordY + 56f * text
-            canvas.drawText(frame.combo.toString(), centerX, comboY, comboPaint)
+            if (frame.combo != comboShown) {
+                comboShown = frame.combo
+                comboText = frame.combo.toString()
+            }
+            canvas.drawText(comboText, centerX, comboY, comboPaint)
             labelPaint.color = PlayPalette.MUTED_TEXT
             labelPaint.alpha = 255
             labelPaint.textSize = 15f * text

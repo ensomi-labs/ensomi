@@ -89,6 +89,16 @@ class PlayController(
     private val nextSequence: () -> Long,
 ) : AutoCloseable {
     private val queue = ConcurrentLinkedQueue<LaneInput>()
+    private val visibleWindow = VisibleWindow()
+    private var visible = emptyList<VisibleObject>()
+    private val laneAsking = LaneAsking()
+    private val brightness = Array(PlayfieldGeometry.LANES) { DARK }
+    private val brightnessView = brightness.asList()
+    private var batches = emptyList<JudgementEventBatch>()
+    private var presentation: JudgementPresentation? = null
+
+    /** Events were recorded since the batches and the judgement word were last read. */
+    private var feedbackChanged = false
     private val pending = ArrayList<Pair<Double, LaneInput>>()
     private val runtimeChart = chart.toRuntime()
     private var audioOffsetMs = timing.audioOffsetMs
@@ -108,6 +118,7 @@ class PlayController(
     private var anyJudgement = false
     private var lastScore: Score? = null
     private var scoreChanged = true
+    private var publishedScore: Score? = null
     private val hitOffsets = ArrayList<Double>()
 
     fun start(nanoTime: Long) {
@@ -138,7 +149,6 @@ class PlayController(
             deliverInputs(gameplayMs)
             record(session.advance(gameplayMs - INPUT_ALLOWANCE_MS), gameplayMs)
         }
-        feedback.advanceJudgementTime(gameplayMs)
         // The score changes only when events are decided; each call through the bindings costs time.
         val score = lastScore?.takeIf { !scoreChanged } ?: session.score().also {
             lastScore = it
@@ -149,17 +159,21 @@ class PlayController(
         val presentSong = clock.songTimeMs(presentNanos) ?: songNow
         val renderMs = presentSong + audioOffsetMs + visualOffsetMs
         clockLog?.record(nowNanos, songNow, renderMs)
-        val uiMs = presentNanos / 1e6
         val scrollMs = scrollTimeMs
+        readFeedback(presentNanos / 1e6, gameplayMs)
+        if (visibleWindow.mustAsk(renderMs, scrollMs)) {
+            visible = session.visibleObjects(visibleWindow.lowerMs(renderMs), visibleWindow.upperMs(renderMs, scrollMs))
+            visibleWindow.asked(renderMs, scrollMs)
+        }
         val frame = PlayFrame(
             gameplayMs = gameplayMs,
             renderMs = renderMs,
             scrollTimeMs = scrollMs,
             durationMs = chart.durationMs.toDouble(),
-            visible = session.visibleObjects(renderMs - VISIBLE_BEFORE_MS, renderMs + scrollMs + VISIBLE_AFTER_MS),
-            brightness = List(PlayfieldGeometry.LANES) { feedback.laneBrightness(it.toUInt(), uiMs) },
-            batches = feedback.judgementEventBatches(),
-            presentation = feedback.judgementPresentation(gameplayMs),
+            visible = visible,
+            brightness = brightnessView,
+            batches = batches,
+            presentation = presentation,
             combo = score.combo.toInt(),
             anyJudgement = anyJudgement,
             judging = judging,
@@ -167,6 +181,23 @@ class PlayController(
         )
         if (loop && ownsClock && songNow > chart.durationMs + LOOP_GAP_MS) restart(nowNanos)
         return frame
+    }
+
+    /**
+     * The lane lights and what follows a judgement, asked only while they can change: a dark lane stays dark until its
+     * next input, the batches change only with new events (the renderer ages out the ones it has), and with no word
+     * showing none comes until the next event.
+     */
+    private fun readFeedback(uiMs: Double, gameplayMs: Double) {
+        for (lane in brightness.indices) {
+            if (!laneAsking.mustAsk(lane)) continue
+            val light = feedback.laneBrightness(lane.toUInt(), uiMs)
+            brightness[lane] = light
+            laneAsking.answered(lane, isLit = light.lane != 0.0 || light.receptor != 0.0)
+        }
+        if (feedbackChanged) batches = feedback.judgementEventBatches()
+        if (feedbackChanged || presentation != null) presentation = feedback.judgementPresentation(gameplayMs)
+        feedbackChanged = false
     }
 
     private fun runScript(gameplayMs: Double) {
@@ -183,6 +214,7 @@ class PlayController(
             val song = clock.songTimeMs(input.eventNanos) ?: continue
             val phase = if (input.press) Phase.PRESS else Phase.RELEASE
             feedback.recordInput(input.lane.toUInt(), phase, input.sequence.toULong(), input.eventNanos / 1e6)
+            laneAsking.touched(input.lane)
             pending += (song + audioOffsetMs) to input
         }
         if (pending.isEmpty()) return
@@ -191,6 +223,7 @@ class PlayController(
         for ((chartMs, input) in due) {
             val phase = if (input.press) Phase.PRESS else Phase.RELEASE
             record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs)
+            visibleWindow.invalidate()
         }
         pending.subList(0, due.size).clear()
     }
@@ -199,6 +232,8 @@ class PlayController(
         if (events.isEmpty()) return
         anyJudgement = true
         scoreChanged = true
+        feedbackChanged = true
+        visibleWindow.invalidate()
         feedback.recordJudgementEvents(events, chartMs)
         events.forEach { event -> event.offsetMs?.let { hitOffsets += it } }
     }
@@ -206,6 +241,8 @@ class PlayController(
     /** The game ends when every object is decided and the song has played to its end, as in the Swift app. */
     private fun publishHud(score: Score, songNow: Double) {
         val over = !loop && songNow >= chart.durationMs && session.isResolved()
+        if (!over && score === publishedScore) return
+        publishedScore = score
         val finished = if (over) score else null
         if (finished != null && hud.value.finished == null) {
             Log.i(
@@ -232,9 +269,16 @@ class PlayController(
         anyJudgement = false
         lastScore = null
         scoreChanged = true
+        publishedScore = null
         hitOffsets.clear()
         queue.clear()
         pending.clear()
+        visibleWindow.invalidate()
+        laneAsking.reset()
+        brightness.fill(DARK)
+        batches = emptyList()
+        presentation = null
+        feedbackChanged = false
         start(nowNanos)
     }
 
@@ -264,6 +308,7 @@ class PlayController(
 
         const val LOOP_GAP_MS = 1_500.0
 
+        private val DARK = LaneBrightness(receptor = 0.0, lane = 0.0)
         private const val TAG = "EnsomiPlay"
     }
 }
