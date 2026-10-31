@@ -6,6 +6,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.Debug
 import android.os.Looper
+import android.os.Process
 import android.os.Trace
 import android.util.AttributeSet
 import android.util.Log
@@ -276,7 +277,7 @@ class PlayfieldView @JvmOverloads constructor(
     /**
      * A thread with its own `Looper` and `Choreographer`, and the 8 MiB stack the runtime's worker uses, since the
      * runtime is called from it. Each vsync it runs one frame for the frame's expected presentation time and draws it
-     * with `lockHardwareCanvas`.
+     * with `lockHardwareCanvas`. The display's priority, above the app's other threads: a frame cannot wait for them.
      */
     private inner class RenderThread(
         private val surfaceHolder: SurfaceHolder,
@@ -291,6 +292,7 @@ class PlayfieldView @JvmOverloads constructor(
         private var running = true
 
         override fun run() {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
             Looper.prepare()
             looper = Looper.myLooper()
             // The game of an earlier surface goes on; otherwise this thread makes it and starts it.
@@ -314,9 +316,12 @@ class PlayfieldView @JvmOverloads constructor(
             val callback = object : Choreographer.VsyncCallback {
                 override fun onVsync(data: Choreographer.FrameData) {
                     if (!running) return
+                    // The next vsync is asked for before the work: asked for after it, a frame that ends past that vsync,
+                    // even well before its own deadline, loses it and the picture holds for a refresh. Asked for here,
+                    // the next frame runs as soon as this one ends, for its own vsync's presentation time.
+                    choreographer.postVsyncCallback(this)
                     val timeline = data.preferredFrameTimeline
                     drawFrame(playController, timeline.expectedPresentationTimeNanos, timeline.deadlineNanos, data.frameTimeNanos, stats, log)
-                    choreographer.postVsyncCallback(this)
                 }
             }
             choreographer.postVsyncCallback(callback)
