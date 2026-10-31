@@ -14,8 +14,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,14 +60,6 @@ class RecognitionController private constructor(context: Context) {
     val tracePath: String? get() = mutableSession.value?.let { storage.traceFile(it.cid).path }
 
     val replayAvailable: Boolean get() = storage.replayFile.isFile
-
-    /** The aligner a session would use, for the screen to say; null when Sync cannot run. */
-    val syncBackend: String?
-        get() = when {
-            RuntimeSync.port() != null -> "runtime"
-            mutableOptions.value.capture == CaptureChoice.REPLAY -> "replay_truth_stub"
-            else -> null
-        }
 
     // From here to the functions below, on the one coroutine.
     private var machine: SessionMachine? = null
@@ -207,7 +197,6 @@ class RecognitionController private constructor(context: Context) {
                 "host_version_code" to host?.longVersionCode,
                 "driver" to HostDrivers.current.name,
                 "capture" to options.capture.name,
-                "sync_backend" to syncBackend,
                 "stars" to options.stars,
                 "ambient_offset_ms" to options.ambientOffsetMs,
                 // The trace's clock and the play path's, read together, for converting between them.
@@ -319,13 +308,6 @@ class RecognitionController private constructor(context: Context) {
         )
     }
 
-    private fun syncPort(): SyncPort? {
-        val options = mutableOptions.value
-        return RuntimeSync.port() ?: SyncPort { _, _ ->
-            ReplayTruthAligner(options.replayStartMs, options.replayLockAfterMs)
-        }.takeIf { options.capture == CaptureChoice.REPLAY }
-    }
-
     private fun buildReference(audio: ReadyAudio) {
         closeSync()
         val generation = ++syncGeneration
@@ -333,13 +315,8 @@ class RecognitionController private constructor(context: Context) {
         scope.launch {
             val started = SystemClock.elapsedRealtimeNanos()
             try {
-                val port = syncPort()
-                if (port == null) {
-                    post { feed(SessionEvent.ReferenceFailed("This build's runtime has no aligner.", unavailable = true)) }
-                    return@launch
-                }
                 val song = kept ?: probe.decode(audio.file)
-                val opened = port.open(song.samples, song.sampleRate)
+                val opened = RuntimeSync.port.open(song.samples, song.sampleRate)
                 val seconds = (SystemClock.elapsedRealtimeNanos() - started) / 1e9
                 post {
                     if (generation != syncGeneration) {
@@ -353,7 +330,7 @@ class RecognitionController private constructor(context: Context) {
             } catch (failure: Exception) {
                 Log.w(TAG, "The reference could not be built", failure)
                 val reason = failure.message ?: failure.javaClass.simpleName
-                post { feed(SessionEvent.ReferenceFailed(reason, unavailable = false)) }
+                post { feed(SessionEvent.ReferenceFailed(reason)) }
             }
         }
     }
@@ -434,58 +411,46 @@ class RecognitionController private constructor(context: Context) {
     }
 
     /**
-     * One run of capture into the aligner. The capture thread only hands its blocks over: an aligner that falls behind
-     * must not make the microphone drop audio, and blocks carry their own times, so a block dropped here is a gap and
-     * not an error.
+     * One run of capture into the aligner, pushed from the capture thread, as the runtime asks: `AudioRecord`'s own
+     * buffer holds the few milliseconds a search takes. Pushing stops at the first final lock.
      */
     private inner class SyncRun(private val target: AmbientAligner, private val capture: CapturePort) : CaptureSink {
-        private inner class Block(val samples: FloatArray, val sampleRate: Int, val captureNanos: Long)
+        private var last: SyncReading? = null
+        private var done = false
 
-        private val queue = ArrayBlockingQueue<Block>(QUEUED_BLOCKS)
+        fun start() = capture.start(this)
 
-        @Volatile
-        private var running = true
-        private var dropped = 0L
-        private val pump = Thread({ pumpBlocks() }, "EnsomiSync")
+        fun stop() = capture.stop()
 
-        fun start() {
-            pump.start()
-            capture.start(this)
-        }
-
-        fun stop() {
-            capture.stop()
-            running = false
-            pump.join(PUMP_STOP_MS)
-        }
-
-        private fun pumpBlocks() {
-            var last: SyncReading? = null
-            while (running) {
-                val block = queue.poll(PUMP_POLL_MS, TimeUnit.MILLISECONDS) ?: continue
-                try {
-                    target.push(block.samples, block.samples.size, block.sampleRate, block.captureNanos)
-                    val reading = target.read()
-                    if (reading != last || reading.finalLock) {
-                        last = reading
-                        post { feed(SessionEvent.SyncUpdate(reading)) }
-                    }
-                    if (reading.finalLock) return
-                } catch (failure: Exception) {
-                    Log.w(TAG, "The aligner failed", failure)
-                    val reading = SyncReading(SyncState.FAILED, detail = failure.message ?: failure.javaClass.simpleName)
-                    post { feed(SessionEvent.SyncUpdate(reading)) }
-                    return
+        override fun block(samples: FloatArray, count: Int, sampleRate: Int, captureNanos: Long) {
+            if (done) return
+            try {
+                target.push(samples, count, sampleRate, captureNanos)
+                val reading = target.read()
+                if (reading == last) return
+                last = reading
+                if (reading.finalLock) {
+                    done = true
+                    logTruth(reading)
                 }
+                post { feed(SessionEvent.SyncUpdate(reading)) }
+            } catch (failure: Exception) {
+                Log.w(TAG, "The aligner failed", failure)
+                done = true
+                val reading = SyncReading(SyncState.FAILED, detail = failure.message ?: failure.javaClass.simpleName)
+                post { feed(SessionEvent.SyncUpdate(reading)) }
             }
         }
 
-        override fun block(samples: FloatArray, count: Int, sampleRate: Int, captureNanos: Long) {
-            if (!queue.offer(Block(samples.copyOf(count), sampleRate, captureNanos))) dropped++
+        /** A replay knows where it is, so a lock on one can be checked against the file, to the sample. */
+        private fun logTruth(reading: SyncReading) {
+            val truth = reading.captureNanos?.let(capture::truthMs) ?: return
+            val reference = reading.referenceMs ?: return
+            trace?.log("sync.truth", mapOf("truth_ms" to truth, "reference_ms" to reference, "error_ms" to reference - truth))
         }
 
         override fun level(rmsDb: Double, peakDb: Double, stamps: String) {
-            trace?.log("capture.stamps", mapOf("stamps" to stamps, "dropped_blocks" to dropped))
+            trace?.log("capture.stamps", mapOf("stamps" to stamps))
             post { feed(SessionEvent.CaptureLevel(rmsDb, peakDb)) }
         }
 
@@ -515,11 +480,6 @@ class RecognitionController private constructor(context: Context) {
         private const val TICK_MS = 1_000L
         private const val MODEL_CHECK_MS = 5_000L
         private const val CID_SUFFIX = 6
-
-        /** About five seconds of blocks at 50 a second. */
-        private const val QUEUED_BLOCKS = 256
-        private const val PUMP_POLL_MS = 100L
-        private const val PUMP_STOP_MS = 2_000L
 
         /**
          * How far ahead of the heard position a game joins, at least: the playfield has to open and the player to see the

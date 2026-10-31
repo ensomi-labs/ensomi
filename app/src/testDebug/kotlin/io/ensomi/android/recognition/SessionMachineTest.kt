@@ -691,13 +691,28 @@ class SessionMachineTest {
     }
 
     @Test
-    fun noAlignerInThisBuildIsSaid() {
+    fun aReferenceThatCannotBeBuiltIsSaid() {
         val bench = Bench()
         bench.listening()
         bench.audioReady()
         bench.chartReady()
-        bench.on(SessionEvent.ReferenceFailed("none", unavailable = true))
-        assertEquals(FailureKind.SYNC_UNAVAILABLE, bench.state.failure?.kind)
+        bench.on(SessionEvent.ReferenceFailed("the song is too short to align to"))
+        assertEquals(FailureKind.SYNC_FAILED, bench.state.failure?.kind)
+        assertEquals("the song is too short to align to", bench.state.failure?.detail)
+    }
+
+    @Test
+    fun theTraceSaysWhyNoPositionIsHeld() {
+        val bench = Bench()
+        bench.on(SessionEvent.Frontmost(true))
+        bench.listening()
+        bench.audioReady()
+        bench.chartReady()
+        bench.on(SessionEvent.ReferenceReady("runtime", 1.0))
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "InsufficientDuration")))
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "InsufficientDuration")))
+        bench.on(SessionEvent.SyncUpdate(SyncReading(SyncState.LISTENING, detail = "WeakAlignmentPeak")))
+        assertEquals(listOf("InsufficientDuration", "WeakAlignmentPeak"), bench.events("sync.state").map { it["detail"] })
     }
 
     @Test

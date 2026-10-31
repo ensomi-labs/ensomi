@@ -45,7 +45,6 @@ enum class FailureKind(val retryFrom: Stage) {
     PROTECTED_TRACK(Stage.AUDIO),
     MODEL_MISSING(Stage.CHART),
     CHART_FAILED(Stage.CHART),
-    SYNC_UNAVAILABLE(Stage.SYNC),
     SYNC_FAILED(Stage.SYNC),
     SYNC_NEVER_LOCKED(Stage.SYNC),
     CAPTURE_FAILED(Stage.SYNC),
@@ -219,8 +218,7 @@ sealed interface SessionEvent {
 
     data class ReferenceReady(val backend: String, val seconds: Double) : SessionEvent
 
-    /** [unavailable]: this build cannot align at all, as opposed to this reference failing. */
-    data class ReferenceFailed(val reason: String, val unavailable: Boolean) : SessionEvent
+    data class ReferenceFailed(val reason: String) : SessionEvent
 
     data class CaptureStarted(val source: String) : SessionEvent
 
@@ -317,6 +315,7 @@ class SessionMachine private constructor(
     private var known: Map<Long, String> = emptyMap()
     private val candidates = LinkedHashMap<String, Candidate>()
     private var probing: String? = null
+    private var syncDetail: String? = null
 
     /** What the session remembers of one file. */
     private class Candidate(
@@ -409,8 +408,8 @@ class SessionMachine private constructor(
                 captureIfWanted()
             }
             is SessionEvent.ReferenceFailed -> {
-                log("sync.reference", "failure" to event.reason, "unavailable" to event.unavailable)
-                fail(if (event.unavailable) FailureKind.SYNC_UNAVAILABLE else FailureKind.SYNC_FAILED, Stage.SYNC, event.reason)
+                log("sync.reference", "failure" to event.reason)
+                fail(FailureKind.SYNC_FAILED, Stage.SYNC, event.reason)
             }
             is SessionEvent.CaptureStarted -> log("capture.start", "source" to event.source)
             is SessionEvent.CaptureFailed -> {
@@ -814,15 +813,17 @@ class SessionMachine private constructor(
     private fun syncUpdate(reading: SyncReading) {
         if (state.stage(Stage.SYNC).status != StageStatus.RUNNING) return
         val name = reading.state.name
-        if (name != state.syncState || reading.finalLock) {
+        if (name != state.syncState || reading.detail != syncDetail || reading.finalLock) {
             log(
                 "sync.state",
                 "state" to name,
                 "final_lock" to reading.finalLock,
                 "reference_ms" to reading.referenceMs,
                 "capture_ns" to reading.captureNanos,
+                "confidence" to reading.confidence,
                 "detail" to reading.detail,
             )
+            syncDetail = reading.detail
             state = state.copy(syncState = name)
             setStage(Stage.SYNC, StageStatus.RUNNING, name)
         }

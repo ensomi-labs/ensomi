@@ -26,8 +26,6 @@
     <string name="recognition_stars">Stars</string>
     <string name="recognition_less">Less %1$s</string>
     <string name="recognition_more">More %1$s</string>
-    <string name="recognition_sync_backend">Sync: %1$s</string>
-    <string name="recognition_sync_none">Sync: this build has no aligner for the microphone</string>
     <string name="recognition_all_files_on">All files access: on</string>
     <string name="recognition_all_files_off">All files access: off (adb shell appops set %1$s MANAGE_EXTERNAL_STORAGE allow)</string>
     <string name="recognition_trace">Trace: %1$s</string>
@@ -82,8 +80,6 @@
     <string name="recognition_failure_no_model_en">The chart model is not installed. Install it from the Library, then try again.</string>
     <string name="recognition_failure_chart_zh">谱面没有生成</string>
     <string name="recognition_failure_chart_en">The chart could not be made.</string>
-    <string name="recognition_failure_no_sync_zh">这个版本没有对齐模块</string>
-    <string name="recognition_failure_no_sync_en">This build has no aligner for the microphone, so it cannot join the music.</string>
     <string name="recognition_failure_sync_zh">同步失败</string>
     <string name="recognition_failure_sync_en">Sync failed.</string>
     <string name="recognition_failure_no_lock_zh">同步没有锁定，不会凭猜测加入</string>

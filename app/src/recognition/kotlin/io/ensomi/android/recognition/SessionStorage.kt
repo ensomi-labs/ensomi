@@ -25,8 +25,6 @@ data class SessionOptions(
     val capture: CaptureChoice = CaptureChoice.MICROPHONE,
     /** Where a WAV replay starts in its file. */
     val replayStartMs: Long = 0,
-    /** With the stub in place of the aligner, how long a replay runs before it says "locked". */
-    val replayLockAfterMs: Long = 8_000,
     val autoplay: Boolean = false,
 )
 

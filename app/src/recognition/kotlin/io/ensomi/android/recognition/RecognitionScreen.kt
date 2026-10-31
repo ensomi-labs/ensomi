@@ -400,15 +400,6 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
 @Composable
 private fun Paths(controller: RecognitionController, context: Context) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        val syncBackend = controller.syncBackend
-        Text(
-            if (syncBackend != null) {
-                stringResource(R.string.recognition_sync_backend, syncBackend)
-            } else {
-                stringResource(R.string.recognition_sync_none)
-            },
-            style = MaterialTheme.typography.bodySmall,
-        )
         Text(
             if (Environment.isExternalStorageManager()) {
                 stringResource(R.string.recognition_all_files_on)
@@ -499,7 +490,6 @@ private fun FailureKind.words(): Pair<Int, Int> = when (this) {
     FailureKind.PROTECTED_TRACK -> R.string.recognition_failure_protected_zh to R.string.recognition_failure_protected_en
     FailureKind.MODEL_MISSING -> R.string.recognition_failure_no_model_zh to R.string.recognition_failure_no_model_en
     FailureKind.CHART_FAILED -> R.string.recognition_failure_chart_zh to R.string.recognition_failure_chart_en
-    FailureKind.SYNC_UNAVAILABLE -> R.string.recognition_failure_no_sync_zh to R.string.recognition_failure_no_sync_en
     FailureKind.SYNC_FAILED -> R.string.recognition_failure_sync_zh to R.string.recognition_failure_sync_en
     FailureKind.SYNC_NEVER_LOCKED -> R.string.recognition_failure_no_lock_zh to R.string.recognition_failure_no_lock_en
     FailureKind.CAPTURE_FAILED -> R.string.recognition_failure_capture_zh to R.string.recognition_failure_capture_en

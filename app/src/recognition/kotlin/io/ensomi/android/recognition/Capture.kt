@@ -35,6 +35,9 @@ interface CapturePort {
 
     /** Stops and waits for the capture thread. */
     fun stop()
+
+    /** Where in its file a source that knows what it plays was at [captureNanos]; null for the microphone. */
+    fun truthMs(captureNanos: Long): Double? = null
 }
 
 /** A second's level of what a capture passed through. */
@@ -199,7 +202,12 @@ class WavReplayCapture(private val file: File, private val startMs: Long) : Capt
     private var running = false
     private var thread: Thread? = null
 
+    @Volatile
+    private var startNanos = 0L
+
     override val description: String get() = "replay ${file.name} from $startMs ms"
+
+    override fun truthMs(captureNanos: Long): Double = startMs + (captureNanos - startNanos) / 1e6
 
     override fun start(sink: CaptureSink) {
         running = true
@@ -228,7 +236,7 @@ class WavReplayCapture(private val file: File, private val startMs: Long) : Capt
             val bytes = ByteArray(blockFrames * frameBytes)
             val samples = FloatArray(blockFrames)
             val meter = LevelMeter(sink)
-            val startNanos = System.nanoTime()
+            startNanos = System.nanoTime()
             var sent = 0L
             var left = format.dataBytes - skip * frameBytes
             while (running && left >= frameBytes) {

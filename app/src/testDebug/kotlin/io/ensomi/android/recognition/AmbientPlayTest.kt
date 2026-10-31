@@ -151,29 +151,6 @@ class JoinPointTest {
     }
 }
 
-class ReplayTruthAlignerTest {
-    private val samples = FloatArray(960)
-    private val ms = 1_000_000L
-
-    @Test
-    fun saysLockedOnlyAfterItsTimeWithThePositionItWasGiven() {
-        val aligner = ReplayTruthAligner(replayStartMs = 30_000, lockAfterMs = 1_000)
-        assertEquals(SyncState.LISTENING, aligner.read().state)
-        var capture = 100_000 * ms
-        repeat(49) {
-            aligner.push(samples, samples.size, 48_000, capture)
-            capture += 20 * ms
-            assertFalse(aligner.read().finalLock)
-        }
-        assertEquals(SyncState.LOCKING, aligner.read().state)
-        aligner.push(samples, samples.size, 48_000, capture)
-        val reading = aligner.read()
-        assertTrue(reading.finalLock)
-        assertEquals(capture, reading.captureNanos)
-        assertEquals(30_000.0 + 49 * 20, reading.referenceMs!!, 1e-6)
-    }
-}
-
 class SessionTraceTest {
     @get:Rule
     val folder = TemporaryFolder()
