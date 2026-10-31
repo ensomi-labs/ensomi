@@ -129,6 +129,24 @@ timing, not a phone's):
   the frame targets (under 0.5 % late, work p99 under 3 ms) at every lean on `ensomi-36-16k`, and the debug build did
   not; the emulator's numbers decide nothing about the Redmi K80's 120 Hz.
 
+What step 14 showed on the emulators (builds b2 to b4 of `claude/android-recognition`; the emulator's timing, no host app
+and no driver: a share from adb, files from a shell, a WAV of the song in place of the microphone):
+
+- **14.** A share alone started a session on a 105-second song already on the device and went through to the game: decoded,
+  a chart made in 6.2 to 7.6 s, a final lock from the runtime's aligner after 6.6 s of audio, 0.84 ms from where the replay
+  really was (1.43 ms on a start at 97 s). The game joined 4 s past the heard position, keeping 512 of 856 notes, and the autoplay
+  played it to the end with no `AudioTrack` of the app's in `dumpsys`. Its 4 071 frames fit the anchor to 2e-11 ms with no step
+  back, through a pause too, which jumped forward by the time paused. A wrong song gave no lock in 60 s and no game; a start too
+  near the end locked, and the join was refused. A file arriving as `.tmp` was ready 2 s after its rename; a 1 MB fragment under
+  the final name was refused as `TRUNCATED` (43.5 s decoded of 104.8 s declared) until the rest came; a `.ncm` was refused with
+  no `decode` line, and an MP3 after it went on. A session the process died with picked up from its snapshot; one that died in
+  a game said it was lost. `FileObserver` fired through FUSE with all-files access on and off. A file outside the watched folder
+  was found by MediaStore alone, 2.5 s after its row stopped being pending, and not before: a file a shell writes stays pending
+  with no date until a scan, which is why the query looks for such rows and only traces them. The AVD's microphone gave a
+  timestamp for all 1 200 blocks, 0.8 to 14 ms before the read returned. A release build's merged manifest, permissions and
+  badging are the same as without this step. `AudioClockCheck`, `LifecycleCheck` and `FramePacingCheck` passed on the same build.
+  Nothing here says how a room sounds, or how the host behaves (recognition.md, What is not known yet).
+
 ## Pins the steps add
 
 All in `gradle/libs.versions.toml`, each chosen when its step starts: Jetpack DataStore 1.3.0 and
