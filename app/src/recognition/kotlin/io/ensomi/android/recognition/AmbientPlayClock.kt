@@ -13,12 +13,23 @@ import io.ensomi.android.play.PlayClock
  * Every time here is on `CLOCK_MONOTONIC`, the play path's one clock ([PlayClock]), which is also what `AudioRecord`'s
  * timestamps are asked for. Like the Swift app's anchored clock it never tracks the music again after the lock.
  *
- * Nothing plays, so [pause] only stops the game: the room's music goes on, and [resume] finds it where it has got to.
- * The time never holds back the player; a start only opens the clock, and `fromMs` means nothing here.
+ * Nothing plays, so [pause] only stops the game: the room's music goes on, and [resume] finds it where it has got to, a
+ * jump forward that the session plays through as misses. As with the audio clock, song time never goes back: a pause holds
+ * the furthest time shown, which a frame drawn for its presentation may have put ahead of the pause, and the clock stays
+ * at that until the music has passed it. A start only opens the clock, and `fromMs` means nothing here.
  */
 class AmbientPlayClock(private val anchor: LockAnchor) : PlayClock {
     private var started = false
-    private var pausedAtMs: Double? = null
+
+    /** Read without the lock by [isPaused]: a touch asks on the main thread, and must not contend with a frame. */
+    @Volatile
+    private var paused = false
+
+    /** The time shown while paused, and afterwards the least the clock may show. */
+    private var heldMs = Double.NEGATIVE_INFINITY
+
+    /** The latest time asked for while running: nothing shown up to it may move back. */
+    private var latestQueryNanos = Long.MIN_VALUE
 
     /** Where the music is at [nanoTime], paused or not. */
     fun heardMs(nanoTime: Long): Double = anchor.referenceMs + (nanoTime - anchor.captureNanos) / 1e6
@@ -26,29 +37,32 @@ class AmbientPlayClock(private val anchor: LockAnchor) : PlayClock {
     @Synchronized
     override fun start(nanoTime: Long, fromMs: Double) {
         started = true
-        pausedAtMs = null
     }
 
     @Synchronized
     override fun songTimeMs(nanoTime: Long): Double? {
         if (!started) return null
-        return pausedAtMs ?: heardMs(nanoTime)
+        if (paused) return heldMs
+        if (nanoTime > latestQueryNanos) latestQueryNanos = nanoTime
+        return maxOf(heardMs(nanoTime), heldMs)
     }
 
     override fun nanoTimeAt(songMs: Double): Long = anchor.captureNanos + ((songMs - anchor.referenceMs) * 1e6).toLong()
 
     @Synchronized
     override fun pause(nanoTime: Long) {
-        if (started && pausedAtMs == null) pausedAtMs = heardMs(nanoTime)
+        if (!started || paused) return
+        heldMs = maxOf(heardMs(maxOf(nanoTime, latestQueryNanos)), heldMs)
+        paused = true
     }
 
     @Synchronized
     override fun resume(nanoTime: Long) {
-        pausedAtMs = null
+        paused = false
     }
 
     override val isPaused: Boolean
-        @Synchronized get() = pausedAtMs != null
+        get() = paused
 }
 
 /** Where a game joins a song already playing, and the chart from there on. */

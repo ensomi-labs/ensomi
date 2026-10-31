@@ -124,14 +124,16 @@ songMs(t) = referenceMs + (t − captureNanos) / 1e6
 The anchor is the moment the locked audio was captured, not the moment the lock was read or the clock was made. Like the
 Swift app's, it is set once and never follows the music again, so the microphone stops at the lock. It stays on
 `CLOCK_MONOTONIC`, the play path's one clock (gameplay.md), so a touch's event time needs no conversion; the trace records
-`elapsedRealtimeNanos` on every event and both clocks together where they meet.
+`elapsedRealtimeNanos` on every event and both clocks together where they meet. Like the audio clock it never goes back:
+a pause holds the furthest time shown.
 
 **The join.** The game joins at the first time at least four seconds, or a scroll time if that is longer, past where the
 music is heard, at which no hold is open. Earlier notes are not in the session, and a hold that started before the join
 has ended by it. This is the rule of the runtime's scheduler, which the Swift app plays by; a stored chart has no
 scheduler, so `JoinPoint` applies it to the chart. The playfield opens at once with the music's position already on it,
 and a visible count runs on the clock to the join. Nothing waits for the player. `PlayController` is the same one drop-in
-play uses, and the same `AudioTrack` path is untouched: only its clock and its chart differ.
+play uses, and the same `AudioTrack` path is untouched: only its clock and its chart differ. A join is always a new
+controller, so its first frame asks the session for what is visible at that position.
 
 Pause stops the game, not the music: Resume finds the music where it has got to, and the notes passed meanwhile are
 misses. Restart is not offered, since the room's music cannot start again. If the player leaves, the game can join again

@@ -2,6 +2,8 @@ package io.ensomi.android.recognition
 
 import io.ensomi.android.play.NoteSpec
 import io.ensomi.android.play.PlayChart
+import io.ensomi.android.play.PlayController
+import io.ensomi.android.play.VisibleWindow
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -75,6 +77,53 @@ class AmbientPlayClockTest {
     }
 
     @Test
+    fun aPauseHoldsTheFurthestTimeShownNotTheTimeOfThePause() {
+        val clock = running()
+        // A frame drawn for its presentation, 16 ms ahead of the moment it asked.
+        assertEquals(62_016.0, clock.songTimeMs(6_016 * ms)!!, 1e-6)
+        clock.pause(6_000 * ms)
+        assertEquals(62_016.0, clock.songTimeMs(6_001 * ms)!!, 1e-6)
+    }
+
+    @Test
+    fun songTimeDoesNotGoBackAcrossAQuickPause() {
+        val clock = running()
+        clock.songTimeMs(6_016 * ms)
+        clock.pause(6_000 * ms)
+        clock.resume(6_005 * ms)
+        assertFalse(clock.isPaused)
+        assertEquals(62_016.0, clock.songTimeMs(6_006 * ms)!!, 1e-6)
+        assertEquals(62_020.0, clock.songTimeMs(6_020 * ms)!!, 1e-6)
+    }
+
+    @Test
+    fun aSecondPauseHoldsNoLessThanTheFirst() {
+        val clock = running()
+        clock.songTimeMs(6_016 * ms)
+        clock.pause(6_000 * ms)
+        clock.resume(6_001 * ms)
+        clock.pause(6_002 * ms)
+        assertEquals(62_016.0, clock.songTimeMs(6_003 * ms)!!, 1e-6)
+    }
+
+    @Test
+    fun framesAcrossPausesNeverGoBack() {
+        val clock = running()
+        var shown = Double.NEGATIVE_INFINITY
+        var nanos = 5_000 * ms
+        repeat(2_000) { frame ->
+            val present = nanos + 32 * ms
+            val now = clock.songTimeMs(nanos)!!
+            val drawn = clock.songTimeMs(present)!!
+            assertTrue("frame $frame went back", now >= shown - 32 && drawn >= shown)
+            shown = maxOf(shown, drawn)
+            if (frame % 97 == 13) clock.pause(nanos + ms)
+            if (frame % 97 == 15) clock.resume(nanos + ms)
+            nanos += 8 * ms
+        }
+    }
+
+    @Test
     fun aPauseBeforeTheStartIsNotHeld() {
         val clock = AmbientPlayClock(anchor)
         clock.pause(6_000 * ms)
@@ -94,6 +143,31 @@ class AmbientPlayClockTest {
         val clock = running()
         val readAt = anchor.captureNanos + 800 * ms
         assertEquals(anchor.referenceMs + 800, clock.songTimeMs(readAt)!!, 1e-6)
+    }
+}
+
+/** A game that joins mid-chart reads the session through the cache the playfield's frames use. */
+class JoinAndTheVisibleWindowTest {
+    private val scrollMs = 459.0
+
+    @Test
+    fun aNewGameAsksAtItsFirstFrameHoweverFarIntoTheSongItIs() {
+        assertTrue(VisibleWindow().mustAsk(61_000.0, scrollMs))
+    }
+
+    @Test
+    fun theFirstListReachesTheNotesTheJoinLeft() {
+        val window = VisibleWindow()
+        window.asked(61_000.0, scrollMs)
+        val expected = 61_000.0 + scrollMs + PlayController.VISIBLE_AFTER_MS + VisibleWindow.REUSE_MS
+        assertEquals(expected, window.upperMs(61_000.0, scrollMs), 1e-9)
+    }
+
+    @Test
+    fun theJumpAfterAPauseAsksAgain() {
+        val window = VisibleWindow()
+        window.asked(61_000.0, scrollMs)
+        assertTrue(window.mustAsk(75_000.0, scrollMs))
     }
 }
 
