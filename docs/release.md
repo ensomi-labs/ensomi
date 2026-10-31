@@ -73,7 +73,7 @@ In `gradle/libs.versions.toml`, replacing the comment there:
 
 ```toml
 [versions]
-ensomiRuntime = "android-aar-affb60a" # a tag of ensomi-labs/runtime; its AAR's SHA-256 is in verification-metadata.xml
+ensomiRuntime = "android-aar-f3477b6" # a tag of ensomi-labs/runtime; its AAR's SHA-256 is in verification-metadata.xml
 [libraries]
 ensomi-runtime = { module = "io.ensomi:ensomi-runtime", version.ref = "ensomiRuntime" }
 ```
@@ -90,8 +90,8 @@ A new `gradle/verification-metadata.xml` pins that one file and leaves other mod
       </trusted-artifacts>
    </configuration>
    <components>
-      <component group="io.ensomi" name="ensomi-runtime" version="android-aar-affb60a">
-         <artifact name="ensomi-runtime-android-aar-affb60a.aar">
+      <component group="io.ensomi" name="ensomi-runtime" version="android-aar-f3477b6">
+         <artifact name="ensomi-runtime-android-aar-f3477b6.aar">
             <sha256 value="THE-AAR-SHA-256" origin="the release's digest"/>
          </artifact>
       </component>
@@ -109,7 +109,7 @@ else implementation(libs.ensomi.runtime) { artifact { type = "aar"; extension = 
 Tested with Gradle 9.8.2 on the `v0.3.2` xcframework asset: 46.8 MB through GitHub's redirect with no token; the right SHA-256
 builds, a wrong or missing one stops the build. Not yet through AGP; JNA's line uses the same `artifact` form.
 
-**The runtime's side, first (step 1).** A prerelease `android-aar-affb60a` with the AAR the Mac builds from `codex/android-aar`.
+**The runtime's side, first (step 1).** A prerelease `android-aar-f3477b6` with the AAR the Mac builds from `claude/android-sync`.
 No runtime workflow fires, and `main`, npm and `Package.swift` stay untouched. It has no CI build or attestation and claims
 0.3.2 with API that 0.3.2 lacks, so it serves CI and internal builds only. The plan
 was a runtime CI job with the first release carrying the AAR, so this needs the owner's yes; without it, steps 2 and 3 wait for
@@ -117,7 +117,7 @@ step 8.
 
 **Then a release (step 8).** Before any public APK, a `vX.Y.Z` release carries the AAR. That asks of the runtime:
 
-- `codex/android-aar` merged, and version 0.4.0. `r2-1.0.1` declares `min_runtime` 0.3.0 and no upper bound, so it still opens.
+- `claude/android-sync` merged, and version 0.4.0. `r2-1.0.1` declares `min_runtime` 0.3.0 and no upper bound, so it still opens.
 - An `android` job in `ci.yml`, with `scripts/build-android.sh` made portable to `ubuntu-24.04` (its `darwin-x86_64` path,
   `shasum`, default paths) and `target/onnxruntime-android` cached.
 - `release.yml` attaching and attesting the AAR, and `RELEASING.md` saying so.
@@ -267,7 +267,7 @@ S is under half a day of an agent's work, M about a day.
 | # | Step | Size | Needs |
 | --- | --- | --- | --- |
 | 0 | **Owner:** take this design, lifting the no-CI rule | S | |
-| 1 | The snapshot: Astra builds `affb60a`, then `gh release create android-aar-affb60a ensomi-runtime.aar -R ensomi-labs/runtime --prerelease --latest=false --target affb60ade90af2fb6646e8e40d6e39cc17f298de` | S | **Owner's yes** |
+| 1 | The snapshot: Astra builds `f3477b6`, then `gh release create android-aar-f3477b6 ensomi-runtime.aar -R ensomi-labs/runtime --prerelease --latest=false --target f3477b64385aab7afed4464b4ade4e24f6bb6deb` | S | **Owner's yes** |
 | 2 | Section 2's app changes; check on the Mac with the override unset | S | 1 |
 | 3 | `android.yml`; AGENTS.md and README updated | S | 2 |
 | 4 | Optimization and JNA's rules; the smoke test on the Mac AVD, signed with the debug key | S | 3 |

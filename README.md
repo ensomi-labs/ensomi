@@ -24,7 +24,7 @@ runtime's native library loads. The design is in [docs/design.md](docs/design.md
 - Android SDK platform 37, build-tools 37.0.0, NDK 30.0.16248370, platform-tools and the emulator.
 - A device or emulator with an arm64-v8a CPU and Android 13 (API 33) or later. The app is built for
   arm64-v8a only.
-- The runtime AAR, built in an ensomi-runtime checkout with `scripts/build-android.sh`
+- The runtime AAR, built in an ensomi-runtime checkout of `claude/android-sync` with `scripts/build-android.sh`
   (see its `android/README.md`).
 
 Every version the build uses is pinned in `gradle/libs.versions.toml`.
