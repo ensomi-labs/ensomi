@@ -23,7 +23,7 @@ data class SongIdentity(
     /** False only when both say what they are and what they say differs. */
     fun sameSongAs(other: SongIdentity): Boolean = when {
         songId != null && other.songId != null -> songId == other.songId
-        title != null && other.title != null -> SongMatch.normalize(title) == SongMatch.normalize(other.title)
+        title != null && other.title != null -> SongMatch.titleKey(title) == SongMatch.titleKey(other.title)
         else -> true
     }
 }
@@ -232,13 +232,25 @@ object CandidateRules {
 object SongMatch {
     private val ARTIST_SEPARATORS = charArrayOf('/', ',', '，', '、', '&', ';', '；')
     private const val NAME_SEPARATOR = " - "
-    // A distribution credit seen in shared titles but absent from the audio's tags. Keep all take/version labels,
-    // including unknown text inside the credit, rather than treating arbitrary parenthesized text as decoration.
-    private val TV_EPISODE_CREDIT = Regex("""\s*\(TV动画「[^」()\r\n]+」\s*#\d+\s+插曲\)$""", RegexOption.IGNORE_CASE)
+    // Distribution credits name a medium, a quoted work and a role, optionally an episode. Recognize only whole
+    // trailing credits in Japanese, Chinese or English. Keep all take/version labels and unknown text, including
+    // text inside an otherwise recognized credit, rather than treating arbitrary parentheses as decoration.
+    private const val CREDIT_MEDIUM = "(?:(?:TV[ \\t]*)?(?:アニメ|动画|動畫|anime)|ゲーム|游戏|遊戲|game)"
+    private const val CREDIT_WORK = """(?:「[^「」()\r\n]+」|『[^『』()\r\n]+』|《[^《》()\r\n]+》|"[^"()\r\n]+")"""
+    private const val CREDIT_EPISODE = """(?:[ \t]*(?:#\d+|第\d+[話话集]))?"""
+    private const val CREDIT_ROLE = "(?:" +
+        "(?:OP|ED|オープニング|エンディング)(?:テーマ(?:ソング|曲)?|曲)?|主題歌|挿入歌|テーマ(?:ソング|曲)|" +
+        "片[头頭尾]曲|主[题題][曲歌]|插曲|" +
+        "(?:opening|ending)(?:[ \\t]+(?:theme(?:[ \\t]+song)?|song))?|theme(?:[ \\t]+song)?|insert[ \\t]+song)"
+    private val DISTRIBUTION_CREDIT = Regex(
+        """[ \t]*\($CREDIT_MEDIUM[ \t]*$CREDIT_WORK$CREDIT_EPISODE[ \t]*$CREDIT_ROLE\)$""",
+        RegexOption.IGNORE_CASE,
+    )
 
-    private fun titleKey(text: String): String {
+    /** The same title equivalence for session identity and file claims; known song IDs still take precedence. */
+    internal fun titleKey(text: String): String {
         val folded = Normalizer.normalize(text, Normalizer.Form.NFKC).trim()
-        val withoutCredit = folded.replace(TV_EPISODE_CREDIT, "").trim()
+        val withoutCredit = folded.replace(DISTRIBUTION_CREDIT, "").trim()
         return normalize(withoutCredit.ifEmpty { folded })
     }
 

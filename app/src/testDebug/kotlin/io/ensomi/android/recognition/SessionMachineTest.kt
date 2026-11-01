@@ -891,6 +891,73 @@ class SessionMachineTest {
     }
 
     @Test
+    fun aCreditOnlyShareKeepsTheRecognizedAudioChartAndReference() {
+        for ((plain, credited) in listOf(
+            "lettRE" to "lettRE (ゲーム「トリノライン」EDテーマ)",
+            "春日影" to "春日影 (TV动画「BanG Dream! It's MyGO!!!!!」#3 插曲)",
+        )) {
+            val bench = Bench()
+            bench.listening()
+            bench.on(SessionEvent.ResultSeen(plain, "Artist", null))
+            val file = bench.song("Artist - $plain.mp3", modified = bench.wallMs - 5_000)
+            assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.INDEX)))
+            bench.on(bench.probed(file))
+            bench.chartReady()
+            bench.on(SessionEvent.ReferenceReady("runtime", 1.0))
+            val before = bench.state
+            val shared = SharedSong(title = credited, artist = "Artist")
+            assertFalse(startsNewSession(before, shared.identity))
+            bench.on(SessionEvent.ShareReceived(credited, shared, null))
+            assertEquals(before.cid, bench.state.cid)
+            assertEquals(before.audio, bench.state.audio)
+            assertEquals(before.chart, bench.state.chart)
+            assertTrue(bench.state.referenceReady)
+            assertTrue(bench.state.running)
+            assertEquals(StageStatus.DONE, bench.status(Stage.SHARE))
+            assertFalse(bench.effects.any { it is SessionEffect.MakeChart || it is SessionEffect.BuildReference })
+            assertFalse(SessionEffect.StopChart in bench.effects)
+            assertFalse(SessionEffect.StopListening in bench.effects)
+            assertTrue(bench.events("abort").isEmpty())
+        }
+    }
+
+    @Test
+    fun aHeldPlainTitleMp3MatchesWhenTheCreditedShareArrives() {
+        val bench = Bench()
+        bench.listening()
+        val file = bench.song("Artist - lettRE.mp3")
+        bench.advance(2_000)
+        bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))
+        assertEquals(listOf(file), bench.state.held)
+        val shared = SharedSong(title = "lettRE (ゲーム「トリノライン」EDテーマ)", artist = "Artist")
+        assertFalse(startsNewSession(bench.state, shared.identity))
+        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.ShareReceived(shared.title!!, shared, null)))
+        bench.on(bench.probed(file))
+        assertEquals(file, bench.state.audio?.file)
+        assertTrue(bench.state.held.isEmpty())
+    }
+
+    @Test
+    fun aShareFirstSessionFindsAnOldPlainTitleMp3() {
+        val bench = Bench(byShare = true)
+        val file = bench.song("Artist - lettRE.mp3", modified = bench.wallMs - 60_000)
+        bench.on(SessionEvent.IndexReady(listOf(file), emptyMap()))
+        val shared = SharedSong(title = "lettRE (ゲーム「トリノライン」EDテーマ)", artist = "Artist")
+        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.ShareReceived(shared.title!!, shared, null)))
+        bench.on(bench.probed(file))
+        assertEquals(file, bench.state.audio?.file)
+    }
+
+    @Test
+    fun aDifferentShareTitleStillReplacesARecognizedSession() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(SessionEvent.ResultSeen("lettRE", "Artist", null))
+        assertTrue(startsNewSession(bench.state, SongIdentity(title = "春日影", artist = "Artist")))
+        assertTrue(startsNewSession(bench.state, SongIdentity(title = "lettRE (Live)", artist = "Artist")))
+    }
+
+    @Test
     fun aDifferentSongSharedStartsANewSession() {
         val bench = Bench()
         bench.listening()

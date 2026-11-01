@@ -88,6 +88,14 @@ is the only way this app ties an id to a file. An older file is accepted only by
 download. A new file that matches nothing is held, and the screen offers it: Use this file is the person's word, and it
 also sets the length rules aside, since a file's declared length can be a guess.
 
+Session identity and file matching use the same title key: width, case, punctuation and spaces are folded, and a
+complete trailing distribution credit can be removed. Such a credit must name a game or anime, a quoted work and
+an opening, ending, theme or insert-song role in Japanese, Chinese or English, optionally with an episode number.
+A credit-only difference in a share keeps the session's accepted audio, chart and sync reference; a plain-title file
+also matches when the credited share arrives first. Known song IDs still take precedence. Live, Remix, Instrumental,
+Off Vocal, Acoustic, TV Size, cover credits and unknown parenthesized text remain distinct, including extra words
+inside a credit. Different base titles never match merely because they share a credit.
+
 **A `.ncm` is refused.** It is the host's protected format. Such a file is never opened, decoded, converted or read for
 audio; only its name, size and time are looked at. A `.ncm` that is the song is a stated refusal in the session ("this
 track is protected; download a purchased MP3 instead"), not a route, and an MP3 of the song arriving afterwards goes on.
