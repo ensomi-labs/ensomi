@@ -25,7 +25,9 @@ There is one launch path and four steps, in English and Simplified Chinese:
 NetEase’s recognition results and download rights belong to its own UI. Ensomi waits for the person’s share. If NetEase
 is absent or cannot open, the guide explains that plainly. It does not attempt another launch path.
 
-`ShareActivity` is exported and accepts `ACTION_SEND`, `text/plain`. It treats every share as untrusted: empty text,
+`ShareActivity` is exported and accepts `ACTION_SEND`, `text/plain`. Its empty task affinity keeps this temporary
+entry out of the main task, so a later share reaches the entry again even after a share cold-started the app.
+It treats every share as untrusted: empty text,
 text with no song, a missing model, or either permission missing leads to a plain guide message, without starting
 file work or capture. Parsing is bounded to 8,192 characters. A ready song share starts the session; a different song
 replaces it. A repeat share of the same song retains accepted audio, chart and sync, and does not restart the wait.

@@ -11,11 +11,13 @@
     </queries>
 
     <application>
+        <!-- This temporary entry must not become the main task's base intent: later shares must reach it again. -->
         <activity
             android:name="io.ensomi.android.recognition.ShareActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:noHistory="true"
+            android:taskAffinity=""
             android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
