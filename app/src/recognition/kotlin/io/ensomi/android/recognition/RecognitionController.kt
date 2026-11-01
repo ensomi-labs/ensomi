@@ -108,6 +108,7 @@ class RecognitionController private constructor(context: Context) {
 
     fun showGuide() = post {
         if (machine?.state?.running == true) return@post
+        mutableShareNotice.value = mutableShareNotice.value?.takeIf { it == ShareDecision.RESTORE }
         val saved = pendingRestore
         pendingRestore = null
         if (saved != null && canResumeSnapshot(saved, now(), limits())) {
@@ -233,7 +234,9 @@ class RecognitionController private constructor(context: Context) {
         trace = log
         val installed = modelInstalled()
         logDevice(log)
-        val (started, effects) = SessionMachine.start(cid, installed, time, limits(), fileStartWallMs = sessionBeginning(guideOpened, sharedAt).wallMs) { event, fields ->
+        val fileStart = sessionBeginning(guideOpened, sharedAt).wallMs
+        clearGuideTime()
+        val (started, effects) = SessionMachine.start(cid, installed, time, limits(), fileStartWallMs = fileStart) { event, fields ->
             log.log(event, fields)
         }
         machine = started
@@ -270,7 +273,7 @@ class RecognitionController private constructor(context: Context) {
     private fun restore() {
         val saved = storage.readSnapshot() ?: return
         if (canResumeSnapshot(saved, now(), limits())) pendingRestore = saved
-        else storage.clearSnapshot()
+        else { storage.clearSnapshot(); clearGuideTime() }
         mutableShareNotice.value = ShareDecision.RESTORE
         // A launch is not consent to open a session or start its microphone.
     }
@@ -282,6 +285,7 @@ class RecognitionController private constructor(context: Context) {
             return
         }
         mutableShareNotice.value = null
+        clearGuideTime()
         val log = SessionTrace(storage.traceFile(saved.cid), saved.cid, SystemClock::elapsedRealtimeNanos)
         trace = log
         val (restored, effects) = SessionMachine.restored(saved, now(), limits()) { event, fields -> log.log(event, fields) }
@@ -297,13 +301,18 @@ class RecognitionController private constructor(context: Context) {
         effects.forEach { carryOut(it) }
     }
 
+    private fun clearGuideTime() {
+        guideOpened = null
+        storage.clearGuideTime()
+    }
+
     private fun published(current: SessionMachine) {
         val state = current.state
         mutableSession.value = state
         val saved = state.persistable()
         if (saved == lastSaved) return
         lastSaved = saved
-        if (state.running) storage.writeSnapshot(state) else storage.clearSnapshot()
+        if (state.running) storage.writeSnapshot(state) else { storage.clearSnapshot(); clearGuideTime() }
     }
 
     private suspend fun carryOut(effect: SessionEffect) {

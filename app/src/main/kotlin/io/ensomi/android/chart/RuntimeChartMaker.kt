@@ -393,7 +393,7 @@ class RuntimeChartMaker(
         failure is GeneratorException -> MakeState.Failed(songId, failure.message ?: failure.javaClass.simpleName)
         failure is DecodeException -> {
             if (failure.missing) songs.markMissing(songId)
-            MakeState.Failed(songId, failure.message ?: "The song could not be decoded.")
+            MakeState.Failed(songId, failure.message ?: "The song could not be decoded.", audioTooLarge = failure.cause is OutOfMemoryError)
         }
         else -> {
             Log.w(TAG, "Making a chart failed", failure)
@@ -448,7 +448,11 @@ class RuntimeChartMaker(
         readyKeys.update { it - song.id }
         preparation.report(MakePhase.LOADING)
         val started = System.nanoTime()
-        val audio = input?.audio ?: SongDecoder.decode(appContext, uri, PcmChannels.MONO) { preparation.stopped.get() }
+        val audio = input?.audio ?: try {
+            SongDecoder.decode(appContext, uri, PcmChannels.MONO) { preparation.stopped.get() }
+        } catch (failure: OutOfMemoryError) {
+            throw DecodeException("Not enough memory to decode this song.", cause = failure)
+        }
         if (preparation.stopped.get()) return null
         val decoded = System.nanoTime()
         preparation.report(MakePhase.TIMING)

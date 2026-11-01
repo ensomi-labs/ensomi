@@ -239,7 +239,8 @@ class SessionCharts(
                 pruneCharts(id)
                 emit(SessionEvent.ChartReady(ChartFacts(id, outcome.chart.noteCount, stored = false), seconds))
             }
-            is MakeState.Failed -> emit(SessionEvent.ChartFailed(outcome.message, modelMissing = stores.model.directory == null))
+            is MakeState.Failed -> emit(if (outcome.audioTooLarge) SessionEvent.AudioTooLarge
+                else SessionEvent.ChartFailed(outcome.message, modelMissing = stores.model.directory == null))
             else -> Unit
         }
     }

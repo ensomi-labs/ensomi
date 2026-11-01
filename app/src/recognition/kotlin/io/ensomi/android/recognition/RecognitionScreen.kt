@@ -85,15 +85,15 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit, wai
     }
     // A screen that sleeps stops the microphone, and Sync may take minutes with nobody touching it.
     val view = LocalView.current
-    DisposableEffect(view) {
-        view.keepScreenOn = true
+    DisposableEffect(view, state?.running) {
+        view.keepScreenOn = state?.running == true
         onDispose { view.keepScreenOn = false }
     }
     // A request or a failure comes in above whatever is in view, and it is what has to be read.
     val list = rememberLazyListState()
-    LaunchedEffect(state?.failure, state?.asks) {
+    LaunchedEffect(state?.cid, state?.failure, state?.asks, state?.titleOfferPaths) {
         val session = state
-        if (session != null && (session.failure != null || session.asks.isNotEmpty())) list.animateScrollToItem(0)
+        if (session != null && (session.failure != null || session.asks.isNotEmpty() || session.titleOfferPaths.isNotEmpty())) list.animateScrollToItem(0)
     }
     var granted by remember { mutableStateOf(permissionsMissing(context).isEmpty()) }
     LifecycleResumeEffect(context) {
@@ -116,7 +116,7 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit, wai
         }
     }
 
-    var confirmStop by remember { mutableStateOf(false) }
+    var confirmStop by remember(state?.cid) { mutableStateOf(false) }
     val leave: () -> Unit = { if (state?.running == true) confirmStop = true else onBack() }
     BackHandler(onBack = leave)
     if (confirmStop) AlertDialog(
@@ -154,8 +154,11 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit, wai
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val current = state
-                current?.takeIf { it.asks.isNotEmpty() }?.let { session ->
-                    item(key = "asks") { AsksCard(session.asks) }
+                current?.asks?.filterNot { it == Ask.RETURN_TO_ENSOMI }?.takeIf { it.isNotEmpty() }?.let { asks ->
+                    item(key = "asks") { AsksCard(asks) }
+                }
+                if (current?.titleOfferPaths?.isNotEmpty() == true) item(key = "choose-file") {
+                    Text(stringResource(R.string.recognition_choose_file))
                 }
                 current?.failure?.let { failure ->
                     item(key = "failure") {
@@ -503,7 +506,7 @@ private fun FailureKind.words(): Pair<Int, Int> = when (this) {
     FailureKind.SONG_ENDED -> R.string.recognition_failure_song_ended_zh to R.string.recognition_failure_song_ended_en
     FailureKind.GAME_FAILED -> R.string.recognition_failure_game_zh to R.string.recognition_failure_game_en
     FailureKind.GAME_QUIT -> R.string.recognition_failure_quit_zh to R.string.recognition_failure_quit_en
-    FailureKind.SESSION_LOST -> R.string.recognition_failure_lost_zh to R.string.recognition_failure_lost_en
+    FailureKind.AUDIO_UNREADABLE -> R.string.recognition_failure_unreadable_zh to R.string.recognition_failure_unreadable_en
 }
 
 /** Where the session can start again from. */

@@ -34,7 +34,7 @@ sealed interface MakeState {
     data class Stopped(val songId: String) : MakeState
 
     /** The runtime refused or failed: [message] is its own text, such as "star_out_of_range: ...". */
-    data class Failed(val songId: String, val message: String) : MakeState
+    data class Failed(val songId: String, val message: String, val audioTooLarge: Boolean = false) : MakeState
 }
 
 /** The last chart made for a song, to play: the app's record and the `.osu` the runtime wrote. */

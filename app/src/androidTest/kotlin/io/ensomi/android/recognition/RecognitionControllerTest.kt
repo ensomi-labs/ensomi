@@ -54,6 +54,7 @@ class RecognitionControllerTest {
             (field("scope").get(controller) as CoroutineScope).cancel()
         }
         storage.clearSnapshot()
+        storage.clearGuideTime()
     }
 
     @Test fun unrelatedSharesPreserveTheSessionAndTheJoinedGame() = runBlocking {
@@ -160,6 +161,86 @@ class RecognitionControllerTest {
             serialized(controller) {
                 assertEquals(listOf(SessionEffect.Probe(file)), machine.on(SessionEvent.IndexReady(listOf(file), emptyMap()), now()))
             }
+        }
+    }
+
+    @Test fun guideThenDownloadThenShareSpendsTheBaselineThroughBegin() = runBlocking {
+        storage.clearSnapshot()
+        storage.clearGuideTime()
+        val controller = create()
+        controller.showGuide()
+        serialized(controller)
+        val guide = storage.readGuideTime()!!
+        delay(20)
+        val file = FileFacts("/music/guide-download.mp3", "guide-download.mp3", 1000, now().wallMs)
+        delay(20)
+        controller.share("https://music.163.com/song?id=999999889", "test")
+        serialized(controller)
+        val first = controller.session.value!!
+        assertEquals(guide.wallMs, first.startedWallMs)
+        assertNull(storage.readGuideTime())
+        assertNull(field("guideOpened").get(controller))
+        serialized(controller) {
+            val machine = field("machine").get(controller) as SessionMachine
+            assertTrue(SessionEffect.Probe(file) in machine.on(SessionEvent.IndexReady(listOf(file), emptyMap()),
+                now().let { it.copy(wallMs = it.wallMs + 9000) }))
+        }
+        controller.stop()
+        serialized(controller)
+        assertNull(storage.readGuideTime())
+        controller.share("https://music.163.com/song?id=999999890", "test")
+        serialized(controller)
+        val second = controller.session.value!!
+        assertTrue(second.startedWallMs > file.modifiedWallMs)
+        serialized(controller) {
+            val machine = field("machine").get(controller) as SessionMachine
+            assertTrue(machine.on(SessionEvent.IndexReady(listOf(file), emptyMap()), now()).none { it is SessionEffect.Probe })
+            assertTrue(machine.state.held.isEmpty())
+        }
+    }
+
+    @Test fun openingTheGuideClearsEveryNoticeExceptRestore() = runBlocking {
+        storage.clearSnapshot()
+        val controller = create()
+        for (notice in ShareDecision.entries) {
+            serialized(controller) {
+                @Suppress("UNCHECKED_CAST")
+                (field("mutableShareNotice").get(controller) as MutableStateFlow<ShareDecision?>).value = notice
+            }
+            controller.showGuide()
+            serialized(controller)
+            assertEquals(notice.takeIf { it == ShareDecision.RESTORE }, controller.shareNotice.value)
+        }
+    }
+
+    @Test fun gamesOldSnapshotsAndSnapshotsFromBeforeRebootNeverResume() = runBlocking {
+        for (saved in listOf(
+            saved().copy(stages = Stage.entries.map { StageView(it, if (it == Stage.PLAY) StageStatus.RUNNING else StageStatus.WAITING) }),
+            saved().copy(startedNanos = now().nanos - 1_801_000_000_000),
+            saved().copy(startedNanos = now().nanos + 60_000_000_000),
+        )) {
+            storage.writeSnapshot(saved)
+            val controller = create()
+            assertNull(field("pendingRestore").get(controller))
+            assertNull(storage.readSnapshot())
+            controller.showGuide()
+            serialized(controller)
+            assertNull(controller.session.value)
+            assertEquals(ShareDecision.RESTORE, controller.shareNotice.value)
+        }
+    }
+
+    @Test fun blankSendNeverReachesTheController() = runBlocking {
+        val controller = RecognitionController.get(context)
+        serialized(controller)
+        controller.opened()
+        val before = controller.session.value
+        androidx.test.core.app.ActivityScenario.launch<ShareActivity>(android.content.Intent(context, ShareActivity::class.java)
+            .setAction(android.content.Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_TEXT, "   ")).use {
+            serialized(controller)
+            assertEquals(before, controller.session.value)
+            assertFalse(controller.opens.value)
         }
     }
 

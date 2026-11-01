@@ -8,7 +8,10 @@
     <string name="recognition_allow">Allow the microphone and music files</string>
     <string name="recognition_capture_mic">Microphone</string>
     <string name="recognition_capture_replay">WAV replay</string>
-    <string name="recognition_held">Files that may be the song</string>
+    <string name="recognition_held">Other MP3 files found</string>
+    <string name="recognition_choose_file">A file matches the title. Choose “Use this file” below if it is the song. The session stops after three minutes without a choice.</string>
+    <string name="recognition_failure_unreadable_zh" translatable="false">所选文件无法解码。请选择另一个完整的 MP3 文件。</string>
+    <string name="recognition_failure_unreadable_en" translatable="false">The chosen file could not be decoded. Choose another complete MP3.</string>
     <string name="recognition_use_file">Use this file</string>
     <string name="recognition_failed_at">Stopped at: %1$s</string>
     <string name="recognition_retry_from">Try again from: %1$s</string>
@@ -65,8 +68,6 @@
     <string name="recognition_failure_game_en" translatable="false">The game could not start.</string>
     <string name="recognition_failure_quit_zh" translatable="false">已退出游戏。歌曲仍在播放时，可以再次加入。</string>
     <string name="recognition_failure_quit_en" translatable="false">The game was left. It can join the music again while the song plays.</string>
-    <string name="recognition_failure_lost_zh" translatable="false">系统关闭了应用，这次会话丢失了。请重新开始。</string>
-    <string name="recognition_failure_lost_en" translatable="false">The system closed the app and this session was lost. Start again.</string>
     <string name="guide_intro">Follow these steps yourself while the music plays. Ensomi waits for your share.</string>
     <string name="guide_microphone">Microphone</string>
     <string name="guide_mic_reason">Used on this device to line up with the music. Microphone audio is not saved or uploaded.</string>

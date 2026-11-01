@@ -79,8 +79,11 @@ from a launch extra, on fakes (`prototype/Fakes.kt`: sample songs, a model state
 click track without sound); the states are listed in `app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt`:
 
 ```sh
+adb shell am force-stop io.ensomi.android
 adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-made
 ```
+
+MainActivity is `singleTask`: debug launch extras are read only when a new instance is created. Force-stop the app before launching with those extras.
 
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
@@ -109,6 +112,7 @@ manifest SHA-256, files and bytes once installed, or the reason it stopped), whi
 debuggable build starts the download from a launch extra, as the Download button does:
 
 ```sh
+adb shell am force-stop io.ensomi.android
 adb shell am start -n io.ensomi.android/.MainActivity --ez download-model true
 adb logcat -d -s EnsomiModelInstall:I -v raw
 ```

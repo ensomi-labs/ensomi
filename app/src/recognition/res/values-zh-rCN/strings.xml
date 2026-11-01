@@ -30,7 +30,8 @@
     <string name="recognition_allow">允许麦克风和音乐访问权限</string>
     <string name="recognition_capture_mic">麦克风</string>
     <string name="recognition_capture_replay">WAV 回放</string>
-    <string name="recognition_held">可能是这首歌的文件</string>
+    <string name="recognition_choose_file">有文件与歌名相符。如果是这首歌，请在下方选择“使用此文件”。三分钟内未选择，会话将停止。</string>
+    <string name="recognition_held">找到的其他 MP3 文件</string>
     <string name="recognition_use_file">使用此文件</string>
     <string name="recognition_failed_at">停止于：%1$s</string>
     <string name="recognition_retry_from">从此处重试：%1$s</string>
@@ -59,6 +60,6 @@
     <string name="guide_restored">应用已关闭。请重新分享歌曲，开始新的会话。</string>
     <string name="recognition_leave_title">停止此次会话？</string>
     <string name="recognition_leave_text">离开会停止文件查找、谱面生成和麦克风。</string>
-    <string name="recognition_stay">继续等待</string>
+    <string name="recognition_stay">留在此页</string>
     <string name="recognition_library_wait">正在等待曲库的谱面任务停止…</string>
 </resources>

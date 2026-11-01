@@ -11,6 +11,7 @@ import org.junit.Test
 private class Bench(
     modelInstalled: Boolean = true,
     private val limits: SessionLimits = SessionLimits(),
+    shared: SharedSong = SharedSong(songId = 186016, title = "晴天", artist = "周杰伦"),
 ) {
     var nanos = 10_000_000_000L
     var wallMs = 1_700_000_000_000L
@@ -21,7 +22,7 @@ private class Bench(
     init {
         val (started, first) = SessionMachine.start("cid", modelInstalled, now(), limits, trace = ::traceIt)
         machine = started
-        effects = first
+        effects = first + machine.on(SessionEvent.ShareReceived(shared.title ?: "song link", shared, "test"), now())
     }
 
     private fun traceIt(event: String, fields: Map<String, Any?>) {
@@ -210,8 +211,7 @@ class SessionMachineTest {
     fun anExistingFileMatchedByIdentityNeedsNoDownload() {
         val bench = Bench()
         val existing = FileFacts("/music/周杰伦 - 晴天.mp3", "周杰伦 - 晴天.mp3", 8_000_000, bench.wallMs - 86_400_000)
-        bench.on(SessionEvent.IndexReady(listOf(existing), emptyMap()))
-        val effects = bench.on(shared)
+        val effects = bench.on(SessionEvent.IndexReady(listOf(existing), emptyMap()))
         assertTrue(effects.toString(), SessionEffect.Probe(existing) in effects)
         assertEquals("PROBE", bench.events("audio.candidate").last()["verdict"])
         assertEquals("INDEX", bench.events("audio.candidate").last()["evidence"])
@@ -219,10 +219,9 @@ class SessionMachineTest {
 
     @Test
     fun aFileRememberedForTheSongIdIsFoundWithoutItsName() {
-        val bench = Bench()
+        val bench = Bench(shared = SharedSong(songId = 186016))
         val existing = FileFacts("/music/track.mp3", "track.mp3", 8_000_000, bench.wallMs - 86_400_000)
-        bench.on(SessionEvent.IndexReady(listOf(existing), mapOf(186016L to existing.path)))
-        assertTrue(SessionEffect.Probe(existing) in bench.on(SessionEvent.ShareReceived("https://music.163.com/song?id=186016", SharedSong(songId = 186016), null)))
+        assertTrue(SessionEffect.Probe(existing) in bench.on(SessionEvent.IndexReady(listOf(existing), mapOf(186016L to existing.path))))
         assertEquals("SONG_ID", bench.events("audio.candidate").last()["match"])
     }
 
@@ -258,25 +257,12 @@ class SessionMachineTest {
     }
 
     @Test
-    fun aShareOfSomethingElseIsSaidAndWaitsForTheRealOne() {
-        val bench = Bench()
-        bench.listening()
-        val text = "分享某人的歌单《夜跑》: https://music.163.com/playlist?id=1"
-        bench.on(SessionEvent.ShareReceived(text, ShareParser.parse(text), null))
-        assertEquals(FailureKind.NOT_A_SONG, bench.state.failure?.kind)
-        assertEquals("playlist", bench.state.failure?.detail)
-        bench.on(shared)
-        assertNull(bench.state.failure)
-        assertEquals("晴天", bench.state.song?.title)
-    }
-
-    @Test
     fun aShortLinkIsLookedUpAndItsFailureStopsNothing() {
         val text = "分享周杰伦的单曲《晴天》: https://163cn.tv/zoIxm3 (来自@网易云音乐)"
-        val bench = Bench()
+        val bench = Bench(shared = ShareParser.parse(text)!!)
+        val effects = bench.effects
         bench.listening()
-        val effects = bench.on(SessionEvent.ShareReceived(text, ShareParser.parse(text), null))
-        assertEquals(SessionEffect.LookUp("https://163cn.tv/zoIxm3"), effects.first())
+        assertTrue(SessionEffect.LookUp("https://163cn.tv/zoIxm3") in effects)
         bench.on(SessionEvent.LinkLookedUp("https://163cn.tv/zoIxm3", null, "failed: timeout"))
         assertEquals("failed: timeout", bench.events("share.link").single()["outcome"])
         assertNull(bench.state.failure)
@@ -288,23 +274,11 @@ class SessionMachineTest {
     @Test
     fun aLookedUpIdFindsARememberedFile() {
         val text = "https://163cn.tv/zoIxm3"
-        val bench = Bench()
+        val bench = Bench(shared = ShareParser.parse(text)!!)
         val existing = FileFacts("/music/track.mp3", "track.mp3", 8_000_000, bench.wallMs - 86_400_000)
         bench.on(SessionEvent.IndexReady(listOf(existing), mapOf(5L to existing.path)))
         bench.on(SessionEvent.ShareReceived(text, ShareParser.parse(text), null))
         assertTrue(SessionEffect.Probe(existing) in bench.on(SessionEvent.LinkLookedUp(text, 5, "resolved")))
-    }
-
-    @Test
-    fun aShareWithOnlyALinkTakesTheNewFile() {
-        val text = "https://music.163.com/song?id=5"
-        val bench = Bench()
-        bench.listening()
-        bench.on(SessionEvent.ShareReceived(text, ShareParser.parse(text), null))
-        val file = bench.song("whatever.mp3", modified = bench.wallMs - 5).copy(modifiedWallMs = bench.wallMs + 3_000)
-        bench.advance(5_000)
-        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)))
-        assertEquals("NEW_FILE", bench.events("audio.candidate").last()["match"])
     }
 
     @Test
@@ -339,13 +313,10 @@ class SessionMachineTest {
     }
 
     @Test
-    fun theIdentityCanComeAfterANcmWasSeen() {
+    fun theSharedIdentityMatchesANcmSeenAfterward() {
         val bench = Bench()
         bench.listening()
         bench.on(SessionEvent.FileSeen(bench.song("周杰伦 - 晴天.ncm", modified = bench.wallMs + 1_000), Evidence.CLOSE_WRITE))
-        assertNull(bench.state.failure)
-        bench.advance(3_000)
-        bench.on(shared)
         assertEquals(FailureKind.PROTECTED_TRACK, bench.state.failure?.kind)
     }
 
@@ -423,16 +394,14 @@ class SessionMachineTest {
     }
 
     @Test
-    fun aHeldMp3CanJoinWithoutWaitingForATick() {
+    fun anIndexedMp3CanJoinWithoutWaitingForATick() {
         val bench = Bench()
         bench.listening()
         bench.on(SessionEvent.Frontmost(true))
         val file = bench.song()
         bench.advance(2_000)
-        bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))
-        assertEquals(listOf(file), bench.state.held)
         val before = bench.nanos
-        assertTrue(SessionEffect.Probe(file) in bench.on(shared))
+        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)))
         bench.on(bench.probed(file))
         assertNull(bench.state.audioWaitSinceNanos)
         bench.chartReady()
@@ -474,7 +443,6 @@ class SessionMachineTest {
         assertTrue(bench.on(SessionEvent.FileSeen(ncm.copy(sizeBytes = ncm.sizeBytes + 100), Evidence.WRITING))
             .none { it is SessionEffect.Probe })
         bench.on(SessionEvent.FileGone(ncm.path))
-        bench.on(SessionEvent.ShareReceived("not a song", null, null))
         bench.run(1_000)
         assertFalse(bench.state.running)
         assertEquals(FailureKind.PROTECTED_TRACK, bench.state.failure?.kind)
@@ -847,28 +815,10 @@ class SessionMachineTest {
     }
 
     @Test
-    fun aHeldPlainTitleMp3MatchesWhenTheCreditedShareArrives() {
-        val bench = Bench()
-        bench.listening()
-        val file = bench.song("Artist - lettRE.mp3")
-        bench.advance(2_000)
-        bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))
-        assertEquals(listOf(file), bench.state.held)
-        val shared = SharedSong(title = "lettRE (ゲーム「トリノライン」EDテーマ)", artist = "Artist")
-        assertFalse(startsNewSession(bench.state, shared.identity))
-        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.ShareReceived(shared.title!!, shared, null)))
-        bench.on(bench.probed(file))
-        assertEquals(file, bench.state.audio?.file)
-        assertTrue(bench.state.held.isEmpty())
-    }
-
-    @Test
-    fun aShareFirstSessionFindsAnOldPlainTitleMp3() {
-        val bench = Bench()
+    fun aCreditedShareFindsAnOldPlainTitleMp3() {
+        val bench = Bench(shared = SharedSong(title = "lettRE (ゲーム「トリノライン」EDテーマ)", artist = "Artist"))
         val file = bench.song("Artist - lettRE.mp3", modified = bench.wallMs - 60_000)
-        bench.on(SessionEvent.IndexReady(listOf(file), emptyMap()))
-        val shared = SharedSong(title = "lettRE (ゲーム「トリノライン」EDテーマ)", artist = "Artist")
-        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.ShareReceived(shared.title!!, shared, null)))
+        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.IndexReady(listOf(file), emptyMap())))
         bench.on(bench.probed(file))
         assertEquals(file, bench.state.audio?.file)
     }
@@ -886,13 +836,6 @@ class SessionMachineTest {
         assertTrue(startsNewSession(null, null))
         bench.on(SessionEvent.Stop("person"))
         assertTrue(startsNewSession(bench.state, SongIdentity(186016)))
-    }
-
-    @Test
-    fun aShareInASessionWithoutASongIsItsSong() {
-        val bench = Bench()
-        bench.listening()
-        assertFalse(startsNewSession(bench.state, SongIdentity(99)))
     }
 
     @Test
@@ -918,39 +861,6 @@ class SessionMachineTest {
         bench.on(SessionEvent.IndexReady(emptyList(), emptyMap()))
         bench.run(31_000)
         assertEquals(FailureKind.NO_FILE, bench.state.failure?.kind)
-    }
-
-    @Test
-    fun aGameTheProcessDiedWithIsLost() {
-        val bench = Bench()
-        bench.on(SessionEvent.Frontmost(true))
-        bench.listening()
-        bench.audioReady()
-        bench.chartReady()
-        bench.on(SessionEvent.ReferenceReady("runtime", 1.0))
-        bench.on(lock())
-        bench.restoredFrom(bench.state)
-        assertEquals("lost", bench.state.ended)
-        assertEquals(FailureKind.SESSION_LOST, bench.state.failure?.kind)
-    }
-
-    @Test
-    fun anOldSessionIsNotPickedUp() {
-        val bench = Bench()
-        bench.listening()
-        val saved = bench.state
-        bench.advance(SessionLimits().restoreMs + 1)
-        bench.restoredFrom(saved)
-        assertEquals("lost", bench.state.ended)
-        assertEquals(FailureKind.SESSION_LOST, bench.state.failure?.kind)
-    }
-
-    @Test
-    fun aSessionFromBeforeARebootIsNotPickedUp() {
-        val bench = Bench()
-        val saved = bench.state.copy(startedNanos = bench.nanos + 1_000_000_000)
-        bench.restoredFrom(saved)
-        assertEquals("lost", bench.state.ended)
     }
 
     @Test
@@ -982,10 +892,9 @@ class SessionMachineTest {
     @Test
     fun recognitionTimeDoesNotCountAndAShareDoesNotRestartTheWait() {
         val bench = Bench()
-        bench.listening()
-        bench.run(120_000)
+        bench.run(120_000) // Indexing, after the share, has not finished yet.
         assertNull(bench.state.audioWaitSinceNanos)
-        bench.on(shared)
+        bench.listening()
         val started = bench.nanos
         assertEquals(started, bench.state.audioWaitSinceNanos)
         bench.run(9_000)
@@ -1034,9 +943,8 @@ class SessionMachineTest {
             "lettRE" to "lettRE (ゲーム「トリノライン」EDテーマ)",
             "春日影" to "春日影 (TV动画「BanG Dream! It's MyGO!!!!!」#3 插曲)",
         )) {
-            val bench = Bench()
+            val bench = Bench(shared = SharedSong(title = plain, artist = "Artist"))
             bench.listening()
-            bench.on(SessionEvent.ShareReceived(plain, SharedSong(title = plain, artist = "Artist"), null))
             val file = bench.song("Artist - $plain.mp3", modified = bench.wallMs - 5_000)
             assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.INDEX)))
             bench.on(bench.probed(file))
@@ -1061,9 +969,8 @@ class SessionMachineTest {
 
     @Test
     fun aDifferentShareTitleStillReplacesARecognizedSession() {
-        val bench = Bench()
+        val bench = Bench(shared = SharedSong(title = "lettRE", artist = "Artist"))
         bench.listening()
-        bench.on(SessionEvent.ShareReceived("lettRE", SharedSong(title = "lettRE", artist = "Artist"), null))
         assertTrue(startsNewSession(bench.state, SongIdentity(title = "春日影", artist = "Artist")))
         assertTrue(startsNewSession(bench.state, SongIdentity(title = "lettRE (Live)", artist = "Artist")))
     }

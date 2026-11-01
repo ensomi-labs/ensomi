@@ -59,6 +59,8 @@ class SessionStorage(context: Context) {
         guidePrefs.edit { putLong("nanos", time.nanos); putLong("wall", time.wallMs) }
     }
 
+    fun clearGuideTime() { guidePrefs.edit { clear() } }
+
     fun traceFile(cid: String) = File(outside, "session-$cid.jsonl")
 
     fun pruneTraces(keepCid: String) {

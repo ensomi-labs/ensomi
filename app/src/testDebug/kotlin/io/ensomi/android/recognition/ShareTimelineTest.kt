@@ -179,4 +179,39 @@ class ShareTimelineTest {
         assertEquals(listOf(SessionEffect.Probe(only)), machine.on(SessionEvent.IndexReady(listOf(only), emptyMap()), time))
     }
 
+    @Test fun resumedWaitCannotStopUntilItsIndexFinishes() {
+        val machine = machine()
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time)
+        val resumed = SessionMachine.restored(machine.state, time) { _, _ -> }.first
+        val later = time.copy(nanos = time.nanos + 20_000_000_000)
+        resumed.on(SessionEvent.Tick, later)
+        assertTrue(resumed.state.running)
+        val only = file("Cloud Quartet")
+        assertTrue(SessionEffect.Probe(only) in resumed.on(SessionEvent.IndexReady(listOf(only), emptyMap()), later))
+    }
+
+    @Test fun aChosenUnreadableFileLeavesTheOffersAndTheStopCanRun() {
+        val machine = machine()
+        val only = file()
+        machine.on(SessionEvent.IndexReady(listOf(only), emptyMap()), time)
+        machine.on(SessionEvent.UseFile(only.path), time)
+        machine.on(SessionEvent.Probed(only, ProbeFacts(false, sizeBytes = only.sizeBytes, modifiedWallMs = only.modifiedWallMs)), time)
+        assertTrue(machine.state.held.isEmpty())
+        assertTrue(machine.state.titleOfferPaths.isEmpty())
+        assertEquals(FailureKind.AUDIO_UNREADABLE, machine.state.failure?.kind)
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 10_000_000_000))
+        assertEquals("audio_wait_timeout", machine.state.ended)
+    }
+
+    @Test fun aHeldFileDeletedDuringProcessDeathLeavesTheList() {
+        val machine = machine()
+        val only = file()
+        machine.on(SessionEvent.IndexReady(listOf(only), emptyMap()), time)
+        val resumed = SessionMachine.restored(machine.state, time) { _, _ -> }.first
+        assertTrue(SessionEffect.Refresh(only.path) in resumed.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time))
+        resumed.on(SessionEvent.FileGone(only.path), time)
+        assertTrue(resumed.state.held.isEmpty())
+        assertTrue(resumed.state.titleOfferPaths.isEmpty())
+    }
+
 }

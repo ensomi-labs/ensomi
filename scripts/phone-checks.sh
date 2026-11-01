@@ -221,6 +221,7 @@ if wanted model || wanted generation || wanted determinism; then
     *)
       say "Downloading the model from Hugging Face in the app (120 MB). Keep the phone unlocked."
       adb logcat -c
+      adb shell am force-stop "$PKG"
       adb shell am start -n $PKG/.MainActivity --ez download-model true >/dev/null 2>&1
       outcome=$(wait_install huggingface 1800)
       if [ "$outcome" = installed ]; then

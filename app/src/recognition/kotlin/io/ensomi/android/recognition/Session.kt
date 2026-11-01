@@ -36,6 +36,7 @@ enum class FailureKind(val retryFrom: Stage) {
     NO_FILE(Stage.AUDIO),
     NAME_NEEDED(Stage.SHARE),
     AUDIO_TOO_LARGE(Stage.AUDIO),
+    AUDIO_UNREADABLE(Stage.AUDIO),
     PROTECTED_TRACK(Stage.AUDIO),
     MODEL_MISSING(Stage.CHART),
     CHART_FAILED(Stage.CHART),
@@ -45,7 +46,6 @@ enum class FailureKind(val retryFrom: Stage) {
     SONG_ENDED(Stage.SYNC),
     GAME_FAILED(Stage.PLAY),
     GAME_QUIT(Stage.PLAY),
-    SESSION_LOST(Stage.SHARE),
 }
 
 @Serializable
@@ -396,6 +396,9 @@ class SessionMachine private constructor(
     }
 
     private fun indexReady(event: SessionEvent.IndexReady) {
+        for (file in state.held) {
+            if (event.entries.none { it.path == file.path }) effects += SessionEffect.Refresh(file.path)
+        }
         index = event.entries
         known = event.known
         log("index.ready", "entries" to event.entries.size, "known_songs" to event.known.size)
@@ -519,6 +522,9 @@ class SessionMachine private constructor(
             state = state.copy(audioWaitSinceNanos = now.nanos)
             log("audio.progress", "path" to file.path, "size" to file.sizeBytes)
         }
+        if (verdict != Verdict.BEFORE_SESSION || match != MatchStrength.TITLE_ONLY) {
+            state = state.copy(titleOfferPaths = state.titleOfferPaths - file.path)
+        }
         remember(previous, merged, strongest, lastChange, verdict, match, person, changed)
         when (verdict) {
             Verdict.PROTECTED -> refuseProtected(merged)
@@ -578,10 +584,10 @@ class SessionMachine private constructor(
     }
 
     private fun fileGone(path: String) {
-        if (path !in candidates) return
+        if (path !in candidates && state.held.none { it.path == path }) return
         log("audio.gone", "path" to path)
         candidates.remove(path)
-        state = state.copy(held = state.held.filterNot { it.path == path })
+        state = state.copy(held = state.held.filterNot { it.path == path }, titleOfferPaths = state.titleOfferPaths - path)
         if (probing == path) probing = null
     }
 
@@ -589,6 +595,7 @@ class SessionMachine private constructor(
         val file = candidates[path]?.file ?: state.held.firstOrNull { it.path == path } ?: return
         log("manual_intervention", "step" to "USE_FILE", "reason" to "person", "path" to path)
         val previous = candidates[path]
+        state = state.copy(held = state.held.filterNot { it.path == path }, titleOfferPaths = state.titleOfferPaths - path)
         candidates[path] = Candidate(
             file,
             previous?.evidence ?: Evidence.INDEX,
@@ -646,6 +653,7 @@ class SessionMachine private constructor(
             candidate.file, candidate.evidence, candidate.lastChangeWallMs, verdict, candidate.match, candidate.person, recheck,
         )
         logCandidate(file, candidate.evidence, verdict, candidate.match)
+        if (verdict == Verdict.UNDECODABLE && candidate.person) fail(FailureKind.AUDIO_UNREADABLE, Stage.AUDIO, null)
         if (verdict == Verdict.TRUNCATED) hold(file)
         if (verdict == Verdict.READY) audioReady(candidate, probe) else probeNext()
     }
@@ -670,7 +678,7 @@ class SessionMachine private constructor(
             "sha256" to probe.sha256,
         )
         clearFailure(Stage.AUDIO)
-        state = state.copy(audio = audio, held = emptyList(), audioWaitSinceNanos = null)
+        state = state.copy(audio = audio, held = emptyList(), titleOfferPaths = emptyList(), titleOfferSinceNanos = null, audioWaitSinceNanos = null)
         setStage(Stage.AUDIO, StageStatus.DONE, file.name)
         song?.songId?.let { effects += SessionEffect.Remember(it, file.path) }
         startChart(audio)
@@ -867,7 +875,7 @@ class SessionMachine private constructor(
                     chart = null,
                     lock = null,
                     joined = null,
-                    held = emptyList(),
+                    held = emptyList(), titleOfferPaths = emptyList(), titleOfferSinceNanos = null,
                     shareNanos = null,
                     audioWaitSinceNanos = null,
                     protectedFileName = null,
@@ -884,7 +892,7 @@ class SessionMachine private constructor(
                 resetFrom(Stage.AUDIO)
                 candidates.clear()
                 probing = null
-                state = state.copy(audio = null, chart = null, lock = null, joined = null, held = emptyList(),
+                state = state.copy(audio = null, chart = null, lock = null, joined = null, held = emptyList(), titleOfferPaths = emptyList(), titleOfferSinceNanos = null,
                     audioWaitSinceNanos = null, protectedFileName = null)
                 startAudio()
                 effects += SessionEffect.BuildIndex
@@ -931,9 +939,9 @@ class SessionMachine private constructor(
         if (state.stage(Stage.CHART).status == StageStatus.RUNNING) effects += SessionEffect.StopChart
         stopCapture()
         effects += SessionEffect.StopListening
-        val failure = state.failure?.takeIf { keepFailure || it.kind == FailureKind.SESSION_LOST }
+        val failure = state.failure?.takeIf { keepFailure }
         state = state.copy(ended = reason,
-            failure = failure, audioWaitSinceNanos = null, held = emptyList())
+            failure = failure, audioWaitSinceNanos = null, held = emptyList(), titleOfferPaths = emptyList(), titleOfferSinceNanos = null)
     }
 
     private fun currentStage(): Stage? = state.stages.lastOrNull { it.status !in setOf(StageStatus.WAITING) }?.stage
@@ -983,7 +991,6 @@ class SessionMachine private constructor(
         val tooOld = age < 0 || age > limits.restoreMs
         if (inGame || tooOld) {
             log("session.lost", "in_game" to inGame, "age_ms" to age)
-            fail(FailureKind.SESSION_LOST, Stage.PLAY.takeIf { inGame } ?: Stage.LISTEN, null)
             end("lost", abort = true)
             return@collect
         }
