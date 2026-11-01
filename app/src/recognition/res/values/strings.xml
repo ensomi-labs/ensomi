@@ -83,7 +83,7 @@
     <string name="guide_step_open">1. Open NetEase Cloud Music</string>
     <string name="guide_open">Open NetEase Cloud Music</string>
     <string name="guide_step_recognise">2. Recognise the song</string>
-    <string name="guide_recognise">In NetEase, use Recognize Music (听歌识曲) while the music keeps playing.</string>
+    <string name="guide_recognise">In NetEase, use Recognize Music (听歌识曲) while the music keeps playing. If NetEase shows several results, pick the one you have already downloaded.</string>
     <string name="guide_step_download">3. Finish downloading the MP3</string>
     <string name="guide_download">Download the recognised song as MP3 and wait until it finishes. If NetEase says it is already downloaded, go back and tap Share. Only MP3 works; NetEase’s protected format (.ncm) cannot be used.</string>
     <string name="guide_step_share">4. Share to Ensomi</string>

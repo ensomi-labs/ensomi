@@ -17,7 +17,7 @@ There is one launch path and four steps, in English and Simplified Chinese:
 
 1. **Open NetEase Cloud Music.** The person taps the guide’s button. It calls `getLaunchIntentForPackage` for
    `com.netease.cloudmusic`, with `FLAG_ACTIVITY_NEW_TASK`, preserving the page already open. Nothing else launches it.
-2. **Recognise the song.** The person uses NetEase’s 听歌识曲 while the music keeps playing.
+2. **Recognise the song.** The person uses NetEase’s 听歌识曲 while the music keeps playing. If NetEase shows several results, pick the one you have already downloaded.
 3. **Finish downloading the MP3.** The person downloads the recognised song as MP3 and waits for it to finish. If NetEase says it is already downloaded, go back and Share.
 4. **Share to Ensomi.** The person taps Share and chooses Ensomi. The guide says that a share shows what to do next;
    keep the music playing and stay in Ensomi while it lines up.
