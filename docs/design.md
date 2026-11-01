@@ -28,8 +28,11 @@ Ensomi never operates another app. It uses no Accessibility service, reads no ot
 The microphone is used locally to align with the song; its audio is neither saved nor uploaded. Only the model download
 and an optional public short-link lookup use the network. The shared-song session uses a 10-second audio idle wait,
 starting after the index is ready and extended by observed matching file growth. An older title-only file needs
-Use this file, with no timeout while that choice is offered. Back asks before stopping a live session; the guide is
-available after it ends. A process-restored session stays dormant until the person opens Listen & Play; expired waits
+Use this file, with a plain choice prompt above the progress. Only that offer suspends the idle stop, and it ends
+with the ordinary message after three minutes without a choice. Other listed MP3s suspend nothing. The guide's
+recent-download baseline is consumed by the first session; retry prefers another usable recording but keeps the
+only file as a fallback. Back asks before stopping a live session, and that confirmation belongs to that session.
+The guide is available after it ends; the ended screen no longer keeps the device awake. A process-restored session stays dormant until the person opens Listen & Play; expired waits
 are discarded. The join lead is two seconds (or the scroll time if longer).
 See [recognition.md](recognition.md) for the session, storage bounds and failure states.
 
