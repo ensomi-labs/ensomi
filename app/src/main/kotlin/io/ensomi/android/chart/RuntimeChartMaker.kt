@@ -13,6 +13,8 @@ import io.ensomi.android.library.SongLibrary
 import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
 import io.ensomi.runtime.Cancellation
+import io.ensomi.runtime.ChartGenerator
+import io.ensomi.runtime.ChartResult
 import io.ensomi.runtime.ChartControls
 import io.ensomi.runtime.ChartScheduler
 import io.ensomi.runtime.ControlStatus
@@ -59,8 +61,9 @@ import kotlinx.coroutines.launch
  * - Stop signals the work under way from the calling thread: the preparation's `Cancellation`, or the scheduler's
  *   `stop()`. The runtime stops at its next graph run.
  *
- * The model is opened for each piece of work (`RuntimeWorker.withGenerator`), which takes a fraction of a second, and
- * closed after it, so it holds no memory while the player plays. All of it runs on one worker, one piece at a time.
+ * A chart already waiting for preparation uses that preparation's open model. Otherwise each piece of work opens
+ * its own model. It closes when the work finishes, so it holds no model memory while the player plays. Everything
+ * runs on one worker, one piece at a time.
  */
 class RuntimeChartMaker(
     context: Context,
@@ -111,6 +114,14 @@ class RuntimeChartMaker(
 
         @Volatile
         var failure: Exception? = null
+
+        /** A waiting chart can finish inside preparation's model scope, without passing out a native handle. */
+        @Volatile
+        var finishChart: (ChartGenerator.(Prepared) -> ChartResult?)? = null
+
+        var chartStartedNanos = 0L
+        var chartAttempted = false
+        var chart: ChartResult? = null
 
         lateinit var job: Job
 
@@ -239,15 +250,24 @@ class RuntimeChartMaker(
         // The song's audio stages: the background preparation's, once it is done, or a new one.
         var key: String? = null
         var sha256: String? = null
+        var completed: Preparation? = null
+        val runtimeRequest = request.toRuntime(song)
         for (attempt in 0 until 2) {
             val preparation = synchronized(lock) { startPreparation(songId, input) }
                 ?: return MakeState.Failed(songId, "The chart model is not installed.")
             preparation.wanted = true
+            preparation.finishChart = { stages ->
+                preparation.chartStartedNanos = System.nanoTime()
+                preparation.report(MakePhase.ROWS)
+                PeakMemory.reset()
+                makePrepared(stages, runtimeRequest, making)
+            }
             making.preparation = preparation
             preparation.onPhase = { setState(songId, MakeState.Making(songId, it)) }
             setState(songId, MakeState.Making(songId, preparation.phase))
             if (making.stopped.get()) preparation.stop()
             preparation.job.join()
+            completed = preparation
             if (making.stopped.get()) return MakeState.Stopped(songId)
             preparation.failure?.let { throw it }
             key = preparation.key
@@ -258,19 +278,12 @@ class RuntimeChartMaker(
         making.preparation = null
         val preparedKey = key ?: return MakeState.Failed(songId, "The song's audio could not be prepared.")
         setState(songId, MakeState.Making(songId, MakePhase.ROWS))
-        val runtimeRequest = request.toRuntime(song)
-        val started = System.nanoTime()
-        PeakMemory.reset()
-        val result = worker.withGenerator(appContext, directory, options()) {
-            val stages = prepared.get(preparedKey) ?: return@withGenerator null
-            ChartScheduler.fromPrepared(this, stages, runtimeRequest, ScheduleMode.WHOLE_CHART, NO_PLAY).use { scheduler ->
-                making.running(scheduler)
-                try {
-                    scheduler.work()
-                    scheduler.result()
-                } finally {
-                    making.running(null)
-                }
+        val started = completed?.chartStartedNanos?.takeIf { it != 0L } ?: System.nanoTime()
+        val result = if (completed?.chartAttempted == true) completed.chart else {
+            PeakMemory.reset()
+            worker.withGenerator(appContext, directory, options()) {
+                val stages = prepared.get(preparedKey) ?: return@withGenerator null
+                makePrepared(stages, runtimeRequest, making)
             }
         }
         if (result == null) {
@@ -301,6 +314,18 @@ class RuntimeChartMaker(
         store.save(record, result.osu, result.receipt.receiptJson)
         return MakeState.Made(songId, record.toMade())
     }
+
+    /** Called only inside withGenerator; the scheduler cannot outlive that model scope. */
+    private fun ChartGenerator.makePrepared(stages: Prepared, request: GenerateChartRequest, making: Making): ChartResult? =
+        ChartScheduler.fromPrepared(this, stages, request, ScheduleMode.WHOLE_CHART, NO_PLAY).use { scheduler ->
+            making.running(scheduler)
+            try {
+                scheduler.work()
+                scheduler.result()
+            } finally {
+                making.running(null)
+            }
+        }
 
     private fun failed(songId: String, failure: Exception, making: Making): MakeState = when {
         making.stopped.get() -> MakeState.Stopped(songId)
@@ -357,9 +382,18 @@ class RuntimeChartMaker(
         val decoded = System.nanoTime()
         preparation.report(MakePhase.TIMING)
         PeakMemory.reset()
+        var audioDone = 0L
+        var audioPeak = "unknown"
         val done = worker.withGenerator(appContext, directory, options()) {
             if (preparation.stopped.get()) return@withGenerator false
-            prepared.put(key, prepare(audio.samples, audio.sampleRate.toDouble(), preparation.cancellation))
+            val stages = prepare(audio.samples, audio.sampleRate.toDouble(), preparation.cancellation)
+            prepared.put(key, stages)
+            audioDone = System.nanoTime()
+            audioPeak = PeakMemory.describe()
+            preparation.finishChart?.let { finish ->
+                preparation.chartAttempted = true
+                preparation.chart = finish(stages)
+            }
             true
         }
         if (!done) return null
@@ -369,7 +403,7 @@ class RuntimeChartMaker(
                 Locale.ROOT,
                 "Prepared %s (%.1f s at %d Hz): decoded in %.1f s, audio stages in %.1f s, peak RSS %s, lowMemory %s",
                 song.fileName, audio.durationMs / 1000, audio.sampleRate, (decoded - started) / 1e9,
-                (System.nanoTime() - decoded) / 1e9, PeakMemory.describe(), lowMemory,
+                (audioDone - decoded) / 1e9, audioPeak, lowMemory,
             ),
         )
         return key
