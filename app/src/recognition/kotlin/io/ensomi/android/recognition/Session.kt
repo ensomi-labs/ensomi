@@ -114,6 +114,9 @@ data class SessionState(
     val failure: Failure? = null,
     /** Files that may be the song, for the person to choose when nothing else can say. */
     val held: List<FileFacts> = emptyList(),
+    /** Only explicit title-only offers suspend the idle stop, for at most three minutes. */
+    val titleOfferPaths: List<String> = emptyList(),
+    val titleOfferSinceNanos: Long? = null,
     val shareNanos: Long? = null,
     /** Audio waiting starts once the song and index are ready; arrival or growth renews this idle clock. */
     val audioWaitSinceNanos: Long? = null,
@@ -147,6 +150,7 @@ data class SessionLimits(
     val audioWaitMs: Long = 10_000,
     /** How long capture may run without a final lock. */
     val syncMs: Long = 180_000,
+    val titleOfferMs: Long = 180_000,
     /** A session this much older than its last snapshot is not picked up again. */
     val restoreMs: Long = 1_800_000,
     /** Below this level, for [silentAfterSeconds], the screen says the microphone hears nothing. */
@@ -518,7 +522,7 @@ class SessionMachine private constructor(
         when (verdict) {
             Verdict.PROTECTED -> refuseProtected(merged)
             Verdict.NO_SONG_YET, Verdict.NO_MATCH -> hold(merged)
-            Verdict.BEFORE_SESSION -> if (match == MatchStrength.TITLE_ONLY) hold(merged)
+            Verdict.BEFORE_SESSION -> if (match == MatchStrength.TITLE_ONLY) hold(merged, titleOffer = true)
             else -> Unit
         }
     }
@@ -564,9 +568,12 @@ class SessionMachine private constructor(
         fail(FailureKind.PROTECTED_TRACK, Stage.AUDIO, file.name)
     }
 
-    private fun hold(file: FileFacts) {
+    private fun hold(file: FileFacts, titleOffer: Boolean = false) {
         if (!CandidateRules.isAudio(file.name)) return
-        state = state.copy(held = (state.held.filterNot { it.path == file.path } + file).takeLast(MAX_HELD_FILES))
+        val held = (state.held.filterNot { it.path == file.path } + file).takeLast(MAX_HELD_FILES)
+        state = state.copy(held = held,
+            titleOfferPaths = (state.titleOfferPaths + listOfNotNull(file.path.takeIf { titleOffer })).distinct().filter { path -> held.any { it.path == path } },
+            titleOfferSinceNanos = state.titleOfferSinceNanos ?: now.nanos.takeIf { titleOffer })
     }
 
     private fun fileGone(path: String) {
@@ -811,7 +818,9 @@ class SessionMachine private constructor(
         lastTickNanos = now.nanos
         val waitingSince = state.audioWaitSinceNanos
         // A candidate already decoding is no longer waiting to arrive. Let its result decide whether it is usable.
-        if (state.audio == null && waitingSince != null && probing == null && state.held.isEmpty() && millisSince(waitingSince) >= limits.audioWaitMs) {
+        if (state.audio == null && waitingSince != null && probing == null && state.stage(Stage.LISTEN).status == StageStatus.DONE &&
+            (if (state.titleOfferPaths.isNotEmpty()) state.titleOfferSinceNanos?.let { millisSince(it) >= limits.titleOfferMs } == true
+             else millisSince(waitingSince) >= limits.audioWaitMs)) {
             val protected = state.protectedFileName
             fail(when { protected != null -> FailureKind.PROTECTED_TRACK; state.song?.title == null -> FailureKind.NAME_NEEDED; else -> FailureKind.NO_FILE }, Stage.AUDIO, protected)
             end("audio_wait_timeout", abort = true, keepFailure = true)
@@ -957,7 +966,7 @@ class SessionMachine private constructor(
     private fun asks(): List<Ask> = buildList {
         if (!state.running) return@buildList
         val waitingForFile = state.audio == null && state.shareNanos != null
-        if (waitingForFile && state.held.isEmpty() && state.failure?.kind != FailureKind.PROTECTED_TRACK) add(Ask.WAIT_FOR_DOWNLOAD)
+        if (waitingForFile && state.titleOfferPaths.isEmpty() && state.failure?.kind != FailureKind.PROTECTED_TRACK) add(Ask.WAIT_FOR_DOWNLOAD)
         if (state.stage(Stage.SYNC).status == StageStatus.RUNNING && !state.foreground) add(Ask.RETURN_TO_ENSOMI)
         if (state.capturing && state.silentSeconds >= limits.silentAfterSeconds) add(Ask.MICROPHONE_SILENT)
     }

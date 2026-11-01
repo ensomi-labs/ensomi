@@ -25,6 +25,8 @@ fun canResumeSnapshot(saved: SessionState, now: SessionNow, limits: SessionLimit
     val age = (now.nanos - saved.startedNanos) / 1_000_000
     if (age !in 0..limits.restoreMs) return false
     val wait = saved.audioWaitSinceNanos
-    return saved.audio != null || saved.held.isNotEmpty() || wait == null ||
-        (now.nanos - wait) / 1_000_000 < limits.audioWaitMs
+    return saved.audio != null || (saved.titleOfferPaths.isNotEmpty() && saved.titleOfferSinceNanos?.let {
+        (now.nanos - it) / 1_000_000 in 0 until limits.titleOfferMs
+    } == true) || (saved.titleOfferPaths.isEmpty() && (wait == null ||
+        (now.nanos - wait) / 1_000_000 < limits.audioWaitMs))
 }

@@ -149,4 +149,25 @@ class ShareTimelineTest {
         assertEquals(listOf(SessionEffect.Probe(strong)), effects)
     }
 
+    @Test fun unrelatedHeldFileDoesNotSuspendTheStop() {
+        val machine = machine()
+        val unrelated = file().copy(name = "Another Song.mp3", title = "Another Song", modifiedWallMs = time.wallMs)
+        machine.on(SessionEvent.IndexReady(listOf(unrelated), emptyMap()), time)
+        assertEquals(listOf(unrelated), machine.state.held)
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 10_000_000_000))
+        assertEquals("audio_wait_timeout", machine.state.ended)
+        assertEquals(FailureKind.NO_FILE, machine.state.failure?.kind)
+    }
+
+    @Test fun titleOnlyOfferExpiresAfterThreeMinutesIncludingRestoration() {
+        val machine = machine()
+        machine.on(SessionEvent.IndexReady(listOf(file()), emptyMap()), time)
+        val deadline = time.copy(nanos = time.nanos + 180_000_000_000)
+        assertFalse(canResumeSnapshot(machine.state, deadline, SessionLimits()))
+        machine.on(SessionEvent.Tick, deadline.copy(nanos = deadline.nanos - 1))
+        assertTrue(machine.state.running)
+        machine.on(SessionEvent.Tick, deadline)
+        assertEquals("audio_wait_timeout", machine.state.ended)
+    }
+
 }
