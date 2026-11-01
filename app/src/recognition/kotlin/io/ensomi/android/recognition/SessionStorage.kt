@@ -27,6 +27,8 @@ data class SessionOptions(
     val replayStartMs: Long = 0,
     /** How long capture may run without a final lock. */
     val syncLimitMs: Long = SessionLimits().syncMs,
+    /** Idle time waiting for this song's audio after its identity is known. */
+    val audioWaitMs: Long = SessionLimits().audioWaitMs,
     val autoplay: Boolean = false,
 )
 

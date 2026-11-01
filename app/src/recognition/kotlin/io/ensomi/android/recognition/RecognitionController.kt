@@ -17,7 +17,9 @@ import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,6 +75,8 @@ class RecognitionController private constructor(context: Context) {
     private val referenceWorker = RuntimeWorker()
     private data class ProbedAudio(val path: String, val sha256: String?, val song: DecodedSong)
     private var decoded: ProbedAudio? = null
+    /** File work and the ticker belong to the session, not to the process. */
+    private var workScope: CoroutineScope? = null
 
     @Volatile
     private var listening: MediaListening? = null
@@ -90,12 +94,6 @@ class RecognitionController private constructor(context: Context) {
                     Log.e(TAG, "The session's step failed", failure)
                     trace?.log("controller.failure", mapOf("message" to failure.toString()))
                 }
-            }
-        }
-        scope.launch {
-            while (isActive) {
-                delay(TICK_MS)
-                post { feed(SessionEvent.Tick) }
             }
         }
         post { restore() }
@@ -160,7 +158,15 @@ class RecognitionController private constructor(context: Context) {
 
     private fun now() = SessionNow(SystemClock.elapsedRealtimeNanos(), System.currentTimeMillis())
 
-    private fun limits() = SessionLimits(syncMs = mutableOptions.value.syncLimitMs)
+    private fun limits() = SessionLimits(
+        syncMs = mutableOptions.value.syncLimitMs,
+        audioWaitMs = mutableOptions.value.audioWaitMs.coerceAtLeast(1),
+    )
+
+    /** Ignore results already queued when their session stopped or was replaced. */
+    private fun postFor(current: SessionMachine, action: suspend () -> Unit) = post {
+        if (machine === current && current.state.running) action()
+    }
 
     private suspend fun modelInstalled(): Boolean {
         // At a cold start the store is still looking at what is installed.
@@ -206,6 +212,7 @@ class RecognitionController private constructor(context: Context) {
                 "capture" to options.capture.name,
                 "stars" to options.stars,
                 "ambient_offset_ms" to options.ambientOffsetMs,
+                "audio_wait_ms" to limits().audioWaitMs,
                 // The trace's clock and the play path's, read together, for converting between them.
                 "elapsed_ns_now" to SystemClock.elapsedRealtimeNanos(),
                 "mono_ns_now" to System.nanoTime(),
@@ -243,6 +250,7 @@ class RecognitionController private constructor(context: Context) {
     }
 
     private suspend fun carryOut(effect: SessionEffect) {
+        val current = machine ?: return
         when (effect) {
             SessionEffect.StartListening -> startListening()
             SessionEffect.BuildIndex -> buildIndex()
@@ -252,20 +260,20 @@ class RecognitionController private constructor(context: Context) {
                 HostDrivers.current.perform(effect.step, path, HostDrivers.reports)
             }
             SessionEffect.CancelDriver -> HostDrivers.current.cancel()
-            is SessionEffect.Refresh -> scope.launch {
+            is SessionEffect.Refresh -> workScope?.launch {
                 val found = listening?.look(effect.path)
-                post { feed(if (found != null) SessionEvent.FileSeen(found, Evidence.POLL) else SessionEvent.FileGone(effect.path)) }
+                postFor(current) { feed(if (found != null) SessionEvent.FileSeen(found, Evidence.POLL) else SessionEvent.FileGone(effect.path)) }
             }
-            is SessionEffect.Probe -> scope.launch {
-                val (facts, song) = probe.probe(effect.file)
-                post {
+            is SessionEffect.Probe -> workScope?.launch {
+                val (facts, song) = probe.probe(effect.file) { !isActive }
+                postFor(current) {
                     if (song != null) decoded = ProbedAudio(effect.file.path, facts.sha256, song)
                     feed(SessionEvent.Probed(effect.file, facts))
                 }
             }
-            is SessionEffect.LookUp -> scope.launch {
+            is SessionEffect.LookUp -> workScope?.launch {
                 val lookup = ShortLinks.lookUp(effect.url)
-                post { feed(SessionEvent.LinkLookedUp(effect.url, lookup.songId, lookup.outcome)) }
+                postFor(current) { feed(SessionEvent.LinkLookedUp(effect.url, lookup.songId, lookup.outcome)) }
             }
             is SessionEffect.Remember -> storage.remember(effect.songId, effect.path)
             is SessionEffect.MakeChart -> charts.make(
@@ -278,8 +286,11 @@ class RecognitionController private constructor(context: Context) {
             SessionEffect.StopCapture -> stopCapture()
             is SessionEffect.Join -> join(effect.lock)
             SessionEffect.StopListening -> {
+                workScope?.cancel()
+                workScope = null
                 listening?.stop()
                 listening = null
+                charts.stop()
                 closeSync()
                 decoded = null
             }
@@ -287,24 +298,35 @@ class RecognitionController private constructor(context: Context) {
     }
 
     private fun startListening() {
-        val state = machine?.state ?: return
+        val current = machine ?: return
+        val state = current.state
+        workScope?.cancel()
+        val work = CoroutineScope(SupervisorJob(scope.coroutineContext[Job]) + Dispatchers.IO)
+        workScope = work
+        work.launch {
+            while (isActive) {
+                delay(TICK_MS)
+                postFor(current) { feed(SessionEvent.Tick) }
+            }
+        }
         listening?.stop()
         val listener = object : FileListener {
-            override fun seen(file: FileFacts, evidence: Evidence) = post { feed(SessionEvent.FileSeen(file, evidence)) }
+            override fun seen(file: FileFacts, evidence: Evidence) = postFor(current) { feed(SessionEvent.FileSeen(file, evidence)) }
 
-            override fun gone(path: String) = post { feed(SessionEvent.FileGone(path)) }
+            override fun gone(path: String) = postFor(current) { feed(SessionEvent.FileGone(path)) }
         }
-        listening = MediaListening(appContext, scope, state.startedWallMs, listener) { event, fields ->
+        listening = MediaListening(appContext, work, state.startedWallMs, listener) { event, fields ->
             trace?.log(event, fields)
         }.also { it.start() }
     }
 
     private fun buildIndex() {
+        val current = machine ?: return
         val source = listening ?: return
-        scope.launch {
+        workScope?.launch {
             val entries = source.scan()
             val known = storage.knownSongs()
-            post { feed(SessionEvent.IndexReady(entries, known)) }
+            postFor(current) { feed(SessionEvent.IndexReady(entries, known)) }
         }
     }
 

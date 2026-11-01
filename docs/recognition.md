@@ -46,9 +46,10 @@ its merged manifest is the same as without it. The app's main code knows only th
 
 `SessionMachine` holds facts, not a position in a sequence. Each event adds what it says, and each fact moves on
 whatever it unblocks: a file before the share waits for the song to be known; a share before the file waits for the
-file; a share at any time closes the host's stages, as "not observed" if nothing reported them. A failure stops nothing.
-It is shown with the stage it happened at and the stage to try again from, and the session goes on listening, so what
-arrives late still counts. Any stage that has started can be tried again from the list on the screen, failed or not. A session is over only when its game ends or it is stopped.
+file; a share at any time closes the host's stages, as "not observed" if nothing reported them. Most failures are
+shown with their stage and a stage to retry from, while listening continues and late arrivals still count. The audio
+wait timeout is terminal: it stops the session with an explanation. Any stage of a running session that has started
+can be tried again from the list. A session ends when its game ends, the person stops it, or the audio wait expires.
 
 A share with no session starts one, without opening the host. A share of a different song starts a new session. The text
 may be any of the host's forms: `分享xxx的单曲《xxx》: https://… (来自@网易云音乐)` with a link to `music.163.com/song?id=`,
@@ -65,7 +66,7 @@ advance which way of seeing a file would work on the test phone, so three run at
 | Source | Needs | Evidence it gives |
 | --- | --- | --- |
 | `FileObserver` on the folder | `MANAGE_EXTERNAL_STORAGE`, granted with `adb shell appops`; whether it fires through the FUSE layer is a question for the phone | `CLOSE_WRITE`, `MOVED_TO`; `CREATE` and `MODIFY` only say it is being written |
-| MediaStore's content observer | `READ_MEDIA_AUDIO`; it sees files in any folder | A row no longer pending; a row still pending only goes to the trace |
+| MediaStore's content observer | `READ_MEDIA_AUDIO`; it sees files in any folder | A row no longer pending; a pending row can show growth but cannot be decoded |
 | A poll of both, every five seconds | The same | A size and a time, which prove less |
 
 A candidate is judged in this order, the cheap and certain refusals first:
@@ -96,9 +97,40 @@ also matches when the credited share arrives first. Known song IDs still take pr
 Off Vocal, Acoustic, TV Size, cover credits and unknown parenthesized text remain distinct, including extra words
 inside a credit. Different base titles never match merely because they share a credit.
 
-**A `.ncm` is refused.** It is the host's protected format. Such a file is never opened, decoded, converted or read for
-audio; only its name, size and time are looked at. A `.ncm` that is the song is a stated refusal in the session ("this
-track is protected; download a purchased MP3 instead"), not a route, and an MP3 of the song arriving afterwards goes on.
+**Waiting for audio.** `audioWaitMs` in `recognition/options.json` defaults to **10,000 ms**. Its monotonic clock starts
+when the known song enters Audio without usable audio: on a recognition result, or on a song share when that supplies
+the identity first. It does **not** start at Start, so recognition time does not count. A later share of the same song
+neither restarts nor cancels the wait. A held matching MP3 is probed immediately and, once usable, proceeds to chart and
+sync without waiting for the timer. Accepting audio disarms the wait.
+
+This is an idle limit. The first nonempty matching audio candidate and each observed size increase grant another
+`audioWaitMs`. That includes a pending MediaStore row or a recognizable temporary name such as `Artist - Title.mp3.part`;
+temporary files still cannot be decoded. A growing download can therefore run longer than ten seconds. Repeated
+sightings, timestamp changes alone, unrelated files and `.ncm` growth do not renew the clock. A stalled download stops
+after the idle limit. The normal completeness and quiet-time checks still apply, and an active decode is allowed to
+finish before an arrival timeout is considered. The one-second session tick checks the deadline at or after it expires;
+a frozen process cannot check it until Android runs it again. Snapshots retain the idle clock across process restoration.
+
+On timeout the trace records `failure` (`NO_FILE`, or `PROTECTED_TRACK` below), then `abort` and `session.end` with
+`reason: audio_wait_timeout`. The controller cancels the session ticker and file work, unregisters media listeners,
+stops capture and chart work, and releases the aligner. Queued file/timer results cannot affect an ended or replacement
+session. The failure stays on screen in English and Simplified Chinese, with a **返回 / Back** button; Start session is
+also available for another song. With no protected filename evidence it says:
+
+> No usable audio file arrived, so the session stopped. This song may be in a protected format that Ensomi cannot use.
+> Try a song that downloads as an MP3.
+>
+> 没有等到可用的音频文件，会话已停止。这首歌可能采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。
+
+**A `.ncm` is refused.** It is the host's protected format. Such a file is never opened, decoded, converted or read.
+Only its filename identifies it as this song; tags and file contents are not used. The existing observers may stat its
+size and modification time, but those cannot prolong the wait. A matching filename is remembered even if another
+failure occurs or the file disappears. An MP3 arriving before the timeout can still proceed. At timeout the session
+stops with the firmer explanation:
+
+> A .ncm file was found for this song: it is in a protected format that Ensomi cannot use. Try a song that downloads as an MP3.
+>
+> 发现了这首歌的 .ncm 文件：它采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。
 
 ## From the audio to the game
 
@@ -175,7 +207,8 @@ to set the ambient offset by.
 | --- | --- |
 | NetEase is not installed | Says so; a share still goes on |
 | Recognition fails, or a song has no download right | Says so, from a driver's report; by hand, the person sees it in the host |
-| No share arrives in 10 minutes, no file in 15 minutes after the share | Says so; what arrives later still counts |
+| No share arrives in 10 minutes | Says so; a late share still counts |
+| No usable audio arrives within the audio idle limit (10 s by default) | Ends the session and explains that the song may be protected; offers Back and another Start |
 | A `.ncm` | The refusal above |
 | The model is not installed | Says so before the host opens; Retry looks again |
 | The chart fails | Says the runtime's words; Retry makes it again |
@@ -207,6 +240,7 @@ Every line has `elapsed_ns` (`SystemClock.elapsedRealtimeNanos`), `cid`, `seq` a
 | `index.ready` | Audio files found |
 | `host.launch`, `driver.step`, `manual_intervention` | How the host started; what a driver was asked and said; what went to the person, and why |
 | `share.received`, `share.link`, `song.identity` | The text, what was read from it, the short link's outcome |
+| `audio.wait`, `audio.progress` | The configured idle limit when waiting starts; matching file arrival or growth renewing it |
 | `audio.candidate`, `audio.gone`, `decode`, `audio.ready` | Each file with its evidence, match and verdict, and what decoding it showed |
 | `chart.phase`, `chart.ready`, `chart.failed` | The phases, the notes, whether it was stored, the time |
 | `sync.reference`, `capture.start`, `capture.level`, `capture.stamps`, `capture.stopped`, `sync.state`, `sync.truth` | The aligner, the source and format, the room's level each second, how blocks are stamped (including cumulative read and push maxima when capture stops), each change of state with the reason no position is held, and for a replay the lock's error against the file |
@@ -232,8 +266,11 @@ on the session's screen with the music playing.
 can push it instead, for those the screen leaves out:
 
 ```json
-{"path":"AUTO","stars":3.5,"ambientOffsetMs":0,"capture":"REPLAY","replayStartMs":30000,"autoplay":true}
+{"path":"AUTO","stars":3.5,"ambientOffsetMs":0,"capture":"REPLAY","replayStartMs":30000,"audioWaitMs":10000,"autoplay":true}
 ```
+
+`audioWaitMs` is a positive duration in milliseconds (default 10000); nonpositive values are clamped to 1 ms.
+Edit or push the options file while the app is stopped, then relaunch so the controller reloads it.
 
 `capture: REPLAY` plays `recognition/replay.wav` (16-bit or float, any rate) into Sync in real time instead of the
 microphone, from `replayStartMs` into the file, which is how an emulator runs the whole path through the real aligner.

@@ -99,6 +99,7 @@ class MediaListening(
         observer = null
         folderObserver?.stopWatching()
         folderObserver = null
+        handler.removeCallbacksAndMessages(null)
         thread.quitSafely()
     }
 
@@ -177,12 +178,12 @@ class MediaListening(
         val date = MediaStore.Audio.Media.DATE_MODIFIED
         for (row in rows("($date >= $since OR $date IS NULL OR ${MediaStore.Audio.Media.IS_PENDING} = 1)")) {
             sighted("media_store", row.path, pending = row.pending)
-            // A pending row says only that the file exists, which is no more than the other sources say.
-            if (row.pending) continue
             val state = row.sizeBytes to row.modifiedWallMs
             if (reported[row.path] == state) continue
-            reported[row.path] = state
-            listener.seen(row, Evidence.MEDIA_STORE)
+            // Pending rows can prove download growth, but never that the file is ready. Keep the completed row
+            // reportable even when its size and timestamp are unchanged when pending clears.
+            if (!row.pending) reported[row.path] = state
+            listener.seen(row, if (row.pending) Evidence.WRITING else Evidence.MEDIA_STORE)
         }
     }
 

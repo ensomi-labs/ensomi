@@ -536,22 +536,203 @@ class SessionMachineTest {
     }
 
     @Test
-    fun theFileNeverArriving() {
-        val bench = Bench(limits = SessionLimits(fileMs = 60_000))
+    fun noFileByTenSecondsEndsWithAnExplanationAndCleanup() {
+        val bench = Bench()
         bench.listening()
         bench.on(shared)
-        bench.run(59_000)
-        assertNull(bench.state.failure)
-        bench.run(2_000)
+        bench.run(9_999)
+        assertTrue(bench.state.running)
+        val effects = bench.run(1)
         assertEquals(FailureKind.NO_FILE, bench.state.failure?.kind)
         assertEquals(StageStatus.FAILED, bench.status(Stage.AUDIO))
+        assertEquals("audio_wait_timeout", bench.state.ended)
+        assertEquals("audio_wait_timeout", bench.events("abort").single()["reason"])
+        assertEquals("AUDIO", bench.events("abort").single()["stage"])
+        assertTrue(SessionEffect.StopListening in effects)
+        assertFalse(bench.state.capturing)
+        assertTrue(bench.state.asks.isEmpty())
+        assertNull(bench.state.audioWaitSinceNanos)
+        val ended = bench.state
+        val traced = bench.traced.toList()
+        assertTrue(bench.run(60_000).isEmpty())
+        assertTrue(bench.on(SessionEvent.FileSeen(bench.song(), Evidence.CLOSE_WRITE)).isEmpty())
+        assertEquals(ended, bench.state)
+        assertEquals(traced, bench.traced)
+    }
+
+    @Test
+    fun recognitionTimeDoesNotCountAndAShareDoesNotRestartTheWait() {
+        val bench = Bench()
+        bench.listening()
+        bench.run(120_000)
+        assertNull(bench.state.audioWaitSinceNanos)
+        bench.on(SessionEvent.ResultSeen("晴天", "周杰伦", null))
+        val started = bench.nanos
+        assertEquals(started, bench.state.audioWaitSinceNanos)
+        bench.run(9_000)
+        bench.on(shared)
+        assertEquals(started, bench.state.audioWaitSinceNanos)
         assertTrue(bench.state.running)
-        // What arrives late still counts.
-        val file = bench.song(modified = bench.wallMs - 5_000)
+        bench.run(1_000)
+        assertEquals(FailureKind.NO_FILE, bench.state.failure?.kind)
+        assertFalse(bench.state.running)
+    }
+
+    @Test
+    fun aHeldMp3CanJoinWithoutWaitingForATick() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(SessionEvent.Frontmost(true))
+        val file = bench.song()
+        bench.advance(2_000)
+        bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))
+        assertEquals(listOf(file), bench.state.held)
+        val before = bench.nanos
+        assertTrue(SessionEffect.Probe(file) in bench.on(shared))
+        bench.on(bench.probed(file))
+        assertNull(bench.state.audioWaitSinceNanos)
+        bench.chartReady()
+        bench.on(SessionEvent.ReferenceReady("runtime", 1.0))
+        assertTrue(bench.on(lock()).any { it is SessionEffect.Join })
+        assertEquals(before, bench.nanos)
+        bench.run(20_000)
+        assertNull(bench.state.failure)
+    }
+
+    @Test
+    fun anMp3ArrivingAtNineSecondsIsUsedEvenIfItNeedsQuietAndDecodingTime() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(shared)
+        bench.run(9_000)
+        val file = bench.song()
+        bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))
+        assertTrue(SessionEffect.Refresh(file.path) in bench.run(1_000))
+        assertTrue(bench.state.running)
+        assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.POLL)))
+        bench.run(20_000) // Arrival timeout must not interrupt a decoder already reading the file.
+        assertTrue(bench.state.running)
+        bench.on(bench.probed(file))
+        assertEquals(file, bench.state.audio?.file)
+        assertNull(bench.state.failure)
+        assertNull(bench.state.audioWaitSinceNanos)
+    }
+
+    @Test
+    fun aProtectedFilenameMakesTheTimeoutExplanationFirm() {
+        val bench = Bench()
+        bench.listening()
+        val ncm = bench.song("周杰伦 - 晴天.ncm")
+        bench.on(SessionEvent.FileSeen(ncm, Evidence.WRITING))
+        bench.on(shared)
+        bench.run(9_000)
+        // Even a protected file growing cannot prolong the wait for usable audio.
+        assertTrue(bench.on(SessionEvent.FileSeen(ncm.copy(sizeBytes = ncm.sizeBytes + 100), Evidence.WRITING))
+            .none { it is SessionEffect.Probe })
+        bench.on(SessionEvent.FileGone(ncm.path))
+        bench.on(SessionEvent.ShareReceived("not a song", null, null))
+        bench.run(1_000)
+        assertFalse(bench.state.running)
+        assertEquals(FailureKind.PROTECTED_TRACK, bench.state.failure?.kind)
+        assertEquals(ncm.name, bench.state.failure?.detail)
+        assertEquals("audio_wait_timeout", bench.state.ended)
+    }
+
+    @Test
+    fun unrelatedProtectedNamesAndTheirTagsDoNotMakeTheMessageFirm() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(shared)
+        val unrelated = bench.song("Other - Song.ncm").copy(title = "晴天", artist = "周杰伦")
+        bench.on(SessionEvent.FileSeen(unrelated, Evidence.CLOSE_WRITE))
+        bench.run(10_000)
+        assertEquals(FailureKind.NO_FILE, bench.state.failure?.kind)
+        assertNull(bench.state.protectedFileName)
+    }
+
+    @Test
+    fun aGrowingDownloadGetsTenSecondsFromItsLastSizeIncrease() {
+        for (name in listOf("周杰伦 - 晴天.mp3", "周杰伦 - 晴天.mp3.part")) {
+            val bench = Bench()
+            bench.listening()
+            bench.on(shared)
+            var file = bench.song(name, size = 1_000)
+            bench.on(SessionEvent.FileSeen(file, Evidence.WRITING))
+            repeat(3) {
+                bench.run(9_000)
+                file = file.copy(sizeBytes = file.sizeBytes + 1_000, modifiedWallMs = bench.wallMs)
+                bench.on(SessionEvent.FileSeen(file, Evidence.WRITING))
+                assertTrue(bench.state.running)
+                assertTrue(bench.effects.none { it is SessionEffect.Probe })
+            }
+            bench.run(9_000)
+            // Neither a repeated sighting nor only a timestamp change is growth.
+            bench.on(SessionEvent.FileSeen(file.copy(modifiedWallMs = bench.wallMs), Evidence.WRITING))
+            bench.run(1_000)
+            assertEquals("audio_wait_timeout", bench.state.ended)
+        }
+    }
+
+    @Test
+    fun aShareDuringAGrowingDownloadKeepsTheProgressClockAndUsesTheMp3() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(SessionEvent.ResultSeen("晴天", "周杰伦", null))
+        bench.run(8_000)
+        val file = bench.song()
+        bench.on(SessionEvent.FileSeen(file, Evidence.WRITING))
+        val progress = bench.state.audioWaitSinceNanos
+        bench.run(5_000)
+        bench.on(shared)
+        assertEquals(progress, bench.state.audioWaitSinceNanos)
         assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)))
         bench.on(bench.probed(file))
+        assertEquals(file, bench.state.audio?.file)
+    }
+
+    @Test
+    fun aPendingMediaRowCanProveGrowthButOnlyACompleteRowCanBeProbed() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(shared)
+        var file = bench.song(size = 1_000).copy(pending = true)
+        bench.on(SessionEvent.FileSeen(file, Evidence.WRITING))
+        bench.run(7_000)
+        file = file.copy(sizeBytes = 2_000, modifiedWallMs = bench.wallMs)
+        assertTrue(bench.on(SessionEvent.FileSeen(file, Evidence.WRITING)).none { it is SessionEffect.Probe })
+        bench.run(9_000)
+        assertTrue(bench.state.running)
+        val finished = file.copy(pending = false)
+        assertTrue(SessionEffect.Probe(finished) in bench.on(SessionEvent.FileSeen(finished, Evidence.MEDIA_STORE)))
+        bench.on(bench.probed(finished))
+        assertEquals(finished, bench.state.audio?.file)
+    }
+
+    @Test
+    fun stopDuringTheWaitCancelsItAndKeepsThePersonsReason() {
+        val bench = Bench()
+        bench.listening()
+        bench.on(SessionEvent.ResultSeen("晴天", "周杰伦", null))
+        bench.run(9_000)
+        val effects = bench.on(SessionEvent.Stop("person"))
+        assertTrue(SessionEffect.CancelDriver in effects)
+        assertTrue(SessionEffect.StopListening in effects)
+        assertEquals("person", bench.state.ended)
         assertNull(bench.state.failure)
-        assertEquals(StageStatus.DONE, bench.status(Stage.AUDIO))
+        assertTrue(bench.run(10_000).isEmpty())
+        assertEquals(1, bench.events("session.end").size)
+    }
+
+    @Test
+    fun theAudioWaitOptionHasADefaultAndCanBeChangedWithoutCode() {
+        val json = kotlinx.serialization.json.Json
+        assertEquals(10_000L, json.decodeFromString(SessionOptions.serializer(), "{}").audioWaitMs)
+        val options = json.decodeFromString(SessionOptions.serializer(), "{\"audioWaitMs\":2000}")
+        val bench = Bench(limits = SessionLimits(audioWaitMs = options.audioWaitMs))
+        bench.listening()
+        bench.on(shared)
+        bench.run(2_000)
+        assertEquals("audio_wait_timeout", bench.state.ended)
     }
 
     @Test
@@ -1015,7 +1196,7 @@ class SessionMachineTest {
 
     @Test
     fun aSessionWaitingForItsFileGoesOnWaitingAndKeepsItsClock() {
-        val bench = Bench(limits = SessionLimits(fileMs = 60_000))
+        val bench = Bench(limits = SessionLimits(audioWaitMs = 60_000))
         bench.listening()
         bench.on(shared)
         bench.run(30_000)

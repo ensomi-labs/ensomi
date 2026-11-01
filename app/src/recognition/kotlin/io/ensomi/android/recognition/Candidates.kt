@@ -169,6 +169,16 @@ object CandidateRules {
 
     fun isAudio(name: String): Boolean = extension(name) in AUDIO_EXTENSIONS
 
+    /** A recognizable audio download, including a temporary suffix. Only for matching progress, never decoding. */
+    fun audioDownloadName(name: String): String? {
+        var base = name.trimStart('.', '~')
+        while (true) {
+            val suffix = TEMPORARY_SUFFIXES.firstOrNull { base.lowercase(Locale.ROOT).endsWith(it) } ?: break
+            base = base.dropLast(suffix.length)
+        }
+        return base.takeIf(::isAudio)
+    }
+
     private fun extension(name: String): String = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
 
     /**

@@ -49,12 +49,13 @@ class AudioProbe(context: Context) {
     private val appContext = context.applicationContext
 
     /** Blocking. The song comes back when it decoded. */
-    fun probe(file: FileFacts): Pair<ProbeFacts, DecodedSong?> {
+    fun probe(file: FileFacts, isCancelled: () -> Boolean = { false }): Pair<ProbeFacts, DecodedSong?> {
+        require(!CandidateRules.isProtected(file.name)) { "Protected files are never read" }
         val uri = file.readUri()
         val started = System.nanoTime()
         return try {
-            val song = SongDecoder.decode(appContext, uri, PcmChannels.MONO)
-            val hash = sha256(uri)
+            val song = SongDecoder.decode(appContext, uri, PcmChannels.MONO, isCancelled)
+            val hash = sha256(uri, isCancelled)
             val disk = File(file.path)
             ProbeFacts(
                 decoded = true,
@@ -68,6 +69,8 @@ class AudioProbe(context: Context) {
                 sizeBytes = disk.length().takeIf { it > 0 } ?: file.sizeBytes,
                 modifiedWallMs = disk.lastModified().takeIf { it > 0 } ?: file.modifiedWallMs,
             ) to song
+        } catch (failure: CancellationException) {
+            throw failure
         } catch (failure: DecodeException) {
             failed(file, started, failure)
         } catch (failure: IOException) {
@@ -104,12 +107,13 @@ class AudioProbe(context: Context) {
         }
     }
 
-    private fun sha256(uri: Uri): String {
+    private fun sha256(uri: Uri, isCancelled: () -> Boolean): String {
         val input: InputStream = appContext.contentResolver.openInputStream(uri) ?: throw IOException("No stream for $uri")
         val digest = MessageDigest.getInstance("SHA-256")
         input.use {
             val buffer = ByteArray(1 shl 16)
             while (true) {
+                if (isCancelled()) throw CancellationException("Hashing stopped.")
                 val read = it.read(buffer)
                 if (read < 0) break
                 digest.update(buffer, 0, read)

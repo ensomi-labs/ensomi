@@ -148,7 +148,8 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                 }
                 current?.failure?.let { failure ->
                     item(key = "failure") {
-                        FailureCard(failure, canRetry = current.running, onRetry = { controller.retry(failure.kind.retryFrom) })
+                        FailureCard(failure, canRetry = current.running,
+                            onRetry = { controller.retry(failure.kind.retryFrom) }, onBack = onBack)
                     }
                 }
                 item(key = "controls") {
@@ -234,7 +235,7 @@ private fun AsksCard(asks: List<Ask>) {
 }
 
 @Composable
-private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit) {
+private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit, onBack: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
         modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
@@ -251,6 +252,10 @@ private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit
             if (canRetry) {
                 OutlinedButton(onClick = onRetry) {
                     Text(stringResource(R.string.recognition_retry_from, stringResource(failure.kind.retryFrom.label())))
+                }
+            } else {
+                OutlinedButton(onClick = onBack) {
+                    Text(stringResource(R.string.recognition_back))
                 }
             }
         }

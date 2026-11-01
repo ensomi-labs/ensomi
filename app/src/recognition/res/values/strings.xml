@@ -5,6 +5,7 @@
     <string name="recognition_title">Recognition session</string>
     <string name="recognition_start">Start session</string>
     <string name="recognition_stop">Stop session</string>
+    <string name="recognition_back">返回 / Back</string>
     <string name="recognition_paste">Paste a song link</string>
     <string name="recognition_allow">Allow the microphone and music files</string>
     <string name="recognition_path_a">Path A</string>
@@ -72,10 +73,10 @@
     <string name="recognition_failure_no_share_en">No share arrived in time. A share that arrives now still counts.</string>
     <string name="recognition_failure_not_song_zh">分享的不是单曲</string>
     <string name="recognition_failure_not_song_en">What was shared is not a song. Share the song itself.</string>
-    <string name="recognition_failure_no_file_zh">文件一直没到</string>
-    <string name="recognition_failure_no_file_en">The song\'s file never arrived. If it arrives now it still counts.</string>
-    <string name="recognition_failure_protected_zh">这首歌受保护（.ncm）：请改为下载已购买的 MP3</string>
-    <string name="recognition_failure_protected_en">This track is protected; download a purchased MP3 instead.</string>
+    <string name="recognition_failure_no_file_zh">没有等到可用的音频文件，会话已停止。这首歌可能采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。</string>
+    <string name="recognition_failure_no_file_en">No usable audio file arrived, so the session stopped. This song may be in a protected format that Ensomi cannot use. Try a song that downloads as an MP3.</string>
+    <string name="recognition_failure_protected_zh">发现了这首歌的 .ncm 文件：它采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。</string>
+    <string name="recognition_failure_protected_en">A .ncm file was found for this song: it is in a protected format that Ensomi cannot use. Try a song that downloads as an MP3.</string>
     <string name="recognition_failure_no_model_zh">没有安装谱面模型</string>
     <string name="recognition_failure_no_model_en">The chart model is not installed. Install it from the Library, then try again.</string>
     <string name="recognition_failure_chart_zh">谱面没有生成</string>

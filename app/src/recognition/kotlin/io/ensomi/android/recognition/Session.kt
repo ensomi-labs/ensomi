@@ -133,6 +133,10 @@ data class SessionState(
     /** The first step the person was asked to do; the steps after it are the person's too. */
     val personFrom: HostStep? = null,
     val shareNanos: Long? = null,
+    /** Audio waiting starts once the song is known; arrival or growth renews this idle clock. */
+    val audioWaitSinceNanos: Long? = null,
+    /** A matching protected filename was seen. Its contents are never read. */
+    val protectedFileName: String? = null,
     val foreground: Boolean = false,
     val referenceReady: Boolean = false,
     val capturing: Boolean = false,
@@ -162,8 +166,8 @@ data class SessionLimits(
     val readResultMs: Long = 90_000,
     /** From the launch, how long until a share or a file must have arrived. */
     val hostMs: Long = 600_000,
-    /** From the share, how long the file has to arrive. */
-    val fileMs: Long = 900_000,
+    /** Idle time waiting for a known song's audio, renewed by a matching file arriving or growing. */
+    val audioWaitMs: Long = 10_000,
     /** How long capture may run without a final lock. */
     val syncMs: Long = 180_000,
     /** A session this much older than its last snapshot is not picked up again. */
@@ -298,8 +302,7 @@ fun startsNewSession(state: SessionState?, shared: SongIdentity?): Boolean = whe
  * One recognition session, as plain state and rules: it takes events, keeps what they say, and answers with what to do
  * next, so that the order things happen in cannot be got wrong by the code around it. It holds facts rather than a
  * position in a sequence: a share reaches it before or after a file, a driver's report or none at all, and each fact
- * moves on whatever it unblocks. A failure stops nothing: the session goes on listening until it is stopped, and what
- * arrives late still counts.
+ * moves on whatever it unblocks. Most failures allow late arrivals; the audio wait timeout ends the session.
  *
  * Not thread-safe; the controller feeds it from one coroutine.
  */
@@ -560,6 +563,10 @@ class SessionMachine private constructor(
 
     private fun startAudio() {
         if (state.audio != null) return
+        if (state.song != null && state.audioWaitSinceNanos == null) {
+            state = state.copy(audioWaitSinceNanos = now.nanos)
+            log("audio.wait", "limit_ms" to limits.audioWaitMs)
+        }
         if (state.stage(Stage.AUDIO).status != StageStatus.FAILED) setStage(Stage.AUDIO, StageStatus.RUNNING)
         considerEverything()
     }
@@ -585,9 +592,12 @@ class SessionMachine private constructor(
         val song = state.song
         val person = previous?.person == true
         val isNew = file.modifiedWallMs >= state.startedWallMs
+        val protected = CandidateRules.isProtected(file.name)
+        val downloadName = CandidateRules.audioDownloadName(file.name)
         val match = when {
+            protected && song != null -> SongMatch.strength(song, file.copy(title = null, artist = null, durationMs = null), null)
             person -> MatchStrength.PERSON
-            song != null -> SongMatch.strength(song, file, song.songId?.let { known[it] }).let {
+            song != null -> SongMatch.strength(song, file.copy(name = downloadName ?: file.name), song.songId?.let { known[it] }).let {
                 // A share that gives only a link has no name to compare: a file that appears after it is all there is.
                 if (it == MatchStrength.NONE && song.title == null && isNew) MatchStrength.NEW_FILE else it
             }
@@ -615,6 +625,16 @@ class SessionMachine private constructor(
             else -> previous.lastChangeWallMs
         }
         val verdict = CandidateRules.judge(merged, strongest, song, match, state.startedWallMs, lastChange, now.wallMs)
+        // A real arrival or size increase buys another idle window. Repeated sightings, timestamp-only changes,
+        // unrelated files and protected files cannot keep the session alive.
+        if (state.audioWaitSinceNanos != null && match != MatchStrength.NONE &&
+            downloadName != null &&
+            verdict != Verdict.BEFORE_SESSION && file.sizeBytes > 0 &&
+            (previous == null || previous.match == MatchStrength.NONE || file.sizeBytes > previous.file.sizeBytes)
+        ) {
+            state = state.copy(audioWaitSinceNanos = now.nanos)
+            log("audio.progress", "path" to file.path, "size" to file.sizeBytes)
+        }
         remember(previous, merged, strongest, lastChange, verdict, match, person, changed)
         when (verdict) {
             Verdict.PROTECTED -> refuseProtected(merged)
@@ -661,6 +681,7 @@ class SessionMachine private constructor(
     }
 
     private fun refuseProtected(file: FileFacts) {
+        state = state.copy(protectedFileName = file.name)
         fail(FailureKind.PROTECTED_TRACK, Stage.AUDIO, file.name)
     }
 
@@ -757,7 +778,7 @@ class SessionMachine private constructor(
             "sha256" to probe.sha256,
         )
         clearFailure(Stage.AUDIO)
-        state = state.copy(audio = audio, held = emptyList())
+        state = state.copy(audio = audio, held = emptyList(), audioWaitSinceNanos = null)
         setStage(Stage.AUDIO, StageStatus.DONE, file.name)
         song?.songId?.let { effects += SessionEffect.Remember(it, file.path) }
         startChart(audio)
@@ -904,6 +925,14 @@ class SessionMachine private constructor(
     private fun tick() {
         val elapsed = (now.nanos - lastTickNanos) / 1_000_000
         lastTickNanos = now.nanos
+        val waitingSince = state.audioWaitSinceNanos
+        // A candidate already decoding is no longer waiting to arrive. Let its result decide whether it is usable.
+        if (state.audio == null && waitingSince != null && probing == null && millisSince(waitingSince) >= limits.audioWaitMs) {
+            val protected = state.protectedFileName
+            fail(if (protected != null) FailureKind.PROTECTED_TRACK else FailureKind.NO_FILE, Stage.AUDIO, protected)
+            end("audio_wait_timeout", abort = true, keepFailure = true)
+            return
+        }
         val step = state.driverStep
         val since = state.driverSinceNanos
         if (step != null && since != null && millisSince(since) > driverLimit(step)) handToPerson(step, "driver_timeout")
@@ -911,8 +940,6 @@ class SessionMachine private constructor(
             val share = state.shareNanos
             if (share == null && state.launched && millisSince(state.startedNanos) > limits.hostMs) {
                 fail(FailureKind.NO_SHARE, Stage.SHARE, null)
-            } else if (share != null && millisSince(share) > limits.fileMs) {
-                fail(FailureKind.NO_FILE, Stage.AUDIO, null)
             }
         }
         if (state.capturing) {
@@ -960,6 +987,8 @@ class SessionMachine private constructor(
                     joined = null,
                     held = emptyList(),
                     shareNanos = null,
+                    audioWaitSinceNanos = null,
+                    protectedFileName = null,
                     personFrom = null,
                     launched = false,
                     byShare = false,
@@ -973,9 +1002,9 @@ class SessionMachine private constructor(
                 resetFrom(Stage.AUDIO)
                 candidates.clear()
                 probing = null
-                state = state.copy(audio = null, chart = null, lock = null, joined = null, held = emptyList())
-                if (state.shareNanos != null) state = state.copy(shareNanos = now.nanos)
-                setStage(Stage.AUDIO, StageStatus.RUNNING)
+                state = state.copy(audio = null, chart = null, lock = null, joined = null, held = emptyList(),
+                    audioWaitSinceNanos = null, protectedFileName = null)
+                startAudio()
                 effects += SessionEffect.BuildIndex
             }
             Stage.CHART -> {
@@ -1019,16 +1048,16 @@ class SessionMachine private constructor(
         state = state.copy(stages = state.stages.map { if (it.stage >= first) StageView(it.stage) else it })
     }
 
-    private fun end(reason: String, abort: Boolean) {
+    private fun end(reason: String, abort: Boolean, keepFailure: Boolean = false) {
         if (abort) log("abort", "reason" to reason, "stage" to currentStage()?.name)
         log("session.end", "reason" to reason)
         if (state.stage(Stage.CHART).status == StageStatus.RUNNING) effects += SessionEffect.StopChart
         stopCapture()
         if (state.driverStep != null) effects += SessionEffect.CancelDriver
         effects += SessionEffect.StopListening
-        // What stood in the way of a session that is over is over too, but for its having been lost.
-        val failure = state.failure?.takeIf { it.kind == FailureKind.SESSION_LOST }
-        state = state.copy(ended = reason, driverStep = null, driverSinceNanos = null, personFrom = null, failure = failure)
+        val failure = state.failure?.takeIf { keepFailure || it.kind == FailureKind.SESSION_LOST }
+        state = state.copy(ended = reason, driverStep = null, driverSinceNanos = null, personFrom = null,
+            failure = failure, audioWaitSinceNanos = null, held = emptyList())
     }
 
     private fun currentStage(): Stage? = state.stages.lastOrNull { it.status !in setOf(StageStatus.WAITING) }?.stage
@@ -1091,6 +1120,10 @@ class SessionMachine private constructor(
             return@collect
         }
         state = state.copy(capturing = false, referenceReady = false, foreground = false, driverStep = null, driverSinceNanos = null)
+        // Older snapshots had only the stage/share clock. Never restart a wait on restore.
+        if (state.song != null && state.audio == null && state.audioWaitSinceNanos == null) {
+            state = state.copy(audioWaitSinceNanos = state.stage(Stage.AUDIO).startedNanos ?: state.shareNanos ?: now.nanos)
+        }
         lastTickNanos = now.nanos
         setStage(Stage.LISTEN, StageStatus.RUNNING)
         effects += SessionEffect.StartListening
