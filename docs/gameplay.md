@@ -163,6 +163,11 @@ encoder delay taken off when it is not 0; a VBRI header left as decoded; the pri
 off, as AVFoundation does. AAC's priming (the container's encoder delay) is taken off too, as AVFoundation does; other
 formats are as their decoders give them. The end of a file is left as decoded.
 
+For `c2.android.mp3.decoder`, the app groups complete extractor frames into codec inputs of at most 128 frames,
+requesting a 64 KiB input buffer and respecting the capacity actually supplied. A version, sample-rate or channel-count
+change ends the group. This reduces codec transactions while keeping the same decoder, frame order, lead and sample
+conversion. Cancellation is checked between frames; other codecs keep one extractor sample per input.
+
 **Reading it.** `AudioTrack.getTimestamp` gives a frame position and "the estimated time when that frame was presented
 or is committed to be presented" ([AudioTrack](https://developer.android.com/reference/android/media/AudioTrack#getTimestamp(android.media.AudioTimestamp))).
 The clock keeps the newest valid pair and carries it to any asked time at rate 1:

@@ -134,6 +134,9 @@ object SongDecoder {
         val out = PcmBuilder(channels.count, estimateFrames(durationUs, sampleRate) + maxOf(0, -startTrim))
         out.addSilence(maxOf(0, -startTrim))
         var toSkip = maxOf(0, startTrim).toLong()
+        // This platform component accepts complete MP3 frames together and preserves its decoder state.
+        // Other codecs keep one extractor sample per input buffer.
+        val batchMp3 = codec.name == "c2.android.mp3.decoder"
         val info = MediaCodec.BufferInfo()
         var inputDone = false
         var idleAfterInput = 0
@@ -149,8 +152,10 @@ object SongDecoder {
                         codec.queueInputBuffer(index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                         inputDone = true
                     } else {
-                        codec.queueInputBuffer(index, 0, size, extractor.sampleTime, 0)
-                        extractor.advance()
+                        val timestamp = extractor.sampleTime
+                        val bytes = if (batchMp3) fillMp3Buffer(extractor, buffer, size, isCancelled) else size
+                        codec.queueInputBuffer(index, 0, bytes, timestamp, 0)
+                        if (!batchMp3) extractor.advance()
                     }
                 }
             }
@@ -179,6 +184,30 @@ object SongDecoder {
         return DecodedSong(out.build(), channels.count, sampleRate, -startTrim, mime, codec.name, header)
     }
 
+    /** Queue fewer codec transactions while keeping the extractor's complete frames in their original order. */
+    private fun fillMp3Buffer(
+        extractor: MediaExtractor,
+        buffer: ByteBuffer,
+        firstSize: Int,
+        isCancelled: () -> Boolean,
+    ): Int {
+        var size = firstSize
+        val format = mp3FrameFormat(buffer, 0, firstSize)
+        extractor.advance()
+        if (format == null) return size
+        for (frame in 1 until 128) {
+            if (isCancelled()) throw CancellationException("Decoding stopped.")
+            val nextSize = extractor.sampleSize
+            if (nextSize <= 0 || nextSize > buffer.capacity() - size) break
+            val read = extractor.readSampleData(buffer, size)
+            // Leave a changed format at the extractor's current position for the next codec buffer.
+            if (read <= 0 || mp3FrameFormat(buffer, size, read) != format) break
+            size += read
+            extractor.advance()
+        }
+        return size
+    }
+
     /** Android's own decoder for [mime] where there is one, else any; a vendor's may trim differently. */
     private fun createDecoder(mime: String, format: MediaFormat): MediaCodec {
         val decoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
@@ -188,7 +217,13 @@ object SongDecoder {
         // Float output where the decoder offers it, else its own encoding, which the builder converts.
         val integer = MediaFormat(format).apply { removeKey(MediaFormat.KEY_PCM_ENCODING) }
         for (info in ordered) {
-            for (candidate in listOf(format, integer)) {
+            val candidates = listOf(format, integer).flatMap { candidate ->
+                if (info.name == "c2.android.mp3.decoder") {
+                    // A device may reject the larger allocation: retry the same decoder/encoding at its default size.
+                    listOf(MediaFormat(candidate).apply { setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 65_536) }, candidate)
+                } else listOf(candidate)
+            }
+            for (candidate in candidates) {
                 val codec = try {
                     MediaCodec.createByCodecName(info.name)
                 } catch (e: IOException) {
