@@ -223,7 +223,7 @@ suspend fun generateThroughTheApp(
 val PHASES = MakePhase.entries.map { it.name.lowercase() } + "done"
 
 /** A library of one song, a file in the app's cache. */
-private class OneSongLibrary(song: Song) : SongLibrary {
+internal class OneSongLibrary(song: Song) : SongLibrary {
     override val songs: StateFlow<List<Song>> = MutableStateFlow(listOf(song)).asStateFlow()
 
     override suspend fun add(documents: List<Uri>) = AddResult(0, 0, emptyList())
@@ -238,7 +238,7 @@ private class OneSongLibrary(song: Song) : SongLibrary {
 }
 
 /** The installed model as the app's store reports it, without downloading anything. */
-private class InstalledModelStore(directory: File, revision: String) : ChartModelStore {
+internal class InstalledModelStore(directory: File, revision: String) : ChartModelStore {
     override val state: StateFlow<ModelState> =
         MutableStateFlow<ModelState>(ModelState.Installed("Ensomi R2", revision, 0, "MIT")).asStateFlow()
     override val directory: File = directory

@@ -225,3 +225,22 @@ and logcat, and `results/` (the JSON lines and CSV files). Nothing in it is pers
   the run.
 - `Install from files` says the folder has no `ensomi-package.json`: pick the `ensomi-r2` folder itself, not Download.
 - The script stops halfway: run it again; the model stays installed, and `-g` runs only the groups still missing.
+
+## Silent decoder and chart lifetime checks
+
+These optional instrumented checks use the checks APK and never create an audio output track. They are not part of
+the default phone-check script. Run them by class with the existing instrumentation runner and a fresh `label`.
+
+- `DecoderCorpusCheck` uses the existing `song` and `songsDir` arguments (or the synthetic fallback). It compares
+  every float bit, sample rate and lead with the decoder from before bulk reads and MP3 batching. Run both
+  `channels=MONO` and `channels=STEREO`; results are `decoder-corpus-<label>.json`. It retains no audio.
+- `FormatParityCheck` reads synthetic fixtures from `decoder-formats` under the check output directory: at least
+  seven files covering WAV, FLAC, Ogg, Opus, M4A, MP3 and AAC, with an MP3 long enough to reach 150 cancellation
+  checks. It compares both channel counts and checks cancellation within and between frame groups. Results are
+  `decoder-formats-<label>.json`.
+- `ChartLifetimeCheck` uses the same song arguments and the installed model. It stops preparation and chart work,
+  retries, then checks that the cached preparation produces the same chart. Its
+  `chart-lifetime-<label>` cache directory must not already exist. Results are `chart-lifetime-<label>.json`.
+
+Decoder corpus comparisons require thermal status zero. Compiling the instrumentation APK alone does not establish
+decoder parity or cancellation timing.

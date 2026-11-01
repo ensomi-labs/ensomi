@@ -94,12 +94,23 @@ track is protected; download a purchased MP3 instead"), not a route, and an MP3 
 
 ## From the audio to the game
 
+The required runtime AAR is `codex/android-perf-2` at `b12bb0f`, SHA-256
+`16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`,
+selected through `ensomi.runtime.aar` ([README](../README.md#localproperties)).
+
 **Chart.** `RuntimeChartMaker` makes it, kept in the app's `ChartStore`. A chart made from the same bytes is used as it
 is, whether by a session or from the Library. Chart generation and reference building start independently once the
 complete audio is decoded. Capture still waits for Ensomi to be in front. Either may finish first: the game waits for
 both the chart and a final lock, and advances the lock's capture anchor to the current time when planning the join.
 Chart completion never restarts an active capture or turns a provisional position into a final lock. A chart retry
 restarts both tasks; restoring an interrupted chart retains an existing final anchor on the same monotonic timeline.
+
+The chart reuses the probe's complete mono PCM and SHA-256 when the path and hash agree, saving a second decode and
+hash pass; otherwise it follows the ordinary file path. A waiting chart also finishes inside preparation's open
+model scope, saving another model open. Codec PCM is read in bulk, and the Android software MP3 decoder batches
+complete frames ([gameplay](gameplay.md#the-clock-song-time-from-the-audio-being-heard)). The measured K Pad model (`25079RPDCC`) requests eight
+BeatThis threads; other models keep the runtime default. On the measured real recognition path, Start to join fell
+from 35.6 to 21.6 s (14.0 s saved). This is a prior device observation, not an emulator timing or a bound for other songs.
 
 **Sync.** Android gives the microphone to the app on top, so capture starts only with Ensomi in front, and a person
 sent away is asked to come back. `AudioRecord` runs at 48 kHz mono in float, from `UNPROCESSED` where the device has it,
