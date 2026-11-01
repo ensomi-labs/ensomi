@@ -71,7 +71,8 @@ class RecognitionController private constructor(context: Context) {
     private var syncRun: SyncRun? = null
     private var syncGeneration = 0
     private val referenceWorker = RuntimeWorker()
-    private var decoded: Pair<String, DecodedSong>? = null
+    private data class ProbedAudio(val path: String, val sha256: String?, val song: DecodedSong)
+    private var decoded: ProbedAudio? = null
 
     @Volatile
     private var listening: MediaListening? = null
@@ -258,7 +259,7 @@ class RecognitionController private constructor(context: Context) {
             is SessionEffect.Probe -> scope.launch {
                 val (facts, song) = probe.probe(effect.file)
                 post {
-                    if (song != null) decoded = effect.file.path to song
+                    if (song != null) decoded = ProbedAudio(effect.file.path, facts.sha256, song)
                     feed(SessionEvent.Probed(effect.file, facts))
                 }
             }
@@ -267,7 +268,10 @@ class RecognitionController private constructor(context: Context) {
                 post { feed(SessionEvent.LinkLookedUp(effect.url, lookup.songId, lookup.outcome)) }
             }
             is SessionEffect.Remember -> storage.remember(effect.songId, effect.path)
-            is SessionEffect.MakeChart -> charts.make(effect.audio, mutableOptions.value.stars)
+            is SessionEffect.MakeChart -> charts.make(
+                effect.audio, mutableOptions.value.stars,
+                decoded?.takeIf { it.path == effect.audio.file.path && it.sha256 == effect.audio.sha256 }?.song,
+            )
             SessionEffect.StopChart -> charts.stop()
             is SessionEffect.BuildReference -> buildReference(effect.audio)
             SessionEffect.StartCapture -> startCapture()
@@ -318,7 +322,7 @@ class RecognitionController private constructor(context: Context) {
     private fun buildReference(audio: ReadyAudio) {
         closeSync()
         val generation = syncGeneration
-        val kept = decoded?.takeIf { it.first == audio.file.path }?.second
+        val kept = decoded?.takeIf { it.path == audio.file.path && it.sha256 == audio.sha256 }?.song
         scope.launch {
             val started = SystemClock.elapsedRealtimeNanos()
             try {

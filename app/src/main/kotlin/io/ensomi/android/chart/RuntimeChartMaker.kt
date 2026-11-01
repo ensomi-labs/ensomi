@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.audio.DecodeException
 import io.ensomi.android.audio.PcmChannels
 import io.ensomi.android.audio.SongDecoder
@@ -178,7 +179,15 @@ class RuntimeChartMaker(
         synchronized(lock) { startPreparation(songId) }
     }
 
-    override fun make(songId: String, request: ChartRequest) {
+    override fun make(songId: String, request: ChartRequest) = makeWithAudio(songId, request, null)
+
+    /** Reuses the complete mono decoding and hash already checked by recognition. The caller retains ownership. */
+    fun makeFromDecoded(songId: String, request: ChartRequest, audio: DecodedSong, sha256: String) =
+        makeWithAudio(songId, request, DecodedInput(audio, sha256))
+
+    private class DecodedInput(val audio: DecodedSong, val sha256: String)
+
+    private fun makeWithAudio(songId: String, request: ChartRequest, input: DecodedInput?) {
         val making = Making()
         synchronized(lock) {
             if (makings[songId] != null) return
@@ -187,7 +196,7 @@ class RuntimeChartMaker(
         setState(songId, MakeState.Making(songId, MakePhase.LOADING))
         scope.launch {
             val state = try {
-                makeChart(songId, request, making)
+                makeChart(songId, request, making, input)
             } catch (failure: Exception) {
                 failed(songId, failure, making)
             }
@@ -224,14 +233,14 @@ class RuntimeChartMaker(
         }
     }
 
-    private suspend fun makeChart(songId: String, request: ChartRequest, making: Making): MakeState {
+    private suspend fun makeChart(songId: String, request: ChartRequest, making: Making, input: DecodedInput?): MakeState {
         val song = songs.song(songId) ?: return MakeState.Failed(songId, "The song is no longer in the library.")
         val directory = model.directory ?: return MakeState.Failed(songId, "The chart model is not installed.")
         // The song's audio stages: the background preparation's, once it is done, or a new one.
         var key: String? = null
         var sha256: String? = null
         for (attempt in 0 until 2) {
-            val preparation = synchronized(lock) { startPreparation(songId) }
+            val preparation = synchronized(lock) { startPreparation(songId, input) }
                 ?: return MakeState.Failed(songId, "The chart model is not installed.")
             preparation.wanted = true
             making.preparation = preparation
@@ -310,14 +319,14 @@ class RuntimeChartMaker(
     }.also { if (it is MakeState.Failed) Log.i(TAG, "Chart for $songId not made: ${it.message}") }
 
     /** The song's preparation under way, or a new one; null without a model. Call it holding [lock]. */
-    private fun startPreparation(songId: String): Preparation? {
+    private fun startPreparation(songId: String, input: DecodedInput? = null): Preparation? {
         preparations[songId]?.let { return it }
         if (model.directory == null) return null
         val preparation = Preparation(songId)
         preparations[songId] = preparation
         preparation.job = scope.launch {
             try {
-                preparation.key = prepareSong(preparation)
+                preparation.key = prepareSong(preparation, input)
             } catch (failure: Exception) {
                 if (!preparation.stopped.get()) {
                     Log.w(TAG, "Preparing $songId failed: $failure")
@@ -332,18 +341,18 @@ class RuntimeChartMaker(
     }
 
     /** Runs the song's audio stages unless they are kept already; returns their key in [prepared]. */
-    private suspend fun prepareSong(preparation: Preparation): String? {
+    private suspend fun prepareSong(preparation: Preparation, input: DecodedInput?): String? {
         val song: Song = songs.song(preparation.songId) ?: return null
         val uri = song.uri ?: return null
         val directory = model.directory ?: return null
         val revision = (model.state.value as? ModelState.Installed)?.let { it.revision ?: it.name } ?: return null
-        val sha256 = sha256(uri)
+        val sha256 = input?.sha256 ?: sha256(uri)
         preparation.sha256 = sha256
         val key = "$sha256/$revision"
         if (prepared.get(key) != null) return key
         preparation.report(MakePhase.LOADING)
         val started = System.nanoTime()
-        val audio = SongDecoder.decode(appContext, uri, PcmChannels.MONO) { preparation.stopped.get() }
+        val audio = input?.audio ?: SongDecoder.decode(appContext, uri, PcmChannels.MONO) { preparation.stopped.get() }
         if (preparation.stopped.get()) return null
         val decoded = System.nanoTime()
         preparation.report(MakePhase.TIMING)

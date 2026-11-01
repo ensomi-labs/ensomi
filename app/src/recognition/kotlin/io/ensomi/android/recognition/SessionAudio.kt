@@ -42,8 +42,8 @@ import kotlinx.coroutines.launch
 fun FileFacts.readUri(): Uri = uri?.toUri() ?: Uri.fromFile(File(path))
 
 /**
- * A file's decoding, to the end, with the app's own decoder: the proof that it is whole, and, since the same PCM builds
- * Sync's reference, the only time a song is decoded twice over. A `.ncm` never gets here ([CandidateRules]).
+ * Reads the file to the end with the app's decoder to check that it is whole. The chart and Sync's reference reuse
+ * this mono PCM. A `.ncm` never gets here ([CandidateRules]).
  */
 class AudioProbe(context: Context) {
     private val appContext = context.applicationContext
@@ -163,12 +163,12 @@ class SessionCharts(
     @Volatile
     private var making: String? = null
 
-    fun make(audio: ReadyAudio, stars: Double) {
+    fun make(audio: ReadyAudio, stars: Double, decoded: DecodedSong? = null) {
         val previous = job
         job = scope.launch {
             previous?.cancelAndJoin()
             try {
-                run(audio, stars)
+                run(audio, stars, decoded)
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
@@ -194,7 +194,7 @@ class SessionCharts(
         }
     }
 
-    private suspend fun run(audio: ReadyAudio, stars: Double) {
+    private suspend fun run(audio: ReadyAudio, stars: Double, decoded: DecodedSong?) {
         val started = System.nanoTime()
         stored(audio.sha256)?.let { chart ->
             emit(SessionEvent.ChartReady(ChartFacts(chart.songId, chart.noteCount, stored = true), 0.0))
@@ -216,7 +216,12 @@ class SessionCharts(
         // A chart stopped a moment ago may still be stopping, and the maker takes one at a time.
         maker.states.first { it[id] !is MakeState.Making }
         making = id
-        maker.make(id, ChartRequest(stars, seed = null, sections = emptyList()))
+        val request = ChartRequest(stars, seed = null, sections = emptyList())
+        if (decoded != null && audio.sha256 != null) {
+            maker.makeFromDecoded(id, request, decoded, audio.sha256)
+        } else {
+            maker.make(id, request)
+        }
         val outcome = maker.states.map { it[id] }.distinctUntilChanged().first { state ->
             if (state is MakeState.Making) emit(SessionEvent.ChartPhase(state.phase.name))
             state is MakeState.Made || state is MakeState.Failed || state is MakeState.Stopped
