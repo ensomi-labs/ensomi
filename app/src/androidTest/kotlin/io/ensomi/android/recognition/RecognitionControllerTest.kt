@@ -235,11 +235,13 @@ class RecognitionControllerTest {
         serialized(controller)
         controller.opened()
         val before = controller.session.value
+        val beforeNotice = controller.shareNotice.value
         androidx.test.core.app.ActivityScenario.launch<ShareActivity>(android.content.Intent(context, ShareActivity::class.java)
             .setAction(android.content.Intent.ACTION_SEND).setType("text/plain")
             .putExtra(android.content.Intent.EXTRA_TEXT, "   ")).use {
             serialized(controller)
             assertEquals(before, controller.session.value)
+            assertEquals(beforeNotice, controller.shareNotice.value)
             assertFalse(controller.opens.value)
         }
     }
