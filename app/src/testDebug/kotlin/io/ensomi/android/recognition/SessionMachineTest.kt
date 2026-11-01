@@ -118,7 +118,7 @@ class SessionMachineTest {
         assertEquals(SongIdentity(186016, "晴天", "周杰伦"), bench.state.song)
         assertEquals(StageStatus.DONE, bench.status(Stage.SHARE))
         assertEquals(StageStatus.RUNNING, bench.status(Stage.AUDIO))
-        assertEquals(listOf(Ask.WAIT_FOR_DOWNLOAD), bench.state.asks)
+        assertEquals(listOf(Ask.DOWNLOAD_HELP), bench.state.asks)
 
         val file = bench.song()
         assertTrue(bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)).isEmpty())
@@ -373,12 +373,9 @@ class SessionMachineTest {
         val bench = Bench()
         bench.listening()
         bench.on(shared)
-        bench.run(9_999)
-        assertEquals(listOf(Ask.WAIT_FOR_DOWNLOAD), bench.state.asks)
-        bench.run(1)
-        assertEquals(listOf(Ask.DOWNLOAD_HELP), bench.state.asks)
+        assertEquals(listOf(Ask.DOWNLOAD_HELP), bench.state.asks) // No tick or delay after indexing.
         assertNull(bench.state.failure)
-        bench.run(4_999)
+        bench.run(14_999)
         assertTrue(bench.state.running)
         val effects = bench.run(1)
         assertEquals(FailureKind.NO_FILE, bench.state.failure?.kind)
@@ -432,6 +429,7 @@ class SessionMachineTest {
         assertTrue(SessionEffect.Probe(file) in bench.on(SessionEvent.FileSeen(file, Evidence.POLL)))
         bench.run(20_000) // Arrival timeout must not interrupt a decoder already reading the file.
         assertTrue(bench.state.running)
+        assertFalse(Ask.DOWNLOAD_HELP in bench.state.asks)
         bench.on(bench.probed(file))
         assertEquals(file, bench.state.audio?.file)
         assertNull(bench.state.failure)
@@ -493,7 +491,7 @@ class SessionMachineTest {
     }
 
     @Test
-    fun growthRenewsBothMessageAndStopAndRestorationKeepsTheMarks() {
+    fun matchingGrowthHidesTheMessageAndRenewsTheStopWhileRestorationKeepsTheClock() {
         val shared = SharedSong(title = "Paper Aurora", artist = "Mira Vale")
         val bench = Bench(shared = shared)
         bench.listening()
@@ -503,7 +501,7 @@ class SessionMachineTest {
         bench.on(SessionEvent.FileSeen(file, Evidence.WRITING))
         assertEquals(listOf(Ask.WAIT_FOR_DOWNLOAD), bench.state.asks)
         bench.run(10_000)
-        assertEquals(listOf(Ask.DOWNLOAD_HELP), bench.state.asks)
+        assertEquals(listOf(Ask.WAIT_FOR_DOWNLOAD), bench.state.asks)
         file = file.copy(sizeBytes = 2000)
         bench.on(SessionEvent.FileSeen(file, Evidence.WRITING))
         assertEquals(listOf(Ask.WAIT_FOR_DOWNLOAD), bench.state.asks)
@@ -928,6 +926,7 @@ class SessionMachineTest {
     fun recognitionTimeDoesNotCountAndAShareDoesNotRestartTheWait() {
         val bench = Bench()
         bench.run(120_000) // Indexing, after the share, has not finished yet.
+        assertFalse(Ask.DOWNLOAD_HELP in bench.state.asks)
         assertNull(bench.state.audioWaitSinceNanos)
         bench.listening()
         val started = bench.nanos

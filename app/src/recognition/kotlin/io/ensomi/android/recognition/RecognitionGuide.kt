@@ -99,8 +99,8 @@ fun RecognitionGuide(controller: RecognitionController, modelReady: Boolean, onB
                 launchMessage?.let { Text(stringResource(it)) }
             }
             item { GuideStep(R.string.guide_step_recognise, R.string.guide_recognise) }
-            item { GuideStep(R.string.guide_step_download, R.string.guide_download) }
             item { GuideStep(R.string.guide_step_share, R.string.guide_after_share) }
+            item { Text(stringResource(R.string.guide_download)) }
         }
     }
 }

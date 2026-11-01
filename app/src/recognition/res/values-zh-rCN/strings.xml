@@ -17,9 +17,8 @@
     <string name="guide_open">打开网易云音乐</string>
     <string name="guide_step_recognise">2. 识别歌曲</string>
     <string name="guide_recognise">保持音乐播放，在网易云音乐中使用「听歌识曲」。如果网易云音乐显示多个结果，请选择你已下载的那一个。</string>
-    <string name="guide_step_download">3. 等 MP3 下载完成</string>
-    <string name="guide_download">将识别出的歌曲下载为 MP3，并等待下载完成。如果网易云音乐提示已下载，请返回并点「分享」。仅支持 MP3；无法使用网易云音乐的受保护格式（.ncm）。</string>
-    <string name="guide_step_share">4. 分享到 Ensomi</string>
+    <string name="guide_download">如果 Ensomi 提示手机上还没有这首歌，请在网易云音乐中下载为 MP3，等下载完成后再分享。仅支持 MP3；无法使用网易云音乐的受保护格式（.ncm）。</string>
+    <string name="guide_step_share">3. 分享到 Ensomi</string>
     <string name="guide_after_share">在网易云音乐中点「分享」，选择 Ensomi。收到分享后，Ensomi 会说明下一步。保持音乐播放，并停留在 Ensomi 中等待对齐。</string>
     <string name="guide_no_host">尚未安装网易云音乐。请安装后按步骤操作。</string>
     <string name="guide_launch_failed">无法打开网易云音乐。请自行打开，并按这些步骤操作。</string>

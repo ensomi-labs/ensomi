@@ -57,7 +57,7 @@ enum class Ask {
     /** The share arrived and no file has. */
     WAIT_FOR_DOWNLOAD,
 
-    /** Audio has not arrived by the first idle mark; the session is still waiting. */
+    /** The index is ready with no matching file, offer or probe; the session is still waiting. */
     DOWNLOAD_HELP,
 
     /** The session needs the microphone, and Ensomi is not in front. */
@@ -151,8 +151,6 @@ data class SessionState(
 data class SessionLimits(
     /** Idle time waiting for a known song's audio, renewed by a matching file arriving or growing. */
     val audioWaitMs: Long = 15_000,
-    /** Show the no-audio explanation while still waiting, on the same renewable idle clock. */
-    val audioMessageMs: Long = 10_000,
     /** How long capture may run without a final lock. */
     val syncMs: Long = 180_000,
     val titleOfferMs: Long = 180_000,
@@ -981,8 +979,11 @@ class SessionMachine private constructor(
         if (!state.running) return@buildList
         val waitingForFile = state.audio == null && state.shareNanos != null
         if (waitingForFile && state.titleOfferPaths.isEmpty() && state.failure?.kind != FailureKind.PROTECTED_TRACK) {
+            val matchingFile = candidates.values.any {
+                it.match != MatchStrength.NONE && CandidateRules.audioDownloadName(it.file.name) != null
+            }
             val explain = state.stage(Stage.LISTEN).status == StageStatus.DONE &&
-                state.audioWaitSinceNanos?.let { millisSince(it) >= limits.audioMessageMs } == true
+                probing == null && state.held.isEmpty() && !matchingFile
             add(if (explain) Ask.DOWNLOAD_HELP else Ask.WAIT_FOR_DOWNLOAD)
         }
         if (state.stage(Stage.SYNC).status == StageStatus.RUNNING && !state.foreground) add(Ask.RETURN_TO_ENSOMI)

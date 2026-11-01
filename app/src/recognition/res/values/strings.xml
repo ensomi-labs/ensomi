@@ -48,8 +48,8 @@
 
     <string name="recognition_failure_not_song_zh" translatable="false">分享的不是单曲。请分享歌曲本身。</string>
     <string name="recognition_failure_not_song_en" translatable="false">What was shared is not a song. Share the song itself.</string>
-    <string name="recognition_failure_no_file_zh" translatable="false">没有等到可用的音频。仅支持 MP3。请等下载完成后再分享。网易云音乐保存为受保护格式的歌曲无法使用。</string>
-    <string name="recognition_failure_no_file_en" translatable="false">No usable audio arrived. Only MP3 works. Let the download finish before sharing. A song NetEase saved in its protected format cannot be used.</string>
+    <string name="recognition_failure_no_file_zh" translatable="false">这部手机上还没有这首歌。请在网易云音乐中下载 MP3，等下载完成后再分享。仅支持 MP3。</string>
+    <string name="recognition_failure_no_file_en" translatable="false">This song is not on this phone yet. Download the MP3 in NetEase, let it finish, then share again. Only MP3 works.</string>
     <string name="recognition_failure_protected_zh" translatable="false">发现了这首歌的 .ncm 文件：它采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。</string>
     <string name="recognition_failure_protected_en" translatable="false">A .ncm file was found for this song: it is in a protected format that Ensomi cannot use. Try a song that downloads as an MP3.</string>
     <string name="recognition_failure_no_model_zh" translatable="false">没有安装谱面模型。请从曲库安装后重试。</string>
@@ -84,9 +84,8 @@
     <string name="guide_open">Open NetEase Cloud Music</string>
     <string name="guide_step_recognise">2. Recognise the song</string>
     <string name="guide_recognise">In NetEase, use Recognize Music (听歌识曲) while the music keeps playing. If NetEase shows several results, pick the one you have already downloaded.</string>
-    <string name="guide_step_download">3. Finish downloading the MP3</string>
-    <string name="guide_download">Download the recognised song as MP3 and wait until it finishes. If NetEase says it is already downloaded, go back and tap Share. Only MP3 works; NetEase’s protected format (.ncm) cannot be used.</string>
-    <string name="guide_step_share">4. Share to Ensomi</string>
+    <string name="guide_download">If Ensomi says this song is not on your phone, download it as MP3 in NetEase, let it finish, then share again. Only MP3 works; NetEase’s protected format (.ncm) cannot be used.</string>
+    <string name="guide_step_share">3. Share to Ensomi</string>
     <string name="guide_after_share">In NetEase, tap Share and choose Ensomi. Your share shows what to do next. Keep the music playing and stay in Ensomi while it lines up.</string>
     <string name="guide_no_host">NetEase Cloud Music is not installed. Install it to follow these steps.</string>
     <string name="guide_launch_failed">NetEase Cloud Music could not open. Open it yourself and follow these steps.</string>
