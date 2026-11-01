@@ -98,3 +98,7 @@ object ShareParser {
         return title to artist
     }
 }
+
+/** Prefer the share body; some senders repeat it (or a heading) in EXTRA_SUBJECT. */
+fun shareText(subject: String?, text: String?): String =
+    text?.takeIf { it.isNotBlank() } ?: subject.orEmpty()

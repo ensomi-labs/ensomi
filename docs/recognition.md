@@ -29,7 +29,7 @@ is absent or cannot open, the guide explains that plainly. It does not attempt a
 entry out of the main task, so a later share reaches the entry again even after a share cold-started the app.
 It treats every share as untrusted: empty text,
 text with no song, a missing model, or either permission missing leads to a plain guide message, without starting
-file work or capture. Parsing is bounded to 8,192 characters. A ready song share starts the session; a different song
+file work or capture. Empty shares are ignored. A non-song share during a live session or game only shows a brief message and preserves all work. The share body takes precedence over the subject so a duplicated subject cannot garble the song name. Parsing is bounded to 8,192 characters. A ready song share starts the session; a different song
 replaces it. A repeat share of the same song retains accepted audio, chart and sync, and does not restart the wait.
 
 Text can name a song in `分享Artist的单曲《Title》` or supply a public `music.163.com` / `y.music.163.com` song URL.

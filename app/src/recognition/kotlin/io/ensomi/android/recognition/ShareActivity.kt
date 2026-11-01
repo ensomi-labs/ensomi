@@ -12,11 +12,11 @@ import io.ensomi.android.MainActivity
 class ShareActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val text = runCatching { listOfNotNull(
+        val text = runCatching { shareText(
             intent?.getStringExtra(Intent.EXTRA_SUBJECT),
             intent?.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString(),
-        ).joinToString("\n") }.getOrDefault("")
-        if (intent?.action == Intent.ACTION_SEND) {
+        ) }.getOrDefault("")
+        if (intent?.action == Intent.ACTION_SEND && text.isNotBlank()) {
             RecognitionController.get(this).share(text, runCatching { referrer?.host }.getOrNull())
         }
         startActivity(

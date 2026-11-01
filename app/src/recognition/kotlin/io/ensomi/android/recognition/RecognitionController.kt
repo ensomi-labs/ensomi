@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
+import io.ensomi.android.R
 import io.ensomi.android.AppStores
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.model.ModelState
@@ -124,6 +126,12 @@ class RecognitionController private constructor(context: Context) {
         mutableOpens.value = true
         post {
             val shared = ShareParser.parse(text)
+            if (shared?.namesSong != true && machine?.state?.running == true) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, R.string.guide_not_song, Toast.LENGTH_SHORT).show()
+                }
+                return@post
+            }
             val decision = shareDecision(shared, guideState())
             if (decision != ShareDecision.START) {
                 if (machine?.state?.running == true) feed(SessionEvent.Stop("share_needs_setup"))

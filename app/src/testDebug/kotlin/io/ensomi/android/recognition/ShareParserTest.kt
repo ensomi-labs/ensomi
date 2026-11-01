@@ -8,6 +8,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShareParserTest {
+    @Test fun repeatedSubjectDoesNotBecomePartOfTheTitle() {
+        val body = "分享Cloud Quartet的单曲《Evening Paper》: https://music.163.com/song?id=42"
+        val song = ShareParser.parse(shareText(body, body))!!
+        assertEquals("Evening Paper", song.title)
+        assertEquals("Cloud Quartet", song.artist)
+        assertEquals(body, shareText("A heading", body))
+        assertEquals(body, shareText(body, ""))
+    }
+
     private fun parsed(text: String): SharedSong = assertNotNull(text, ShareParser.parse(text)).let { ShareParser.parse(text)!! }
 
     @Test
