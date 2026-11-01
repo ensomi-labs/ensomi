@@ -231,6 +231,10 @@ sealed interface SessionEffect {
 
     data object StopChart : SessionEffect
 
+    data object ResetSync : SessionEffect
+
+    data class Forget(val songId: Long) : SessionEffect
+
     data class BuildReference(val audio: ReadyAudio) : SessionEffect
 
     data object StartCapture : SessionEffect
@@ -272,6 +276,7 @@ class SessionMachine private constructor(
     private var known: Map<Long, String> = emptyMap()
     private val candidates = LinkedHashMap<String, Candidate>()
     private var probing: String? = null
+    private val rejectedPaths = HashSet<String>()
 
     /** What the session remembers of one file. */
     private class Candidate(
@@ -306,6 +311,7 @@ class SessionMachine private constructor(
     private inline fun collect(block: () -> Unit): List<SessionEffect> {
         effects.clear()
         block()
+        if (state.running) probeNext()
         state = state.copy(asks = asks())
         return effects.toList()
     }
@@ -445,7 +451,7 @@ class SessionMachine private constructor(
     }
 
     private fun consider(file: FileFacts, evidence: Evidence) {
-        if (state.audio != null) return
+        if (state.audio != null || file.path in rejectedPaths) return
         val previous = candidates[file.path]
         val song = state.song
         val person = previous?.person == true
@@ -455,7 +461,7 @@ class SessionMachine private constructor(
         val match = when {
             protected && song != null -> SongMatch.strength(song, file.copy(title = null, artist = null, durationMs = null), null)
             person -> MatchStrength.PERSON
-            song != null -> SongMatch.strength(song, file.copy(name = downloadName ?: file.name), song.songId?.let { known[it] }).let {
+            song != null -> SongMatch.strength(song, file.copy(name = downloadName ?: file.name), song.songId?.let { known[it] }.takeIf { song.title == null }).let {
                 // A share that gives only a link has no name to compare: a file that appears after it is all there is.
                 if (it == MatchStrength.NONE && song.title == null && isNew) MatchStrength.NEW_FILE else it
             }
@@ -500,7 +506,6 @@ class SessionMachine private constructor(
             Verdict.PROTECTED -> refuseProtected(merged)
             Verdict.NO_SONG_YET, Verdict.NO_MATCH -> hold(merged)
             Verdict.BEFORE_SESSION -> if (match == MatchStrength.TITLE_ONLY) hold(merged)
-            Verdict.PROBE -> probeNext()
             else -> Unit
         }
     }
@@ -578,8 +583,8 @@ class SessionMachine private constructor(
 
     /** One decoder at a time: the surest candidate first. */
     private fun probeNext() {
-        if (probing != null || state.audio != null) return
-        val next = candidates.values.filter { it.verdict == Verdict.PROBE }.maxByOrNull { it.match.ordinal } ?: return
+        if (probing != null || state.audio != null || state.stage(Stage.LISTEN).status != StageStatus.DONE) return
+        val next = candidates.values.filter { it.verdict == Verdict.PROBE }.maxWithOrNull(compareBy<Candidate> { it.match.ordinal }.thenBy { it.file.modifiedWallMs }.thenBy { it.file.path }) ?: return
         probing = next.file.path
         effects += SessionEffect.Probe(next.file)
     }
@@ -848,6 +853,9 @@ class SessionMachine private constructor(
                 effects += SessionEffect.BuildIndex
             }
             Stage.AUDIO -> {
+                state.audio?.file?.path?.let { rejectedPaths += it }
+                state.song?.songId?.let { effects += SessionEffect.Forget(it); known = known - it }
+                index = emptyList()
                 stopWork()
                 resetFrom(Stage.AUDIO)
                 candidates.clear()
@@ -884,6 +892,7 @@ class SessionMachine private constructor(
 
     /** Whatever is under way stops; the stages it belonged to are reset by the caller. */
     private fun stopWork() {
+        effects += SessionEffect.ResetSync
         if (state.stage(Stage.CHART).status == StageStatus.RUNNING) effects += SessionEffect.StopChart
         stopCapture()
     }

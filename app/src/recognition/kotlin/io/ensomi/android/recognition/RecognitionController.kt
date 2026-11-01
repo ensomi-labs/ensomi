@@ -306,6 +306,8 @@ class RecognitionController private constructor(context: Context) {
                 val lookup = ShortLinks.lookUp(effect.url)
                 postFor(current) { feed(SessionEvent.LinkLookedUp(effect.url, lookup.songId, lookup.outcome)) }
             }
+            SessionEffect.ResetSync -> { closeSync(); decoded = null; mutableGame.value = null }
+            is SessionEffect.Forget -> storage.forget(effect.songId)
             is SessionEffect.Remember -> storage.remember(effect.songId, effect.path)
             is SessionEffect.MakeChart -> charts.make(
                 effect.audio, mutableOptions.value.stars,

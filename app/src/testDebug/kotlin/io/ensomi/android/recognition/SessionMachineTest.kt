@@ -222,7 +222,7 @@ class SessionMachineTest {
         val bench = Bench()
         val existing = FileFacts("/music/track.mp3", "track.mp3", 8_000_000, bench.wallMs - 86_400_000)
         bench.on(SessionEvent.IndexReady(listOf(existing), mapOf(186016L to existing.path)))
-        assertTrue(SessionEffect.Probe(existing) in bench.on(shared))
+        assertTrue(SessionEffect.Probe(existing) in bench.on(SessionEvent.ShareReceived("https://music.163.com/song?id=186016", SharedSong(songId = 186016), null)))
         assertEquals("SONG_ID", bench.events("audio.candidate").last()["match"])
     }
 
@@ -1100,6 +1100,7 @@ class SessionMachineTest {
     @Test
     fun aPublishedMediaStoreUriRetriesAnUnreadableFolderFileWithoutGrowth() {
         val bench = Bench()
+        bench.listening()
         bench.on(shared)
         val file = bench.song(modified = bench.wallMs - 5000)
         assertEquals(listOf<SessionEffect>(SessionEffect.Probe(file)), bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)))
@@ -1115,6 +1116,7 @@ class SessionMachineTest {
     @Test
     fun mediaAccessArrivingDuringTheFilesystemProbeIsNotLost() {
         val bench = Bench()
+        bench.listening()
         bench.on(shared)
         val file = bench.song(modified = bench.wallMs - 5000)
         bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))

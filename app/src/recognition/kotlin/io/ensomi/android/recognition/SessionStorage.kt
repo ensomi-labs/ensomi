@@ -83,6 +83,10 @@ class SessionStorage(context: Context) {
         write(knownFile, json.encodeToString(KNOWN, known.mapKeys { it.key.toString() }))
     }
 
+    fun forget(songId: Long) {
+        write(knownFile, json.encodeToString(KNOWN, (knownSongs() - songId).mapKeys { it.key.toString() }))
+    }
+
     private fun write(file: AtomicFile, text: String) {
         val stream = file.startWrite()
         try {

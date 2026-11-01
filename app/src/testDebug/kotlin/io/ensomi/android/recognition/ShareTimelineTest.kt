@@ -37,4 +37,18 @@ class ShareTimelineTest {
         // With neither full-length metadata nor a header, a frame-aligned truncation is unknowable.
         assertEquals(Verdict.READY, CandidateRules.judgeDecoded(old.copy(durationMs = null), probe))
     }
+    @Test fun allRowsAreRankedBeforeProbingAndRetryCanChooseAnotherFile() {
+        val machine = machine()
+        val older = file("Cloud Quartet").copy(path = "/music/older.mp3")
+        val newer = file("Cloud Quartet", 80_000)
+        val weak = file().copy(path = "/music/weak.mp3")
+        val rows = listOf(weak, older, newer)
+        assertEquals(listOf(SessionEffect.Probe(newer)), machine.on(SessionEvent.IndexReady(rows, mapOf(42L to older.path)), time))
+        machine.on(SessionEvent.Probed(newer, ProbeFacts(true, 10000.0, sizeBytes = newer.sizeBytes, modifiedWallMs = newer.modifiedWallMs)), time)
+        val retry = machine.on(SessionEvent.Retry(Stage.AUDIO), time)
+        assertTrue(SessionEffect.ResetSync in retry)
+        assertTrue(SessionEffect.Forget(42) in retry)
+        assertEquals(listOf(SessionEffect.Probe(older)), machine.on(SessionEvent.IndexReady(rows, emptyMap()), time))
+    }
+
 }
