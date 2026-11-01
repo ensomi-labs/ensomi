@@ -1,6 +1,10 @@
 package io.ensomi.android.checks
 
 import android.net.Uri
+import io.ensomi.android.audio.DecodedSong
+import io.ensomi.android.chart.PreparedStore
+import io.ensomi.android.chart.SectionDraft
+import kotlinx.coroutines.Job
 import io.ensomi.android.chart.ChartRequest
 import io.ensomi.android.chart.ChartStore
 import io.ensomi.android.chart.GeneratorChoices
@@ -134,6 +138,9 @@ suspend fun generateThroughTheApp(
     stars: Double,
     seed: ULong,
     scratch: File,
+    preparedRoot: File = File(scratch, "prepared"),
+    fromStoredDecoded: Boolean = false,
+    sections: List<SectionDraft> = emptyList(),
 ): Generation {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val songId = "check-song"
@@ -141,11 +148,13 @@ suspend fun generateThroughTheApp(
     val model = InstalledModelStore(modelDirectory, revision)
     scratch.deleteRecursively()
     val store = ChartStore(File(scratch, "charts"))
+    var maker: RuntimeChartMaker? = null
     try {
         val openStarted = System.nanoTime()
-        val maker = RuntimeChartMaker(PhoneCheck.context, scope, songs, model, store, lowMemory)
+        val current = RuntimeChartMaker(PhoneCheck.context, scope, songs, model, store, lowMemory, PreparedStore(preparedRoot))
+        maker = current
         // The maker opens the model once to read its capabilities; that is done before the measurement starts.
-        withTimeout(120_000) { maker.capabilities.filterNotNull().first() }
+        withTimeout(120_000) { current.capabilities.filterNotNull().first() }
         val modelOpenMs = (System.nanoTime() - openStarted) / 1e6
 
         val phase = AtomicReference("start")
@@ -175,7 +184,7 @@ suspend fun generateThroughTheApp(
         val started = System.nanoTime()
         sampler.start()
         val watcher = scope.launch {
-            maker.states.collect { states ->
+            current.states.collect { states ->
                 val state = states[songId]
                 val name = when (state) {
                     is MakeState.Making -> state.phase.name.lowercase()
@@ -185,9 +194,14 @@ suspend fun generateThroughTheApp(
                 if (phase.getAndSet(name) != name) phaseStart.putIfAbsent(name, (System.nanoTime() - started) / 1e6)
             }
         }
-        maker.make(songId, ChartRequest(stars = stars, seed = seed, sections = emptyList()))
+        val request = ChartRequest(stars = stars, seed = seed, sections = sections)
+        if (fromStoredDecoded) {
+            // Deliberately unusable PCM: a disk hit must not inspect it or run prepare on it.
+            val sentinel = DecodedSong(FloatArray(0), 1, 44_100, 0, "test", "test", null)
+            current.makeFromDecoded(songId, request, sentinel, PhoneCheck.sha256(song.file))
+        } else current.make(songId, request)
         val end = withTimeout(30 * 60_000L) {
-            maker.states.first { states ->
+            current.states.first { states ->
                 val state = states[songId]
                 state is MakeState.Made || state is MakeState.Failed || state is MakeState.Stopped
             }.getValue(songId)
@@ -215,7 +229,10 @@ suspend fun generateThroughTheApp(
             modelOpenMs = modelOpenMs,
         )
     } finally {
+        maker?.quiet()
         scope.cancel()
+        scope.coroutineContext[Job]?.join()
+        maker?.close()
     }
 }
 

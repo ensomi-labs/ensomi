@@ -53,8 +53,8 @@ class GameLoader(
         viewModelScope.launch(Dispatchers.IO) { mutableLoad.value = loadGame() }
     }
 
-    private fun loadGame(): GameLoad {
-        charts.quiet()
+    private suspend fun loadGame(): GameLoad {
+        charts.awaitQuiet()
         val uri = song.uri ?: return GameLoad.Failed(R.string.play_failed_missing)
         val last = charts.lastChart(song.id) ?: return GameLoad.Failed(R.string.play_failed_no_chart)
         val beatmap = try {

@@ -100,6 +100,18 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
         graph.songs.refresh()
         onStopOrDispose { }
     }
+    val destination = backStack.lastOrNull()
+    val idleScreen = destination is Library || destination is MakeChart || destination is Settings
+    LifecycleStartEffect(graph.charts, idleScreen) {
+        graph.charts.background(idleScreen)
+        onStopOrDispose { graph.charts.background(false) }
+    }
+    var quietFor by remember { mutableStateOf<NavKey?>(null) }
+    LaunchedEffect(destination) {
+        if (!idleScreen) graph.charts.awaitQuiet()
+        quietFor = destination
+    }
+    val preparedSongs by graph.charts.preparedSongs.collectAsStateWithLifecycle()
     val model by graph.model.state.collectAsStateWithLifecycle()
     val settings by graph.settings.settings.collectAsStateWithLifecycle()
     val route by graph.settings.route.collectAsStateWithLifecycle()
@@ -130,6 +142,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 entry<Library> {
                     LibraryScreen(
                         songs = songs,
+                        preparedSongs = preparedSongs,
                         model = model,
                         onAddSongs = { addSongs.launch(arrayOf(AUDIO)) },
                         onOpenSong = { backStack.add(MakeChart(it.id)) },
@@ -172,6 +185,8 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     )
                 }
                 entry<Play> { key ->
+                    // Keep navigation state mounted while the worker finishes cancellation and cleanup.
+                    if (quietFor != key) return@entry
                     val song = key.songId?.let(graph.songs::song)
                     val playAudio = graph.playAudio
                     if (song?.uri != null && playAudio != null && !key.loop) {
@@ -219,6 +234,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     )
                 }
                 entry<Calibration> {
+                    if (quietFor != Calibration) return@entry
                     CalibrationScreen(
                         settings = settings,
                         route = route,
@@ -246,6 +262,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 }
                 entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
                 entry<RecognitionSession> {
+                    if (quietFor != RecognitionSession) return@entry
                     RecognitionEntry.Content(settings = settings, onBack = { backStack.removeLastOrNull() })
                 }
             },

@@ -137,5 +137,11 @@ class RecentValues<K, V>(private val limit: Int, private val close: (V) -> Unit 
     }
 
     @Synchronized
+    fun clear() {
+        values.values.forEach(close)
+        values.clear()
+    }
+
+    @Synchronized
     fun keys(): List<K> = values.keys.toList()
 }

@@ -67,6 +67,9 @@ are kept for it), and an extended floating action button, **Add songs**. Tapping
   each return to the app, by asking the provider for the document's name (a cloud file is not fetched), and a song
   whose file fails to open is marked the same way.
 - The songs are listed by title as the phone's language sorts it; a song without a title tag shows its file name.
+- A small **Prepared** label beside the chart count means the song's stored audio stages have been checked this
+  launch. Songs added to the library and songs present at launch prepare one at a time while the app is on an idle
+  screen. There is no extra action or progress panel. The label disappears when that stored preparation is evicted.
 
 ### Getting the chart model
 
@@ -170,10 +173,19 @@ One screen per song. The top app bar has Back and the song's title; under it, th
   shows Loading audio while it decodes the song, Finding the beat while the runtime's `prepare` runs, Placing notes
   while the whole-chart scheduler works and Finishing while the chart is saved. The scheduler reports no phases of its
   own, so Arranging lanes is never shown under way (as in the Swift app; plan.md, Runtime changes).
-- Choosing a song starts the runtime's `prepare` (the audio stages, most of the work) in the background, as the Swift
-  app does, so Make chart often has only the chart stages left. The four latest are kept in memory by the SHA-256 of
-  the song's file and the model's revision. A game starting stops a preparation nobody waits for, so the game has the
-  processor; opening the song again starts it again.
+- Library songs prepare ahead, so Make chart often has only the chart stages left. The four latest preparations
+  stay in memory; up to 512 MiB stay in private app storage across launches. A chart request immediately signals
+  cancellation of background work for another song, and keeps the queue suspended until the chart finishes. Play,
+  the preview and calibration wait for cancellation and cleanup, then keep the queue suspended. Leaving the app
+  also suspends the queue; returning to Library, Make chart or Settings resumes it. A stopped background song retries
+  after the interruption. A failed song is retried on the next launch or an explicit chart request.
+- The stored form is the runtime's `Prepared.bytes()`: audio row features, the fitted beat grid and song length,
+  without decoded PCM or a chart. Memory and disk use the same audio SHA-256/model-revision key (hashed again for
+  the filename). A disk hit is read through `Prepared(bytes)` before any decoding or BeatThis. Star, seed and
+  sections still run through the chart scheduler, including the recognition route with already decoded audio.
+  Writes use a synced temporary file and atomic rename. Least recently used files are evicted above 512 MiB.
+  Changed audio or model revision selects another key; the runtime refuses incompatible format/runtime/model
+  bytes. Unreadable or refused files are deleted and calculated again. Cache write failure does not fail a chart.
 - The fields are disabled while a chart is being made. Stop signals the runtime's `Cancellation` (during the audio
   stages) or the scheduler's `stop()` (during the chart stages) from another thread; the runtime stops at its next
   graph run.

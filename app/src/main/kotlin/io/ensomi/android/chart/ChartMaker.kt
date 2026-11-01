@@ -1,6 +1,7 @@
 package io.ensomi.android.chart
 
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** The five phases a generation reports, in order: the runtime's `GenerationPhase`. */
 enum class MakePhase { LOADING, TIMING, ROWS, ARRANGEMENT, EXPORT }
@@ -50,7 +51,13 @@ interface ChartMaker {
     /** Each song's state; a song without one is [MakeState.Idle]. */
     val states: StateFlow<Map<String, MakeState>>
 
-    /** The song's screen opened: shows its last chart, and starts the runtime's `prepare` for it in the background. */
+    /** Songs whose stored audio stages have been checked in this process. */
+    val preparedSongs: StateFlow<Set<String>> get() = EMPTY_PREPARED
+
+    /** Allow library preparation while the app is foregrounded on an idle screen. */
+    fun background(enabled: Boolean) = Unit
+
+    /** The song's screen opened: shows its last chart. */
     fun open(songId: String) = Unit
 
     fun make(songId: String, request: ChartRequest)
@@ -60,6 +67,11 @@ interface ChartMaker {
     /** A game is about to start: work nobody waits for stops, so the game has the processor to itself. */
     fun quiet() = Unit
 
+    /** Wait for cancelled background work to release its processor and model before starting play. */
+    suspend fun awaitQuiet() { quiet() }
+
     /** The last chart made for the song, or null. Reads app storage: call it off the main thread. */
     fun lastChart(songId: String): LastChart? = null
 }
+
+private val EMPTY_PREPARED: StateFlow<Set<String>> = MutableStateFlow(emptySet())
