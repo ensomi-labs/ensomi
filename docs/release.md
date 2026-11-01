@@ -45,6 +45,10 @@ only the owner can do.
 
 ## 1. CI on `dev/android`
 
+CodeQL’s default setup is off, because this branch has no workflows and Kotlin cannot be analysed without a build,
+which needs the runtime AAR. An advanced workflow comes with the published AAR.
+
+
 **Where the file lives.** `.github/workflows/android.yml` on `dev/android`. "Each workflow run will use the version of the
 workflow that is present in the associated commit SHA or Git ref of the event", so pushes, pull requests and tags need nothing
 on `dev/swift`. Only `schedule` and `workflow_dispatch` need the file on the default branch, and nothing here uses them.

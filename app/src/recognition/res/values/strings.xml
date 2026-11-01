@@ -24,7 +24,7 @@
     <string name="recognition_more">More %1$s</string>
     <string name="recognition_trace">Trace: %1$s</string>
 
-    <string name="recognition_stage_listen">Find the downloaded MP3</string>
+    <string name="recognition_stage_listen">Check music files on this device</string>
     <string name="recognition_stage_share">Share reached Ensomi</string>
     <string name="recognition_stage_audio">Audio ready</string>
     <string name="recognition_stage_chart">Chart</string>
@@ -36,26 +36,26 @@
     <string name="recognition_status_done">Done</string>
     <string name="recognition_status_failed">Failed</string>
 
-    <string name="recognition_ask_wait_zh" translatable="false">等下载完成。没开始的话，回网易云点「下载」</string>
-    <string name="recognition_ask_wait_en" translatable="false">Waiting for the download. If it has not started, go back to NetEase and tap Download</string>
+    <string name="recognition_ask_wait_zh" translatable="false">正在查找已下载的 MP3。若十秒内没有找到匹配文件或下载进度，会话将停止。请先完成下载，再重新分享。</string>
+    <string name="recognition_ask_wait_en" translatable="false">Checking for the downloaded MP3. The session stops after ten seconds without a matching file or download progress. Finish downloading first, then share again.</string>
     <string name="recognition_ask_return_zh" translatable="false">回到 Ensomi，保持在这个屏幕</string>
     <string name="recognition_ask_return_en" translatable="false">Come back to Ensomi and stay on this screen</string>
     <string name="recognition_ask_silent_zh" translatable="false">麦克风听不到声音：音乐还在放吗？</string>
     <string name="recognition_ask_silent_en" translatable="false">The microphone hears nothing. Is the music still playing?</string>
 
-    <string name="recognition_failure_not_song_zh" translatable="false">分享的不是单曲</string>
+    <string name="recognition_failure_not_song_zh" translatable="false">分享的不是单曲。请分享歌曲本身。</string>
     <string name="recognition_failure_not_song_en" translatable="false">What was shared is not a song. Share the song itself.</string>
     <string name="recognition_failure_no_file_zh" translatable="false">没有等到可用的音频，会话已停止。仅支持 MP3。请等下载完成后再分享。网易云音乐保存为受保护格式的歌曲无法使用。</string>
     <string name="recognition_failure_no_file_en" translatable="false">No usable audio arrived, so the session stopped. Only MP3 works. Let the download finish before sharing. A song NetEase saved in its protected format cannot be used.</string>
     <string name="recognition_failure_protected_zh" translatable="false">发现了这首歌的 .ncm 文件：它采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。</string>
     <string name="recognition_failure_protected_en" translatable="false">A .ncm file was found for this song: it is in a protected format that Ensomi cannot use. Try a song that downloads as an MP3.</string>
-    <string name="recognition_failure_no_model_zh" translatable="false">没有安装谱面模型</string>
+    <string name="recognition_failure_no_model_zh" translatable="false">没有安装谱面模型。请从曲库安装后重试。</string>
     <string name="recognition_failure_no_model_en" translatable="false">The chart model is not installed. Install it from the Library, then try again.</string>
     <string name="recognition_failure_chart_zh" translatable="false">谱面没有生成</string>
     <string name="recognition_failure_chart_en" translatable="false">The chart could not be made.</string>
     <string name="recognition_failure_sync_zh" translatable="false">同步失败</string>
     <string name="recognition_failure_sync_en" translatable="false">Sync failed.</string>
-    <string name="recognition_failure_no_lock_zh" translatable="false">同步没有锁定，不会凭猜测加入</string>
+    <string name="recognition_failure_no_lock_zh" translatable="false">同步没有锁定，不会凭猜测加入。房间里播放的可能是另一版本（如现场版），或音乐已经停止。</string>
     <string name="recognition_failure_no_lock_en" translatable="false">Sync never locked, so the game does not join at a guess. The music in the room may be another recording, such as a live version, or may have stopped.</string>
     <string name="recognition_failure_capture_zh" translatable="false">麦克风不能用</string>
     <string name="recognition_failure_capture_en" translatable="false">The microphone could not be used.</string>
@@ -63,9 +63,9 @@
     <string name="recognition_failure_song_ended_en" translatable="false">The song in the room ended before the game could join.</string>
     <string name="recognition_failure_game_zh" translatable="false">游戏没有开始</string>
     <string name="recognition_failure_game_en" translatable="false">The game could not start.</string>
-    <string name="recognition_failure_quit_zh" translatable="false">已退出游戏</string>
+    <string name="recognition_failure_quit_zh" translatable="false">已退出游戏。歌曲仍在播放时，可以再次加入。</string>
     <string name="recognition_failure_quit_en" translatable="false">The game was left. It can join the music again while the song plays.</string>
-    <string name="recognition_failure_lost_zh" translatable="false">系统关闭了应用，这次会话丢失了</string>
+    <string name="recognition_failure_lost_zh" translatable="false">系统关闭了应用，这次会话丢失了。请重新开始。</string>
     <string name="recognition_failure_lost_en" translatable="false">The system closed the app and this session was lost. Start again.</string>
     <string name="guide_intro">Follow these steps yourself while the music plays. Ensomi waits for your share.</string>
     <string name="guide_microphone">Microphone</string>
@@ -84,7 +84,7 @@
     <string name="guide_step_recognise">2. Recognise the song</string>
     <string name="guide_recognise">In NetEase, use Recognize Music (听歌识曲) while the music keeps playing.</string>
     <string name="guide_step_download">3. Finish downloading the MP3</string>
-    <string name="guide_download">Download the recognised song as MP3 and wait until it finishes. Only MP3 works; NetEase’s protected format (.ncm) cannot be used.</string>
+    <string name="guide_download">Download the recognised song as MP3 and wait until it finishes. If NetEase says it is already downloaded, go back and tap Share. Only MP3 works; NetEase’s protected format (.ncm) cannot be used.</string>
     <string name="guide_step_share">4. Share to Ensomi</string>
     <string name="guide_after_share">In NetEase, tap Share and choose Ensomi. Your share shows what to do next. Keep the music playing and stay in Ensomi while it lines up.</string>
     <string name="guide_no_host">NetEase Cloud Music is not installed. Install it to follow these steps.</string>
@@ -93,4 +93,11 @@
     <string name="guide_share_again">Ready. Share the song to Ensomi again to start.</string>
     <string name="recognition_failure_name_zh" translatable="false">链接没有提供可匹配的歌曲名称，会话已停止。请从网易云音乐分享单曲；分享内容会包含歌名和歌手。</string>
     <string name="recognition_failure_name_en" translatable="false">The link did not provide a name to match, so the session stopped. Share the song from NetEase Cloud Music; its share includes the song name and artist.</string>
+    <string name="guide_restored">The app was closed. Share the song again to start a new session.</string>
+    <string name="recognition_leave_title">Stop this session?</string>
+    <string name="recognition_leave_text">Leaving stops file checking, chart work and the microphone.</string>
+    <string name="recognition_stay">Stay</string>
+    <string name="recognition_library_wait">Waiting for the Library’s chart work to finish stopping…</string>
+    <string name="recognition_failure_memory_zh" translatable="false">这首歌需要的内存过多，会话已停止。请试试较短的 MP3。</string>
+    <string name="recognition_failure_memory_en" translatable="false">This song needs more memory than is available, so the session stopped. Try a shorter MP3.</string>
 </resources>

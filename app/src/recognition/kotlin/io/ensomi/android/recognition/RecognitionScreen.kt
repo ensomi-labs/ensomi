@@ -7,6 +7,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
+import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
@@ -72,13 +74,13 @@ import kotlinx.coroutines.delay
 
 /** Progress and next steps after a song share. */
 @Composable
-fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
+fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit, waitingForLibrary: Boolean = false) {
     val state by controller.session.collectAsStateWithLifecycle()
     val options by controller.options.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val debug = DebugTools.enabled(context)
-    LifecycleResumeEffect(controller) {
-        controller.setFrontmost(true)
+    LifecycleResumeEffect(controller, waitingForLibrary) {
+        controller.setFrontmost(!waitingForLibrary)
         onPauseOrDispose { controller.setFrontmost(false) }
     }
     // A screen that sleeps stops the microphone, and Sync may take minutes with nobody touching it.
@@ -114,12 +116,25 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
         }
     }
 
+    var confirmStop by remember { mutableStateOf(false) }
+    val leave: () -> Unit = { if (state?.running == true) confirmStop = true else onBack() }
+    BackHandler(onBack = leave)
+    if (confirmStop) AlertDialog(
+        onDismissRequest = { confirmStop = false },
+        title = { Text(stringResource(R.string.recognition_leave_title)) },
+        text = { Text(stringResource(R.string.recognition_leave_text)) },
+        confirmButton = { TextButton(onClick = { controller.stop(); confirmStop = false; onBack() }) {
+            Text(stringResource(R.string.recognition_stop))
+        } },
+        dismissButton = { TextButton(onClick = { confirmStop = false }) { Text(stringResource(R.string.recognition_stay)) } },
+    )
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.recognition_title)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = leave) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = stringResource(R.string.action_back))
                     }
                 },
@@ -148,7 +163,8 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                             onRetry = { controller.retry(failure.kind.retryFrom) }, onBack = onBack)
                     }
                 }
-                item(key = "guide") {
+                if (waitingForLibrary) item(key = "library-wait") { Text(stringResource(R.string.recognition_library_wait)) }
+                if (current?.running != true) item(key = "guide") {
                     OutlinedButton(onClick = controller::showGuide, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.guide_show)) }
                 }
                 item(key = "controls") {
@@ -241,7 +257,7 @@ private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(painterResource(R.drawable.ic_warning), contentDescription = null, modifier = Modifier.size(24.dp))
-                Text(stringResource(R.string.recognition_failed_at, stringResource(failure.stage.label())), style = MaterialTheme.typography.titleMedium)
+                if (DebugTools.enabled(LocalContext.current)) Text(stringResource(R.string.recognition_failed_at, stringResource(failure.stage.label())), style = MaterialTheme.typography.titleMedium)
             }
             val (chinese, english) = failure.kind.words()
             Text(stringResource(chinese), fontSize = 24.sp, lineHeight = 30.sp, style = MaterialTheme.typography.titleLarge)
@@ -475,6 +491,7 @@ private fun Ask.english(): Int = when (this) {
 /** The failure in Chinese and in English. */
 private fun FailureKind.words(): Pair<Int, Int> = when (this) {
     FailureKind.NOT_A_SONG -> R.string.recognition_failure_not_song_zh to R.string.recognition_failure_not_song_en
+    FailureKind.AUDIO_TOO_LARGE -> R.string.recognition_failure_memory_zh to R.string.recognition_failure_memory_en
     FailureKind.NAME_NEEDED -> R.string.recognition_failure_name_zh to R.string.recognition_failure_name_en
     FailureKind.NO_FILE -> R.string.recognition_failure_no_file_zh to R.string.recognition_failure_no_file_en
     FailureKind.PROTECTED_TRACK -> R.string.recognition_failure_protected_zh to R.string.recognition_failure_protected_en

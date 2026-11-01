@@ -117,7 +117,7 @@ class MediaListening(
     /** The file at [path] as it is now, or null when it has gone. Blocking. */
     fun look(path: String): FileFacts? {
         val file = File(path)
-        return rows(null).firstOrNull { it.path == path }
+        return rows("${MediaStore.Audio.Media.DATA} = ?", arrayOf(path)).firstOrNull()
             ?: if (file.isFile) stat(file, withTags = true) else null
     }
 
@@ -202,9 +202,10 @@ class MediaListening(
         }
     }
 
-    private fun rows(selection: String?): List<FileFacts> {
+    private fun rows(selection: String?, selectionArgs: Array<String>? = null): List<FileFacts> {
         val arguments = Bundle().apply {
             putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
             putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
         }
         val found = ArrayList<FileFacts>()

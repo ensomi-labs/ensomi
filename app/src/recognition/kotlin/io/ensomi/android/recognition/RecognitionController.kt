@@ -74,10 +74,12 @@ class RecognitionController private constructor(context: Context) {
     private var trace: SessionTrace? = null
     private var lastSaved: SessionState? = null
     private var frontmost = false
-    private var guideOpened: SessionNow? = null
+    private var guideOpened: SessionNow? = storage.readGuideTime()
+    private var pendingRestore: SessionState? = null
     private var aligner: AmbientAligner? = null
     private var syncRun: SyncRun? = null
     private var syncGeneration = 0
+    private var gameGeneration = 0
     private val referenceWorker = RuntimeWorker()
     private data class ProbedAudio(val path: String, val sha256: String?, val song: DecodedSong)
     private var decoded: ProbedAudio? = null
@@ -105,20 +107,28 @@ class RecognitionController private constructor(context: Context) {
     }
 
     fun showGuide() = post {
+        if (machine?.state?.running == true) return@post
+        val saved = pendingRestore
+        pendingRestore = null
+        if (saved != null && canResumeSnapshot(saved, now(), limits())) {
+            resume(saved)
+            return@post
+        }
+        storage.clearSnapshot()
         guideOpened = now()
-        feed(SessionEvent.Stop("guide"))
+        storage.writeGuideTime(guideOpened!!)
         machine = null
         mutableGame.value = null
         mutableSession.value = null
-        mutableShareNotice.value = null
     }
 
     fun stop() = post {
+        gameGeneration++
         feed(SessionEvent.Stop("person"))
         mutableGame.value = null
     }
 
-    fun retry(stage: Stage) = post { feed(SessionEvent.Retry(stage, modelInstalled())) }
+    fun retry(stage: Stage) = post { gameGeneration++; feed(SessionEvent.Retry(stage, modelInstalled())) }
 
     fun useFile(path: String) = post { feed(SessionEvent.UseFile(path)) }
 
@@ -143,8 +153,13 @@ class RecognitionController private constructor(context: Context) {
                 mutableShareNotice.value = decision
                 return@post
             }
+            pendingRestore = null
             mutableShareNotice.value = null
             if (startsNewSession(machine?.state, shared?.identity)) begin()
+            else if (machine?.state?.failure?.kind in setOf(FailureKind.SYNC_FAILED, FailureKind.SYNC_NEVER_LOCKED)) {
+                gameGeneration++
+                feed(SessionEvent.Retry(Stage.AUDIO, modelInstalled()))
+            }
             feed(SessionEvent.ShareReceived(text, shared, source), received)
         }
     }
@@ -205,6 +220,7 @@ class RecognitionController private constructor(context: Context) {
     }
 
     private suspend fun begin() {
+        gameGeneration++
         mutableGame.value = null
         if (machine?.state?.running == true) feed(SessionEvent.Stop("replaced"))
         closeSync()
@@ -251,23 +267,26 @@ class RecognitionController private constructor(context: Context) {
         )
     }
 
-    private suspend fun restore() {
+    private fun restore() {
         val saved = storage.readSnapshot() ?: return
+        if (canResumeSnapshot(saved, now(), limits())) pendingRestore = saved
+        else storage.clearSnapshot()
+        mutableShareNotice.value = ShareDecision.RESTORE
+        // A launch is not consent to open a session or start its microphone.
+    }
+
+    private suspend fun resume(saved: SessionState) {
         val guide = guideState()
         if (!guide.ready) {
-            storage.clearSnapshot()
             mutableShareNotice.value = if (!guide.modelReady) ShareDecision.MODEL else ShareDecision.PERMISSIONS
             return
         }
-        if (!saved.running) return
         val log = SessionTrace(storage.traceFile(saved.cid), saved.cid, SystemClock::elapsedRealtimeNanos)
         trace = log
         val (restored, effects) = SessionMachine.restored(saved, now(), limits()) { event, fields -> log.log(event, fields) }
         machine = restored
         published(restored)
         effects.forEach { carryOut(it) }
-        // Also for one that could not be picked up: the screen is where that is said.
-        mutableOpens.value = true
     }
 
     private suspend fun feed(event: SessionEvent, time: SessionNow = now()) {
@@ -296,7 +315,12 @@ class RecognitionController private constructor(context: Context) {
                 postFor(current) { feed(if (found != null) SessionEvent.FileSeen(found, Evidence.POLL) else SessionEvent.FileGone(effect.path)) }
             }
             is SessionEffect.Probe -> workScope?.launch {
-                val (facts, song) = probe.probe(effect.file) { !isActive }
+                val (facts, song) = try {
+                    probe.probe(effect.file) { !isActive }
+                } catch (_: OutOfMemoryError) {
+                    postFor(current) { feed(SessionEvent.AudioTooLarge) }
+                    return@launch
+                }
                 postFor(current) {
                     if (song != null) decoded = ProbedAudio(effect.file.path, facts.sha256, song)
                     feed(SessionEvent.Probed(effect.file, facts))
@@ -382,6 +406,8 @@ class RecognitionController private constructor(context: Context) {
                         feed(SessionEvent.ReferenceReady(opened.backend, seconds))
                     }
                 }
+            } catch (_: OutOfMemoryError) {
+                post { if (generation == syncGeneration) feed(SessionEvent.AudioTooLarge) }
             } catch (failure: Exception) {
                 Log.w(TAG, "The reference could not be built", failure)
                 val reason = failure.message ?: failure.javaClass.simpleName
@@ -421,25 +447,32 @@ class RecognitionController private constructor(context: Context) {
 
     private fun join(lock: LockAnchor) {
         closeSync()
-        val state = machine?.state ?: return
+        val current = machine ?: return
+        val state = current.state
+        val generation = gameGeneration
         val audio = state.audio ?: return
         val chart = state.chart ?: return
         val options = mutableOptions.value
         mutableOpens.value = true
         scope.launch {
-            val event = try {
+            val planned = try {
                 plan(lock, chart, audio, options)
             } catch (failure: Exception) {
                 Log.w(TAG, "The game could not be joined", failure)
-                SessionEvent.GameFailed(failure.message ?: failure.javaClass.simpleName)
+                SessionEvent.GameFailed(failure.message ?: failure.javaClass.simpleName) to null
             }
-            post { feed(event) }
+            postFor(current) {
+                if (generation == gameGeneration) {
+                    mutableGame.value = planned.second
+                    feed(planned.first)
+                }
+            }
         }
     }
 
     /** The game from where the music has got to now: the lock's time is the anchor, this is only when to come in. */
-    private fun plan(lock: LockAnchor, facts: ChartFacts, audio: ReadyAudio, options: SessionOptions): SessionEvent {
-        val chart = charts.load(facts, audio) ?: return SessionEvent.GameFailed("The chart could not be read.")
+    private fun plan(lock: LockAnchor, facts: ChartFacts, audio: ReadyAudio, options: SessionOptions): Pair<SessionEvent, AmbientGame?> {
+        val chart = charts.load(facts, audio) ?: return SessionEvent.GameFailed("The chart could not be read.") to null
         val clock = AmbientPlayClock(lock)
         val scrollMs = stores.settings.settings.value.scrollTimeMs
         val monoNow = System.nanoTime()
@@ -461,9 +494,9 @@ class RecognitionController private constructor(context: Context) {
                 "song_ms" to chart.durationMs,
             ),
         )
-        if (plan == null) return SessionEvent.JoinRefused("heard ${heard.toLong()} ms of ${chart.durationMs} ms")
-        mutableGame.value = AmbientGame(plan.chart, clock, plan.joinMs, options.ambientOffsetMs.toDouble(), options.autoplay)
-        return SessionEvent.Joined(JoinFacts(plan.joinMs, heard, plan.chart.notes.size, plan.notesSkipped))
+        if (plan == null) return SessionEvent.JoinRefused("heard ${heard.toLong()} ms of ${chart.durationMs} ms") to null
+        val game = AmbientGame(plan.chart, clock, plan.joinMs, options.ambientOffsetMs.toDouble(), options.autoplay)
+        return SessionEvent.Joined(JoinFacts(plan.joinMs, heard, plan.chart.notes.size, plan.notesSkipped)) to game
     }
 
     /**

@@ -5,7 +5,7 @@ data class GuideState(val modelReady: Boolean, val microphone: Boolean, val musi
     val ready: Boolean get() = modelReady && microphone && music
 }
 
-enum class ShareDecision { START, MODEL, PERMISSIONS, NOT_SONG }
+enum class ShareDecision { START, MODEL, PERMISSIONS, NOT_SONG, RESTORE }
 
 /** Untrusted shares never start work until the song and the local prerequisites are known. */
 fun shareDecision(song: SharedSong?, guide: GuideState): ShareDecision = when {
@@ -17,4 +17,14 @@ fun shareDecision(song: SharedSong?, guide: GuideState): ShareDecision = when {
 
 /** The guide gives a recent download its proper place in this attempt. */
 fun sessionBeginning(guide: SessionNow?, share: SessionNow): SessionNow =
-    guide?.takeIf { share.nanos - it.nanos in 0..1_800_000_000_000L } ?: share
+    guide?.takeIf { share.nanos - it.nanos in 0..1_800_000_000_000L && share.wallMs - it.wallMs in 0..1_800_000L } ?: share
+
+/** Restoration is dormant until a person opens Listen & Play; an expired wait is discarded. */
+fun canResumeSnapshot(saved: SessionState, now: SessionNow, limits: SessionLimits): Boolean {
+    if (!saved.running || saved.stage(Stage.PLAY).status == StageStatus.RUNNING) return false
+    val age = (now.nanos - saved.startedNanos) / 1_000_000
+    if (age !in 0..limits.restoreMs) return false
+    val wait = saved.audioWaitSinceNanos
+    return saved.audio != null || saved.held.isNotEmpty() || wait == null ||
+        (now.nanos - wait) / 1_000_000 < limits.audioWaitMs
+}

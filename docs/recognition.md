@@ -18,7 +18,7 @@ There is one launch path and four steps, in English and Simplified Chinese:
 1. **Open NetEase Cloud Music.** The person taps the guide’s button. It calls `getLaunchIntentForPackage` for
    `com.netease.cloudmusic`, with `FLAG_ACTIVITY_NEW_TASK`, preserving the page already open. Nothing else launches it.
 2. **Recognise the song.** The person uses NetEase’s 听歌识曲 while the music keeps playing.
-3. **Finish downloading the MP3.** The person downloads the recognised song as MP3 and waits for it to finish.
+3. **Finish downloading the MP3.** The person downloads the recognised song as MP3 and waits for it to finish. If NetEase says it is already downloaded, go back and Share.
 4. **Share to Ensomi.** The person taps Share and chooses Ensomi. The guide says that a share shows what to do next;
    keep the music playing and stay in Ensomi while it lines up.
 
@@ -26,11 +26,11 @@ NetEase’s recognition results and download rights belong to its own UI. Ensomi
 is absent or cannot open, the guide explains that plainly. It does not attempt another launch path.
 
 `ShareActivity` is exported and accepts `ACTION_SEND`, `text/plain`. Its empty task affinity keeps this temporary
-entry out of the main task, so a later share reaches the entry again even after a share cold-started the app.
+entry out of the main task. It starts MainActivity with the launcher’s MAIN/LAUNCHER intent; MainActivity uses singleTask so a launcher tap after a cold share cannot add a second instance. Navigation requests are collected only while the activity is started.
 It treats every share as untrusted: empty text,
 text with no song, a missing model, or either permission missing leads to a plain guide message, without starting
 file work or capture. Empty shares are ignored. A non-song share during a live session or game only shows a brief message and preserves all work. The share body takes precedence over the subject so a duplicated subject cannot garble the song name. Parsing is bounded to 8,192 characters. A ready song share starts the session; a different song
-replaces it. A repeat share of the same song retains accepted audio, chart and sync, and does not restart the wait.
+replaces it. Listen & Play returns to a live session. Show the guide is available only after it ends; Back asks whether to stop an active session. After process death, a snapshot stays dormant until the person opens Listen & Play, and expired waits are discarded. A new share always starts a fresh wait after process death. A restore notice never opens a screen by itself and is kept when the guide opens. The guide renders immediately while library work stops; the session displays that wait. A repeat share of the same song retains accepted audio, chart and sync, and does not restart the wait.
 
 Text can name a song in `分享Artist的单曲《Title》` or supply a public `music.163.com` / `y.music.163.com` song URL.
 Public `163cn.tv` and `163.tn` short links are resolved with at most three HTTP redirects, each with three-second
@@ -59,7 +59,7 @@ chart/sync ordering, restoration and joining.
 
 Release needs no launch extras, shell commands or options file. Defaults are microphone capture, autoplay off,
 3.5 stars, ambient offset 0, audio idle wait 10 seconds and sync limit three minutes. Debug/checks builds alone expose
-replay, diagnostic details and options. All builds use the same limited storage permissions.
+replay, diagnostic details and options, including raw stage details, song IDs and “Stopped at”. The index row says “Check music files on this device”; Done means indexing finished. Audio ready means a usable file was found. All builds use the same limited storage permissions.
 
 ## Finding the MP3
 
@@ -68,7 +68,7 @@ Three sources run concurrently. MediaStore with `READ_MEDIA_AUDIO` is the suppor
 A five-second poll checks both the folder and MediaStore. No build requests all-files access. Refreshing a candidate
 checks MediaStore first, preserving its content URI even when direct filesystem access is unavailable. A newly published
 URI retries an unreadable folder candidate even without size growth; a row added during the session is considered even
-when the file preserves an older modification time. Every index row is compared before the first probe; eligible files are ranked by match strength, then newest modification time. A remembered path is used only for an unnamed ID share, so it cannot override newer named evidence. Retry from Audio forgets that ID mapping and excludes the rejected file for the current attempt, allowing another take. It also invalidates outstanding alignment work. A raw shell push may need an explicit media scan before it is readable.
+when the file preserves an older modification time. Every index row is compared before the first probe; eligible files are ranked by match strength, then newest modification time. A remembered path is used only for an unnamed ID share, so it cannot override newer named evidence. Retry from Audio (also a same-song re-share after failed alignment) forgets that ID mapping and excludes the rejected file for the current attempt, allowing another take. It also invalidates outstanding alignment work. A raw shell push may need an explicit media scan before it is readable.
 
 | Evidence | Meaning |
 | --- | --- |
@@ -82,11 +82,11 @@ length tolerance). Temporary suffixes cannot be decoded. Tags and filenames matc
 song ID may identify the same file. Older files with title and artist (or a remembered ID) can match automatically. An older title-only match is offered under “Files that may be the song”; Use this file is required. While choices are offered, the idle timeout is suspended. New uncertain files may also be offered. The session’s file timeline starts when the guide was opened within the preceding 30 minutes, otherwise at the share. The unused song-duration field and unreachable duration-mismatch verdict are removed; decoding still compares against file metadata. A headerless partial MP3 whose metadata describes only the surviving frames cannot reliably be distinguished from a short complete recording. Matching folds width, case, punctuation and spacing, and removes only complete, recognised distribution
 credits; Live, Remix, Instrumental, TV Size and unknown parenthesised text stay distinct.
 
-**The 10-second wait starts at the share.** It is an idle limit. A first nonempty matching MP3 candidate and each observed
+**The 10-second wait starts once the first index is ready and a share names the song.** It is an idle limit. A first nonempty matching MP3 candidate and each observed
 size increase grant a fresh ten seconds, including a visible pending MediaStore row or a recognisable temporary MP3
 name. Repeated sightings, timestamp-only changes, unrelated files and protected-file growth cannot extend it. A probe
 already decoding can finish. The one-second tick stops the session at or after the idle deadline. A frozen process
-checks when Android runs it again; restoration retains the same clock.
+checks when Android runs it again; an explicitly resumed snapshot retains the same clock. Re-sharing after process death starts a fresh session and re-arms its wait after indexing.
 
 A person who shares while the download grows gets this allowance where a source can see that growth. When no source
 can see it, the wait ends with the ordinary message, in both languages:
@@ -104,6 +104,8 @@ Timeout records `failure`, `abort` and `session.end` with `audio_wait_timeout`, 
 and releases capture and alignment. The explanation remains on screen with Back and a route to the guide.
 
 ## Chart, capture and joining
+
+An out-of-memory failure during decoding or reference building stops the session with a plain message and clears its snapshot. Trace creation, writes and close tolerate disk errors. Candidate refresh queries only the requested MediaStore path. A delayed game plan is published only if its session and retry generation still match.
 
 A complete MP3 is decoded once to mono PCM and hashed. The chart and alignment reference reuse that PCM when possible.
 Chart generation and reference building proceed independently; an existing chart with the same hash may be reused.

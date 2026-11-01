@@ -38,6 +38,8 @@ class GuideStateTest {
         assertEquals(listOf(SessionEffect.StartListening, SessionEffect.BuildIndex), initial)
         machine.on(SessionEvent.ShareReceived(text, shared, null), now)
         assertEquals("Song", machine.state.song?.title)
+        assertNull(machine.state.audioWaitSinceNanos)
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), now)
         assertEquals(now.nanos, machine.state.audioWaitSinceNanos)
         machine.on(SessionEvent.Tick, SessionNow(now.nanos + 9_999_000_000, 10_999))
         assertTrue(machine.state.running)

@@ -35,6 +35,7 @@ enum class FailureKind(val retryFrom: Stage) {
     NOT_A_SONG(Stage.SHARE),
     NO_FILE(Stage.AUDIO),
     NAME_NEEDED(Stage.SHARE),
+    AUDIO_TOO_LARGE(Stage.AUDIO),
     PROTECTED_TRACK(Stage.AUDIO),
     MODEL_MISSING(Stage.CHART),
     CHART_FAILED(Stage.CHART),
@@ -113,7 +114,7 @@ data class SessionState(
     /** Files that may be the song, for the person to choose when nothing else can say. */
     val held: List<FileFacts> = emptyList(),
     val shareNanos: Long? = null,
-    /** Audio waiting starts once the song is known; arrival or growth renews this idle clock. */
+    /** Audio waiting starts once the song and index are ready; arrival or growth renews this idle clock. */
     val audioWaitSinceNanos: Long? = null,
     /** A matching protected filename was seen. Its contents are never read. */
     val protectedFileName: String? = null,
@@ -206,6 +207,8 @@ sealed interface SessionEvent {
 
     data object Tick : SessionEvent
 
+    data object AudioTooLarge : SessionEvent
+
     /** Try again from [stage]; [modelInstalled] is as it stands now. */
     data class Retry(val stage: Stage, val modelInstalled: Boolean = true) : SessionEvent
 
@@ -296,7 +299,11 @@ class SessionMachine private constructor(
             "model_installed" to state.modelInstalled,
             "wall_ms" to state.startedWallMs,
         )
-        if (!state.modelInstalled) fail(FailureKind.MODEL_MISSING, Stage.CHART, null)
+        if (!state.modelInstalled) {
+            fail(FailureKind.MODEL_MISSING, Stage.CHART, null)
+            end("model_missing", abort = true, keepFailure = true)
+            return@collect
+        }
         setStage(Stage.LISTEN, StageStatus.RUNNING)
         effects += SessionEffect.StartListening
         effects += SessionEffect.BuildIndex
@@ -374,6 +381,10 @@ class SessionMachine private constructor(
             SessionEvent.GameQuit -> gameQuit()
             is SessionEvent.Frontmost -> frontmost(event.front)
             SessionEvent.Tick -> tick()
+            SessionEvent.AudioTooLarge -> {
+                fail(FailureKind.AUDIO_TOO_LARGE, Stage.AUDIO, null)
+                end("audio_too_large", abort = true, keepFailure = true)
+            }
             is SessionEvent.Retry -> retry(event.stage, event.modelInstalled)
             is SessionEvent.Stop -> end(event.reason, abort = true)
         }
@@ -384,7 +395,7 @@ class SessionMachine private constructor(
         known = event.known
         log("index.ready", "entries" to event.entries.size, "known_songs" to event.known.size)
         setStage(Stage.LISTEN, StageStatus.DONE, event.entries.size.toString())
-        considerEverything()
+        startAudio()
     }
 
     private fun shareReceived(event: SessionEvent.ShareReceived) {
@@ -427,7 +438,7 @@ class SessionMachine private constructor(
 
     private fun startAudio() {
         if (state.audio != null) return
-        if (state.song != null && state.audioWaitSinceNanos == null) {
+        if (state.song != null && state.stage(Stage.LISTEN).status == StageStatus.DONE && state.audioWaitSinceNanos == null) {
             state = state.copy(audioWaitSinceNanos = now.nanos)
             log("audio.wait", "limit_ms" to limits.audioWaitMs)
         }
@@ -856,6 +867,7 @@ class SessionMachine private constructor(
                 state.audio?.file?.path?.let { rejectedPaths += it }
                 state.song?.songId?.let { effects += SessionEffect.Forget(it); known = known - it }
                 index = emptyList()
+                setStage(Stage.LISTEN, StageStatus.RUNNING)
                 stopWork()
                 resetFrom(Stage.AUDIO)
                 candidates.clear()

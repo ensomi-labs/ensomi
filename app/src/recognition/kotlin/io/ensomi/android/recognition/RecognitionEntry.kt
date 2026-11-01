@@ -28,7 +28,7 @@ object RecognitionEntry {
 
     /** The session's screen, or its game once it has joined the music. */
     @Composable
-    fun Content(settings: PlaySettings, modelReady: Boolean, onBack: () -> Unit) {
+    fun Content(settings: PlaySettings, modelReady: Boolean, waitingForLibrary: Boolean = false, onBack: () -> Unit) {
         val context = LocalContext.current
         val controller = remember(context) { RecognitionController.get(context) }
         val game by controller.game.collectAsStateWithLifecycle()
@@ -36,7 +36,7 @@ object RecognitionEntry {
         val current = game
         if (current == null) {
             if (session == null) RecognitionGuide(controller, modelReady, onBack)
-            else RecognitionScreen(controller, onBack)
+            else RecognitionScreen(controller, onBack, waitingForLibrary)
         } else {
             GameOrientation(settings.orientation)
             // Before the game's own: it takes Back to pause, and this is the Back after that.

@@ -51,4 +51,71 @@ class ShareTimelineTest {
         assertEquals(listOf(SessionEffect.Probe(older)), machine.on(SessionEvent.IndexReady(rows, emptyMap()), time))
     }
 
+    @Test fun slowIndexCannotConsumeTheAudioWait() {
+        val machine = machine()
+        val later = time.copy(nanos = time.nanos + 30_000_000_000)
+        machine.on(SessionEvent.Tick, later)
+        assertTrue(machine.state.running)
+        assertNull(machine.state.audioWaitSinceNanos)
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), later)
+        assertEquals(later.nanos, machine.state.audioWaitSinceNanos)
+        machine.on(SessionEvent.Tick, later.copy(nanos = later.nanos + 9_000_000_000))
+        assertTrue(machine.state.running)
+        machine.on(SessionEvent.Tick, later.copy(nanos = later.nanos + 10_000_000_000))
+        assertFalse(machine.state.running)
+    }
+
+    @Test fun unknownLinkDoesNotClaimAnExistingUnnamedFile() {
+        val machine = SessionMachine.start("link", true, time) { _, _ -> }.first
+        machine.on(SessionEvent.ShareReceived("https://music.163.com/song?id=999", SharedSong(songId = 999), null), time)
+        machine.on(SessionEvent.IndexReady(listOf(file()), emptyMap()), time)
+        assertTrue(machine.state.held.isEmpty())
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 10_000_000_000))
+        assertEquals(FailureKind.NAME_NEEDED, machine.state.failure?.kind)
+        assertFalse(machine.state.running)
+    }
+
+    @Test fun aFailureEndsWithItsSession() {
+        val machine = machine()
+        machine.on(SessionEvent.ChartFailed("invented error"), time)
+        assertNotNull(machine.state.failure)
+        machine.on(SessionEvent.Stop("person"), time)
+        assertNull(machine.state.failure)
+        assertFalse(machine.state.running)
+        assertTrue(machine.on(SessionEvent.ChartFailed("late error"), time).isEmpty())
+        assertNull(machine.state.failure)
+    }
+
+    @Test fun retryFromTheStartKeepsListenersButWaitsForANewShare() {
+        val machine = machine()
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time)
+        machine.on(SessionEvent.Retry(Stage.SHARE), time)
+        assertNull(machine.state.song)
+        assertNull(machine.state.audioWaitSinceNanos)
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 20_000_000_000))
+        assertTrue(machine.state.running)
+        machine.on(SessionEvent.ShareReceived("invented song", share, null), time)
+        assertEquals(share.identity, machine.state.song)
+        assertEquals(time.nanos, machine.state.audioWaitSinceNanos)
+    }
+
+    @Test fun expiredWaitAndInterruptedGameCannotResume() {
+        val machine = machine()
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time)
+        assertTrue(canResumeSnapshot(machine.state, time, SessionLimits()))
+        assertFalse(canResumeSnapshot(machine.state, time.copy(nanos = time.nanos + 10_000_000_000), SessionLimits()))
+        assertFalse(canResumeSnapshot(machine.state.copy(stages = machine.state.stages.map {
+            if (it.stage == Stage.PLAY) it.copy(status = StageStatus.RUNNING) else it
+        }), time, SessionLimits()))
+    }
+
+    @Test fun outOfMemoryEndsWorkAndCannotRestartFromTheSnapshot() {
+        val machine = machine()
+        val effects = machine.on(SessionEvent.AudioTooLarge, time)
+        assertEquals(FailureKind.AUDIO_TOO_LARGE, machine.state.failure?.kind)
+        assertTrue(SessionEffect.StopListening in effects)
+        assertFalse(machine.state.running)
+        assertFalse(canResumeSnapshot(machine.state, time, SessionLimits()))
+    }
+
 }

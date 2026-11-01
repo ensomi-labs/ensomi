@@ -40,6 +40,7 @@ class SessionStorage(context: Context) {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    private val guidePrefs = context.getSharedPreferences("recognition-guide", Context.MODE_PRIVATE)
     private val debug = DebugTools.enabled(context)
     private val inside = File(context.filesDir, "recognition").also { it.mkdirs() }
     private val snapshot = AtomicFile(File(inside, "session.json"))
@@ -49,6 +50,13 @@ class SessionStorage(context: Context) {
     val outside: File = if (debug) File(context.getExternalFilesDir(null) ?: context.filesDir, "recognition").also { it.mkdirs() } else inside
     val replayFile = File(outside, "replay.wav")
     private val optionsFile = File(outside, "options.json")
+
+    fun readGuideTime(): SessionNow? = if (guidePrefs.contains("nanos"))
+        SessionNow(guidePrefs.getLong("nanos", 0), guidePrefs.getLong("wall", 0)) else null
+
+    fun writeGuideTime(time: SessionNow) {
+        guidePrefs.edit().putLong("nanos", time.nanos).putLong("wall", time.wallMs).apply()
+    }
 
     fun traceFile(cid: String) = File(outside, "session-$cid.jsonl")
 
@@ -88,7 +96,7 @@ class SessionStorage(context: Context) {
     }
 
     private fun write(file: AtomicFile, text: String) {
-        val stream = file.startWrite()
+        val stream = try { file.startWrite() } catch (_: java.io.IOException) { return }
         try {
             stream.write(text.encodeToByteArray())
             file.finishWrite(stream)

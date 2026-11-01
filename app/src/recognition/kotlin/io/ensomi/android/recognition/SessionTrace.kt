@@ -12,19 +12,19 @@ import java.io.FileOutputStream
  */
 class SessionTrace(val file: File, val cid: String, private val elapsedNanos: () -> Long) {
     private var seq: Long
-    private val out: FileOutputStream
+    private val out: FileOutputStream?
     private var bytes = file.length()
     private var closed = false
 
     init {
         file.parentFile?.mkdirs()
-        seq = if (file.isFile) file.useLines { lines -> lines.count().toLong() } else 0
-        out = FileOutputStream(file, true)
+        seq = runCatching { if (file.isFile) file.useLines { lines -> lines.count().toLong() } else 0 }.getOrDefault(0)
+        out = runCatching { FileOutputStream(file, true) }.getOrNull()
     }
 
     @Synchronized
     fun log(event: String, fields: Map<String, Any?>) {
-        if (closed || bytes >= MAX_BYTES) return
+        if (closed || out == null || bytes >= MAX_BYTES) return
         val line = LinkedHashMap<String, Any?>(fields.size + 4)
         line["elapsed_ns"] = elapsedNanos()
         line["cid"] = cid
@@ -33,14 +33,18 @@ class SessionTrace(val file: File, val cid: String, private val elapsedNanos: ()
         line.putAll(fields)
         val encoded = (Json.encode(line) + "\n").toByteArray(Charsets.UTF_8)
         if (bytes + encoded.size > MAX_BYTES) return
-        out.write(encoded)
-        bytes += encoded.size
-        out.flush()
+        try {
+            out.write(encoded)
+            bytes += encoded.size
+            out.flush()
+        } catch (_: java.io.IOException) {
+            close()
+        }
     }
 
     @Synchronized
     fun close() {
-        if (!closed) out.close()
+        if (!closed) runCatching { out?.close() }
         closed = true
     }
     private companion object { const val MAX_BYTES = 1_048_576L }

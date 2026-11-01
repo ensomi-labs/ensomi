@@ -2,6 +2,7 @@ package io.ensomi.android.recognition
 
 import android.app.Activity
 import android.content.Intent
+import android.content.ComponentName
 import android.os.Bundle
 import io.ensomi.android.MainActivity
 
@@ -20,7 +21,7 @@ class ShareActivity : Activity() {
             RecognitionController.get(this).share(text, runCatching { referrer?.host }.getOrNull())
         }
         startActivity(
-            Intent(this, MainActivity::class.java).addFlags(
+            Intent.makeMainActivity(ComponentName(this, MainActivity::class.java)).addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
             ),
         )

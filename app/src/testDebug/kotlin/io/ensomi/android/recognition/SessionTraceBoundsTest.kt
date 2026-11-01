@@ -5,6 +5,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionTraceBoundsTest {
+    @Test fun anUnwritableTraceCannotEndTheSession() {
+        val directory = Files.createTempDirectory("recognition-trace-error").toFile()
+        try {
+            val trace = SessionTrace(directory, "test") { 1L } // Opening a directory for output fails.
+            trace.log("session.start", emptyMap())
+            trace.close()
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun traceIsBoundedAndLateCallbacksAfterCloseAreHarmless() {
         val directory = Files.createTempDirectory("recognition-trace").toFile()
         try {

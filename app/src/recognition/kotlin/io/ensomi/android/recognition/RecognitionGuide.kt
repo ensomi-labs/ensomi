@@ -65,6 +65,7 @@ fun RecognitionGuide(controller: RecognitionController, modelReady: Boolean, onB
             item { Text(stringResource(R.string.guide_intro), style = MaterialTheme.typography.bodyLarge) }
             notice?.let { decision ->
                 val message = when {
+                    decision == ShareDecision.RESTORE -> R.string.guide_restored
                     decision == ShareDecision.NOT_SONG -> R.string.guide_not_song
                     state.ready -> R.string.guide_share_again
                     !state.modelReady -> null // The model card below supplies this explanation once.

@@ -18,7 +18,7 @@
     <string name="guide_step_recognise">2. 识别歌曲</string>
     <string name="guide_recognise">保持音乐播放，在网易云音乐中使用「听歌识曲」。</string>
     <string name="guide_step_download">3. 等 MP3 下载完成</string>
-    <string name="guide_download">将识别出的歌曲下载为 MP3，并等待下载完成。仅支持 MP3；无法使用网易云音乐的受保护格式（.ncm）。</string>
+    <string name="guide_download">将识别出的歌曲下载为 MP3，并等待下载完成。如果网易云音乐提示已下载，请返回并点「分享」。仅支持 MP3；无法使用网易云音乐的受保护格式（.ncm）。</string>
     <string name="guide_step_share">4. 分享到 Ensomi</string>
     <string name="guide_after_share">在网易云音乐中点「分享」，选择 Ensomi。收到分享后，Ensomi 会说明下一步。保持音乐播放，并停留在 Ensomi 中等待对齐。</string>
     <string name="guide_no_host">尚未安装网易云音乐。请安装后按步骤操作。</string>
@@ -45,7 +45,7 @@
     <string name="recognition_less">减少%1$s</string>
     <string name="recognition_more">增加%1$s</string>
     <string name="recognition_trace">记录：%1$s</string>
-    <string name="recognition_stage_listen">查找已下载的 MP3</string>
+    <string name="recognition_stage_listen">检查设备上的音乐文件</string>
     <string name="recognition_stage_share">已收到分享</string>
     <string name="recognition_stage_audio">音频就绪</string>
     <string name="recognition_stage_chart">生成谱面</string>
@@ -54,6 +54,11 @@
     <string name="recognition_status_waiting">等待中</string>
     <string name="recognition_status_running">进行中</string>
     <string name="recognition_status_done">完成</string>
-    <string name="recognition_status_failed">未完成</string>
+    <string name="recognition_status_failed">失败</string>
     <string name="guide_share_again">准备就绪。请重新分享歌曲到 Ensomi，以开始会话。</string>
+    <string name="guide_restored">应用已关闭。请重新分享歌曲，开始新的会话。</string>
+    <string name="recognition_leave_title">停止此次会话？</string>
+    <string name="recognition_leave_text">离开会停止文件查找、谱面生成和麦克风。</string>
+    <string name="recognition_stay">继续等待</string>
+    <string name="recognition_library_wait">正在等待曲库的谱面任务停止…</string>
 </resources>

@@ -572,13 +572,13 @@ class SessionMachineTest {
     }
 
     @Test
-    fun noModelFoundAfterTheShareStopsAtTheChartAndGoesOnWhenItIsThere() {
+    fun noModelStopsBeforeAnyFileOrCaptureWorkStarts() {
         val bench = Bench(modelInstalled = false)
-        bench.listening()
-        bench.audioReady()
         assertEquals(FailureKind.MODEL_MISSING, bench.state.failure?.kind)
-        assertTrue(bench.effects.none { it is SessionEffect.MakeChart })
-        assertTrue(bench.on(SessionEvent.Retry(Stage.CHART)).any { it is SessionEffect.MakeChart })
+        assertFalse(bench.state.running)
+        assertFalse(SessionEffect.StartListening in bench.effects)
+        assertFalse(SessionEffect.BuildIndex in bench.effects)
+        assertFalse(SessionEffect.StartCapture in bench.effects)
     }
 
     @Test

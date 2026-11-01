@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -118,8 +121,9 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
 
     // A share that reached the recognition session, or a session that survived the process, opens its screen.
     val recognition = scenario.real
-    LaunchedEffect(recognition) {
-        if (recognition) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(recognition, lifecycleOwner) {
+        if (recognition) lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             RecognitionEntry.followOpens(context) {
                 if (backStack.lastOrNull() !is RecognitionSession) backStack.add(RecognitionSession)
             }
@@ -263,8 +267,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 }
                 entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
                 entry<RecognitionSession> {
-                    if (quietFor != RecognitionSession) return@entry
-                    RecognitionEntry.Content(settings = settings, modelReady = model is io.ensomi.android.model.ModelState.Installed, onBack = { backStack.removeLastOrNull() })
+                    RecognitionEntry.Content(settings = settings, waitingForLibrary = quietFor != RecognitionSession, modelReady = model is io.ensomi.android.model.ModelState.Installed, onBack = { backStack.removeLastOrNull() })
                 }
             },
         )

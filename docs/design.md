@@ -18,7 +18,7 @@ The loop: **pick a song → make a chart → play → see the result → play ag
 (installing the model, adding songs, settings, calibration) serves that loop and stays out of its way.
 
 Drop-in play and Listen & Play both ship in the public app. Once the model is installed, home shows Listen & Play
-beside Add songs, whether the library is empty or has songs. It opens a short guide: live microphone and music access
+beside Add songs, whether the library is empty or has songs. It returns to a live session, or opens a short guide: live microphone and music access
 status, reasons for those permissions, and four steps to open NetEase, recognise the song, finish downloading its MP3,
 and share it to Ensomi. The guide rereads access on resume. A share shows progress or a plain explanation of what is
 missing; no setup requires developer tools. English and Simplified Chinese are supported.
@@ -27,7 +27,10 @@ Ensomi never operates another app. It uses no Accessibility service, reads no ot
 
 The microphone is used locally to align with the song; its audio is neither saved nor uploaded. Only the model download
 and an optional public short-link lookup use the network. The shared-song session uses a 10-second audio idle wait,
-extended by observed matching file growth, and a two-second join lead (or the scroll time if longer).
+starting after the index is ready and extended by observed matching file growth. An older title-only file needs
+Use this file, with no timeout while that choice is offered. Back asks before stopping a live session; the guide is
+available after it ends. A process-restored session stays dormant until the person opens Listen & Play; expired waits
+are discarded. The join lead is two seconds (or the scroll time if longer).
 See [recognition.md](recognition.md) for the session, storage bounds and failure states.
 
 The Chart Inspector, a chart server and saving `.osu`/`.osz` files are outside this round.
