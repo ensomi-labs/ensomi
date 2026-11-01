@@ -72,6 +72,8 @@ class OutputSettingsTest {
             orientation = PlayOrientation.PORTRAIT,
             landscapeLean = 22,
             portraitLean = 10,
+            landscapeWidth = 0.98f,
+            portraitWidth = 0.90f,
         )
         val text = StoredSettings.JSON.encodeToString(StoredSettings.serializer(), stored)
         assertEquals(stored, StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), text))
@@ -110,17 +112,22 @@ class OutputSettingsTest {
             val dataStore = DataStoreFactory.create(StoredSettingsSerializer, scope = scope, produceFile = { file })
             val route = MutableStateFlow(OutputRoute(OutputRoutes.key(speaker), "Phone speaker"))
             val store = DataStorePlaySettingsStore(dataStore, route, scope)
-            store.update { it.copy(audioOffsetMs = -20, landscapeLean = 30) }
+            store.update { it.copy(audioOffsetMs = -20, landscapeLean = 30, landscapeWidth = 0.98f, portraitWidth = 0.91f) }
             assertEquals(-20, store.settings.value.audioOffsetMs)
             route.value = OutputRoute(OutputRoutes.key(buds), "Galaxy Buds2")
             waitFor { store.settings.value.audioOffsetMs == 0 }
             store.update { it.copy(audioOffsetMs = 110) }
             assertEquals(30, store.settings.value.landscapeLean)
+            assertEquals(0.98f, store.settings.value.landscapeWidth)
+            assertEquals(0.91f, store.settings.value.portraitWidth)
             waitFor {
                 file.isFile && runCatching {
                     StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), file.readText())
                 }.getOrNull()?.audioOffsets == mapOf(OutputRoutes.key(speaker) to -20, OutputRoutes.key(buds) to 110)
             }
+            val disk = runBlocking { file.inputStream().use { StoredSettingsSerializer.readFrom(it) } }.forOutput(OutputRoutes.key(buds))
+            assertEquals(0.98f, disk.landscapeWidth)
+            assertEquals(0.91f, disk.portraitWidth)
             route.value = OutputRoute(OutputRoutes.key(speaker), "Phone speaker")
             waitFor { store.settings.value.audioOffsetMs == -20 }
         } finally {

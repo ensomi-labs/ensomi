@@ -455,6 +455,8 @@ private fun PictureStep(
                             // The player's lean, so notes cross the line as they will in play.
                             it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                             it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
+                            it.landscapeWidth = settings.landscapeWidth
+                            it.portraitWidth = settings.portraitWidth
                         },
                     )
                 }

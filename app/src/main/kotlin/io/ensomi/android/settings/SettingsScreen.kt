@@ -29,11 +29,13 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -46,6 +48,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
+import io.ensomi.android.play.PlayfieldGeometry
 import io.ensomi.android.model.ModelPanel
 import io.ensomi.android.model.ModelSource
 import io.ensomi.android.model.ModelState
@@ -152,6 +155,7 @@ fun SettingsScreen(
                             Column(Modifier.weight(1f)) {
                                 OrientationSetting(settings, onChange)
                                 LeanSetting(settings, onChange)
+                                WidthSetting(settings, onChange)
                             }
                             PlayfieldPreview(settings, Modifier.weight(1f))
                         }
@@ -159,6 +163,7 @@ fun SettingsScreen(
                 } else {
                     item { OrientationSetting(settings, onChange) }
                     item { LeanSetting(settings, onChange) }
+                    item { WidthSetting(settings, onChange) }
                     item { PlayfieldPreview(settings, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) }
                 }
 
@@ -310,6 +315,32 @@ private fun LeanSetting(settings: PlaySettings, onChange: ((PlaySettings) -> Pla
         range = PlaySettings.LEANS.first.toFloat()..PlaySettings.LEANS.last.toFloat(),
         steps = PlaySettings.LEANS.last - PlaySettings.LEANS.first - 1,
     ) { value -> onChange { it.withLean(orientation, PlaySettings.snapLean(value)) } }
+}
+
+/** A share of the window at the line, with the original geometry as the lower end. */
+@Composable
+private fun WidthSetting(settings: PlaySettings, onChange: ((PlaySettings) -> PlaySettings) -> Unit) {
+    val orientation = settings.orientation
+    val size = playfieldPreviewSize(orientation)
+    val density = LocalView.current.resources.displayMetrics.density
+    val width = size.first.toFloat()
+    val minimum = PlayfieldGeometry.lineWidth(width, density, width > size.second) / width
+    val share = PlayfieldGeometry.lineWidth(width, size.second.toFloat(), density, settings.laneWidth(orientation)) / width
+    Column {
+        SliderSetting(
+            title = stringResource(R.string.settings_lane_width),
+            valueText = stringResource(R.string.settings_width_value, (share * 100).roundToInt()),
+            supporting = stringResource(R.string.settings_width_help),
+            value = share,
+            range = minimum..PlayfieldGeometry.MAX_WIDTH_SHARE,
+            steps = 0,
+        ) { value -> onChange { it.withLaneWidth(orientation, value) } }
+        TextButton(
+            onClick = { onChange { it.withLaneWidth(orientation, null) } },
+            enabled = settings.laneWidth(orientation) != null,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) { Text(stringResource(R.string.settings_width_default)) }
+    }
 }
 
 @Composable

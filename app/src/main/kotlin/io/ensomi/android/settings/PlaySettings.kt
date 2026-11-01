@@ -30,6 +30,9 @@ data class PlaySettings(
      */
     val landscapeLean: Int = DEFAULT_LANDSCAPE_LEAN,
     val portraitLean: Int = DEFAULT_PORTRAIT_LEAN,
+    /** Share of the window's width at the line; null follows the window's default. Kept per orientation. */
+    val landscapeWidth: Float? = null,
+    val portraitWidth: Float? = null,
 ) {
     /** How long a note takes to fall from the top of the playfield to the line. */
     val scrollTimeMs: Double get() = scrollTimeMs(scrollSpeed)
@@ -45,6 +48,16 @@ data class PlaySettings(
     fun withLean(orientation: PlayOrientation, degrees: Int): PlaySettings = when (orientation) {
         PlayOrientation.LANDSCAPE -> copy(landscapeLean = degrees)
         PlayOrientation.PORTRAIT -> copy(portraitLean = degrees)
+    }
+
+    fun laneWidth(orientation: PlayOrientation): Float? = when (orientation) {
+        PlayOrientation.LANDSCAPE -> landscapeWidth
+        PlayOrientation.PORTRAIT -> portraitWidth
+    }
+
+    fun withLaneWidth(orientation: PlayOrientation, share: Float?): PlaySettings = when (orientation) {
+        PlayOrientation.LANDSCAPE -> copy(landscapeWidth = share)
+        PlayOrientation.PORTRAIT -> copy(portraitWidth = share)
     }
 
     companion object {

@@ -219,6 +219,9 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         val top = g.laneTop
         val bottom = g.lineY + g.dp(PlayfieldGeometry.CAP_INSET_DP)
         val fallLength = g.fallLength.toDouble()
+        val pulse = HeldNoteLight.pulse(frame.gameplayMs, reduceMotion)
+        val heldBodyAlpha = HeldNoteLight.bodyAlpha(pulse)
+        val heldHaloAlpha = HeldNoteLight.haloAlpha(pulse)
         for (obj in frame.visible) {
             if (obj.state == VisibleState.RESOLVED) continue
             val lane = obj.lane.toInt()
@@ -242,7 +245,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
                     fill.color = if (missed) PlayPalette.MISSED_NOTE else PlayPalette.HOLD_BODY
                     fill.alpha = when {
                         missed -> 64
-                        held -> 217
+                        held -> heldBodyAlpha
                         else -> 153
                     }
                     val bodyTop = top + geometry.bodyTopY.toFloat()
@@ -260,10 +263,10 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
                     val headY = top + geometry.headY.toFloat()
                     val headHalf = noteHeight / 2 * g.keepShape(headY)
                     if (held) {
-                        // A soft halo stands in for the Swift renderer's glow.
+                        // The Swift head's soft glow, breathing gently with the held body on the game's clock.
                         additive.shader = null
                         additive.color = PlayPalette.HOLD
-                        additive.alpha = 90
+                        additive.alpha = heldHaloAlpha
                         drawCut(
                             canvas, noteLeft - g.dp(8f), headY - noteHeight, noteLeft + noteWidth + g.dp(8f), headY + noteHeight,
                             noteHeight, top, bottom, additive,

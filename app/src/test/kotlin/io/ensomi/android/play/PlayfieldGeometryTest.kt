@@ -21,10 +21,10 @@ class PlayfieldGeometryTest {
     }
 
     @Test
-    fun tallSurfacesKeepTheFieldNarrowAndCentred() {
+    fun tallLargeSurfacesUseNinetyPercentAndStayCentred() {
         val tablet = PlayfieldGeometry.of(1600f, 2560f, density = 2f, topInsetPx = 0f, bottomInsetPx = 0f)
-        assertEquals(440f * 2, tablet.lineWidth, 0.01f)
-        assertEquals((1600f - 880f) / 2, tablet.lineLeft, 0.01f)
+        assertEquals(1600f * 0.90f, tablet.lineWidth, 0.01f)
+        assertEquals((1600f - tablet.lineWidth) / 2, tablet.lineLeft, 0.01f)
     }
 
     @Test
@@ -32,7 +32,7 @@ class PlayfieldGeometryTest {
         assertTrue(sideways.landscape)
         assertEquals(2424f * 0.64f, sideways.lineWidth, 0.01f)
         val tablet = PlayfieldGeometry.of(2560f, 1600f, density = 2f, topInsetPx = 0f, bottomInsetPx = 0f)
-        assertEquals(640f * 2, tablet.lineWidth, 0.01f)
+        assertEquals(2560f * 0.80f, tablet.lineWidth, 0.01f)
         assertEquals((2424f - sideways.lineWidth) / 2, sideways.lineLeft, 0.01f)
         assertEquals(6 * 2.625f, sideways.fieldTop, 0.01f)
         assertEquals(1080f - 63f, sideways.trayBottom, 0.01f)
@@ -164,5 +164,72 @@ class PlayfieldGeometryTest {
         assertTrue(tracker.down(5, 2))
         assertFalse("The same pointer cannot go down twice", tracker.down(5, 3))
         assertEquals(2, tracker.up(5))
+    }
+
+    @Test
+    fun phoneDefaultGeometryIsNumericallyUnchanged() {
+        // Exact old formula, even on a long phone whose landscape field meets the 640 dp cap.
+        for ((w, h, d) in listOf(Triple(1080f, 2424f, 2.625f), Triple(1200f, 2800f, 2.5f))) {
+            for ((width, height) in listOf(w to h, h to w)) {
+                val g = PlayfieldGeometry.of(width, height, d, 0f, 24 * d)
+                val oldWidth = PlayfieldGeometry.lineWidth(width, d, width > height)
+                assertEquals(oldWidth, g.lineWidth, 0f)
+                assertEquals((width - oldWidth) / 2, g.lineLeft, 0f)
+                assertEquals(if (width > height) 6 * d else 64 * d, g.fieldTop, 0f)
+                assertEquals(height - 24 * d, g.trayBottom, 0f)
+                assertEquals(g.trayBottom - (if (width > height) 64 else 88) * d, g.lineY, 0f)
+            }
+        }
+        assertEquals(1038f, phone.lineWidth, 0f)
+        assertEquals(1551.36f, sideways.lineWidth, 0f)
+        assertEquals(2130f, phone.lineY, 0f)
+        assertEquals(849f, sideways.lineY, 0f)
+    }
+
+    @Test
+    fun widthEndpointsKeepLeanVerticalGeometryAndTouchRulesIndependent() {
+        for ((w, h, d) in listOf(Triple(1080f, 2424f, 2.625f), Triple(1880f, 3008f, 2.8125f))) {
+            for ((width, height) in listOf(w to h, h to w)) {
+                val original = PlayfieldGeometry.lineWidth(width, d, width > height)
+                for (share in listOf(0f, original / width, 0.98f, 2f)) {
+                    val expected = if (share <= original / width) original else width * 0.98f
+                    for (scale in listOf(1f, 0.30f, 0.20f)) {
+                        val g = PlayfieldGeometry.of(width, height, d, 0f, 24 * d, farScale = scale, widthShare = share)
+                        val flat = PlayfieldGeometry.of(width, height, d, 0f, 24 * d, widthShare = share)
+                        assertEquals(expected, g.lineWidth, 0.001f)
+                        assertEquals(flat.lineY, g.lineY, 0f)
+                        assertEquals(flat.trayBottom, g.trayBottom, 0f)
+                        assertEquals(flat.fieldTop, g.fieldTop, 0f)
+                        assertEquals(0, g.laneAt(-100f))
+                        assertEquals(0, g.laneAt(0f))
+                        assertEquals(3, g.laneAt(width))
+                        assertEquals(3, g.laneAt(width + 100f))
+                        for (lane in 0..3) {
+                            assertEquals(lane, g.laneAt(g.laneLeft(lane) + g.laneWidth / 2))
+                            assertEquals(g.laneLeft(lane), g.project(g.laneLeft(lane), g.lineY)[0], 0.01f)
+                            if (lane > 0) {
+                                assertEquals(lane - 1, g.laneAt(g.laneLeft(lane) - 0.1f))
+                                assertEquals(lane, g.laneAt(g.laneLeft(lane) + 0.1f))
+                            }
+                        }
+                        // The maximum keeps side edges on screen, with room for notes and inset caps.
+                        assertTrue(g.lineLeft >= 2 * d)
+                        assertTrue(g.laneWidth > 12 * d)
+                        assertEquals(1f, g.keepShape(g.lineY), 0f)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun kPadDefaultsAndSmallWindowsUseTheirOwnSize() {
+        val d = 450f / 160
+        assertEquals(2406.4f, PlayfieldGeometry.of(3008f, 1880f, d, 0f, 0f).lineWidth, 0.001f)
+        assertEquals(1692f, PlayfieldGeometry.of(1880f, 3008f, d, 0f, 0f).lineWidth, 0.001f)
+        // A phone-sized window on a tablet must retain the original default too.
+        assertEquals(PlayfieldGeometry.lineWidth(1800f, d, true), PlayfieldGeometry.of(1800f, 1000f, d, 0f, 0f).lineWidth, 0f)
+        assertEquals(640f, PlayfieldGeometry.of(1100f, 599f, 1f, 0f, 0f).lineWidth, 0f)
+        assertEquals(880f, PlayfieldGeometry.of(1100f, 600f, 1f, 0f, 0f).lineWidth, 0f)
     }
 }

@@ -53,7 +53,8 @@ landscape) with a 24 dp gesture area.
 
 | Part | Landscape (the default) | Portrait |
 | --- | --- | --- |
-| Lanes at the line | 64 % of the width, at most 640 dp (591 dp, 148 dp per lane) | The width less 8 dp margins, at most 440 dp (395 dp, 99 dp per lane) |
+| Lanes at the line, phone default | 64 % of the width, at most 640 dp (591 dp, 148 dp per lane) | The width less 8 dp margins, at most 440 dp (395 dp, 99 dp per lane) |
+| Lanes at the line, large-window default | 80 % of the width | 90 % of the width |
 | HUD | In the top corners beside the lanes' far end: title and chart on the left, accuracy and Pause on the right | A 64 dp row at the top, below any display cutout |
 | Far end of the lanes | 6 dp under the top edge | Under the HUD row |
 | Judgement line | 3 dp coral, at the top of the key tray (79 % down the screen) | The same (88 % down) |
@@ -61,6 +62,16 @@ landscape) with a 24 dp gesture area.
 | Under the tray | The system's mandatory gesture inset, at least 10 dp | The same, at least 16 dp |
 | Lanes' height on the screen | 317 dp | About 750 dp |
 | Lean by default | 40° | Flat |
+
+**Lane width.** Settings offers the width of all four lanes at the line as a share of the window, from the original
+phone geometry in the table to 98 %. Each orientation keeps its own choice; Use default width returns to the window's
+default. A window at least 600 dp on its shorter side uses the large-window default; smaller windows keep the original
+calculation exactly, including both caps. An older settings file has no width choice and follows this default.
+The Redmi K Pad's saved display report is 1880 × 3008 px at 450 dpi (668 × 1070 dp). Its landscape default grows from
+640 to 856 dp, and portrait from 440 to 602 dp: a clearly wider tray with room beside the leaning far end for the HUD.
+The maximum is 1048 dp and 655 dp respectively. Width changes the lanes, notes, caps and lights together; it changes
+neither the lean nor the line's height, tray height, fall length or scroll time. The HUD measures the same width.
+Touch columns still follow the lanes at the line and extend to the screen edges; lean never changes them.
 
 The lanes alternate `#1D1627` and `#191220` between two 2 dp `#2A2036` side edges, which show the lean's shape
 against the ground, and their far end fades into the ground over 8 % of their height on the screen, so notes come out of the distance instead of appearing at an edge. A 3 dp song progress bar runs along the far
@@ -107,7 +118,11 @@ The line, the tray and the touch zones are the same at every lean.
 
 **Notes** follow the Swift play screen. Taps are rose `#EAA0B7`, 20 dp tall at the line, inset 5 dp from the lane edges,
 7 dp corners, no glow. Holds have lavender `#B5B3EF` heads and tails and a purple `#9562D7` body at 72 % of the note
-width, 60 % opaque, 85 % while held; a held head stays on the line with a soft halo. A note the runtime resolves as hit
+width, 60 % opaque, about 85 % while held; a held head stays on the line with a soft halo. While held, the body and
+halo breathe together in a smooth 500 ms cycle (two crests a second): body alpha 207–227 around 217, halo 78–102 around
+90, out of 255. Heads and tails stay solid, so the end remains plain. The phase follows gameplay time, freezes on
+pause, and is steady at the original 217 and 90 with Remove animations. One sine per frame changes the existing
+paints; it adds no shapes, shaders, per-frame objects or runtime calls. A note the runtime resolves as hit
 disappears; one judged a miss while still on screen is greyed (`#8F7DAB` at half opacity). A note centred on the line
 is drawn whole, then slips under the top edge of its key cap. Nothing on the lanes is clipped: a clip under a
 perspective matrix is no longer a rectangle, so notes are cut to the lanes by hand.
@@ -134,11 +149,11 @@ offers no such setting in this round.
 **Scroll direction** is down only: notes fall towards the thumbs, and the hands at the bottom never cover incoming
 notes. An upscroll would put the line at the top of the screen, out of reach, with the hands covering the notes.
 
-**Previewing the lean.** Settings shows the game's own renderer playing the sample chart under the orientation and
-lean sliders, on a surface buffer the size of the phone's screen in that orientation, which the system scales into the
-list (`SurfaceHolder.setFixedSize`; the
+**Previewing the field.** Settings shows the game's own renderer playing the sample chart under the orientation, lean
+and width controls, on a surface buffer the size of the current window in that orientation, which the system scales
+into the list (`SurfaceHolder.setFixedSize`; the
 [hardware scaler](https://android-developers.googleblog.com/2013/09/using-hardware-scaler-for-performance.html)). The
-preview takes the new lean and scroll speed on the next frame while a slider moves.
+preview takes the new lean, width and scroll speed on the next frame while a slider moves.
 
 ## The clock: song time from the audio being heard
 

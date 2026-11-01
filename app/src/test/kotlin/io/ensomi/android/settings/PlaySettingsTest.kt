@@ -28,6 +28,39 @@ class PlaySettingsTest {
     }
 
     @Test
+    fun eachOrientationKeepsItsOwnWidthAndCanReturnToTheWindowDefault() {
+        val settings = PlaySettings().withLaneWidth(PlayOrientation.LANDSCAPE, 0.98f)
+            .withLaneWidth(PlayOrientation.PORTRAIT, 0.90f)
+        assertEquals(0.98f, settings.laneWidth(PlayOrientation.LANDSCAPE))
+        assertEquals(0.90f, settings.laneWidth(PlayOrientation.PORTRAIT))
+        val restored = settings.withLaneWidth(PlayOrientation.LANDSCAPE, null)
+        assertEquals(null, restored.landscapeWidth)
+        assertEquals(0.90f, restored.portraitWidth)
+        val stored = StoredSettings().with(settings, "speaker").forOutput("speaker")
+        assertEquals(settings, stored)
+    }
+
+    @Test
+    fun anOldFileKeepsAllItsSettingsAndUsesTheWindowWidthDefault() {
+        val file = """{"scrollSpeed":31.5,"landscapeLean":22,"portraitLean":10,"musicVolume":0.35}"""
+        val read = StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), file).forOutput("speaker")
+        assertEquals(31.5, read.scrollSpeed, 0.0)
+        assertEquals(22, read.landscapeLean)
+        assertEquals(10, read.portraitLean)
+        assertEquals(0.35f, read.musicVolume, 0f)
+        assertEquals(null, read.landscapeWidth)
+        assertEquals(null, read.portraitWidth)
+    }
+
+    @Test
+    fun widthFromAnotherFileIsBoundedAndInvalidValuesUseTheDefault() {
+        val read = StoredSettings(landscapeWidth = -1f, portraitWidth = 4f).forOutput("speaker")
+        assertEquals(0f, read.landscapeWidth)
+        assertEquals(1f, read.portraitWidth)
+        assertEquals(null, StoredSettings(landscapeWidth = Float.NaN).forOutput("speaker").landscapeWidth)
+    }
+
+    @Test
     fun leanNarrowsTheFarEndLikeATiltedStrip() {
         assertEquals(1f, PlaySettings.farScale(0), 0f)
         assertEquals(0.30f, PlaySettings.farScale(40), 0.005f)
