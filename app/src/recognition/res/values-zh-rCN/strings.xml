@@ -45,7 +45,7 @@
     <string name="recognition_less">减少%1$s</string>
     <string name="recognition_more">增加%1$s</string>
     <string name="recognition_trace">记录：%1$s</string>
-    <string name="recognition_stage_listen">查找音乐文件</string>
+    <string name="recognition_stage_listen">查找已下载的 MP3</string>
     <string name="recognition_stage_share">已收到分享</string>
     <string name="recognition_stage_audio">音频就绪</string>
     <string name="recognition_stage_chart">生成谱面</string>

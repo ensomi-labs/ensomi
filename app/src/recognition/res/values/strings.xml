@@ -24,11 +24,11 @@
     <string name="recognition_more">More %1$s</string>
     <string name="recognition_trace">Trace: %1$s</string>
 
-    <string name="recognition_stage_listen">Media listening and index</string>
+    <string name="recognition_stage_listen">Find the downloaded MP3</string>
     <string name="recognition_stage_share">Share reached Ensomi</string>
     <string name="recognition_stage_audio">Audio ready</string>
     <string name="recognition_stage_chart">Chart</string>
-    <string name="recognition_stage_sync">Sync</string>
+    <string name="recognition_stage_sync">Line up with the music</string>
     <string name="recognition_stage_play">Play</string>
 
     <string name="recognition_status_waiting">Waiting</string>

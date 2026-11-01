@@ -281,7 +281,9 @@ private fun SongFacts(state: SessionState) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (song != null) {
             Text(listOfNotNull(song.title, song.artist).joinToString(" · ").ifEmpty { "—" }, style = MaterialTheme.typography.titleLarge)
-            song.songId?.let { Text(stringResource(R.string.recognition_song_id, it.toString()), style = MaterialTheme.typography.bodyMedium) }
+            if (DebugTools.enabled(LocalContext.current)) {
+                song.songId?.let { Text(stringResource(R.string.recognition_song_id, it.toString()), style = MaterialTheme.typography.bodyMedium) }
+            }
         }
         if (DebugTools.enabled(LocalContext.current)) {
             audio?.let { Text(it.file.path, style = MaterialTheme.typography.bodySmall) }
