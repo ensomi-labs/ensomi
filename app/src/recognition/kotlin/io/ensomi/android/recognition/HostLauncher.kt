@@ -3,7 +3,6 @@ package io.ensomi.android.recognition
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import androidx.core.net.toUri
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -20,23 +19,14 @@ sealed interface LaunchResult {
 /** Starts the host music app with ordinary intents. */
 object HostLauncher {
     const val PACKAGE = "com.netease.cloudmusic"
-    private const val RECOGNITION_LINK = "orpheus://identify"
 
-    fun launch(context: Context, path: LaunchPath): LaunchResult {
+    fun launch(context: Context): LaunchResult {
         val launcher = context.packageManager.getLaunchIntentForPackage(PACKAGE) ?: return LaunchResult.NotInstalled
-        val link = Intent(Intent.ACTION_VIEW, RECOGNITION_LINK.toUri()).setPackage(PACKAGE)
-        return when (path) {
-            LaunchPath.A -> start(context, launcher, "launcher")
-            LaunchPath.B -> start(context, link, "deep_link")
-            LaunchPath.AUTO -> start(context, link, "deep_link").takeIf { it is LaunchResult.Started }
-                ?: start(context, launcher, "launcher")
-        }
+        return start(context, launcher, "launcher")
     }
 
     private fun start(context: Context, intent: Intent, how: String): LaunchResult = try {
-        // Clearing the deep-link task on NetEase 9.6.15 reroutes through startup notices.
-        val flags = Intent.FLAG_ACTIVITY_NEW_TASK or if (how == "launcher") Intent.FLAG_ACTIVITY_CLEAR_TASK else 0
-        context.startActivity(intent.addFlags(flags))
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         LaunchResult.Started(how)
     } catch (failure: ActivityNotFoundException) {
         LaunchResult.Failed("$how: ${failure.message}")

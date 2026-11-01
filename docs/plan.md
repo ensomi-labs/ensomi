@@ -130,7 +130,7 @@ timing, not a phone's):
   not; the emulator's numbers decide nothing about the Redmi K80's 120 Hz.
 
 What step 14 showed on the emulators (builds b2 to b4 of `claude/android-recognition`; the emulator's timing, no host app
-and no driver: a share from adb, files from a shell, a WAV of the song in place of the microphone):
+with a share from adb, files from a shell and a WAV of the song in place of the microphone):
 
 - **14.** A share alone started a session on a 105-second song already on the device and went through to the game: decoded,
   a chart made in 6.2 to 7.6 s, a final lock from the runtime's aligner after 6.6 s of audio, 0.84 ms from where the replay

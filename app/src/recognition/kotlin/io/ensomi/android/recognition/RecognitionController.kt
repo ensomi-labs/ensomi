@@ -35,7 +35,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Runs one recognition session at a time for the process: feeds [SessionMachine] what the device reports and carries out
  * what it asks for. Everything that touches the machine runs on one coroutine, in the order it was posted, so listeners,
- * drivers and screens may call in from any thread.
+ * screens may call in from any thread.
  */
 class RecognitionController private constructor(context: Context) {
     private val appContext = context.applicationContext
@@ -85,7 +85,6 @@ class RecognitionController private constructor(context: Context) {
     private val charts by lazy { SessionCharts(appContext, stores, scope) { post { feed(it) } } }
 
     init {
-        HostDrivers.sink = Reports()
         scope.launch {
             for (action in actions) {
                 try {
@@ -97,11 +96,6 @@ class RecognitionController private constructor(context: Context) {
             }
         }
         post { restore() }
-    }
-
-    fun start(path: LaunchPath) {
-        updateOptions { it.copy(path = path) }
-        post { begin(path, byShare = false) }
     }
 
     fun stop() = post {
@@ -119,7 +113,7 @@ class RecognitionController private constructor(context: Context) {
         post {
             val shared = ShareParser.parse(text)
             if (startsNewSession(machine?.state, shared?.takeIf { it.namesSong }?.identity)) {
-                begin(mutableOptions.value.path, byShare = true)
+                begin()
             }
             feed(SessionEvent.ShareReceived(text, shared, source))
         }
@@ -174,7 +168,7 @@ class RecognitionController private constructor(context: Context) {
         return stores.model.state.value is ModelState.Installed
     }
 
-    private suspend fun begin(path: LaunchPath, byShare: Boolean) {
+    private suspend fun begin() {
         if (machine?.state?.running == true) feed(SessionEvent.Stop("replaced"))
         closeSync()
         trace?.close()
@@ -185,7 +179,7 @@ class RecognitionController private constructor(context: Context) {
         trace = log
         val installed = modelInstalled()
         logDevice(log)
-        val (started, effects) = SessionMachine.start(cid, path, byShare, installed, time, limits()) { event, fields ->
+        val (started, effects) = SessionMachine.start(cid, installed, time, limits()) { event, fields ->
             log.log(event, fields)
         }
         machine = started
@@ -208,7 +202,6 @@ class RecognitionController private constructor(context: Context) {
                 "build" to Build.DISPLAY,
                 "host_version" to host?.versionName,
                 "host_version_code" to host?.longVersionCode,
-                "driver" to HostDrivers.current.name,
                 "capture" to options.capture.name,
                 "stars" to options.stars,
                 "ambient_offset_ms" to options.ambientOffsetMs,
@@ -254,12 +247,6 @@ class RecognitionController private constructor(context: Context) {
         when (effect) {
             SessionEffect.StartListening -> startListening()
             SessionEffect.BuildIndex -> buildIndex()
-            is SessionEffect.Launch -> launchHost(effect.path)
-            is SessionEffect.Perform -> {
-                val path = machine?.state?.path ?: return
-                HostDrivers.current.perform(effect.step, path, HostDrivers.reports)
-            }
-            SessionEffect.CancelDriver -> HostDrivers.current.cancel()
             is SessionEffect.Refresh -> workScope?.launch {
                 val found = listening?.look(effect.path)
                 postFor(current) { feed(if (found != null) SessionEvent.FileSeen(found, Evidence.POLL) else SessionEvent.FileGone(effect.path)) }
@@ -328,17 +315,6 @@ class RecognitionController private constructor(context: Context) {
             val known = storage.knownSongs()
             postFor(current) { feed(SessionEvent.IndexReady(entries, known)) }
         }
-    }
-
-    private suspend fun launchHost(path: LaunchPath) {
-        val result = withContext(Dispatchers.Main) { HostLauncher.launch(appContext, path) }
-        feed(
-            when (result) {
-                is LaunchResult.Started -> SessionEvent.HostLaunched(result.how)
-                LaunchResult.NotInstalled -> SessionEvent.HostNotInstalled
-                is LaunchResult.Failed -> SessionEvent.HostLaunchFailed(result.reason)
-            },
-        )
     }
 
     private fun buildReference(audio: ReadyAudio) {
@@ -499,22 +475,6 @@ class RecognitionController private constructor(context: Context) {
         override fun failed(reason: String) {
             post { if (syncRun === this@SyncRun) feed(SessionEvent.CaptureFailed(reason)) }
         }
-    }
-
-    /** What the host reports goes to the session like everything else. */
-    private inner class Reports : HostReports {
-        override fun stepStarted(step: HostStep, detail: String?) = post { feed(SessionEvent.StepStarted(step, detail)) }
-
-        override fun stepDone(step: HostStep, detail: String?) = post { feed(SessionEvent.StepDone(step, detail)) }
-
-        override fun handToPerson(step: HostStep, reason: String) = post { feed(SessionEvent.HandedToPerson(step, reason)) }
-
-        override fun resultSeen(title: String, artist: String?, durationMs: Long?) =
-            post { feed(SessionEvent.ResultSeen(title, artist, durationMs)) }
-
-        override fun recognitionFailed(reason: String) = post { feed(SessionEvent.RecognitionFailed(reason)) }
-
-        override fun downloadRefused(reason: String) = post { feed(SessionEvent.DownloadRefused(reason)) }
     }
 
     companion object {

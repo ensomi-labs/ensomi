@@ -37,8 +37,7 @@ records the first demo's manual Mac build and owner signing; its CI and automate
 - `app/src/recognition/`: the recognition session (`docs/recognition.md`), a test path from music in a room to a game
   joined at its position. It is in the debug and checks builds' source sets, with its text, share target and permissions,
   and never in a release, which compiles `app/src/release/`'s empty `RecognitionEntry` instead. Its `SessionMachine` is
-  plain state and rules, moved by what it observes; `HostDriver` is the interface for the steps in the host app, and
-  `ManualHostDriver` hands each to the person. Its JVM tests are in `app/src/testDebug/`.
+  plain state and rules, moved by shares and file observations. Its JVM tests are in `app/src/testDebug/`.
 - `app/src/test/kotlin/`: JVM unit tests for logic that does not need a device.
 - `app/src/androidTest/kotlin/io/ensomi/android/checks/`: the phone checks, instrumented tests that measure on a device
   (runtime, model, decoders, generation time and memory, determinism, the audio clock, frame pacing, pauses) and log

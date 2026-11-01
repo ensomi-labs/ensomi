@@ -154,10 +154,7 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                 }
                 item(key = "controls") {
                     Controls(
-                        options = options,
                         running = current?.running == true,
-                        onPath = { path -> controller.updateOptions { it.copy(path = path) } },
-                        onStart = { askThen { controller.start(options.path) } },
                         onStop = controller::stop,
                         onPaste = { clipboardText(context)?.let { controller.share(it, source = "clipboard") } },
                     )
@@ -264,34 +261,13 @@ private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit
 
 @Composable
 private fun Controls(
-    options: SessionOptions,
     running: Boolean,
-    onPath: (LaunchPath) -> Unit,
-    onStart: () -> Unit,
     onStop: () -> Unit,
     onPaste: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            LaunchPath.entries.forEachIndexed { index, path ->
-                SegmentedButton(
-                    selected = options.path == path,
-                    onClick = { onPath(path) },
-                    shape = SegmentedButtonDefaults.itemShape(index, LaunchPath.entries.size),
-                    enabled = !running,
-                    icon = {},
-                ) { Text(stringResource(path.label())) }
-            }
-        }
         if (running) {
             OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.recognition_stop)) }
-        } else {
-            ActionButton(
-                stringResource(R.string.recognition_start),
-                onClick = onStart,
-                icon = R.drawable.ic_play,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
         OutlinedButton(onClick = onPaste, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.recognition_paste)) }
     }
@@ -463,9 +439,6 @@ private fun Paths(controller: RecognitionController, context: Context) {
 @StringRes
 private fun Stage.label(): Int = when (this) {
     Stage.LISTEN -> R.string.recognition_stage_listen
-    Stage.OPEN -> R.string.recognition_stage_open
-    Stage.RESULT -> R.string.recognition_stage_result
-    Stage.DOWNLOAD -> R.string.recognition_stage_download
     Stage.SHARE -> R.string.recognition_stage_share
     Stage.AUDIO -> R.string.recognition_stage_audio
     Stage.CHART -> R.string.recognition_stage_chart
@@ -477,9 +450,7 @@ private fun Stage.label(): Int = when (this) {
 private fun StageStatus.label(): Int = when (this) {
     StageStatus.WAITING -> R.string.recognition_status_waiting
     StageStatus.RUNNING -> R.string.recognition_status_running
-    StageStatus.NEEDS_PERSON -> R.string.recognition_status_person
     StageStatus.DONE -> R.string.recognition_status_done
-    StageStatus.SKIPPED -> R.string.recognition_status_skipped
     StageStatus.FAILED -> R.string.recognition_status_failed
 }
 
@@ -487,17 +458,8 @@ private fun StageStatus.label(): Int = when (this) {
 private fun StageStatus.icon(): Int = when (this) {
     StageStatus.WAITING -> R.drawable.ic_circle_outline
     StageStatus.RUNNING -> R.drawable.ic_refresh
-    StageStatus.NEEDS_PERSON -> R.drawable.ic_info
     StageStatus.DONE -> R.drawable.ic_check_circle
-    StageStatus.SKIPPED -> R.drawable.ic_chevron_right
     StageStatus.FAILED -> R.drawable.ic_warning
-}
-
-@StringRes
-private fun LaunchPath.label(): Int = when (this) {
-    LaunchPath.A -> R.string.recognition_path_a
-    LaunchPath.B -> R.string.recognition_path_b
-    LaunchPath.AUTO -> R.string.recognition_path_auto
 }
 
 @StringRes
@@ -508,9 +470,6 @@ private fun CaptureChoice.label(): Int = when (this) {
 
 @StringRes
 private fun Ask.chinese(): Int = when (this) {
-    Ask.OPEN_RECOGNITION -> R.string.recognition_ask_open_zh
-    Ask.TAP_DOWNLOAD -> R.string.recognition_ask_download_zh
-    Ask.SHARE_TO_ENSOMI -> R.string.recognition_ask_share_zh
     Ask.WAIT_FOR_DOWNLOAD -> R.string.recognition_ask_wait_zh
     Ask.RETURN_TO_ENSOMI -> R.string.recognition_ask_return_zh
     Ask.MICROPHONE_SILENT -> R.string.recognition_ask_silent_zh
@@ -518,9 +477,6 @@ private fun Ask.chinese(): Int = when (this) {
 
 @StringRes
 private fun Ask.english(): Int = when (this) {
-    Ask.OPEN_RECOGNITION -> R.string.recognition_ask_open_en
-    Ask.TAP_DOWNLOAD -> R.string.recognition_ask_download_en
-    Ask.SHARE_TO_ENSOMI -> R.string.recognition_ask_share_en
     Ask.WAIT_FOR_DOWNLOAD -> R.string.recognition_ask_wait_en
     Ask.RETURN_TO_ENSOMI -> R.string.recognition_ask_return_en
     Ask.MICROPHONE_SILENT -> R.string.recognition_ask_silent_en
@@ -528,11 +484,6 @@ private fun Ask.english(): Int = when (this) {
 
 /** The failure in Chinese and in English. */
 private fun FailureKind.words(): Pair<Int, Int> = when (this) {
-    FailureKind.HOST_NOT_INSTALLED -> R.string.recognition_failure_no_host_zh to R.string.recognition_failure_no_host_en
-    FailureKind.HOST_LAUNCH_FAILED -> R.string.recognition_failure_launch_zh to R.string.recognition_failure_launch_en
-    FailureKind.RECOGNITION_FAILED -> R.string.recognition_failure_recognition_zh to R.string.recognition_failure_recognition_en
-    FailureKind.NO_DOWNLOAD_RIGHT -> R.string.recognition_failure_no_right_zh to R.string.recognition_failure_no_right_en
-    FailureKind.NO_SHARE -> R.string.recognition_failure_no_share_zh to R.string.recognition_failure_no_share_en
     FailureKind.NOT_A_SONG -> R.string.recognition_failure_not_song_zh to R.string.recognition_failure_not_song_en
     FailureKind.NO_FILE -> R.string.recognition_failure_no_file_zh to R.string.recognition_failure_no_file_en
     FailureKind.PROTECTED_TRACK -> R.string.recognition_failure_protected_zh to R.string.recognition_failure_protected_en
@@ -548,7 +499,7 @@ private fun FailureKind.words(): Pair<Int, Int> = when (this) {
 }
 
 /** Where the session can start again from. */
-private val RETRY_STAGES = setOf(Stage.OPEN, Stage.AUDIO, Stage.CHART, Stage.SYNC, Stage.PLAY)
+private val RETRY_STAGES = setOf(Stage.AUDIO, Stage.CHART, Stage.SYNC, Stage.PLAY)
 
 private const val CLOCK_TICK_MS = 500L
 private const val OFFSET_STEP_MS = 5

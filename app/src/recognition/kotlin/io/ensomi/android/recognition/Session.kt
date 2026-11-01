@@ -4,13 +4,10 @@ import kotlinx.serialization.Serializable
 
 /** The pipeline's stages, in the order they normally finish. Each is shown on the session's screen. */
 @Serializable
-enum class Stage(val hostStep: HostStep? = null) {
+enum class Stage {
     /** Media listening registered and the local audio index built. */
     LISTEN,
-    OPEN(HostStep.OPEN_RECOGNITION),
-    RESULT(HostStep.READ_RESULT),
-    DOWNLOAD(HostStep.TAP_DOWNLOAD),
-    SHARE(HostStep.SHARE_TO_ENSOMI),
+    SHARE,
 
     /** A complete, decodable file of the song. */
     AUDIO,
@@ -20,7 +17,7 @@ enum class Stage(val hostStep: HostStep? = null) {
 }
 
 @Serializable
-enum class StageStatus { WAITING, RUNNING, NEEDS_PERSON, DONE, SKIPPED, FAILED }
+enum class StageStatus { WAITING, RUNNING, DONE, FAILED }
 
 @Serializable
 data class StageView(
@@ -35,12 +32,7 @@ data class StageView(
 /** Why the session is stuck. [retryFrom] is where trying again starts. Only [ended] sessions are over. */
 @Serializable
 enum class FailureKind(val retryFrom: Stage) {
-    HOST_NOT_INSTALLED(Stage.OPEN),
-    HOST_LAUNCH_FAILED(Stage.OPEN),
-    RECOGNITION_FAILED(Stage.OPEN),
-    NO_DOWNLOAD_RIGHT(Stage.OPEN),
-    NO_SHARE(Stage.OPEN),
-    NOT_A_SONG(Stage.OPEN),
+    NOT_A_SONG(Stage.SHARE),
     NO_FILE(Stage.AUDIO),
     PROTECTED_TRACK(Stage.AUDIO),
     MODEL_MISSING(Stage.CHART),
@@ -51,7 +43,7 @@ enum class FailureKind(val retryFrom: Stage) {
     SONG_ENDED(Stage.SYNC),
     GAME_FAILED(Stage.PLAY),
     GAME_QUIT(Stage.PLAY),
-    SESSION_LOST(Stage.OPEN),
+    SESSION_LOST(Stage.SHARE),
 }
 
 @Serializable
@@ -60,10 +52,6 @@ data class Failure(val kind: FailureKind, val stage: Stage, val detail: String? 
 /** What the person must do by hand right now, or know. */
 @Serializable
 enum class Ask {
-    OPEN_RECOGNITION,
-    TAP_DOWNLOAD,
-    SHARE_TO_ENSOMI,
-
     /** The share arrived and no file has. */
     WAIT_FOR_DOWNLOAD,
 
@@ -109,14 +97,10 @@ data class GameSummary(
 @Serializable
 data class SessionState(
     val cid: String,
-    val path: LaunchPath,
     val startedNanos: Long,
     val startedWallMs: Long,
-    /** A share started it: the person is already past the host app's steps. */
-    val byShare: Boolean,
     val modelInstalled: Boolean,
     val stages: List<StageView> = Stage.entries.map { StageView(it) },
-    val launched: Boolean = false,
     val song: SongIdentity? = null,
     val audio: ReadyAudio? = null,
     val chart: ChartFacts? = null,
@@ -127,11 +111,6 @@ data class SessionState(
     val failure: Failure? = null,
     /** Files that may be the song, for the person to choose when nothing else can say. */
     val held: List<FileFacts> = emptyList(),
-    /** The step a driver is working on, and since when. */
-    val driverStep: HostStep? = null,
-    val driverSinceNanos: Long? = null,
-    /** The first step the person was asked to do; the steps after it are the person's too. */
-    val personFrom: HostStep? = null,
     val shareNanos: Long? = null,
     /** Audio waiting starts once the song is known; arrival or growth renews this idle clock. */
     val audioWaitSinceNanos: Long? = null,
@@ -161,11 +140,6 @@ data class SessionState(
 
 /** The time limits of a session: generous, since a person is in the loop. */
 data class SessionLimits(
-    /** How long a driver may take over a step before the person is asked; recognition itself takes a while. */
-    val driverStepMs: Long = 30_000,
-    val readResultMs: Long = 90_000,
-    /** From the launch, how long until a share or a file must have arrived. */
-    val hostMs: Long = 600_000,
     /** Idle time waiting for a known song's audio, renewed by a matching file arriving or growing. */
     val audioWaitMs: Long = 10_000,
     /** How long capture may run without a final lock. */
@@ -183,24 +157,6 @@ data class SessionNow(val nanos: Long, val wallMs: Long)
 /** What happened. Each is an observation; the session goes on from what it sees, in whatever order. */
 sealed interface SessionEvent {
     data class IndexReady(val entries: List<FileFacts>, val known: Map<Long, String>) : SessionEvent
-
-    data class HostLaunched(val how: String) : SessionEvent
-
-    data object HostNotInstalled : SessionEvent
-
-    data class HostLaunchFailed(val reason: String) : SessionEvent
-
-    data class StepStarted(val step: HostStep, val detail: String?) : SessionEvent
-
-    data class StepDone(val step: HostStep, val detail: String?) : SessionEvent
-
-    data class HandedToPerson(val step: HostStep, val reason: String) : SessionEvent
-
-    data class ResultSeen(val title: String, val artist: String?, val durationMs: Long?) : SessionEvent
-
-    data class RecognitionFailed(val reason: String) : SessionEvent
-
-    data class DownloadRefused(val reason: String) : SessionEvent
 
     /** [song] is null when the text says nothing of a song. [source] is the sharing app, or how the text got here. */
     data class ShareReceived(val text: String, val song: SharedSong?, val source: String?) : SessionEvent
@@ -261,12 +217,6 @@ sealed interface SessionEffect {
 
     data object BuildIndex : SessionEffect
 
-    data class Launch(val path: LaunchPath) : SessionEffect
-
-    data class Perform(val step: HostStep) : SessionEffect
-
-    data object CancelDriver : SessionEffect
-
     /** Look at this file again. */
     data class Refresh(val path: String) : SessionEffect
 
@@ -301,7 +251,7 @@ fun startsNewSession(state: SessionState?, shared: SongIdentity?): Boolean = whe
 /**
  * One recognition session, as plain state and rules: it takes events, keeps what they say, and answers with what to do
  * next, so that the order things happen in cannot be got wrong by the code around it. It holds facts rather than a
- * position in a sequence: a share reaches it before or after a file, a driver's report or none at all, and each fact
+ * position in a sequence: a share reaches it before or after a file, and each fact
  * moves on whatever it unblocks. Most failures allow late arrivals; the audio wait timeout ends the session.
  *
  * Not thread-safe; the controller feeds it from one coroutine.
@@ -337,8 +287,6 @@ class SessionMachine private constructor(
     private fun begin(): List<SessionEffect> = collect {
         log(
             "session.start",
-            "path" to state.path.name,
-            "by_share" to state.byShare,
             "model_installed" to state.modelInstalled,
             "wall_ms" to state.startedWallMs,
         )
@@ -364,33 +312,6 @@ class SessionMachine private constructor(
     private fun handle(event: SessionEvent) {
         when (event) {
             is SessionEvent.IndexReady -> indexReady(event)
-            is SessionEvent.HostLaunched -> {
-                log("host.launch", "how" to event.how)
-                askDriver(HostStep.OPEN_RECOGNITION)
-            }
-            SessionEvent.HostNotInstalled -> {
-                log("host.launch", "how" to "none", "failure" to "not_installed")
-                fail(FailureKind.HOST_NOT_INSTALLED, Stage.OPEN, null)
-            }
-            is SessionEvent.HostLaunchFailed -> {
-                log("host.launch", "how" to "none", "failure" to event.reason)
-                fail(FailureKind.HOST_LAUNCH_FAILED, Stage.OPEN, event.reason)
-            }
-            is SessionEvent.StepStarted -> {
-                log("driver.step", "step" to event.step.name, "state" to "started", "detail" to event.detail)
-                markStep(event.step, StageStatus.RUNNING, event.detail)
-            }
-            is SessionEvent.StepDone -> stepDone(event)
-            is SessionEvent.HandedToPerson -> handToPerson(event.step, event.reason)
-            is SessionEvent.ResultSeen -> resultSeen(event)
-            is SessionEvent.RecognitionFailed -> {
-                log("driver.step", "step" to HostStep.READ_RESULT.name, "state" to "no_result", "reason" to event.reason)
-                fail(FailureKind.RECOGNITION_FAILED, Stage.RESULT, event.reason)
-            }
-            is SessionEvent.DownloadRefused -> {
-                log("driver.step", "step" to HostStep.TAP_DOWNLOAD.name, "state" to "refused", "reason" to event.reason)
-                fail(FailureKind.NO_DOWNLOAD_RIGHT, Stage.DOWNLOAD, event.reason)
-            }
             is SessionEvent.ShareReceived -> shareReceived(event)
             is SessionEvent.LinkLookedUp -> linkLookedUp(event)
             is SessionEvent.FileSeen -> consider(event.file, event.evidence)
@@ -456,66 +377,7 @@ class SessionMachine private constructor(
         known = event.known
         log("index.ready", "entries" to event.entries.size, "known_songs" to event.known.size)
         setStage(Stage.LISTEN, StageStatus.DONE, event.entries.size.toString())
-        launchIfDue()
         considerEverything()
-    }
-
-    /** The host starts once listening is in place, unless a share started the session or nothing could come of it. */
-    private fun launchIfDue() {
-        if (state.launched || state.byShare || !state.modelInstalled || state.shareNanos != null) return
-        state = state.copy(launched = true)
-        setStage(Stage.OPEN, StageStatus.RUNNING)
-        effects += SessionEffect.Launch(state.path)
-    }
-
-    private fun askDriver(step: HostStep) {
-        val stage = stageOf(step)
-        if (state.shareNanos != null || state.stage(stage).status == StageStatus.DONE) return
-        state = state.copy(driverStep = step, driverSinceNanos = now.nanos)
-        setStage(stage, StageStatus.RUNNING)
-        log("driver.step", "step" to step.name, "state" to "asked")
-        effects += SessionEffect.Perform(step)
-    }
-
-    private fun markStep(step: HostStep, status: StageStatus, detail: String?) {
-        val stage = stageOf(step)
-        if (state.stage(stage).status != StageStatus.DONE) setStage(stage, status, detail)
-    }
-
-    private fun stepDone(event: SessionEvent.StepDone) {
-        log("driver.step", "step" to event.step.name, "state" to "done", "detail" to event.detail)
-        markStep(event.step, StageStatus.DONE, event.detail)
-        if (state.driverStep == event.step) state = state.copy(driverStep = null, driverSinceNanos = null)
-        // Reports from the driver mean it can act again, whoever did the step before.
-        if (state.personFrom == event.step) state = state.copy(personFrom = null)
-        nextStep(event.step)?.let(::askDriver)
-    }
-
-    private fun nextStep(step: HostStep): HostStep? = when (step) {
-        HostStep.OPEN_RECOGNITION -> HostStep.READ_RESULT
-        HostStep.READ_RESULT -> HostStep.TAP_DOWNLOAD
-        HostStep.TAP_DOWNLOAD -> HostStep.SHARE_TO_ENSOMI
-        HostStep.SHARE_TO_ENSOMI -> null
-    }.takeIf { state.shareNanos == null }
-
-    private fun handToPerson(step: HostStep, reason: String) {
-        log("manual_intervention", "step" to step.name, "reason" to reason)
-        if (state.shareNanos != null) return
-        val first = state.personFrom?.takeIf { it < step } ?: step
-        state = state.copy(personFrom = first, driverStep = null, driverSinceNanos = null)
-        markStep(step, StageStatus.NEEDS_PERSON, reason)
-        effects += SessionEffect.CancelDriver
-    }
-
-    private fun resultSeen(event: SessionEvent.ResultSeen) {
-        log("driver.step", "step" to HostStep.READ_RESULT.name, "state" to "seen", "title" to event.title, "artist" to event.artist)
-        learn(SongIdentity(title = event.title, artist = event.artist, durationMs = event.durationMs))
-        markStep(HostStep.OPEN_RECOGNITION, StageStatus.DONE, null)
-        markStep(HostStep.READ_RESULT, StageStatus.DONE, event.title)
-        clearFailure(Stage.OPEN, Stage.RESULT)
-        state = state.copy(personFrom = null, driverStep = null, driverSinceNanos = null)
-        nextStep(HostStep.READ_RESULT)?.let(::askDriver)
-        startAudio()
     }
 
     private fun shareReceived(event: SessionEvent.ShareReceived) {
@@ -535,15 +397,10 @@ class SessionMachine private constructor(
             fail(FailureKind.NOT_A_SONG, Stage.SHARE, song?.otherKind ?: event.text.take(TEXT_IN_FAILURE))
             return
         }
-        clearFailure(Stage.OPEN, Stage.RESULT, Stage.DOWNLOAD, Stage.SHARE)
+        clearFailure(Stage.SHARE)
         learn(song.identity)
-        for (stage in listOf(Stage.OPEN, Stage.RESULT, Stage.DOWNLOAD)) {
-            if (state.stage(stage).status !in CLOSED) setStage(stage, StageStatus.SKIPPED, NOT_OBSERVED)
-        }
         setStage(Stage.SHARE, StageStatus.DONE, song.title ?: song.songId?.toString())
-        val driving = state.driverStep != null
-        state = state.copy(shareNanos = state.shareNanos ?: now.nanos, personFrom = null, driverStep = null, driverSinceNanos = null)
-        if (driving) effects += SessionEffect.CancelDriver
+        state = state.copy(shareNanos = state.shareNanos ?: now.nanos)
         if (song.songId == null && song.shortLink != null) effects += SessionEffect.LookUp(song.shortLink)
         startAudio()
     }
@@ -933,15 +790,6 @@ class SessionMachine private constructor(
             end("audio_wait_timeout", abort = true, keepFailure = true)
             return
         }
-        val step = state.driverStep
-        val since = state.driverSinceNanos
-        if (step != null && since != null && millisSince(since) > driverLimit(step)) handToPerson(step, "driver_timeout")
-        if (state.audio == null && state.failure == null) {
-            val share = state.shareNanos
-            if (share == null && state.launched && millisSince(state.startedNanos) > limits.hostMs) {
-                fail(FailureKind.NO_SHARE, Stage.SHARE, null)
-            }
-        }
         if (state.capturing) {
             val listened = state.listenedMs + elapsed
             state = state.copy(listenedMs = listened)
@@ -962,9 +810,6 @@ class SessionMachine private constructor(
         }
     }
 
-    private fun driverLimit(step: HostStep): Long =
-        if (step == HostStep.READ_RESULT) limits.readResultMs else limits.driverStepMs
-
     private fun millisSince(nanos: Long): Long = (now.nanos - nanos) / 1_000_000
 
     private fun retry(stage: Stage, modelInstalled: Boolean) {
@@ -975,9 +820,9 @@ class SessionMachine private constructor(
             return
         }
         when (stage) {
-            Stage.LISTEN, Stage.OPEN, Stage.RESULT, Stage.DOWNLOAD, Stage.SHARE -> {
+            Stage.LISTEN, Stage.SHARE -> {
                 stopWork()
-                resetFrom(Stage.OPEN)
+                resetFrom(Stage.SHARE)
                 candidates.clear()
                 state = state.copy(
                     song = null,
@@ -989,13 +834,9 @@ class SessionMachine private constructor(
                     shareNanos = null,
                     audioWaitSinceNanos = null,
                     protectedFileName = null,
-                    personFrom = null,
-                    launched = false,
-                    byShare = false,
                 )
                 probing = null
                 effects += SessionEffect.BuildIndex
-                launchIfDue()
             }
             Stage.AUDIO -> {
                 stopWork()
@@ -1009,9 +850,7 @@ class SessionMachine private constructor(
             }
             Stage.CHART -> {
                 val audio = state.audio
-                if (audio == null) {
-                    launchIfDue()
-                } else {
+                if (audio != null) {
                     stopWork()
                     resetFrom(Stage.CHART)
                     state = state.copy(chart = null, lock = null, joined = null)
@@ -1038,10 +877,6 @@ class SessionMachine private constructor(
     private fun stopWork() {
         if (state.stage(Stage.CHART).status == StageStatus.RUNNING) effects += SessionEffect.StopChart
         stopCapture()
-        if (state.driverStep != null) {
-            state = state.copy(driverStep = null, driverSinceNanos = null)
-            effects += SessionEffect.CancelDriver
-        }
     }
 
     private fun resetFrom(first: Stage) {
@@ -1053,10 +888,9 @@ class SessionMachine private constructor(
         log("session.end", "reason" to reason)
         if (state.stage(Stage.CHART).status == StageStatus.RUNNING) effects += SessionEffect.StopChart
         stopCapture()
-        if (state.driverStep != null) effects += SessionEffect.CancelDriver
         effects += SessionEffect.StopListening
         val failure = state.failure?.takeIf { keepFailure || it.kind == FailureKind.SESSION_LOST }
-        state = state.copy(ended = reason, driverStep = null, driverSinceNanos = null, personFrom = null,
+        state = state.copy(ended = reason,
             failure = failure, audioWaitSinceNanos = null, held = emptyList())
     }
 
@@ -1074,7 +908,7 @@ class SessionMachine private constructor(
 
     private fun setStage(stage: Stage, status: StageStatus, detail: String? = null) {
         val current = state.stage(stage)
-        val active = status == StageStatus.RUNNING || status == StageStatus.NEEDS_PERSON
+        val active = status == StageStatus.RUNNING
         val closed = status in CLOSED
         val next = current.copy(
             status = status,
@@ -1087,17 +921,9 @@ class SessionMachine private constructor(
         state = state.copy(stages = state.stages.map { if (it.stage == stage) next else it })
     }
 
-    private fun stageOf(step: HostStep): Stage = Stage.entries.first { it.hostStep == step }
-
     /** What the person has to do now, worked out from the facts rather than kept in step with them. */
     private fun asks(): List<Ask> = buildList {
         if (!state.running) return@buildList
-        val from = state.personFrom
-        if (from != null && state.shareNanos == null && state.audio == null) {
-            if (from <= HostStep.READ_RESULT) add(Ask.OPEN_RECOGNITION)
-            if (from <= HostStep.TAP_DOWNLOAD) add(Ask.TAP_DOWNLOAD)
-            add(Ask.SHARE_TO_ENSOMI)
-        }
         val waitingForFile = state.audio == null && state.shareNanos != null
         if (waitingForFile && state.failure?.kind != FailureKind.PROTECTED_TRACK) add(Ask.WAIT_FOR_DOWNLOAD)
         if (state.stage(Stage.SYNC).status == StageStatus.RUNNING && !state.foreground) add(Ask.RETURN_TO_ENSOMI)
@@ -1119,7 +945,7 @@ class SessionMachine private constructor(
             end("lost", abort = true)
             return@collect
         }
-        state = state.copy(capturing = false, referenceReady = false, foreground = false, driverStep = null, driverSinceNanos = null)
+        state = state.copy(capturing = false, referenceReady = false, foreground = false)
         // Older snapshots had only the stage/share clock. Never restart a wait on restore.
         if (state.song != null && state.audio == null && state.audioWaitSinceNanos == null) {
             state = state.copy(audioWaitSinceNanos = state.stage(Stage.AUDIO).startedNanos ?: state.shareNanos ?: now.nanos)
@@ -1138,9 +964,8 @@ class SessionMachine private constructor(
     companion object {
         private const val RECHECK_NANOS = 2_000_000_000L
         private const val TEXT_IN_FAILURE = 120
-        private const val NOT_OBSERVED = "not observed"
         private const val STORED = "stored"
-        private val CLOSED = setOf(StageStatus.DONE, StageStatus.SKIPPED, StageStatus.FAILED)
+        private val CLOSED = setOf(StageStatus.DONE, StageStatus.FAILED)
 
         /** Verdicts only a change to the file can alter. */
         private val FINAL_FOR_THIS_FILE = setOf(
@@ -1149,14 +974,12 @@ class SessionMachine private constructor(
 
         fun start(
             cid: String,
-            path: LaunchPath,
-            byShare: Boolean,
             modelInstalled: Boolean,
             time: SessionNow,
             limits: SessionLimits = SessionLimits(),
             trace: (String, Map<String, Any?>) -> Unit,
         ): Pair<SessionMachine, List<SessionEffect>> {
-            val state = SessionState(cid, path, time.nanos, time.wallMs, byShare, modelInstalled)
+            val state = SessionState(cid, time.nanos, time.wallMs, modelInstalled)
             val machine = SessionMachine(state, trace, limits)
             return machine to machine.begin()
         }

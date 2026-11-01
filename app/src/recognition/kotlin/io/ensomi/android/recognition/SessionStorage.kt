@@ -18,7 +18,6 @@ enum class CaptureChoice { MICROPHONE, REPLAY }
  */
 @Serializable
 data class SessionOptions(
-    val path: LaunchPath = LaunchPath.AUTO,
     val stars: Double = 3.5,
     /** Added to the game's times, in place of the audio offset: trims how the join feels. */
     val ambientOffsetMs: Int = 0,

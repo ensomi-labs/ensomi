@@ -1,24 +1,7 @@
 # Ensomi for Android: the recognition session
 
-A test path, in debug and checks builds only, from music playing in a room to a game joined at the position the music
-has reached. Nothing here plays audio: the room's music goes on, and the game follows it. The stages are the ones the
-session's screen shows:
-
-1. **Listen.** The session registers its media listening and builds a local audio index before anything else.
-2. **Open.** NetEase Cloud Music's song recognition (听歌识曲) is started: Path A with the launcher intent, Path B with
-   the deep link `orpheus://identify`, Auto with B and then A if the link does not start. Both are ordinary
-   `startActivity` calls.
-3. **Result.** The host shows a result.
-4. **Download.** The song's download action is used; the host does not download a song twice.
-5. **Share.** The song is shared to Ensomi with `ACTION_SEND`. This is also how the person lands back in Ensomi.
-6. **Audio.** A complete, decodable file of the song is found, already there or arriving.
-7. **Chart and Sync.** The chart is made (or a stored one used) while the microphone aligns against the decoded song.
-8. **Play.** Once both the chart and a final lock are ready, the game joins the music.
-
-Steps 2 to 5 happen in another app, and the session does not depend on how: it goes on from what it observes, a share
-arriving, a file appearing and decoding. `HostDriver` is the interface for those steps. The session says which is due,
-`HostReports` brings back anything seen, and a step nothing else has done goes to the person, in Chinese and English,
-large enough to read at arm's length. `ManualHostDriver`, the only one in this repository, hands every step to the person.
+The session follows a song shared by the person, finds its downloaded audio, makes a chart, and uses the microphone
+to line up with music in the room. It never starts the music app or requests steps inside it.
 
 ## Where it lives
 
@@ -32,7 +15,6 @@ its merged manifest is the same as without it. The app's main code knows only th
 | `Session.kt` | `SessionMachine`: the session as plain state and rules, what happens in and what to do out |
 | `Candidates.kt` | The rules for whether a file is the song; matching by tags and names |
 | `SharedSong.kt` | Reading a share's text |
-| `HostDriver.kt` | The seam, and `ManualHostDriver` |
 | `MediaListening.kt` | The three ways of seeing a file arrive |
 | `SessionAudio.kt` | Decoding a candidate to the end; the chart on the app's own path |
 | `SyncPort.kt` | The port to the runtime's aligner |
@@ -46,7 +28,7 @@ its merged manifest is the same as without it. The app's main code knows only th
 
 `SessionMachine` holds facts, not a position in a sequence. Each event adds what it says, and each fact moves on
 whatever it unblocks: a file before the share waits for the song to be known; a share before the file waits for the
-file; a share at any time closes the host's stages, as "not observed" if nothing reported them. Most failures are
+file. Most failures are
 shown with their stage and a stage to retry from, while listening continues and late arrivals still count. The audio
 wait timeout is terminal: it stops the session with an explanation. Any stage of a running session that has started
 can be tried again from the list. A session ends when its game ends, the person stops it, or the audio wait expires.
@@ -206,7 +188,7 @@ to set the ambient offset by.
 | Case | What the session does |
 | --- | --- |
 | NetEase is not installed | Says so; a share still goes on |
-| Recognition fails, or a song has no download right | Says so, from a driver's report; by hand, the person sees it in the host |
+| Recognition fails, or a song has no download right | The person sees the result in NetEase and chooses another song |
 | No share arrives in 10 minutes | Says so; a late share still counts |
 | No usable audio arrives within the audio idle limit (10 s by default) | Ends the session and explains that the song may be protected; offers Back and another Start |
 | A `.ncm` | The refusal above |
@@ -218,7 +200,6 @@ to set the ambient offset by.
 | Sync never locks | As above; no guess |
 | The room's song ends before the join | Says so: no note is left after the join point. Try again from Sync |
 
-A driver has 30 seconds for a step and 90 for the recognition's result; after that the step goes to the person.
 
 ## The trace
 
@@ -233,12 +214,11 @@ Every line has `elapsed_ns` (`SystemClock.elapsedRealtimeNanos`), `cid`, `seq` a
 
 | Event | Fields |
 | --- | --- |
-| `session.device` | The device, the host's version, the driver, the capture source, both clocks read together |
+| `session.device` | The device, the host's version, the capture source, both clocks read together |
 | `session.start`, `session.restored`, `session.lost`, `session.end`, `abort` | How it began, why it stopped, at which stage |
 | `stage` | A stage's status changing |
 | `watch.start`, `watch.folder`, `watch.seen`, `watch.failed` | Which sources are listening, whether all-files access is on, and each source's first sight of each new file, so that all of them answer whichever fired first |
 | `index.ready` | Audio files found |
-| `host.launch`, `driver.step`, `manual_intervention` | How the host started; what a driver was asked and said; what went to the person, and why |
 | `share.received`, `share.link`, `song.identity` | The text, what was read from it, the short link's outcome |
 | `audio.wait`, `audio.progress` | The configured idle limit when waiting starts; matching file arrival or growth renewing it |
 | `audio.candidate`, `audio.gone`, `decode`, `audio.ready` | Each file with its evidence, match and verdict, and what decoding it showed |
