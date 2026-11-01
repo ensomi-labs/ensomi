@@ -61,6 +61,7 @@ fun LibraryScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onInstallModelFromFolder: (android.net.Uri) -> Unit,
+    preparedSongs: Set<String> = emptySet(),
     /** Debug tools: one more action in the top app bar. */
     extraAction: @Composable () -> Unit = {},
 ) {
@@ -127,7 +128,7 @@ fun LibraryScreen(
                         if (song.missing) {
                             MissingSongRow(song, onFindAgain = { onFindAgain(song) }, onRemove = { onRemoveSong(song) })
                         } else {
-                            SongRow(song) { onOpenSong(song) }
+                            SongRow(song, song.id in preparedSongs) { onOpenSong(song) }
                         }
                     }
                 }
@@ -137,7 +138,7 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun SongRow(song: Song, onClick: () -> Unit) {
+private fun SongRow(song: Song, prepared: Boolean, onClick: () -> Unit) {
     val length = ChartRequestRules.formatDuration(song.durationMs)
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
@@ -159,8 +160,13 @@ private fun SongRow(song: Song, onClick: () -> Unit) {
             }
         },
         trailingContent = {
-            if (song.chartCount > 0) {
-                Text(
+            Column(horizontalAlignment = Alignment.End) {
+                if (prepared) Text(
+                    stringResource(R.string.library_prepared),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (song.chartCount > 0) Text(
                     pluralStringResource(R.plurals.library_chart_count, song.chartCount, song.chartCount),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -44,6 +44,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -53,9 +54,9 @@ import kotlinx.coroutines.launch
 /**
  * Makes charts on this device with the installed model, as the Swift app does:
  *
- * - Opening a song starts the runtime's `prepare` (PCM preparation, the spectrogram, BeatThis, the features and the
- *   beat grid, most of the work) in the background. The [PREPARED_SONGS] latest results are kept in memory by the
- *   SHA-256 of the song's file and the model's revision, so Make chart often has only the chart stages left.
+ * - Library songs run `prepare` one at a time while idle. Audio stages are kept in [disk] and the latest
+ *   [PREPARED_SONGS] in memory, keyed by audio SHA-256 and model revision. Both chart routes consult these before
+ *   decoding. A requested chart interrupts background work; play waits for cancellation and cleanup.
  * - Make chart runs a whole-chart `ChartScheduler` from those stages and keeps the result, `.osu` and receipt, as the
  *   song's last chart in [store], so it can be played after the app was closed.
  * - Stop signals the work under way from the calling thread: the preparation's `Cancellation`, or the scheduler's
@@ -76,6 +77,7 @@ class RuntimeChartMaker(
      * off outside iOS. A debug launch may change it ([io.ensomi.android.prototype.Scenario]).
      */
     @Volatile var lowMemory: Boolean?,
+    private val disk: PreparedStore = PreparedStore.shared(File(context.filesDir, "prepared")),
 ) : ChartMaker {
     private val appContext = context.applicationContext
     private val worker = RuntimeWorker()
@@ -85,6 +87,22 @@ class RuntimeChartMaker(
     private val lock = Any()
     private val preparations = HashMap<String, Preparation>()
     private val makings = HashMap<String, Making>()
+    private var backgroundAllowed = false
+    private val readyKeys = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val mutablePreparedSongs = MutableStateFlow<Set<String>>(emptySet())
+    override val preparedSongs = mutablePreparedSongs.asStateFlow()
+    private data class BackgroundSong(val id: String, val uri: Uri?, val revision: String)
+    private val queue = PreparationQueue<BackgroundSong>(scope, prepare = { next ->
+        val preparation = synchronized(lock) {
+            if (backgroundAllowed && makings.isEmpty()) startPreparation(next.id) else null
+        }
+        if (preparation == null) synchronized(lock) { backgroundAllowed && makings.isEmpty() } else {
+            preparation.job.join()
+            preparation.key != null || !preparation.stopped.get()
+        }
+    }, stop = { next ->
+        synchronized(lock) { preparations[next.id]?.takeUnless { it.wanted } }?.stop()
+    })
 
     override val states: StateFlow<Map<String, MakeState>> = mutableStates.asStateFlow()
     override val capabilities: StateFlow<ChartCapabilities?> = mutableCapabilities.asStateFlow()
@@ -172,6 +190,24 @@ class RuntimeChartMaker(
                 .distinctUntilChanged()
                 .collectLatest { revision -> mutableCapabilities.value = revision?.let { readCapabilities() } }
         }
+        scope.launch {
+            var previous = emptyList<BackgroundSong>()
+            combine(songs.songs, model.state) { library, state ->
+                val installed = state as? ModelState.Installed
+                val revision = installed?.let { it.revision ?: it.name }
+                if (revision == null) emptyList() else library.filterNot { it.missing }.map {
+                    BackgroundSong(it.id, it.uri, revision)
+                }
+            }.distinctUntilChanged().collect { next ->
+                readyKeys.update { keys -> keys.filterKeys { id -> next.any { it.id == id && it in previous } } }
+                previous = next
+                queue.update(next)
+            }
+        }
+        scope.launch {
+            combine(readyKeys, disk.entries) { keys, _ -> keys.filterValues(disk::contains).keys }
+                .collect { mutablePreparedSongs.value = it }
+        }
     }
 
     override fun open(songId: String) {
@@ -187,7 +223,6 @@ class RuntimeChartMaker(
                 }
             }
         }
-        synchronized(lock) { startPreparation(songId) }
     }
 
     override fun make(songId: String, request: ChartRequest) = makeWithAudio(songId, request, null)
@@ -203,6 +238,9 @@ class RuntimeChartMaker(
         synchronized(lock) {
             if (makings[songId] != null) return
             makings[songId] = making
+            preparations[songId]?.wanted = true
+            queue.allow(false)
+            preparations.values.filter { it.songId != songId && !it.wanted }.forEach { it.stop() }
         }
         setState(songId, MakeState.Making(songId, MakePhase.LOADING))
         scope.launch {
@@ -211,7 +249,10 @@ class RuntimeChartMaker(
             } catch (failure: Exception) {
                 failed(songId, failure, making)
             }
-            synchronized(lock) { makings.remove(songId) }
+            synchronized(lock) {
+                makings.remove(songId)
+                queue.allow(backgroundAllowed && makings.isEmpty())
+            }
             if (state is MakeState.Stopped) Log.i(TAG, "Chart for $songId stopped")
             setState(songId, state)
         }
@@ -221,12 +262,27 @@ class RuntimeChartMaker(
         synchronized(lock) { makings[songId] }?.stop()
     }
 
-    override fun quiet() {
-        val idle = synchronized(lock) { preparations.values.filterNot { it.wanted } }
-        idle.forEach {
-            Log.i(TAG, "A game starts: the preparation of ${it.songId} stops")
-            it.stop()
+    override fun background(enabled: Boolean) {
+        synchronized(lock) {
+            backgroundAllowed = enabled
+            queue.allow(enabled && makings.isEmpty())
         }
+    }
+
+    override fun quiet() {
+        synchronized(lock) {
+            backgroundAllowed = false
+            queue.allow(false)
+            preparations.values.filterNot { it.wanted }.forEach { it.stop() }
+        }
+    }
+
+    override suspend fun awaitQuiet() {
+        quiet()
+        // Cancellation stops at the next graph boundary. Play waits for that work and its cleanup to leave.
+        val jobs = synchronized(lock) { preparations.values.map { it.job } }
+        jobs.forEach { it.join() }
+        worker.run { }
     }
 
     override fun lastChart(songId: String): LastChart? {
@@ -238,6 +294,8 @@ class RuntimeChartMaker(
     /** The song was removed from the library: its chart goes too. */
     fun forget(songId: String) {
         stop(songId)
+        synchronized(lock) { preparations[songId] }?.stop()
+        readyKeys.update { it - songId }
         scope.launch {
             store.remove(songId)
             mutableStates.update { it - songId }
@@ -253,7 +311,7 @@ class RuntimeChartMaker(
         var completed: Preparation? = null
         val runtimeRequest = request.toRuntime(song)
         for (attempt in 0 until 2) {
-            val preparation = synchronized(lock) { startPreparation(songId, input) }
+            val preparation = synchronized(lock) { startPreparation(songId, input)?.also { it.wanted = true } }
                 ?: return MakeState.Failed(songId, "The chart model is not installed.")
             preparation.wanted = true
             preparation.finishChart = { stages ->
@@ -351,7 +409,7 @@ class RuntimeChartMaker(
         preparations[songId] = preparation
         preparation.job = scope.launch {
             try {
-                preparation.key = prepareSong(preparation, input)
+                preparation.key = worker.run { prepareSong(preparation, input) }
             } catch (failure: Exception) {
                 if (!preparation.stopped.get()) {
                     Log.w(TAG, "Preparing $songId failed: $failure")
@@ -371,10 +429,23 @@ class RuntimeChartMaker(
         val uri = song.uri ?: return null
         val directory = model.directory ?: return null
         val revision = (model.state.value as? ModelState.Installed)?.let { it.revision ?: it.name } ?: return null
-        val sha256 = input?.sha256 ?: sha256(uri)
+        if (preparation.stopped.get()) return null
+        val sha256 = input?.sha256 ?: sha256(uri, preparation.stopped)
         preparation.sha256 = sha256
         val key = "$sha256/$revision"
-        if (prepared.get(key) != null) return key
+        if (preparation.stopped.get()) return null
+        if (prepared.get(key) != null) {
+            disk.used(key)
+            readyKeys.update { it + (song.id to key) }
+            return key
+        }
+        disk.read(key, ::Prepared)?.let { stages ->
+            prepared.put(key, stages)
+            readyKeys.update { it + (song.id to key) }
+            Log.i(TAG, "Stored preparation hit for ${song.id}")
+            return key
+        }
+        readyKeys.update { it - song.id }
         preparation.report(MakePhase.LOADING)
         val started = System.nanoTime()
         val audio = input?.audio ?: SongDecoder.decode(appContext, uri, PcmChannels.MONO) { preparation.stopped.get() }
@@ -388,6 +459,8 @@ class RuntimeChartMaker(
             if (preparation.stopped.get()) return@withGenerator false
             val stages = prepare(audio.samples, audio.sampleRate.toDouble(), preparation.cancellation)
             prepared.put(key, stages)
+            if (!disk.write(key) { it.write(stages.bytes()) }) Log.w(TAG, "Preparation could not be stored")
+            readyKeys.update { it + (song.id to key) }
             audioDone = System.nanoTime()
             audioPeak = PeakMemory.describe()
             preparation.finishChart?.let { finish ->
@@ -409,13 +482,14 @@ class RuntimeChartMaker(
         return key
     }
 
-    private fun sha256(uri: Uri): String {
+    private fun sha256(uri: Uri, stopped: AtomicBoolean): String {
         val digest = MessageDigest.getInstance("SHA-256")
         try {
             val input = appContext.contentResolver.openInputStream(uri) ?: throw IOException("No stream for $uri")
             input.use {
                 val buffer = ByteArray(1 shl 16)
                 while (true) {
+                    if (stopped.get()) return ""
                     val read = it.read(buffer)
                     if (read < 0) break
                     digest.update(buffer, 0, read)
@@ -437,6 +511,12 @@ class RuntimeChartMaker(
             Log.w(TAG, "The model's capabilities could not be read: ${failure.message}")
             null
         }
+    }
+
+    /** Test owners cancel and join their scope first; the process-wide maker lives until process exit. */
+    suspend fun close() {
+        worker.run { prepared.clear() }
+        worker.close()
     }
 
     private fun options() = GeneratorOptions(

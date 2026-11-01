@@ -308,4 +308,5 @@
     <string name="calibration_strip_on">The middle of your last taps is on the click</string>
     <string name="calibration_strip_late">The middle of your last taps is %1$d ms late</string>
     <string name="calibration_strip_early">The middle of your last taps is %1$d ms early</string>
+    <string name="library_prepared">Prepared</string>
 </resources>
