@@ -279,13 +279,18 @@ object SongMatch {
         return best
     }
 
-    /** Untagged downloads can join artists with spaces. A one-character name needs a whole token. */
+    /** Untagged downloads join whole artist names with spaces, including names spanning adjacent tokens. */
     private fun containsAllArtists(text: String, wanted: Set<String>): Boolean {
-        val folded = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
-        val joined = normalize(folded)
-        val tokens = folded.split(Regex("""[^\p{L}\p{N}]+""")).toSet()
+        val tokens = Normalizer.normalize(text, Normalizer.Form.NFKC)
+            .split(Regex("""\s+""")).map(::normalize).filter { it.isNotEmpty() }
         return wanted.isNotEmpty() && wanted.all { artist ->
-            if (artist.codePointCount(0, artist.length) == 1) artist in tokens else artist in joined
+            tokens.indices.any { start ->
+                var joined = ""
+                (start until tokens.size).any { end ->
+                    joined += tokens[end]
+                    joined == artist
+                }
+            }
         }
     }
 

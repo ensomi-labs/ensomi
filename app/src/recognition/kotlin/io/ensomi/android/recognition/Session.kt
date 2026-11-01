@@ -615,7 +615,14 @@ class SessionMachine private constructor(
     /** One decoder at a time: the surest candidate first. */
     private fun probeNext() {
         if (probing != null || state.audio != null || state.stage(Stage.LISTEN).status != StageStatus.DONE) return
-        val next = candidates.values.filter { it.verdict == Verdict.PROBE }.maxWithOrNull(compareBy<Candidate> { it.file.path !in rejectedPaths }.thenBy { it.match.ordinal }.thenBy { it.file.modifiedWallMs }.thenBy { it.file.path }) ?: return
+        val awaitingAlternative = state.titleOfferPaths.isNotEmpty() || candidates.values.any {
+            it.file.path !in rejectedPaths && it.match != MatchStrength.NONE &&
+                CandidateRules.audioDownloadName(it.file.name) != null &&
+                it.verdict in setOf(Verdict.TEMPORARY, Verdict.UNFINISHED, Verdict.NOT_QUIET, Verdict.TRUNCATED, Verdict.CHANGED_WHILE_PROBED)
+        }
+        val next = candidates.values.filter {
+            it.verdict == Verdict.PROBE && (it.file.path !in rejectedPaths || it.person || !awaitingAlternative)
+        }.maxWithOrNull(compareBy<Candidate> { it.file.path !in rejectedPaths }.thenBy { it.match.ordinal }.thenBy { it.file.modifiedWallMs }.thenBy { it.file.path }) ?: return
         probing = next.file.path
         effects += SessionEffect.Probe(next.file)
     }
@@ -834,7 +841,9 @@ class SessionMachine private constructor(
             (if (state.titleOfferPaths.isNotEmpty()) state.titleOfferSinceNanos?.let { millisSince(it) >= limits.titleOfferMs } == true
              else millisSince(waitingSince) >= limits.audioWaitMs)) {
             val protected = state.protectedFileName
-            fail(when { protected != null -> FailureKind.PROTECTED_TRACK; state.song?.title == null -> FailureKind.NAME_NEEDED; else -> FailureKind.NO_FILE }, Stage.AUDIO, protected)
+            if (state.failure?.kind != FailureKind.AUDIO_UNREADABLE) {
+                fail(when { protected != null -> FailureKind.PROTECTED_TRACK; state.song?.title == null -> FailureKind.NAME_NEEDED; else -> FailureKind.NO_FILE }, Stage.AUDIO, protected)
+            }
             end("audio_wait_timeout", abort = true, keepFailure = true)
             return
         }
@@ -983,7 +992,7 @@ class SessionMachine private constructor(
                 it.match != MatchStrength.NONE && CandidateRules.audioDownloadName(it.file.name) != null
             }
             val explain = state.stage(Stage.LISTEN).status == StageStatus.DONE &&
-                probing == null && state.held.isEmpty() && !matchingFile
+                probing == null && state.titleOfferPaths.isEmpty() && !matchingFile
             add(if (explain) Ask.DOWNLOAD_HELP else Ask.WAIT_FOR_DOWNLOAD)
         }
         if (state.stage(Stage.SYNC).status == StageStatus.RUNNING && !state.foreground) add(Ask.RETURN_TO_ENSOMI)

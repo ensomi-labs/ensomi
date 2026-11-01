@@ -154,6 +154,7 @@ class ShareTimelineTest {
         val unrelated = file().copy(name = "Another Song.mp3", title = "Another Song", modifiedWallMs = time.wallMs)
         machine.on(SessionEvent.IndexReady(listOf(unrelated), emptyMap()), time)
         assertEquals(listOf(unrelated), machine.state.held)
+        assertEquals(listOf(Ask.DOWNLOAD_HELP), machine.state.asks)
         machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 15_000_000_000))
         assertEquals("audio_wait_timeout", machine.state.ended)
         assertEquals(FailureKind.NO_FILE, machine.state.failure?.kind)
@@ -201,6 +202,36 @@ class ShareTimelineTest {
         assertEquals(FailureKind.AUDIO_UNREADABLE, machine.state.failure?.kind)
         machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 15_000_000_000))
         assertEquals("audio_wait_timeout", machine.state.ended)
+        assertEquals(FailureKind.AUDIO_UNREADABLE, machine.state.failure?.kind)
+    }
+
+    @Test fun rejectedFileWaitsForAnOfferAndFallsBackWhenItIsGone() {
+        val machine = machine()
+        val rejected = file("Cloud Quartet")
+        machine.on(SessionEvent.IndexReady(listOf(rejected), emptyMap()), time)
+        machine.on(SessionEvent.Probed(rejected, ProbeFacts(true, 10000.0, sizeBytes = rejected.sizeBytes, modifiedWallMs = rejected.modifiedWallMs)), time)
+        machine.on(SessionEvent.ReferenceFailed("invented failure"), time)
+        machine.on(SessionEvent.Retry(Stage.AUDIO), time)
+        val offered = file().copy(path = "/music/offer.mp3")
+        assertFalse(machine.on(SessionEvent.IndexReady(listOf(rejected, offered), emptyMap()), time).any { it is SessionEffect.Probe })
+        assertEquals(listOf(offered.path), machine.state.titleOfferPaths)
+        assertFalse(machine.on(SessionEvent.ShareReceived("invented re-share", share, null), time).any { it is SessionEffect.Probe })
+        assertEquals(listOf(SessionEffect.Probe(rejected)), machine.on(SessionEvent.FileGone(offered.path), time))
+    }
+
+    @Test fun rejectedFileWaitsForAMatchingDownloadToSettle() {
+        for (pending in listOf(true, false)) {
+            val machine = machine()
+            val rejected = file("Cloud Quartet")
+            machine.on(SessionEvent.IndexReady(listOf(rejected), emptyMap()), time)
+            machine.on(SessionEvent.Probed(rejected, ProbeFacts(true, 10000.0, sizeBytes = rejected.sizeBytes, modifiedWallMs = rejected.modifiedWallMs)), time)
+            machine.on(SessionEvent.Retry(Stage.AUDIO), time)
+            val settling = file("Cloud Quartet", time.wallMs).copy(path = "/music/download.mp3", pending = pending)
+            assertFalse(machine.on(SessionEvent.IndexReady(listOf(rejected, settling), emptyMap()), time).any { it is SessionEffect.Probe })
+            val later = time.copy(nanos = time.nanos + 2_000_000_000, wallMs = time.wallMs + 2000)
+            val finished = settling.copy(pending = false)
+            assertEquals(listOf(SessionEffect.Probe(finished)), machine.on(SessionEvent.FileSeen(finished, Evidence.MEDIA_STORE), later))
+        }
     }
 
     @Test fun aHeldFileDeletedDuringProcessDeathLeavesTheList() {

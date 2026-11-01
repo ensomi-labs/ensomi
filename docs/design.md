@@ -26,12 +26,15 @@ missing; no setup requires developer tools. English and Simplified Chinese are s
 Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
 
 The microphone is used locally to align with the song; its audio is neither saved nor uploaded. Only the model download
-and an optional public short-link lookup use the network. The shared-song session shows the no-audio explanation at ten idle seconds and stops at fifteen,
-starting after the index is ready. Matching file arrival or growth renews both marks. An older title-only file needs
+and an optional public short-link lookup use the network. The shared-song session shows the no-audio explanation
+immediately after indexing when no matching file, title-only offer or probe exists, even with unrelated held MP3s,
+and stops at fifteen idle seconds. Matching file arrival or growth renews the stop deadline. An older title-only file needs
 Use this file, with a plain choice prompt above the progress. Only that offer suspends the idle stop, and it ends
 with the ordinary message after three minutes without a choice. Other listed MP3s suspend nothing. The guide's
-recent-download baseline is consumed by the first session; retry prefers another usable recording but keeps the
-only file as a fallback. Back asks before stopping a live session, and that confirmation belongs to that session.
+recent-download baseline is consumed by the first session; retry prefers another usable recording. The rejected
+file remains a fallback only when no other file is offered and no matching download is settling. A chosen file’s
+decode failure remains after the idle stop. A bare link gets its own text asking for the song name and artist.
+Back asks before stopping a live session, and that confirmation belongs to that session.
 The guide is available after it ends; the ended screen no longer keeps the device awake. A process-restored session stays dormant until the person opens Listen & Play; expired waits
 are discarded. The join lead is two seconds (or the scroll time if longer).
 See [recognition.md](recognition.md) for the session, storage bounds and failure states.

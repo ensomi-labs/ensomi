@@ -174,6 +174,23 @@ class SongMatchTest {
     private val song = SongIdentity(title = "晴天", artist = "周杰伦")
 
     @Test
+    fun artistNamesCannotMatchInsideAnotherToken() {
+        // Invented names exercise a CJK prefix and a short Latin name inside a longer name.
+        val title = "Paper Aurora"
+        assertEquals(MatchStrength.TITLE_ONLY, strength(SongIdentity(title = title, artist = "岚禾"), named("岚禾禾 - $title.mp3")))
+        assertEquals(MatchStrength.TITLE_ONLY, strength(SongIdentity(title = title, artist = "UV"), named("Luv Fern - $title.mp3")))
+    }
+
+    @Test
+    fun hyphenatedAndMultiWordArtistsMatchWholeAdjacentTokens() {
+        val shared = SongIdentity(title = "Paper Aurora", artist = "Vela-Nox/Quori/Tavri")
+        assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, named("Vela-Nox Quori Tavri - Paper Aurora.mp3")))
+        val multiWord = shared.copy(artist = "Mira Vale/Quori")
+        assertEquals(MatchStrength.TITLE_ARTIST, strength(multiWord, named("Quori Mira Vale - Paper Aurora.mp3")))
+        assertEquals(MatchStrength.TITLE_ONLY, strength(multiWord, named("Mira Quori Vale - Paper Aurora.mp3")))
+    }
+
+    @Test
     fun untaggedSpaceJoinedArtistsMustAllAppearInAnyOrder() {
         val shared = SongIdentity(title = "Paper Aurora", artist = "Mira Vale/Nori Finch/Tavi Reed")
         for (artistPart in listOf("Mira Vale Nori Finch Tavi Reed", "ＴＡＶＩ Reed Mira Vale Nori Finch")) {
