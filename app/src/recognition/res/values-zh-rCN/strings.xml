@@ -30,7 +30,7 @@
     <string name="recognition_allow">允许麦克风和音乐访问权限</string>
     <string name="recognition_capture_mic">麦克风</string>
     <string name="recognition_capture_replay">WAV 回放</string>
-    <string name="recognition_choose_file">有文件与歌名相符。如果是这首歌，请在下方选择“使用此文件”。三分钟内未选择，会话将停止。</string>
+    <string name="recognition_choose_file">如果下方文件是这首歌，请选择“使用此文件”。</string>
     <string name="recognition_held">找到的其他 MP3 文件</string>
     <string name="recognition_use_file">使用此文件</string>
     <string name="recognition_failed_at">停止于：%1$s</string>

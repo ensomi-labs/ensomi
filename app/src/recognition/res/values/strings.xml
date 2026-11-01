@@ -9,7 +9,7 @@
     <string name="recognition_capture_mic">Microphone</string>
     <string name="recognition_capture_replay">WAV replay</string>
     <string name="recognition_held">Other MP3 files found</string>
-    <string name="recognition_choose_file">A file matches the title. Choose “Use this file” below if it is the song. The session stops after three minutes without a choice.</string>
+    <string name="recognition_choose_file">Choose “Use this file” below if it is the song.</string>
     <string name="recognition_failure_unreadable_zh" translatable="false">所选文件无法解码。请选择另一个完整的 MP3 文件。</string>
     <string name="recognition_failure_unreadable_en" translatable="false">The chosen file could not be decoded. Choose another complete MP3.</string>
     <string name="recognition_use_file">Use this file</string>
