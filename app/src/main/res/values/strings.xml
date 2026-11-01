@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="chart_decode_memory">Not enough memory to decode this song.</string>
     <string name="app_name">Ensomi</string>
 
     <string name="diagnostics_title">Diagnostics</string>

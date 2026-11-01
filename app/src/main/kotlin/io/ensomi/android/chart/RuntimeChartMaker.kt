@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import io.ensomi.android.R
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.audio.DecodeException
 import io.ensomi.android.audio.PcmChannels
@@ -451,7 +452,7 @@ class RuntimeChartMaker(
         val audio = input?.audio ?: try {
             SongDecoder.decode(appContext, uri, PcmChannels.MONO) { preparation.stopped.get() }
         } catch (failure: OutOfMemoryError) {
-            throw DecodeException("Not enough memory to decode this song.", cause = failure)
+            throw DecodeException(appContext.getString(R.string.chart_decode_memory), cause = failure)
         }
         if (preparation.stopped.get()) return null
         val decoded = System.nanoTime()
