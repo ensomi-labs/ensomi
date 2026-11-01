@@ -132,8 +132,10 @@ first final lock, as in the Swift app.
 There is no play without a final lock: the runtime's `isFinal` is the only gate. A lock takes at least 3.6 s of audio,
 and one real recording took about 26 s, so the limit is generous: after three minutes of listening without one, the
 session says so and does not join at a guess, since the song's recording may not be the room's, a live version for
-example. A wrong song gave no final lock in 24 of 24 of the runtime's takes. A provisional position counts for nothing,
-whatever its confidence; the screen shows the state, the reason no position is held and the agreement as they change.
+example. An offline study found wrong-song finals with the default settings in 2 of 3,432 ordinary negatives.
+On repeat-heavy songs, Sonalign may hold back from a final for a whole song rather than choose. A provisional position
+counts for nothing, whatever its confidence; the screen shows the state, the reason no position is held and the
+agreement as they change.
 When capture stops because Ensomi left the front, it starts again with a new `SyncSession` when Ensomi returns, since the
 audio does not continue what came before.
 
