@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -30,33 +31,31 @@ import io.ensomi.android.play.FakePlayClock
 import io.ensomi.android.play.PlayController
 import io.ensomi.android.play.PlayTiming
 import io.ensomi.android.play.PlayfieldView
+import io.ensomi.android.play.PlayfieldGeometry
 import io.ensomi.android.play.SampleCharts
 import io.ensomi.android.play.toRuntime
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * The playfield as play will draw it, only smaller: the sample chart playing itself on the game's own renderer, in the
- * orientation chosen above, following the lean and the scroll speed while they are dragged. The surface is the phone's
- * whole screen in that orientation, which the system scales down to the box (`SurfaceHolder.setFixedSize`), so what is
+ * orientation chosen above, following lean, width and scroll speed while they are dragged. The surface is the current
+ * whole window in that orientation, which the system scales down to the box (`SurfaceHolder.setFixedSize`), so what is
  * shown is the game's layout at the game's proportions. It takes no touches.
  */
 @Composable
 fun PlayfieldPreview(settings: PlaySettings, modifier: Modifier = Modifier) {
-    val view = LocalView.current
-    val screen = remember(view) {
-        val bounds = (view.context as? Activity)?.windowManager?.maximumWindowMetrics?.bounds
-        val width = bounds?.width() ?: view.resources.displayMetrics.widthPixels
-        val height = bounds?.height() ?: view.resources.displayMetrics.heightPixels
-        max(width, height) to min(width, height)
-    }
     val landscape = settings.orientation == PlayOrientation.LANDSCAPE
-    val size = if (landscape) screen else screen.second to screen.first
+    val size = playfieldPreviewSize(settings.orientation)
+    val density = LocalView.current.resources.displayMetrics.density
+    val widthPercent = PlayfieldGeometry.lineWidth(size.first.toFloat(), size.second.toFloat(), density, settings.laneWidth(settings.orientation)) / size.first * 100
     val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
     val description = stringResource(
         R.string.settings_playfield_preview_description,
         stringResource(if (landscape) R.string.settings_orientation_landscape else R.string.settings_orientation_portrait),
         leanText(settings.lean(settings.orientation)),
+        widthPercent.roundToInt(),
     )
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
@@ -67,8 +66,8 @@ fun PlayfieldPreview(settings: PlaySettings, modifier: Modifier = Modifier) {
                 .padding(1.dp)
                 .semantics { contentDescription = description },
         ) {
-            // A new surface when the orientation changes, since its buffer's shape does.
-            key(landscape) {
+            // A new surface when the window or chosen orientation changes its buffer size.
+            key(size) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context ->
@@ -93,6 +92,8 @@ fun PlayfieldPreview(settings: PlaySettings, modifier: Modifier = Modifier) {
                     update = {
                         it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                         it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
+                        it.landscapeWidth = settings.landscapeWidth
+                        it.portraitWidth = settings.portraitWidth
                         it.scrollTimeMs = settings.scrollTimeMs
                         it.reduceMotion = reduceMotion
                     },
@@ -100,6 +101,20 @@ fun PlayfieldPreview(settings: PlaySettings, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/** The current window in the chosen orientation, shared by the preview and the width slider. */
+@Composable
+fun playfieldPreviewSize(orientation: PlayOrientation): Pair<Int, Int> {
+    val view = LocalView.current
+    val windowSize = LocalWindowInfo.current.containerSize
+    val screen = remember(view, windowSize) {
+        val bounds = (view.context as? Activity)?.windowManager?.currentWindowMetrics?.bounds
+        val width = bounds?.width() ?: view.resources.displayMetrics.widthPixels
+        val height = bounds?.height() ?: view.resources.displayMetrics.heightPixels
+        max(width, height) to min(width, height)
+    }
+    return if (orientation == PlayOrientation.LANDSCAPE) screen else screen.second to screen.first
 }
 
 /** "Flat" for no lean, otherwise its angle: "40°". */

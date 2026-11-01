@@ -22,6 +22,8 @@ data class StoredSettings(
     val orientation: PlayOrientation = PlayOrientation.LANDSCAPE,
     val landscapeLean: Int = PlaySettings.DEFAULT_LANDSCAPE_LEAN,
     val portraitLean: Int = PlaySettings.DEFAULT_PORTRAIT_LEAN,
+    val landscapeWidth: Float? = null,
+    val portraitWidth: Float? = null,
 ) {
     /** The settings play reads on the output keyed [outputKey], each value within its range. */
     fun forOutput(outputKey: String): PlaySettings = PlaySettings(
@@ -33,6 +35,8 @@ data class StoredSettings(
         orientation = orientation,
         landscapeLean = landscapeLean.coerceIn(PlaySettings.LEANS),
         portraitLean = portraitLean.coerceIn(PlaySettings.LEANS),
+        landscapeWidth = landscapeWidth?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
+        portraitWidth = portraitWidth?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
     )
 
     /** These settings changed to [settings], whose audio offset is the one of the output keyed [outputKey]. */
@@ -49,6 +53,8 @@ data class StoredSettings(
         orientation = settings.orientation,
         landscapeLean = settings.landscapeLean,
         portraitLean = settings.portraitLean,
+        landscapeWidth = settings.landscapeWidth,
+        portraitWidth = settings.portraitWidth,
     )
 
     companion object {

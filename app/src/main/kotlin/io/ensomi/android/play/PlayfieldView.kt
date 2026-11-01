@@ -73,6 +73,17 @@ class PlayfieldView @JvmOverloads constructor(
             updateGeometry(width, height)
         }
 
+    var landscapeWidth: Float? = null
+        set(value) {
+            field = value
+            updateGeometry(width, height)
+        }
+    var portraitWidth: Float? = null
+        set(value) {
+            field = value
+            updateGeometry(width, height)
+        }
+
     /**
      * A preview draws a whole screen of [previewSize] pixels (the phone's own, in the orientation play will use) into
      * a surface buffer of that size, which the system scales down to the view; so the preview is the game's layout,
@@ -165,6 +176,7 @@ class PlayfieldView @JvmOverloads constructor(
         val g = PlayfieldGeometry.of(
             w.toFloat(), h.toFloat(), resources.displayMetrics.density, top, bottom, hudHeightDp,
             if (w > h) landscapeFarScale else portraitFarScale,
+            if (w > h) landscapeWidth else portraitWidth,
         )
         geometry = g
         if (previewSize == null && excludeBackGesture) systemGestureExclusionRects = backGestureExclusion(g)

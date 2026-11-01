@@ -32,14 +32,15 @@ import org.junit.runner.RunWith
  * vsyncs missed, under 0.5 % of frames late and a p99 of work under 3 ms at every lean; this decides whether GLES is
  * ever needed. Nothing is asserted but that frames were drawn.
  *
- * `pacing` names the scenarios (`pacing-flat,pacing,pacing-lean-max,pacing-portrait`).
+ * `pacing` names the scenarios (`pacing-flat,pacing,pacing-lean-max,pacing-portrait` by default);
+ * `pacing-width-min` keeps the original lane width for comparisons of the held-note light.
  */
 @RunWith(AndroidJUnit4::class)
 class FramePacingCheck {
     @Test
     fun framesAtEachLean() {
         val seconds = PhoneCheck.argInt("paceSeconds", 60)
-        val names = PhoneCheck.arg("pacing", SCENARIOS.keys.joinToString(",")).split(',').map { it.trim() }.filter { it in SCENARIOS }
+        val names = PhoneCheck.arg("pacing", "pacing-flat,pacing,pacing-lean-max,pacing-portrait").split(',').map { it.trim() }.filter { it in SCENARIOS }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val empty = mutableListOf<String>()
         for (name in names) {
@@ -225,6 +226,7 @@ class FramePacingCheck {
         val SCENARIOS = linkedMapOf(
             "pacing-flat" to "landscape 0°",
             "pacing" to "landscape 40°",
+            "pacing-width-min" to "landscape 40°, original width",
             "pacing-lean-max" to "landscape 55°",
             "pacing-portrait" to "portrait 0°",
         )

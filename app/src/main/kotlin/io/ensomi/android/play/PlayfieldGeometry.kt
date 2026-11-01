@@ -116,7 +116,7 @@ data class PlayfieldGeometry(
         /** Portrait: the HUD row over the top of the playfield (title, accuracy, pause), drawn by Compose. */
         const val HUD_HEIGHT_DP = 64f
 
-        /** Portrait: lanes are at most this wide together, as on the Swift play screen; a phone uses its width. */
+        /** The original widths: the slider's lower end, and the defaults in a phone-sized window. */
         const val MAX_FIELD_WIDTH_DP = 440f
         const val SIDE_MARGIN_DP = 8f
         const val TRAY_HEIGHT_DP = 88f
@@ -130,6 +130,12 @@ data class PlayfieldGeometry(
         const val LANDSCAPE_MAX_FIELD_WIDTH_DP = 640f
         const val LANDSCAPE_TOP_DP = 6f
         const val LANDSCAPE_TRAY_HEIGHT_DP = 64f
+
+        /** A large window uses more of the glass; a phone's default stays exactly as before. */
+        const val LARGE_WINDOW_DP = 600f
+        const val LARGE_LANDSCAPE_SHARE = 0.80f
+        const val LARGE_PORTRAIT_SHARE = 0.90f
+        const val MAX_WIDTH_SHARE = 0.98f
 
         const val CAP_INSET_DP = 10f
 
@@ -150,9 +156,10 @@ data class PlayfieldGeometry(
             bottomInsetPx: Float,
             hudHeightDp: Float = HUD_HEIGHT_DP,
             farScale: Float = 1f,
+            widthShare: Float? = null,
         ): PlayfieldGeometry {
             val landscape = width > height
-            val lineWidth = lineWidth(width, density, landscape)
+            val lineWidth = lineWidth(width, height, density, widthShare)
             val fieldTop = topInsetPx + (if (landscape) LANDSCAPE_TOP_DP else hudHeightDp) * density
             val minBottom = if (landscape) LANDSCAPE_MIN_BOTTOM_DP else MIN_BOTTOM_DP
             val trayBottom = height - max(bottomInsetPx, minBottom * density)
@@ -173,10 +180,22 @@ data class PlayfieldGeometry(
             )
         }
 
-        /** The lanes' width at the line on a surface [width] wide, in the same unit. */
+        /** The original width at the line: the least the width setting offers, in pixels. */
         fun lineWidth(width: Float, density: Float, landscape: Boolean): Float {
             val most = if (landscape) min(width * LANDSCAPE_FIELD_SHARE, LANDSCAPE_MAX_FIELD_WIDTH_DP * density) else MAX_FIELD_WIDTH_DP * density
             return max(0f, min(width - 2 * SIDE_MARGIN_DP * density, most))
+        }
+
+        /** Width changes neither the lean nor the line's height, tray height or fall length. */
+        fun lineWidth(width: Float, height: Float, density: Float, share: Float? = null): Float {
+            val original = lineWidth(width, density, width > height)
+            val chosen = share?.takeIf { it.isFinite() } ?: if (min(width, height) / density >= LARGE_WINDOW_DP) {
+                if (width > height) LARGE_LANDSCAPE_SHARE else LARGE_PORTRAIT_SHARE
+            } else {
+                // Return the old calculation itself: no rounding through a percentage on a phone.
+                return original
+            }
+            return (width * chosen.coerceIn(0f, MAX_WIDTH_SHARE)).coerceAtLeast(original)
         }
 
         /** The strongest lean drawn: below this the far end is too small to read notes at. */

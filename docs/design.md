@@ -242,10 +242,11 @@ A Material list in sections:
   0.46 s to fall to the line."), judge difficulty (segmented A to E, C by default).
 - **Playfield**: orientation (segmented Landscape and Portrait, Landscape by default); **Lane lean** for the
   orientation chosen (a slider from Flat to 55° in whole degrees; 40° in landscape and Flat in portrait by default:
-  each orientation keeps its own); and a **live preview**: the sample chart playing itself on the game's own renderer,
-  at the phone's full-screen proportions in the chosen orientation, scaled into the list, under the sliders on a phone
+  each orientation keeps its own); **Lane width** as a share of the screen at the line, with Use default width;
+  and a **live preview**: the sample chart playing itself on the game's own renderer,
+  at the current window's proportions in the chosen orientation, scaled into the list, under the sliders on a phone
   held upright and beside them in landscape, so it stays in sight while a slider moves. The preview follows
-  the lean and the scroll speed while their sliders are dragged, so the player sees what a change does before playing.
+  the lean, width and scroll speed while their sliders are dragged, so the player sees what a change does before playing.
   For the full-size look, About › Playfield preview opens the same sample as a game.
 - **Sound and timing**: music volume (a fraction of the song's own level), audio offset for the current output
   ("Audio offset for Phone speaker"), visual offset, both with −/+ steppers in 1 ms steps; Calibrate timing.
@@ -321,12 +322,14 @@ plum 11.8, Miss on plum 9.4, dark ink on coral 6.7 to 8.4; in light chrome, text
   animation, component state changes. Nothing else animates.
 - **Game**: motion marks what acted, as on the Swift play screen. A hit lights the line in its lane and a flare rises
   for 200 ms; a miss tints the lane above the line for 360 ms; the judgement word pulses and drifts as the runtime's
-  `judgementPresentation` says; lane lights ease as `laneBrightness` says. The count-in after a pause steps once per
-  beat.
+  `judgementPresentation` says; lane lights ease as `laneBrightness` says. A held long note's purple body and head
+  halo breathe softly twice a second on gameplay time; pause freezes the phase. The head and tail stay solid, and the
+  pulse adds no moving edge to read as the note's end. The count-in after a pause steps once per beat.
 - **Reduced motion.** With "Remove animations" on, `ValueAnimator.areAnimatorsEnabled()` is false
   ([ValueAnimator](https://developer.android.com/reference/android/animation/ValueAnimator#areAnimatorsEnabled())).
   The playfield then draws no flare, the line light only fades, the judgement word takes the runtime's opacity without
-  its scale or drift, and the count-in digits only change. Notes still scroll: that is the game, not decoration.
+  its scale or drift, held bodies and halos keep their steady light, and the count-in digits only change.
+  Notes still scroll: that is the game, not decoration.
 
 ## Haptics
 
@@ -372,6 +375,12 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
   gameplay.md, The playfield on a phone). Portrait stays a setting because the convention keeps it (Malody added
   portrait play as an option in both its generations), because it gives the longest lanes, and because some players
   hold the phone in one hand or are used to portrait 4K games.
+- **Lane width** sits beside Lane lean in Settings and follows the orientation selected there. It is the four lanes'
+  share of the window at the line, from the original width to 98 %, with a live preview and Use default width.
+  Defaults stay exactly as before on phone-sized windows; windows at least 600 dp on their shorter side use 80 % in
+  landscape and 90 % in portrait. At the K Pad's 668 × 1070 dp this gives a wider area under the hands while keeping
+  the landscape HUD beside the far end at the default 40° lean. Width changes the caps and touch columns together;
+  lean still moves neither, and touches beside the field still reach the nearest lane (gameplay.md).
 - **The game holds its orientation** from the count-in through pause and the results, with
   `SCREEN_ORIENTATION_USER_LANDSCAPE` or `SCREEN_ORIENTATION_USER_PORTRAIT`, which let the phone take either side of
   that orientation as its sensor and the player's rotation setting allow
@@ -409,7 +418,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 | Audio offset per output device, one visual offset, the scroll-speed scale, judge C, music volume 0.8 | Offsets default to 0 until the phones are measured (the Swift −15 ms was tuned on a Mac); the output keyed by `AudioDeviceInfo` type and name |
 | Calibration: clicks every 500 ms after 1 s, median of 16 taps | Two steps; the visual step has no taps |
 | Results: accuracy, max combo, misses | Its own screen with all three tiers, a timing chart and the runtime's offset suggestion |
-| Settings sections: gameplay, sound and timing, chart model | Playfield section (orientation, lane lean, live preview); About with the playfield preview and Diagnostics |
+| Settings sections: gameplay, sound and timing, chart model | Playfield section (orientation, lane lean, lane width, live preview); About with the playfield preview and Diagnostics |
 
 Not carried over in this round: Listen & Play, recognition, the Chart Inspector, the chart server, key bindings, saving
 `.osu` and `.osz`.

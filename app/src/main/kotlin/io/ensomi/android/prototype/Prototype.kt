@@ -192,6 +192,14 @@ data class Scenario(
             "play-flat" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = FLAT),
             "play-lean-max" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = MOST_LEAN),
             "play-portrait" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = PORTRAIT),
+            "play-width-max" to Scenario(
+                listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
+                settings = PlaySettings(landscapeWidth = 0.98f),
+            ),
+            "play-portrait-width-max" to Scenario(
+                listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
+                settings = PORTRAIT.copy(portraitWidth = 0.98f),
+            ),
             "play-portrait-lean" to Scenario(
                 listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
                 settings = PORTRAIT.copy(portraitLean = PlaySettings.DEFAULT_LANDSCAPE_LEAN),
@@ -200,6 +208,11 @@ data class Scenario(
             // The sample game without end, for the phone checks' frame pacing (androidTest FramePacingCheck).
             "pacing-flat" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true)), settings = FLAT),
             "pacing" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true))),
+            // Same width as the original build, for a held-light cost comparison on the sample chart.
+            "pacing-width-min" to Scenario(
+                listOf(Library, MakeChart(SONG), Play(SONG, loop = true)),
+                settings = PlaySettings(landscapeWidth = 0f),
+            ),
             "pacing-lean-max" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true)), settings = MOST_LEAN),
             "pacing-portrait" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = true)), settings = PORTRAIT),
             "play-paused" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), pauseAfterMs = 12_400),

@@ -242,7 +242,11 @@
     <string name="settings_lean_flat">Flat</string>
     <string name="settings_lean_value">%1$d°</string>
     <string name="settings_lean_help">Tilts the lanes back, so notes come out of the distance, smaller and slower, and speed up near the line. They reach it at the same time at any lean, and the keys stay where they are.</string>
-    <string name="settings_playfield_preview_description">Playfield preview: %1$s, lane lean %2$s</string>
+    <string name="settings_lane_width">Lane width</string>
+    <string name="settings_width_value">%1$d%%</string>
+    <string name="settings_width_help">Width of the four lanes at the line, as a share of the screen. Each orientation keeps its own width. Touches beside the field still reach the nearest lane.</string>
+    <string name="settings_width_default">Use default width</string>
+    <string name="settings_playfield_preview_description">Playfield preview: %1$s, lane lean %2$s, lane width %3$d%%</string>
     <string name="settings_sound_timing">Sound and timing</string>
     <string name="settings_music_volume">Music volume</string>
     <string name="settings_music_volume_help">The song’s level in play, up to its own level.</string>

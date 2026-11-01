@@ -339,6 +339,8 @@ fun PlayScreen(
                         it.insets = cutoutTop to gestureBottom
                         it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                         it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
+                        it.landscapeWidth = settings.landscapeWidth
+                        it.portraitWidth = settings.portraitWidth
                         it.reduceMotion = reduceMotion
                         it.excludeBackGesture = phase == PlayPhase.PLAYING && !tooSmall
                         // A view made while the game is paused (after a configuration change) starts paused.
@@ -360,6 +362,7 @@ fun PlayScreen(
                 paused = phase != PlayPhase.PLAYING,
                 onPause = { pause("the pause button") },
                 landscapeFarScale = PlaySettings.farScale(settings.landscapeLean),
+                landscapeWidth = settings.landscapeWidth,
             )
 
             when (phase) {
@@ -553,11 +556,12 @@ private fun PlayHudRow(
     paused: Boolean,
     onPause: () -> Unit,
     landscapeFarScale: Float,
+    landscapeWidth: Float?,
 ) = BoxWithConstraints {
     val landscape = maxWidth > maxHeight
     // The room left of the lanes where the HUD row ends, in dp: wider the more the lanes lean.
-    val beside = remember(maxWidth, maxHeight, landscapeFarScale) {
-        val g = PlayfieldGeometry.of(maxWidth.value, maxHeight.value, 1f, 0f, 0f, farScale = landscapeFarScale)
+    val beside = remember(maxWidth, maxHeight, landscapeFarScale, landscapeWidth) {
+        val g = PlayfieldGeometry.of(maxWidth.value, maxHeight.value, 1f, 0f, 0f, farScale = landscapeFarScale, widthShare = landscapeWidth)
         g.project(g.lineLeft, g.laneY(g.fieldTop + PlayfieldGeometry.HUD_HEIGHT_DP))[0].dp
     }
     Row(
