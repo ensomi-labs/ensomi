@@ -14,6 +14,9 @@ object GeneratorChoices {
     fun lowMemory(totalMemoryBytes: Long, lowRamDevice: Boolean): Boolean =
         lowRamDevice || totalMemoryBytes < LOW_MEMORY_BELOW_BYTES
 
+    /** The measured K Pad setting; leave other devices to the runtime until they are measured. */
+    fun beatthisThreads(model: String): UInt? = if (model == "25079RPDCC") 8u else null
+
     /** The runtime's refusal as the status card shows it: its code, then its message, without the code twice. */
     fun refusal(code: String, message: String): String =
         if (message.startsWith(code)) message else "$code: $message"

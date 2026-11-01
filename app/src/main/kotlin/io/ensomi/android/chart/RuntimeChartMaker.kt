@@ -405,7 +405,10 @@ class RuntimeChartMaker(
         }
     }
 
-    private fun options() = GeneratorOptions(ExecutionProvider.CPU, lowMemory = lowMemory)
+    private fun options() = GeneratorOptions(
+        ExecutionProvider.CPU, lowMemory = lowMemory,
+        beatthisThreads = GeneratorChoices.beatthisThreads(android.os.Build.MODEL),
+    )
 
     private fun setState(songId: String, state: MakeState) {
         mutableStates.update { it + (songId to state) }
