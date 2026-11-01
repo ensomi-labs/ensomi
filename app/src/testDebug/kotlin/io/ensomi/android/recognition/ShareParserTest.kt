@@ -35,8 +35,6 @@ class ShareParserTest {
             "https://music.163.com/song/media/outer/url?id=186016.mp3",
             "music.163.com/song?id=186016",
             "y.music.163.com/m/song?id=186016",
-            "orpheus://song/186016",
-            "orpheus://song/186016?autoplay=true",
         )
         for (page in pages) assertEquals(page, 186016L, parsed("听这首 $page 好听").songId)
     }

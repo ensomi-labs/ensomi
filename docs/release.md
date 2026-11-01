@@ -3,8 +3,8 @@
 ## Public demo: the current process
 
 The Android play demo is built on the owner's Mac from a committed tree, then signed by the owner with one
-release key made by hand and published as a GitHub prerelease of `ensomi-labs/ensomi`. The current build uses `versionName` **0.1.1**,
-`versionCode` **2**, with planned tag **`android-v0.1.1`**; Swift's `v0.1.0` stays separate. The build produces an unsigned,
+release key made by hand and published as a GitHub prerelease of `ensomi-labs/ensomi`. The current build uses `versionName` **0.1.2**,
+`versionCode` **3**; Swift's `v0.1.0` stays separate. The build produces an unsigned,
 R8-optimized arm64-v8a APK, with JNA keep rules and the runtime AAR's UniFFI keep rules. The runtime is the local AAR
 whose SHA-256 is `16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`.
 The owner keeps the keystore outside all repositories and signs separately with `apksigner`. CI has not run, so its
@@ -13,6 +13,18 @@ they do not describe automation enabled for this demo.
 
 The initial demo was 0.1.0 (code 1, `android-v0.1.0`). The 0.1.1 patch replaces the launcher icon with the website
 artwork; this build remains unsigned until the owner signs it. No tag or publication is part of the icon patch.
+
+## Public recognition
+
+Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
+
+Listen & Play is included in the public APK. Relative to the preceding release manifest it adds `RECORD_AUDIO`
+(for local alignment), `READ_MEDIA_AUDIO` (for the downloaded MP3), the package query for `com.netease.cloudmusic`
+and the exported `ACTION_SEND` text share target. It adds no foreground service or special storage access.
+Release uses microphone capture, autoplay off, 3.5 stars and zero ambient offset; debug controls and external options
+are unavailable. Microphone samples are neither saved nor uploaded. The optional public song short-link lookup and
+the pinned model download are the network activity. Local recognition traces and caches are bounded; see
+[recognition.md](recognition.md). The deliverable is unsigned; signing, tagging and publication are separate owner actions.
 
 ## Proposed automation
 

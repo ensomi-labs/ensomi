@@ -464,9 +464,11 @@ class SessionMachine private constructor(
         if (previous == null && match == MatchStrength.NONE && !isNew) return
         val changed = previous != null &&
             (previous.file.sizeBytes != file.sizeBytes || previous.file.modifiedWallMs != file.modifiedWallMs)
-        if (previous != null && !changed && previous.verdict in FINAL_FOR_THIS_FILE && previous.match == match) return
+        // A newly published MediaStore URI can make the same bytes readable under scoped storage.
+        val accessChanged = file.uri != null && file.uri != previous?.file?.uri
+        if (previous != null && !changed && !accessChanged && previous.verdict in FINAL_FOR_THIS_FILE && previous.match == match) return
         val strongest = when {
-            previous == null || changed -> evidence
+            previous == null || changed || accessChanged -> evidence
             evidence.rank >= previous.evidence.rank -> evidence
             else -> previous.evidence
         }
@@ -544,7 +546,7 @@ class SessionMachine private constructor(
 
     private fun hold(file: FileFacts) {
         if (!CandidateRules.isAudio(file.name) || state.held.any { it.path == file.path }) return
-        state = state.copy(held = state.held + file)
+        state = state.copy(held = (state.held + file).takeLast(MAX_HELD_FILES))
     }
 
     private fun fileGone(path: String) {
@@ -600,6 +602,11 @@ class SessionMachine private constructor(
         val candidate = candidates[file.path]
         if (candidate == null) {
             probeNext()
+            return
+        }
+        if (!probe.decoded && candidate.file.uri != null && candidate.file.uri != file.uri) {
+            // MediaStore published readable access while the filesystem-only probe was still running.
+            consider(candidate.file, candidate.evidence)
             return
         }
         val verdict = CandidateRules.judgeDecoded(file, probe, state.song?.durationMs, candidate.person)
@@ -962,6 +969,7 @@ class SessionMachine private constructor(
     }
 
     companion object {
+        private const val MAX_HELD_FILES = 64
         private const val RECHECK_NANOS = 2_000_000_000L
         private const val TEXT_IN_FAILURE = 120
         private const val STORED = "stored"

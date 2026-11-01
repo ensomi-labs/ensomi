@@ -2,6 +2,7 @@ package io.ensomi.android.recognition
 
 import android.content.Context
 import android.util.AtomicFile
+import io.ensomi.android.prototype.DebugTools
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -13,8 +14,7 @@ import kotlinx.serialization.json.Json
 enum class CaptureChoice { MICROPHONE, REPLAY }
 
 /**
- * A tester's choices, kept in `recognition/options.json` in the app's external files. The screen writes them; a script
- * can push the file instead, for the choices the screen leaves out.
+ * Public defaults. Only debug/checks builds read or write options in the app's external files.
  */
 @Serializable
 data class SessionOptions(
@@ -33,28 +33,37 @@ data class SessionOptions(
 
 /**
  * What the session keeps on disk: its snapshot, which is how it survives a process death; which file each song id was
- * found in, the only way this app ever connects an id to a file; the tester's options; and the traces.
+ * found in; and bounded traces. Release uses private storage and fixed defaults.
  */
 class SessionStorage(context: Context) {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    private val debug = DebugTools.enabled(context)
     private val inside = File(context.filesDir, "recognition").also { it.mkdirs() }
     private val snapshot = AtomicFile(File(inside, "session.json"))
     private val knownFile = AtomicFile(File(inside, "known-songs.json"))
 
     /** Where a tester's files go: pulled and pushed with adb, without root. */
-    val outside: File = File(context.getExternalFilesDir(null) ?: context.filesDir, "recognition").also { it.mkdirs() }
+    val outside: File = if (debug) File(context.getExternalFilesDir(null) ?: context.filesDir, "recognition").also { it.mkdirs() } else inside
     val replayFile = File(outside, "replay.wav")
     private val optionsFile = File(outside, "options.json")
 
     fun traceFile(cid: String) = File(outside, "session-$cid.jsonl")
 
+    fun pruneTraces(keepCid: String) {
+        outside.listFiles { file -> file.name.startsWith("session-") && file.extension == "jsonl" }
+            .orEmpty().filter { it != traceFile(keepCid) }.sortedByDescending { it.lastModified() }
+            .drop(9).forEach { it.delete() }
+    }
+
     fun readOptions(): SessionOptions =
-        runCatching { json.decodeFromString(SessionOptions.serializer(), optionsFile.readText()) }.getOrDefault(SessionOptions())
+        if (debug) runCatching { json.decodeFromString(SessionOptions.serializer(), optionsFile.readText()) }.getOrDefault(SessionOptions())
+        else SessionOptions()
 
     fun writeOptions(options: SessionOptions) {
+        if (!debug) return
         runCatching { optionsFile.writeText(json.encodeToString(SessionOptions.serializer(), options)) }
     }
 
@@ -70,7 +79,7 @@ class SessionStorage(context: Context) {
     }.getOrDefault(emptyMap())
 
     fun remember(songId: Long, path: String) {
-        val known = knownSongs() + (songId to path)
+        val known = (knownSongs() - songId + (songId to path)).entries.toList().takeLast(256).associate { it.toPair() }
         write(knownFile, json.encodeToString(KNOWN, known.mapKeys { it.key.toString() }))
     }
 

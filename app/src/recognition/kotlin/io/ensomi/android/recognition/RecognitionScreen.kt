@@ -6,7 +6,6 @@ import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Environment
 import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -66,21 +65,18 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ensomi.android.R
+import io.ensomi.android.prototype.DebugTools
 import io.ensomi.android.settings.PlaySettings
-import io.ensomi.android.ui.ActionButton
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-/**
- * The recognition session's test surface: start it, see each stage with its state and time, read what to do by hand
- * from arm's length, see what failed and try again from there. It is a screen for testing, in plain Material 3, not a
- * designed part of the game.
- */
+/** Progress and next steps after a song share. */
 @Composable
 fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
     val state by controller.session.collectAsStateWithLifecycle()
     val options by controller.options.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val debug = DebugTools.enabled(context)
     LifecycleResumeEffect(controller) {
         controller.setFrontmost(true)
         onPauseOrDispose { controller.setFrontmost(false) }
@@ -105,7 +101,7 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
     var afterPermissions by remember { mutableStateOf<(() -> Unit)?>(null) }
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = permissionsMissing(context).isEmpty()
-        afterPermissions?.invoke()
+        if (granted) afterPermissions?.invoke()
         afterPermissions = null
     }
     fun askThen(then: () -> Unit) {
@@ -152,6 +148,9 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                             onRetry = { controller.retry(failure.kind.retryFrom) }, onBack = onBack)
                     }
                 }
+                item(key = "guide") {
+                    OutlinedButton(onClick = controller::showGuide, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.guide_show)) }
+                }
                 item(key = "controls") {
                     Controls(
                         running = current?.running == true,
@@ -184,8 +183,10 @@ fun RecognitionScreen(controller: RecognitionController, onBack: () -> Unit) {
                         }
                     }
                 }
-                item(key = "options") { OptionsCard(controller, options) }
-                item(key = "paths") { Paths(controller, context) }
+                if (debug) {
+                    item(key = "options") { OptionsCard(controller, options) }
+                    item(key = "trace") { controller.tracePath?.let { Text(stringResource(R.string.recognition_trace, it)) } }
+                }
             }
         }
     }
@@ -245,7 +246,7 @@ private fun FailureCard(failure: Failure, canRetry: Boolean, onRetry: () -> Unit
             val (chinese, english) = failure.kind.words()
             Text(stringResource(chinese), fontSize = 24.sp, lineHeight = 30.sp, style = MaterialTheme.typography.titleLarge)
             Text(stringResource(english), fontSize = 18.sp, lineHeight = 24.sp, style = MaterialTheme.typography.bodyLarge)
-            failure.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (DebugTools.enabled(LocalContext.current)) failure.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             if (canRetry) {
                 OutlinedButton(onClick = onRetry) {
                     Text(stringResource(R.string.recognition_retry_from, stringResource(failure.kind.retryFrom.label())))
@@ -282,27 +283,29 @@ private fun SongFacts(state: SessionState) {
             Text(listOfNotNull(song.title, song.artist).joinToString(" · ").ifEmpty { "—" }, style = MaterialTheme.typography.titleLarge)
             song.songId?.let { Text(stringResource(R.string.recognition_song_id, it.toString()), style = MaterialTheme.typography.bodyMedium) }
         }
-        audio?.let { Text(it.file.path, style = MaterialTheme.typography.bodySmall) }
-        state.syncState?.let { sync ->
-            Text(
-                stringResource(
-                    R.string.recognition_sync_state,
-                    sync,
-                    state.syncDetail ?: "—",
-                    state.syncConfidence?.let { String.format(Locale.ROOT, "%.2f", it) } ?: "—",
-                    state.listenedMs / 1000,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        state.rmsDb?.let {
-            Text(stringResource(R.string.recognition_level, String.format(Locale.ROOT, "%.1f", it)), style = MaterialTheme.typography.bodyMedium)
-        }
-        state.joined?.let {
-            Text(
-                stringResource(R.string.recognition_joined, seconds(it.joinMs), seconds(it.heardMs), it.notesKept, it.notesSkipped),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+        if (DebugTools.enabled(LocalContext.current)) {
+            audio?.let { Text(it.file.path, style = MaterialTheme.typography.bodySmall) }
+            state.syncState?.let { sync ->
+                Text(
+                    stringResource(
+                        R.string.recognition_sync_state,
+                        sync,
+                        state.syncDetail ?: "—",
+                        state.syncConfidence?.let { String.format(Locale.ROOT, "%.2f", it) } ?: "—",
+                        state.listenedMs / 1000,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            state.rmsDb?.let {
+                Text(stringResource(R.string.recognition_level, String.format(Locale.ROOT, "%.1f", it)), style = MaterialTheme.typography.bodyMedium)
+            }
+            state.joined?.let {
+                Text(
+                    stringResource(R.string.recognition_joined, seconds(it.joinMs), seconds(it.heardMs), it.notesKept, it.notesSkipped),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 }
@@ -322,7 +325,7 @@ private fun StagesCard(state: SessionState, onRetry: (Stage) -> Unit) {
                 if (index > 0) HorizontalDivider()
                 ListItem(
                     headlineContent = { Text(stringResource(view.stage.label())) },
-                    supportingContent = view.detail?.let { detail -> { Text(detail) } },
+                    supportingContent = if (DebugTools.enabled(LocalContext.current)) view.detail?.let { detail -> { Text(detail) } } else null,
                     leadingContent = {
                         Icon(painterResource(view.status.icon()), contentDescription = null, modifier = Modifier.size(24.dp))
                     },
@@ -418,21 +421,6 @@ private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: (
         IconButton(onClick = onPlus) {
             Icon(painterResource(R.drawable.ic_add), contentDescription = stringResource(R.string.recognition_more, label))
         }
-    }
-}
-
-@Composable
-private fun Paths(controller: RecognitionController, context: Context) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            if (Environment.isExternalStorageManager()) {
-                stringResource(R.string.recognition_all_files_on)
-            } else {
-                stringResource(R.string.recognition_all_files_off, context.packageName)
-            },
-            style = MaterialTheme.typography.bodySmall,
-        )
-        controller.tracePath?.let { Text(stringResource(R.string.recognition_trace, it), style = MaterialTheme.typography.bodySmall) }
     }
 }
 

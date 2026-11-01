@@ -174,7 +174,8 @@ class CandidateRulesTest {
     fun namesAreSortedOut() {
         assertTrue(CandidateRules.isProtected("a.NCM"))
         assertFalse(CandidateRules.isProtected("a.mp3"))
-        assertTrue(CandidateRules.isAudio("a.flac"))
+        assertTrue(CandidateRules.isAudio("a.MP3"))
+        assertFalse(CandidateRules.isAudio("a.flac"))
         assertFalse(CandidateRules.isAudio("a.ncm"))
     }
 }

@@ -20,17 +20,16 @@ data class SharedSong(
 
 /**
  * Reads the text of a share. The host's share text looks like `分享xxx的单曲《xxx》: https://… (来自@网易云音乐)`; the link
- * may be a page of `music.163.com` or `y.music.163.com` in any of its forms, an `orpheus://song/` link, or a public short
+ * may be a page of `music.163.com` or `y.music.163.com` in any of its forms, or a public short
  * link. A short link says nothing until it is looked up ([ShortLinks]), and the title and artist in the text are enough
  * to match files without it.
  */
 object ShareParser {
     private val LINK = Regex(
-        """(?:(?:https?|orpheus)://|(?<![\w.])(?:y\.music\.163\.com|music\.163\.com|163cn\.tv|163\.tn)/)[^\s，。；、（）()》」'"<>\u3000]+""",
+        """(?:(?:https?)://|(?<![\w.])(?:y\.music\.163\.com|music\.163\.com|163cn\.tv|163\.tn)/)[^\s，。；、（）()》」'"<>\u3000]+""",
         RegexOption.IGNORE_CASE,
     )
     private val ID_PARAMETER = Regex("""(?:^|[?&])id=(\d+)""")
-    private val ORPHEUS_SONG = Regex("""^orpheus://song/(\d+)""", RegexOption.IGNORE_CASE)
     private val PAGE_HOSTS = setOf("music.163.com", "y.music.163.com", "www.music.163.com")
     private val SHORT_HOSTS = setOf("163cn.tv", "163.tn")
 
@@ -45,6 +44,7 @@ object ShareParser {
 
     /** Null when the text has nothing to do with a song. */
     fun parse(text: String): SharedSong? {
+        if (text.length > 8192) return null
         val links = LINK.findAll(text).map { it.value.trimEnd('.', ',', ':', ';') }.toList()
         val pages = links.mapNotNull(::page)
         val song = pages.firstOrNull { it.kind == "song" && it.id != null }
@@ -67,7 +67,6 @@ object ShareParser {
     private class Page(val kind: String, val id: Long?)
 
     private fun page(url: String): Page? {
-        ORPHEUS_SONG.find(url)?.let { return Page("song", it.groupValues[1].toLongOrNull()) }
         val host = host(url)
         if (host !in PAGE_HOSTS) return null
         val rest = url.substringAfter("://", url).substringAfter('/', "")

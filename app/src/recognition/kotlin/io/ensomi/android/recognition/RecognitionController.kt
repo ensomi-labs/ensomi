@@ -1,5 +1,6 @@
 package io.ensomi.android.recognition
 
+import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -48,6 +49,8 @@ class RecognitionController private constructor(context: Context) {
     private val mutableGame = MutableStateFlow<AmbientGame?>(null)
     private val mutableOptions = MutableStateFlow(storage.readOptions())
     private val mutableOpens = MutableStateFlow(false)
+    private val mutableShareNotice = MutableStateFlow<ShareDecision?>(null)
+    val shareNotice: StateFlow<ShareDecision?> = mutableShareNotice.asStateFlow()
 
     /** The session, also after it ended, until the next one. */
     val session: StateFlow<SessionState?> = mutableSession.asStateFlow()
@@ -82,7 +85,7 @@ class RecognitionController private constructor(context: Context) {
     private var listening: MediaListening? = null
 
     private val stores: AppStores by lazy { AppStores.get(appContext) }
-    private val charts by lazy { SessionCharts(appContext, stores, scope) { post { feed(it) } } }
+    private val charts by lazy { SessionCharts(appContext, stores, scope) }
 
     init {
         scope.launch {
@@ -98,6 +101,14 @@ class RecognitionController private constructor(context: Context) {
         post { restore() }
     }
 
+    fun showGuide() = post {
+        feed(SessionEvent.Stop("guide"))
+        machine = null
+        mutableGame.value = null
+        mutableSession.value = null
+        mutableShareNotice.value = null
+    }
+
     fun stop() = post {
         feed(SessionEvent.Stop("person"))
         mutableGame.value = null
@@ -109,15 +120,30 @@ class RecognitionController private constructor(context: Context) {
 
     /** A share reached the app, or the person pasted a link. Starts a session when there is none for this song. */
     fun share(text: String, source: String?) {
+        val received = now()
         mutableOpens.value = true
         post {
             val shared = ShareParser.parse(text)
-            if (startsNewSession(machine?.state, shared?.takeIf { it.namesSong }?.identity)) {
-                begin()
+            val decision = shareDecision(shared, guideState())
+            if (decision != ShareDecision.START) {
+                if (machine?.state?.running == true) feed(SessionEvent.Stop("share_needs_setup"))
+                machine = null
+                mutableSession.value = null
+                mutableGame.value = null
+                mutableShareNotice.value = decision
+                return@post
             }
-            feed(SessionEvent.ShareReceived(text, shared, source))
+            mutableShareNotice.value = null
+            if (startsNewSession(machine?.state, shared?.identity)) begin()
+            feed(SessionEvent.ShareReceived(text, shared, source), received)
         }
     }
+
+    private suspend fun guideState() = GuideState(
+        modelInstalled(),
+        appContext.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
+        appContext.checkSelfPermission(Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED,
+    )
 
     /** Whether Ensomi's screen for the session is in front. */
     fun setFrontmost(front: Boolean) = post {
@@ -169,12 +195,14 @@ class RecognitionController private constructor(context: Context) {
     }
 
     private suspend fun begin() {
+        mutableGame.value = null
         if (machine?.state?.running == true) feed(SessionEvent.Stop("replaced"))
         closeSync()
         trace?.close()
         val time = now()
         val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date(time.wallMs))
         val cid = "$stamp-${UUID.randomUUID().toString().take(CID_SUFFIX)}"
+        storage.pruneTraces(cid)
         val log = SessionTrace(storage.traceFile(cid), cid, SystemClock::elapsedRealtimeNanos)
         trace = log
         val installed = modelInstalled()
@@ -215,6 +243,12 @@ class RecognitionController private constructor(context: Context) {
 
     private suspend fun restore() {
         val saved = storage.readSnapshot() ?: return
+        val guide = guideState()
+        if (!guide.ready) {
+            storage.clearSnapshot()
+            mutableShareNotice.value = if (!guide.modelReady) ShareDecision.MODEL else ShareDecision.PERMISSIONS
+            return
+        }
         if (!saved.running) return
         val log = SessionTrace(storage.traceFile(saved.cid), saved.cid, SystemClock::elapsedRealtimeNanos)
         trace = log
@@ -226,9 +260,9 @@ class RecognitionController private constructor(context: Context) {
         mutableOpens.value = true
     }
 
-    private suspend fun feed(event: SessionEvent) {
+    private suspend fun feed(event: SessionEvent, time: SessionNow = now()) {
         val current = machine ?: return
-        val effects = current.on(event, now())
+        val effects = current.on(event, time)
         published(current)
         effects.forEach { carryOut(it) }
     }
@@ -266,7 +300,7 @@ class RecognitionController private constructor(context: Context) {
             is SessionEffect.MakeChart -> charts.make(
                 effect.audio, mutableOptions.value.stars,
                 decoded?.takeIf { it.path == effect.audio.file.path && it.sha256 == effect.audio.sha256 }?.song,
-            )
+            ) { event -> postFor(current) { feed(event) } }
             SessionEffect.StopChart -> charts.stop()
             is SessionEffect.BuildReference -> buildReference(effect.audio)
             SessionEffect.StartCapture -> startCapture()
@@ -487,7 +521,7 @@ class RecognitionController private constructor(context: Context) {
          * How far ahead of the heard position a game joins, at least: the playfield has to open and the player to see the
          * count-in and get their hands on the glass. The scroll time is the other floor, so the first notes scroll in.
          */
-        private const val JOIN_LEAD_MS = 4_000.0
+        private const val JOIN_LEAD_MS = 2_000.0
 
         @Volatile
         private var instance: RecognitionController? = null

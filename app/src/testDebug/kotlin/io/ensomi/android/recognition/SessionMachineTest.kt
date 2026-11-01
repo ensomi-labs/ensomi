@@ -359,7 +359,7 @@ class SessionMachineTest {
         val bench = Bench()
         bench.listening()
         bench.on(shared)
-        val bad = bench.song("周杰伦 - 晴天.flac", modified = bench.wallMs - 5_000)
+        val bad = bench.song("晴天 - 周杰伦.mp3", modified = bench.wallMs - 5_000)
         val good = bench.song(modified = bench.wallMs - 5_000)
         bench.on(SessionEvent.FileSeen(bad, Evidence.CLOSE_WRITE))
         assertTrue(bench.on(SessionEvent.FileSeen(good, Evidence.CLOSE_WRITE)).isEmpty())
@@ -1090,6 +1090,45 @@ class SessionMachineTest {
         assertFalse(bench.state.foreground)
         assertEquals(1, bench.events("session.restored").size)
         assertEquals("晴天", bench.state.song?.title)
+    }
+
+    @Test
+    fun theSnapshotKeepsOnlyTheLatestSixtyFourUncertainFiles() {
+        val bench = Bench()
+        repeat(100) { index ->
+            bench.on(SessionEvent.FileSeen(bench.song("Candidate $index.mp3"), Evidence.CLOSE_WRITE))
+        }
+        assertEquals(64, bench.state.held.size)
+        assertEquals("Candidate 99.mp3", bench.state.held.last().name)
+    }
+
+    @Test
+    fun aPublishedMediaStoreUriRetriesAnUnreadableFolderFileWithoutGrowth() {
+        val bench = Bench()
+        bench.on(shared)
+        val file = bench.song(modified = bench.wallMs - 5000)
+        assertEquals(listOf<SessionEffect>(SessionEffect.Probe(file)), bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)))
+        bench.on(SessionEvent.Probed(file, ProbeFacts(false, failure = "not readable yet", sizeBytes = file.sizeBytes, modifiedWallMs = file.modifiedWallMs)))
+        assertTrue(bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)).isEmpty())
+        val published = file.copy(uri = "content://media/external/audio/media/42")
+        assertEquals(listOf<SessionEffect>(SessionEffect.Probe(published)), bench.on(SessionEvent.FileSeen(published, Evidence.MEDIA_STORE)))
+        bench.on(bench.probed(published))
+        assertEquals(published, bench.state.audio?.file)
+        assertEquals("MEDIA_STORE", bench.events("audio.ready").single()["evidence"])
+    }
+
+    @Test
+    fun mediaAccessArrivingDuringTheFilesystemProbeIsNotLost() {
+        val bench = Bench()
+        bench.on(shared)
+        val file = bench.song(modified = bench.wallMs - 5000)
+        bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE))
+        val published = file.copy(uri = "content://media/external/audio/media/43")
+        assertTrue(bench.on(SessionEvent.FileSeen(published, Evidence.MEDIA_STORE)).isEmpty())
+        val retry = bench.on(SessionEvent.Probed(file, ProbeFacts(false, failure = "not readable yet", sizeBytes = file.sizeBytes, modifiedWallMs = file.modifiedWallMs)))
+        assertEquals(listOf<SessionEffect>(SessionEffect.Probe(published)), retry)
+        bench.on(bench.probed(published))
+        assertEquals(published, bench.state.audio?.file)
     }
 
 }

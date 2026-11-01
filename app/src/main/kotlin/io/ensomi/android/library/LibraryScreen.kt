@@ -62,7 +62,8 @@ fun LibraryScreen(
     onCancelDownload: () -> Unit,
     onInstallModelFromFolder: (android.net.Uri) -> Unit,
     preparedSongs: Set<String> = emptySet(),
-    /** Debug tools: one more action in the top app bar. */
+    onListen: (() -> Unit)? = null,
+    /** Optional action in the top app bar. */
     extraAction: @Composable () -> Unit = {},
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -81,7 +82,7 @@ fun LibraryScreen(
             )
         },
         floatingActionButton = {
-            if (songs.isNotEmpty()) {
+            if (songs.isNotEmpty() && model !is ModelState.Installed) {
                 ExtendedFloatingActionButton(
                     text = { Text(stringResource(R.string.library_add_songs)) },
                     icon = { Icon(painterResource(R.drawable.ic_add), contentDescription = null) },
@@ -111,8 +112,18 @@ fun LibraryScreen(
                         )
                     }
                 }
+                if (model is ModelState.Installed) {
+                    item(key = "actions") {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(onClick = onAddSongs, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.library_add_songs)) }
+                            onListen?.let { open ->
+                                OutlinedButton(onClick = open, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.recognition_title)) }
+                            }
+                        }
+                    }
+                }
                 if (songs.isEmpty()) {
-                    item(key = "empty") { EmptySongs(onAddSongs) }
+                    item(key = "empty") { EmptySongs(onAddSongs, model !is ModelState.Installed) }
                 } else {
                     item(key = "header") {
                         Text(
@@ -221,7 +232,7 @@ private fun MissingSongRow(song: Song, onFindAgain: () -> Unit, onRemove: () -> 
 }
 
 @Composable
-private fun EmptySongs(onAddSongs: () -> Unit) {
+private fun EmptySongs(onAddSongs: () -> Unit, showAdd: Boolean) {
     OutlinedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(
@@ -232,7 +243,7 @@ private fun EmptySongs(onAddSongs: () -> Unit) {
             )
             Text(stringResource(R.string.library_empty_title), style = MaterialTheme.typography.titleLarge)
             Text(stringResource(R.string.library_empty_body), style = MaterialTheme.typography.bodyMedium)
-            Button(onClick = onAddSongs, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)) {
+            if (showAdd) Button(onClick = onAddSongs, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)) {
                 Icon(painterResource(R.drawable.ic_add), contentDescription = null, modifier = Modifier.size(18.dp))
                 Text(stringResource(R.string.library_add_songs), modifier = Modifier.padding(start = 8.dp))
             }

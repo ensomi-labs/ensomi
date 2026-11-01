@@ -28,10 +28,9 @@ interface FileListener {
 }
 
 /**
- * Three ways of seeing a song's file arrive, all running at once, because nobody can say today which of them works on
- * the phone in the room: a `FileObserver` on the host's music folder (it needs all-files access, and whether it fires
- * through the FUSE layer is not known), MediaStore's content observer (with `READ_MEDIA_AUDIO`), and a slow poll of both
- * as the last resort. Whichever fires first counts, and the session judges each sighting by what it proves ([Evidence]).
+ * Three sources run together: MediaStore's content observer with READ_MEDIA_AUDIO is the supported route;
+ * FileObserver and the folder listing are attempted and may see less without all-files access. The slow poll
+ * checks both. Each sighting is judged by what it proves ([Evidence]).
  *
  * A `.ncm` is only ever looked at from the outside: its name, size and time. Nothing opens it.
  */
@@ -53,6 +52,8 @@ class MediaListening(
 
     /** What each source last reported of a path, on [handler]'s thread or the poll's: a change is news, a repeat is not. */
     private val reported = HashMap<String, Pair<Long, Long>>()
+    // A MediaStore URI can grant readable access after the folder already reported identical bytes.
+    private val reportedRows = HashMap<String, FileFacts>()
     private val lastWrite = HashMap<String, Long>()
 
     /** The folder as the poll last saw it: what was there at the start is the index's, not news. */
@@ -85,7 +86,6 @@ class MediaListening(
             mapOf(
                 "folder" to folder.path,
                 "folder_exists" to folder.isDirectory,
-                "all_files_access" to Environment.isExternalStorageManager(),
                 "media_store" to registered.isSuccess,
                 "media_store_failure" to registered.exceptionOrNull()?.message,
                 "file_observer" to (folderObserver != null),
@@ -117,7 +117,8 @@ class MediaListening(
     /** The file at [path] as it is now, or null when it has gone. Blocking. */
     fun look(path: String): FileFacts? {
         val file = File(path)
-        return if (file.isFile) stat(file, withTags = true) else null
+        return rows(null).firstOrNull { it.path == path }
+            ?: if (file.isFile) stat(file, withTags = true) else null
     }
 
     private fun watchFolder() {
@@ -159,6 +160,7 @@ class MediaListening(
 
     private fun forget(path: String) {
         reported.remove(path)
+        reportedRows.remove(path)
         lastWrite.remove(path)
         polled.remove(path)
         listener.gone(path)
@@ -176,10 +178,11 @@ class MediaListening(
         val since = sinceWallMs / 1000 - ROW_TIME_SLACK_SECONDS
         // A row not scanned yet is pending and has no date, so a date alone would never find it.
         val date = MediaStore.Audio.Media.DATE_MODIFIED
-        for (row in rows("($date >= $since OR $date IS NULL OR ${MediaStore.Audio.Media.IS_PENDING} = 1)")) {
+        val added = MediaStore.Audio.Media.DATE_ADDED
+        for (row in rows("($date >= $since OR $added >= $since OR $date IS NULL OR ${MediaStore.Audio.Media.IS_PENDING} = 1)")) {
             sighted("media_store", row.path, pending = row.pending)
             val state = row.sizeBytes to row.modifiedWallMs
-            if (reported[row.path] == state) continue
+            if (reportedRows.put(row.path, row) == row) continue
             // Pending rows can prove download growth, but never that the file is ready. Keep the completed row
             // reportable even when its size and timestamp are unchanged when pending clears.
             if (!row.pending) reported[row.path] = state

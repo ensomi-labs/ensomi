@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The chart model's download from Hugging Face. Songs come from the document picker and need no permission. -->
+    <!-- The chart model download and optional public short-link lookup. Microphone audio stays on the device. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

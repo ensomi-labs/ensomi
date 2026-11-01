@@ -5,4 +5,8 @@
     <issue id="OldTargetApi" severity="ignore" />
     <!-- The app ships arm64-v8a only, the one ABI the runtime is built for. -->
     <issue id="ChromeOsAbiSupport" severity="ignore" />
+    <!-- The guide is localised; the rest of the app intentionally falls back to English for now. -->
+    <issue id="MissingTranslation">
+        <ignore path="src/main/res/values/strings.xml" />
+    </issue>
 </lint>

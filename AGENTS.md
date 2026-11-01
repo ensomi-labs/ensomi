@@ -9,11 +9,15 @@ UI and UX decisions live in `docs/design.md`, gameplay and timing in `docs/gamep
 `docs/plan.md`, the recognition session in `docs/recognition.md`. Keep them current when a decision changes. `docs/release.md`
 records the first demo's manual Mac build and owner signing; its CI and automated release design remains proposed.
 
+## Recognition
+
+Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
+
 ## Layout
 
 - One Gradle module, `:app`, with the Gradle project at the repository root.
 - `app/src/main/kotlin/io/ensomi/android/`:
-  - `MainActivity.kt`: the only activity.
+  - `MainActivity.kt`: the main UI activity; the exported share entry forwards to it.
   - `EnsomiApp.kt`: navigation with Navigation 3. A screen is a `NavKey` plus an `entry`. Screens
     navigate through callbacks that push keys, never by referring to each other.
   - `AppStores.kt`: the app's stores, one per process (DataStore allows one per file): settings, songs,
@@ -34,10 +38,9 @@ records the first demo's manual Mac build and owner signing; its CI and automate
     fakes behind them (`Fakes.kt`); a normal launch uses the app's stores. The feature packages hold no samples,
     apart from the sample charts the playfield preview and the calibration's picture step play (`SampleCharts`).
   - `ui/`: shared components and the Material 3 theme. `json/`: a small JSON encoder.
-- `app/src/recognition/`: the recognition session (`docs/recognition.md`), a test path from music in a room to a game
-  joined at its position. It is in the debug and checks builds' source sets, with its text, share target and permissions,
-  and never in a release, which compiles `app/src/release/`'s empty `RecognitionEntry` instead. Its `SessionMachine` is
-  plain state and rules, moved by shares and file observations. Its JVM tests are in `app/src/testDebug/`.
+- `app/src/recognition/`: public Listen & Play, included in debug, checks and release with its guide, session,
+  share target and permissions. `SessionMachine` holds plain state and rules for shares, files, matching, waiting and
+  joining. JVM tests are in `app/src/testDebug/`. Release keep rules remain in `app/src/release/keepRules`.
 - `app/src/test/kotlin/`: JVM unit tests for logic that does not need a device.
 - `app/src/androidTest/kotlin/io/ensomi/android/checks/`: the phone checks, instrumented tests that measure on a device
   (runtime, model, decoders, generation time and memory, determinism, the audio clock, frame pacing, pauses) and log
@@ -52,7 +55,7 @@ records the first demo's manual Mac build and owner signing; its CI and automate
   and NDK. Change a pin only there.
 - The runtime is a local AAR named by `ensomi.runtime.aar` in `local.properties`. It has no dependency
   metadata, so the app declares JNA (as an AAR) and kotlinx-coroutines. A pinned runtime release
-  replaces it once one exists. Debug and checks builds need one with the `SyncSession` binding (ensomi-runtime's
+  replaces it once one exists. Every build needs one with the `SyncSession` binding (ensomi-runtime's
   `scripts/build-android.sh` turns its `sync` feature on).
 - Run blocking runtime calls through the runtime's `RuntimeWorker`, never on the main thread.
 - The logcat tag `EnsomiDiagnostics` carries only the Diagnostics JSON, `EnsomiDecodeCheck` only the decode check's
@@ -71,7 +74,7 @@ Builds run only on the owner's Mac; there is no CI workflow. Agents without the 
 a commit and hand the build to Astra (Codex on the Mac) with `ens astra`. A build brief asks for:
 
 1. `local.properties` with `sdk.dir` and `ensomi.runtime.aar`.
-2. `./gradlew assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint`, with Android Studio's
+2. `./gradlew assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint assembleRelease`, with Android Studio's
    bundled JDK.
 3. On the arm64 AVD `ensomi-36` (and `ensomi-36-16k` for 16 KB pages): boot it headless, install, run
    `scripts/capture-prototype.sh` for the screens, or launch and read the Diagnostics JSON with

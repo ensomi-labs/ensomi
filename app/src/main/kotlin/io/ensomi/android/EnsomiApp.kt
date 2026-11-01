@@ -117,7 +117,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val route by graph.settings.route.collectAsStateWithLifecycle()
 
     // A share that reached the recognition session, or a session that survived the process, opens its screen.
-    val recognition = scenario.real && graph.debug.debuggable
+    val recognition = scenario.real
     LaunchedEffect(recognition) {
         if (recognition) {
             RecognitionEntry.followOpens(context) {
@@ -155,9 +155,10 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onDownloadModel = graph.model::download,
                         onCancelDownload = graph.model::cancel,
                         onInstallModelFromFolder = graph.model::installFromFolder,
-                        extraAction = {
-                            if (recognition) RecognitionEntry.LibraryAction { backStack.add(RecognitionSession) }
-                        },
+                        onListen = if (recognition) ({
+                            RecognitionEntry.openGuide(context)
+                            backStack.add(RecognitionSession)
+                        }) else null,
                     )
                 }
                 entry<MakeChart> { key ->
@@ -263,7 +264,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
                 entry<RecognitionSession> {
                     if (quietFor != RecognitionSession) return@entry
-                    RecognitionEntry.Content(settings = settings, onBack = { backStack.removeLastOrNull() })
+                    RecognitionEntry.Content(settings = settings, modelReady = model is io.ensomi.android.model.ModelState.Installed, onBack = { backStack.removeLastOrNull() })
                 }
             },
         )

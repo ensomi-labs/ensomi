@@ -13,6 +13,8 @@ import java.io.FileOutputStream
 class SessionTrace(val file: File, val cid: String, private val elapsedNanos: () -> Long) {
     private var seq: Long
     private val out: FileOutputStream
+    private var bytes = file.length()
+    private var closed = false
 
     init {
         file.parentFile?.mkdirs()
@@ -22,18 +24,24 @@ class SessionTrace(val file: File, val cid: String, private val elapsedNanos: ()
 
     @Synchronized
     fun log(event: String, fields: Map<String, Any?>) {
+        if (closed || bytes >= MAX_BYTES) return
         val line = LinkedHashMap<String, Any?>(fields.size + 4)
         line["elapsed_ns"] = elapsedNanos()
         line["cid"] = cid
         line["seq"] = seq++
         line["event"] = event
         line.putAll(fields)
-        out.write((Json.encode(line) + "\n").toByteArray(Charsets.UTF_8))
+        val encoded = (Json.encode(line) + "\n").toByteArray(Charsets.UTF_8)
+        if (bytes + encoded.size > MAX_BYTES) return
+        out.write(encoded)
+        bytes += encoded.size
         out.flush()
     }
 
     @Synchronized
     fun close() {
-        out.close()
+        if (!closed) out.close()
+        closed = true
     }
+    private companion object { const val MAX_BYTES = 1_048_576L }
 }

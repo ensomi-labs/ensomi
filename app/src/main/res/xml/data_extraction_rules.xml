@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Nothing leaves the device: the app is for development, and later steps store large model files. -->
+<!-- Local app data, including recognition snapshots and traces, is excluded from backup and device transfer. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="root" path="." />

@@ -185,9 +185,12 @@ JSON that fits in one logcat line is printed as is. Longer JSON is split into li
 
 ## The recognition session
 
-Debug and checks builds, and only those, have a test path from music playing in a room to a game joined at the position
-the music has reached, with a share target, the microphone and access to music files. It has its own document:
-[docs/recognition.md](docs/recognition.md). They need a runtime AAR with the `SyncSession` binding.
+Listen & Play ships in the public APK. Once the model is ready, open it beside Add songs, allow microphone and
+music access, and follow the guide in English or Simplified Chinese. Download the song as MP3, let it finish, then
+share it to Ensomi. The shared-song session finds the file, makes its chart and lines up locally with the room’s music.
+Every build needs a runtime AAR with the `SyncSession` binding. See [docs/recognition.md](docs/recognition.md).
+
+Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
 
 ## Project layout
 
@@ -200,8 +203,8 @@ the music has reached, with a share target, the microphone and access to music f
 - `app/src/test/kotlin/`: unit tests that run on the JVM.
 - `app/src/androidTest/kotlin/`: the phone checks, instrumented tests that measure on a device and log their results.
 - `app/src/checks/`: the checks build's resources (the debug tools on in a build that is not debuggable).
-- `app/src/recognition/`: the recognition session, compiled into debug and checks builds only; `app/src/release/` holds
-  what a release build has in its place, and `app/src/testDebug/` its JVM tests.
+- `app/src/recognition/`: the public guide and recognition session, compiled into every build.
+  `app/src/release/keepRules` holds release keep rules, and `app/src/testDebug/` the recognition JVM tests.
 - `gradle/libs.versions.toml`: every pinned version.
 
 ## License

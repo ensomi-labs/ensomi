@@ -157,7 +157,7 @@ object CandidateRules {
         ".tmp", ".temp", ".part", ".partial", ".download", ".downloading", ".crdownload", ".cache", ".bak", ".!ut", ".td",
         ".opdownload",
     )
-    private val AUDIO_EXTENSIONS = setOf("mp3", "flac", "m4a", "aac", "ogg", "opus", "wav")
+    private val AUDIO_EXTENSIONS = setOf("mp3")
     private const val PROTECTED_EXTENSION = "ncm"
 
     fun isProtected(name: String): Boolean = extension(name) == PROTECTED_EXTENSION

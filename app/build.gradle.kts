@@ -62,10 +62,9 @@ android {
         }
     }
 
-    // The recognition session (docs/recognition.md) exists only in debug and checks builds: its code, text, share target
-    // and permissions are in src/recognition. A release build gets src/release's empty RecognitionEntry instead.
+    // Recognition is part of every build. Release keep rules remain in src/release/keepRules.
     sourceSets {
-        listOf("debug", "checks").forEach { buildType ->
+        listOf("debug", "checks", "release").forEach { buildType ->
             getByName(buildType) {
                 kotlin.srcDir("src/recognition/kotlin")
                 res.srcDir("src/recognition/res")

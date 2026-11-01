@@ -62,7 +62,7 @@
     <string name="library_songs">Songs</string>
     <string name="library_song_detail">%1$s · %2$s</string>
     <string name="library_empty_title">Add songs from your phone</string>
-    <string name="library_empty_body">Choose audio files with Android’s file picker. Ensomi reads only the files you choose and needs no access to the rest of your music.</string>
+    <string name="library_empty_body">Choose audio files with Android’s file picker. Adding songs needs no music access permission. Listen &amp; Play asks separately in its guide.</string>
     <string name="library_file_not_found">File not found: %1$s</string>
     <string name="library_find_again">Find again</string>
     <string name="library_remove">Remove</string>

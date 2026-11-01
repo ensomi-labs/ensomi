@@ -75,6 +75,8 @@ class AudioProbe(context: Context) {
             failed(file, started, failure)
         } catch (failure: IOException) {
             failed(file, started, failure)
+        } catch (failure: SecurityException) {
+            failed(file, started, failure)
         } catch (failure: IllegalStateException) {
             // MediaCodec's own failures.
             failed(file, started, failure)
@@ -153,7 +155,6 @@ class SessionCharts(
     context: Context,
     private val stores: AppStores,
     private val scope: CoroutineScope,
-    private val emit: (SessionEvent) -> Unit,
 ) {
     private val appContext = context.applicationContext
     private val library = SessionSongLibrary()
@@ -167,12 +168,12 @@ class SessionCharts(
     @Volatile
     private var making: String? = null
 
-    fun make(audio: ReadyAudio, stars: Double, decoded: DecodedSong? = null) {
+    fun make(audio: ReadyAudio, stars: Double, decoded: DecodedSong? = null, emit: (SessionEvent) -> Unit) {
         val previous = job
         job = scope.launch {
             previous?.cancelAndJoin()
             try {
-                run(audio, stars, decoded)
+                run(audio, stars, decoded, emit)
             } catch (failure: CancellationException) {
                 throw failure
             } catch (failure: Exception) {
@@ -198,9 +199,10 @@ class SessionCharts(
         }
     }
 
-    private suspend fun run(audio: ReadyAudio, stars: Double, decoded: DecodedSong?) {
+    private suspend fun run(audio: ReadyAudio, stars: Double, decoded: DecodedSong?, emit: (SessionEvent) -> Unit) {
         val started = System.nanoTime()
         stored(audio.sha256)?.let { chart ->
+            pruneCharts(chart.songId)
             emit(SessionEvent.ChartReady(ChartFacts(chart.songId, chart.noteCount, stored = true), 0.0))
             return
         }
@@ -233,10 +235,20 @@ class SessionCharts(
         making = null
         val seconds = (System.nanoTime() - started) / 1e9
         when (outcome) {
-            is MakeState.Made -> emit(SessionEvent.ChartReady(ChartFacts(id, outcome.chart.noteCount, stored = false), seconds))
+            is MakeState.Made -> {
+                pruneCharts(id)
+                emit(SessionEvent.ChartReady(ChartFacts(id, outcome.chart.noteCount, stored = false), seconds))
+            }
             is MakeState.Failed -> emit(SessionEvent.ChartFailed(outcome.message, modelMissing = stores.model.directory == null))
             else -> Unit
         }
+    }
+
+    /** Recognition charts have no Library removal button, so retain at most twenty. */
+    private fun pruneCharts(keep: String) {
+        stores.chartStore.songIds.value.filter { it.startsWith("session-") && it != keep }
+            .sortedByDescending { stores.chartStore.chart(it)?.madeAtMs ?: 0 }
+            .drop(if (keep.startsWith("session-")) 19 else 20).forEach(stores.chartStore::remove)
     }
 
     private fun stored(sha256: String?): StoredChart? {

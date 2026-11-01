@@ -32,7 +32,7 @@ data object Calibration : NavKey
 @Serializable
 data object Diagnostics : NavKey
 
-/** The recognition session's test screen and its game; reachable only in debug and checks builds (docs/recognition.md). */
+/** Listen & Play: the public guide, shared-song session and its game (docs/recognition.md). */
 @Serializable
 data object RecognitionSession : NavKey
 

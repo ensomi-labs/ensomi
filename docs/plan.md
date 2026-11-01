@@ -1,5 +1,7 @@
 # Ensomi for Android: build plan for drop-in play
 
+Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
+
 Small increments from the prototype to a playable app, each reviewable on its own. Each says what is built, how it is
 checked on the emulator now (builds and captures run on the owner's Mac through Astra) and on a phone later, and what
 it needs first. The design is in [design.md](design.md) and [gameplay.md](gameplay.md).
@@ -25,7 +27,7 @@ ones the prototype's "not built yet" messages name. A step is done when `assembl
 | 11 (done) | Remove the prototype's samples once every store is real; keep the screenshot scenarios backed by fakes for review | Capture script still runs | — | 1–10 |
 | 12 | Install from files (the owner's decision of 2026-10-29): the package's folder picked with `ACTION_OPEN_DOCUMENT_TREE` and copied into app storage with the download's checks; both ways in accept only the pinned manifest's SHA-256 | JVM tests of the copy, checks, pin and refusals (a missing or changed file, a copy cut short, cancel, no space); on the AVD, the real picker from `Download/ensomi-r2` and a refused folder; the script's fallback with the network off | The Redmi K80, which cannot reach huggingface.co, installs from files (`ModelCheck`) | 4 |
 | 13 | Phone checks: the instrumented suite (`app/src/androidTest`), the checks build, `scripts/phone-checks.sh`, `scripts/make-phone-kit.sh`, the runbook (docs/phone-checks.md) | The suite and the script end to end on both AVDs, the Hugging Face path on one and the file-pick path on the other | The runbook on the Redmi K80, then the Redmi K Pad | 1–12 |
-| 14 | The recognition session (docs/recognition.md), debug and checks builds only: a share to Ensomi, the song's file found, the chart, Sync on the runtime's aligner, a game joined at the room's position | JVM tests of share parsing, the file rules, the session in and out of order, time limits, `.ncm` refusal, the clock and retry; a whole session on an AVD with a WAV replay in place of the microphone; a release build's merged manifest unchanged | A session on the K Pad with the host, by hand: the share sheet, which file source fires, the room through the microphone, how the join feels | 1–13 and the runtime's `SyncSession` |
+| 14 | Public Listen & Play (docs/recognition.md), a guide followed by hand: a share to Ensomi, the song's file found, the chart, Sync on the runtime's aligner, a game joined at the room's position | JVM tests of share parsing, the file rules, the session in and out of order, time limits, `.ncm` refusal, the clock and retry; a whole session on an AVD with a WAV replay in place of the microphone; an R8 release with microphone and music access, a package query and a text share target | A session on the K Pad with the host, by hand: the share sheet, which file source fires, the room through the microphone, how the join feels | 1–13 and the runtime's `SyncSession` |
 
 ## Steps done
 
@@ -129,23 +131,16 @@ timing, not a phone's):
   the frame targets (under 0.5 % late, work p99 under 3 ms) at every lean on `ensomi-36-16k`, and the debug build did
   not; the emulator's numbers decide nothing about the Redmi K80's 120 Hz.
 
-What step 14 showed on the emulators (builds b2 to b4 of `claude/android-recognition`; the emulator's timing, no host app
-with a share from adb, files from a shell and a WAV of the song in place of the microphone):
+Step 14 now ships as Listen & Play. Home opens the guide; the person follows the four steps, and a valid share starts
+file discovery, chart generation and local microphone alignment. The session never starts NetEase or requests steps
+inside it. The release manifest includes microphone and music access, the NetEase package query and the text share
+target. Join lead is two seconds or the scroll time, whichever is longer.
 
-- **14.** A share alone started a session on a 105-second song already on the device and went through to the game: decoded,
-  a chart made in 6.2 to 7.6 s, a final lock from the runtime's aligner after 6.6 s of audio, 0.84 ms from where the replay
-  really was (1.43 ms on a start at 97 s). The game joined 4 s past the heard position, keeping 512 of 856 notes, and the autoplay
-  played it to the end with no `AudioTrack` of the app's in `dumpsys`. Its 4 071 frames fit the anchor to 2e-11 ms with no step
-  back, through a pause too, which jumped forward by the time paused. A wrong song gave no lock in 60 s and no game; a start too
-  near the end locked, and the join was refused. A file arriving as `.tmp` was ready 2 s after its rename; a 1 MB fragment under
-  the final name was refused as `TRUNCATED` (43.5 s decoded of 104.8 s declared) until the rest came; a `.ncm` was refused with
-  no `decode` line, and an MP3 after it went on. A session the process died with picked up from its snapshot; one that died in
-  a game said it was lost. `FileObserver` fired through FUSE with all-files access on and off. A file outside the watched folder
-  was found by MediaStore alone, 2.5 s after its row stopped being pending, and not before: a file a shell writes stays pending
-  with no date until a scan, which is why the query looks for such rows and only traces them. The AVD's microphone gave a
-  timestamp for all 1 200 blocks, 0.8 to 14 ms before the read returned. A release build's merged manifest, permissions and
-  badging are the same as without this step. `AudioClockCheck`, `LifecycleCheck` and `FramePacingCheck` passed on the same build.
-  Nothing here says how a room sounds, or how the host behaves (recognition.md, What is not known yet).
+The public-flow checks cover missing prerequisites, invalid shares, the ten-second no-file stop, existing MP3s and a
+file arriving during the wait. Scoped storage can expose a filename before it is readable: MediaStore publication must
+be allowed to retry that candidate without byte growth. A raw shell push may need a media scan, and is not evidence of
+NetEase writing a file. Muted emulator capture establishes startup, not room alignment; real music and the NetEase
+share sheet remain device checks. See [recognition.md](recognition.md).
 
 ## Pins the steps add
 

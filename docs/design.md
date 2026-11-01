@@ -17,20 +17,30 @@ model, and they play it with their fingers on the glass.
 The loop: **pick a song → make a chart → play → see the result → play again or make another.** Everything else
 (installing the model, adding songs, settings, calibration) serves that loop and stays out of its way.
 
-This round is drop-in play only: install the model, add songs, make a chart with the settings the Swift app offers,
-play it with the runtime's judgements, pause, results, offsets and calibration. Not in it: Listen & Play (microphone
-sync), recognition, the Chart Inspector, any network service, and saving `.osu`/`.osz` files. A test path through
-recognition and sync exists in debug and checks builds only, on one plain screen of its own
-([recognition.md](recognition.md)); it is no part of this design.
+Drop-in play and Listen & Play both ship in the public app. Once the model is installed, home shows Listen & Play
+beside Add songs, whether the library is empty or has songs. It opens a short guide: live microphone and music access
+status, reasons for those permissions, and four steps to open NetEase, recognise the song, finish downloading its MP3,
+and share it to Ensomi. The guide rereads access on resume. A share shows progress or a plain explanation of what is
+missing; no setup requires developer tools. English and Simplified Chinese are supported.
+
+Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
+
+The microphone is used locally to align with the song; its audio is neither saved nor uploaded. Only the model download
+and an optional public short-link lookup use the network. The shared-song session uses a 10-second audio idle wait,
+extended by observed matching file growth, and a two-second join lead (or the scroll time if longer).
+See [recognition.md](recognition.md) for the session, storage bounds and failure states.
+
+The Chart Inspector, a chart server and saving `.osu`/`.osz` files are outside this round.
 
 ## Information architecture and navigation
 
-One activity, one back stack of Navigation 3 keys (the shell's pattern). Library is home; everything else is pushed
-on top of it and Back pops.
+One UI activity, one back stack of Navigation 3 keys (the shell's pattern). The exported share activity has no window
+and forwards to the main activity. Library is home; everything else is pushed on top of it and Back pops.
 
 | Screen | Reached from | Back goes to |
 | --- | --- | --- |
 | Library (home) | launch | leaves the app |
+| Listen & Play | home beside Add songs, or a song share | Library |
 | Make chart (one song) | a song in Library | Library |
 | Play | Play on Make chart | pauses first; from the pause panel, Make chart |
 | Results | the end of a game (replaces Play) | Make chart |
@@ -438,7 +448,7 @@ Haptics go through `View.performHapticFeedback`, which honours the player's touc
 | Results: accuracy, max combo, misses | Its own screen with all three tiers, a timing chart and the runtime's offset suggestion |
 | Settings sections: gameplay, sound and timing, chart model | Playfield section (orientation, lane lean, lane width, live preview); About with the playfield preview and Diagnostics |
 
-Not carried over in this round: Listen & Play, recognition, the Chart Inspector, the chart server, key bindings, saving
+Not carried over in this round: the Chart Inspector, the chart server, key bindings, saving
 `.osu` and `.osz`.
 
 ## The prototype in the app
