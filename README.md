@@ -19,7 +19,7 @@ runtime's native library loads. The design is in [docs/design.md](docs/design.md
 
 ## Get the demo
 
-Download the signed APK from the [Android 0.1.0 prerelease](https://github.com/ensomi-labs/ensomi/releases/tag/android-v0.1.0)
+Download the signed APK from the [Android 0.1.1 prerelease](https://github.com/ensomi-labs/ensomi/releases/tag/android-v0.1.1)
 when published, open it on your device, and allow installation from the app you opened it with. It needs Android 13 or
 later, an arm64-v8a device, an internet connection for the first-run model download from Hugging Face (about 120 MB),
 and a song you select through Android's system file picker. Chart generation runs on your device and needs additional

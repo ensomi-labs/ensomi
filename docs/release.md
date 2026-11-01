@@ -1,15 +1,18 @@
 # Android CI and release: proposed design
 
-## First public demo: the current process
+## Public demo: the current process
 
-The first Android play demo is built on the owner's Mac from a committed tree, then signed by the owner with one
-release key made by hand and published as a GitHub prerelease of `ensomi-labs/ensomi`. It uses `versionName` **0.1.0**,
-`versionCode` **1**, and tag **`android-v0.1.0`**; Swift's `v0.1.0` stays separate. The build produces an unsigned,
+The Android play demo is built on the owner's Mac from a committed tree, then signed by the owner with one
+release key made by hand and published as a GitHub prerelease of `ensomi-labs/ensomi`. The current build uses `versionName` **0.1.1**,
+`versionCode` **2**, with planned tag **`android-v0.1.1`**; Swift's `v0.1.0` stays separate. The build produces an unsigned,
 R8-optimized arm64-v8a APK, with JNA keep rules and the runtime AAR's UniFFI keep rules. The runtime is the local AAR
 whose SHA-256 is `16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`.
 The owner keeps the keystore outside all repositories and signs separately with `apksigner`. CI has not run, so its
 duration is unknown. The remaining sections are the original proposal, including its future release prerequisites;
 they do not describe automation enabled for this demo.
+
+The initial demo was 0.1.0 (code 1, `android-v0.1.0`). The 0.1.1 patch replaces the launcher icon with the website
+artwork; this build remains unsigned until the owner signs it. No tag or publication is part of the icon patch.
 
 ## Proposed automation
 

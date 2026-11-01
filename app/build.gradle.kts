@@ -37,8 +37,8 @@ android {
         applicationId = "io.ensomi.android"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         ndk { abiFilters += "arm64-v8a" }
         // The phone checks (app/src/androidTest, docs/phone-checks.md), run with `am instrument` by
         // scripts/phone-checks.sh.
