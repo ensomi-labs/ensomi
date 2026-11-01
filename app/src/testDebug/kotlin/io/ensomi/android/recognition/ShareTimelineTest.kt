@@ -61,7 +61,7 @@ class ShareTimelineTest {
         assertEquals(later.nanos, machine.state.audioWaitSinceNanos)
         machine.on(SessionEvent.Tick, later.copy(nanos = later.nanos + 9_000_000_000))
         assertTrue(machine.state.running)
-        machine.on(SessionEvent.Tick, later.copy(nanos = later.nanos + 10_000_000_000))
+        machine.on(SessionEvent.Tick, later.copy(nanos = later.nanos + 15_000_000_000))
         assertFalse(machine.state.running)
     }
 
@@ -70,7 +70,7 @@ class ShareTimelineTest {
         machine.on(SessionEvent.ShareReceived("https://music.163.com/song?id=999", SharedSong(songId = 999), null), time)
         machine.on(SessionEvent.IndexReady(listOf(file()), emptyMap()), time)
         assertTrue(machine.state.held.isEmpty())
-        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 10_000_000_000))
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 15_000_000_000))
         assertEquals(FailureKind.NAME_NEEDED, machine.state.failure?.kind)
         assertFalse(machine.state.running)
     }
@@ -105,7 +105,7 @@ class ShareTimelineTest {
         val machine = machine()
         machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time)
         assertTrue(canResumeSnapshot(machine.state, time, SessionLimits()))
-        assertFalse(canResumeSnapshot(machine.state, time.copy(nanos = time.nanos + 10_000_000_000), SessionLimits()))
+        assertFalse(canResumeSnapshot(machine.state, time.copy(nanos = time.nanos + 15_000_000_000), SessionLimits()))
         assertFalse(canResumeSnapshot(machine.state.copy(stages = machine.state.stages.map {
             if (it.stage == Stage.PLAY) it.copy(status = StageStatus.RUNNING) else it
         }), time, SessionLimits()))
@@ -154,7 +154,7 @@ class ShareTimelineTest {
         val unrelated = file().copy(name = "Another Song.mp3", title = "Another Song", modifiedWallMs = time.wallMs)
         machine.on(SessionEvent.IndexReady(listOf(unrelated), emptyMap()), time)
         assertEquals(listOf(unrelated), machine.state.held)
-        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 10_000_000_000))
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 15_000_000_000))
         assertEquals("audio_wait_timeout", machine.state.ended)
         assertEquals(FailureKind.NO_FILE, machine.state.failure?.kind)
     }
@@ -199,7 +199,7 @@ class ShareTimelineTest {
         assertTrue(machine.state.held.isEmpty())
         assertTrue(machine.state.titleOfferPaths.isEmpty())
         assertEquals(FailureKind.AUDIO_UNREADABLE, machine.state.failure?.kind)
-        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 10_000_000_000))
+        machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 15_000_000_000))
         assertEquals("audio_wait_timeout", machine.state.ended)
     }
 

@@ -8,6 +8,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShareParserTest {
+    @Test fun originalCreditKeepsNestedTitleQuotesWhole() {
+        for (credit in listOf("(原曲《Glass Orchard》)", "（原曲《Glass Orchard》）")) {
+            val title = "Paper Aurora (Long Ver.) $credit"
+            val song = parsed("分享Mira Vale/Nori Finch/Tavi Reed的单曲《$title》: https://music.163.com/song?id=42")
+            assertEquals(title, song.title)
+            assertEquals("Mira Vale/Nori Finch/Tavi Reed", song.artist)
+        }
+    }
+
     @Test fun repeatedSubjectDoesNotBecomePartOfTheTitle() {
         val body = "分享Cloud Quartet的单曲《Evening Paper》: https://music.163.com/song?id=42"
         val song = ShareParser.parse(shareText(body, body))!!

@@ -136,7 +136,7 @@ file discovery, chart generation and local microphone alignment. The session nev
 inside it. The release manifest includes microphone and music access, the NetEase package query and the text share
 target. Join lead is two seconds or the scroll time, whichever is longer.
 
-The public-flow checks cover missing prerequisites, invalid shares preserving live work, the ten-second no-file stop after indexing, existing title/artist MP3s, explicit choices for older title-only files, Back confirmation, dormant process restoration, a single launcher/share activity, and a
+The public-flow checks cover missing prerequisites, invalid shares preserving live work, the ten-second no-file message and fifteen-second stop after indexing, existing title/artist MP3s, explicit choices for older title-only files, Back confirmation, dormant process restoration, a single launcher/share activity, and a
 file arriving during the wait. Scoped storage can expose a filename before it is readable: MediaStore publication must
 be allowed to retry that candidate without byte growth. A raw shell push may need a media scan, and is not evidence of
 NetEase writing a file. Muted emulator capture establishes startup, not room alignment; real music and the NetEase

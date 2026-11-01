@@ -39,8 +39,8 @@
     <string name="recognition_status_done">Done</string>
     <string name="recognition_status_failed">Failed</string>
 
-    <string name="recognition_ask_wait_zh" translatable="false">正在查找已下载的 MP3。若十秒内没有找到匹配文件或下载进度，会话将停止。请先完成下载，再重新分享。</string>
-    <string name="recognition_ask_wait_en" translatable="false">Checking for the downloaded MP3. The session stops after ten seconds without a matching file or download progress. Finish downloading first, then share again.</string>
+    <string name="recognition_ask_wait_zh" translatable="false">正在查找已下载的 MP3。若十五秒内没有找到匹配文件或下载进度，会话将停止。请先完成下载，再重新分享。</string>
+    <string name="recognition_ask_wait_en" translatable="false">Checking for the downloaded MP3. The session stops after fifteen seconds without a matching file or download progress. Finish downloading first, then share again.</string>
     <string name="recognition_ask_return_zh" translatable="false">回到 Ensomi，保持在这个屏幕</string>
     <string name="recognition_ask_return_en" translatable="false">Come back to Ensomi and stay on this screen</string>
     <string name="recognition_ask_silent_zh" translatable="false">麦克风听不到声音：音乐还在放吗？</string>
@@ -48,8 +48,8 @@
 
     <string name="recognition_failure_not_song_zh" translatable="false">分享的不是单曲。请分享歌曲本身。</string>
     <string name="recognition_failure_not_song_en" translatable="false">What was shared is not a song. Share the song itself.</string>
-    <string name="recognition_failure_no_file_zh" translatable="false">没有等到可用的音频，会话已停止。仅支持 MP3。请等下载完成后再分享。网易云音乐保存为受保护格式的歌曲无法使用。</string>
-    <string name="recognition_failure_no_file_en" translatable="false">No usable audio arrived, so the session stopped. Only MP3 works. Let the download finish before sharing. A song NetEase saved in its protected format cannot be used.</string>
+    <string name="recognition_failure_no_file_zh" translatable="false">没有等到可用的音频。仅支持 MP3。请等下载完成后再分享。网易云音乐保存为受保护格式的歌曲无法使用。</string>
+    <string name="recognition_failure_no_file_en" translatable="false">No usable audio arrived. Only MP3 works. Let the download finish before sharing. A song NetEase saved in its protected format cannot be used.</string>
     <string name="recognition_failure_protected_zh" translatable="false">发现了这首歌的 .ncm 文件：它采用了 Ensomi 无法使用的受保护格式。请试试能下载为 MP3 的歌曲。</string>
     <string name="recognition_failure_protected_en" translatable="false">A .ncm file was found for this song: it is in a protected format that Ensomi cannot use. Try a song that downloads as an MP3.</string>
     <string name="recognition_failure_no_model_zh" translatable="false">没有安装谱面模型。请从曲库安装后重试。</string>

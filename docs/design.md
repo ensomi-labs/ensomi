@@ -26,8 +26,8 @@ missing; no setup requires developer tools. English and Simplified Chinese are s
 Ensomi never operates another app. It uses no Accessibility service, reads no other app's screen, and makes no taps for the person. The person recognises the song, downloads it and shares it to Ensomi themselves; Ensomi explains each step, then waits for the share.
 
 The microphone is used locally to align with the song; its audio is neither saved nor uploaded. Only the model download
-and an optional public short-link lookup use the network. The shared-song session uses a 10-second audio idle wait,
-starting after the index is ready and extended by observed matching file growth. An older title-only file needs
+and an optional public short-link lookup use the network. The shared-song session shows the no-audio explanation at ten idle seconds and stops at fifteen,
+starting after the index is ready. Matching file arrival or growth renews both marks. An older title-only file needs
 Use this file, with a plain choice prompt above the progress. Only that offer suspends the idle stop, and it ends
 with the ordinary message after three minutes without a choice. Other listed MP3s suspend nothing. The guide's
 recent-download baseline is consumed by the first session; retry prefers another usable recording but keeps the

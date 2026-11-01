@@ -174,6 +174,41 @@ class SongMatchTest {
     private val song = SongIdentity(title = "晴天", artist = "周杰伦")
 
     @Test
+    fun untaggedSpaceJoinedArtistsMustAllAppearInAnyOrder() {
+        val shared = SongIdentity(title = "Paper Aurora", artist = "Mira Vale/Nori Finch/Tavi Reed")
+        for (artistPart in listOf("Mira Vale Nori Finch Tavi Reed", "ＴＡＶＩ Reed Mira Vale Nori Finch")) {
+            val name = "$artistPart - Paper Aurora.mp3"
+            val file = named(name).copy(title = name.removeSuffix(".mp3"), artist = "<unknown>")
+            assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, file))
+            assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, file.copy(artist = null)))
+            assertEquals(MatchStrength.TITLE_ONLY, strength(shared, file.copy(artist = "Other Ensemble")))
+        }
+        assertEquals(MatchStrength.TITLE_ONLY, strength(shared, named("Mira Vale Tavi Reed - Paper Aurora.mp3")))
+        assertEquals(MatchStrength.NONE, strength(shared, named("Mira Vale Nori Finch Tavi Reed - Other Title.mp3")))
+    }
+
+    @Test
+    fun aSingleCharacterArtistNeedsAWholeFilenameToken() {
+        val shared = SongIdentity(title = "Paper Aurora", artist = "Q/Mira Vale")
+        assertEquals(MatchStrength.TITLE_ONLY, strength(shared, named("Quill Mira Vale - Paper Aurora.mp3")))
+        assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, named("Mira Vale Ｑ - Paper Aurora.mp3")))
+    }
+
+    @Test
+    fun originalSongCreditIsTrailingAndDoesNotRemoveTheVersion() {
+        for (credit in listOf("(原曲《Glass Orchard》)", "（原曲《Glass Orchard》）")) {
+            val shared = SongIdentity(title = "Paper Aurora (Long Ver.) $credit", artist = "Mira Vale")
+            val file = named("Mira Vale - Paper Aurora (Long Ver.).mp3")
+                .copy(title = "Paper Aurora (Long Ver.)", artist = "Mira Vale")
+            assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, file))
+            assertEquals(MatchStrength.TITLE_ARTIST, strength(shared, file.copy(title = null, artist = null)))
+            assertEquals(MatchStrength.NONE, strength(shared.copy(title = "Paper Aurora"), file))
+            assertEquals(MatchStrength.NONE, strength(shared, named("Mira Vale - Paper Aurora.mp3")))
+            assertEquals(MatchStrength.NONE, strength(shared.copy(title = "Paper Aurora $credit (Long Ver.)"), file))
+        }
+    }
+
+    @Test
     fun aNameLikeTheHostsMatches() {
         assertEquals(MatchStrength.TITLE_ARTIST, strength(song, named("周杰伦 - 晴天.mp3")))
     }

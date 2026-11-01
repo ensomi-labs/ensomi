@@ -30,7 +30,7 @@ class GuideStateTest {
         }
     }
 
-    @Test fun aReadyShareHandsIdentityToTheSessionAndStartsItsTenSecondWait() {
+    @Test fun aReadyShareHandsIdentityToTheSessionAndStartsItsFifteenSecondWait() {
         val shared = ShareParser.parse(text)
         assertEquals(ShareDecision.START, shareDecision(shared, GuideState(true, true, true)))
         val now = SessionNow(1_000_000_000, 1000)
@@ -41,9 +41,9 @@ class GuideStateTest {
         assertNull(machine.state.audioWaitSinceNanos)
         machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), now)
         assertEquals(now.nanos, machine.state.audioWaitSinceNanos)
-        machine.on(SessionEvent.Tick, SessionNow(now.nanos + 9_999_000_000, 10_999))
+        machine.on(SessionEvent.Tick, SessionNow(now.nanos + 14_999_000_000, 15_999))
         assertTrue(machine.state.running)
-        machine.on(SessionEvent.Tick, SessionNow(now.nanos + 10_000_000_000, 11_000))
+        machine.on(SessionEvent.Tick, SessionNow(now.nanos + 15_000_000_000, 16_000))
         assertEquals(FailureKind.NO_FILE, machine.state.failure?.kind)
         assertEquals("audio_wait_timeout", machine.state.ended)
     }

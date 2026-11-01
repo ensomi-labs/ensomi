@@ -480,6 +480,7 @@ private fun CaptureChoice.label(): Int = when (this) {
 @StringRes
 private fun Ask.chinese(): Int = when (this) {
     Ask.WAIT_FOR_DOWNLOAD -> R.string.recognition_ask_wait_zh
+    Ask.DOWNLOAD_HELP -> R.string.recognition_failure_no_file_zh
     Ask.RETURN_TO_ENSOMI -> R.string.recognition_ask_return_zh
     Ask.MICROPHONE_SILENT -> R.string.recognition_ask_silent_zh
 }
@@ -487,6 +488,7 @@ private fun Ask.chinese(): Int = when (this) {
 @StringRes
 private fun Ask.english(): Int = when (this) {
     Ask.WAIT_FOR_DOWNLOAD -> R.string.recognition_ask_wait_en
+    Ask.DOWNLOAD_HELP -> R.string.recognition_failure_no_file_en
     Ask.RETURN_TO_ENSOMI -> R.string.recognition_ask_return_en
     Ask.MICROPHONE_SILENT -> R.string.recognition_ask_silent_en
 }

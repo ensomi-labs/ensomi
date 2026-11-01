@@ -57,7 +57,7 @@ chart/sync ordering, restoration and joining. Device tests in `app/src/androidTe
 | `SessionStorage.kt`, `SessionTrace.kt` | Local snapshots, bounded history and traces |
 
 Release needs no launch extras, shell commands or options file. Defaults are microphone capture, autoplay off,
-3.5 stars, ambient offset 0, audio idle wait 10 seconds and sync limit three minutes. Debug/checks builds alone expose
+3.5 stars, ambient offset 0, audio explanation at 10 seconds, idle stop at 15 seconds and sync limit three minutes. Debug/checks builds alone expose
 replay, diagnostic details and options, including raw stage details, song IDs and “Stopped at”. The index row says “Check music files on this device”; Done means indexing finished. Audio ready means a usable file was found. All builds use the same limited storage permissions.
 
 ## Finding the MP3
@@ -79,20 +79,20 @@ when the file preserves an older modification time. Every index row is compared 
 The candidate must be MP3, complete and quiet, match the song, and decode to its declared length (within the existing
 length tolerance). Temporary suffixes cannot be decoded. Tags and filenames match title/artist; a previously known
 song ID may identify the same file. Older files with title and artist (or a remembered ID) can match automatically. An older title-only match is offered under “Other MP3 files found”; Use this file is required. Only a title-only offer awaiting a choice suspends the idle timeout, for at most three minutes from the first offer; then the ordinary no-audio message stops the session. Unrelated and truncated held files renew nothing and suspend nothing. The offer deadline survives restoration. New uncertain files may also be listed. A title-only offer has a plain prompt at the top of the screen to choose Use this file. Choosing removes it from the offers; a decode failure explains that the selected file could not be read, and the ordinary idle stop can run again. Resuming refreshes held paths missing from the index and removes deleted files. The session’s file timeline starts when the guide was opened within the preceding 30 minutes, otherwise at the share. The first session that takes that baseline consumes it, including its stored copy; ending any session clears it. A later bare link cannot reuse the previous download window. Stage durations, capture limits and restoration age still use the live share clock, so time spent following the guide cannot consume them. The unused song-duration field and unreachable duration-mismatch verdict are removed; decoding still compares against file metadata. A headerless partial MP3 whose metadata describes only the surviving frames cannot reliably be distinguished from a short complete recording. Matching folds width, case, punctuation and spacing, and removes only complete, recognised distribution
-credits; Live, Remix, Instrumental, TV Size and unknown parenthesised text stay distinct.
+credits, including a trailing `(原曲《…》)` (also full-width brackets). Nested 《》 remain intact in the share parser; Live, Remix, Instrumental, TV Size, Long Ver. and unknown parenthesised text stay distinct. For an untagged file (including MediaStore’s `<unknown>` artist), a matching title and all shared artists appearing in its filename’s artist part also match automatically, in any order. One-character normalised artists require a whole token; longer names may be joined by spaces.
 
-**The 10-second wait starts once the first index is ready and a share names the song.** It is an idle limit. A first nonempty matching MP3 candidate and each observed
-size increase grant a fresh ten seconds, including a visible pending MediaStore row or a recognisable temporary MP3
+**The wait starts once the first index is ready and a share names the song.** At ten idle seconds, the session shows the no-audio explanation below and keeps waiting. At fifteen idle seconds, it stops with the same explanation. A first nonempty matching MP3 candidate and each observed
+size increase renew both marks, including a visible pending MediaStore row or a recognisable temporary MP3
 name. Repeated sightings, timestamp-only changes, unrelated files and protected-file growth cannot extend it. A probe
-already decoding can finish. The one-second tick stops the session at or after the idle deadline. A frozen process
+already decoding can finish. The one-second tick shows the message and stops the session at or after their respective idle marks. A usable MP3 arriving before the stop proceeds normally and clears the message. A frozen process
 checks when Android runs it again; an explicitly resumed snapshot retains the same clock but cannot time out until its fresh index finishes. Re-sharing after process death starts a fresh session and re-arms its wait after indexing.
 
 A person who shares while the download grows gets this allowance where a source can see that growth. When no source
-can see it, the wait ends with the ordinary message, in both languages:
+can see it, the explanation appears at ten seconds and remains after the stop at fifteen seconds, in both languages:
 
-> No usable audio arrived, so the session stopped. Only MP3 works. Let the download finish before sharing. A song NetEase saved in its protected format cannot be used.
+> No usable audio arrived. Only MP3 works. Let the download finish before sharing. A song NetEase saved in its protected format cannot be used.
 >
-> 没有等到可用的音频，会话已停止。仅支持 MP3。请等下载完成后再分享。网易云音乐保存为受保护格式的歌曲无法使用。
+> 没有等到可用的音频。仅支持 MP3。请等下载完成后再分享。网易云音乐保存为受保护格式的歌曲无法使用。
 
 `.ncm` files are never opened, decoded, converted or read. A matching filename, if visible, records the protected
 format and gives a more specific refusal at timeout; a later MP3 can still proceed before that deadline. Such files
@@ -142,7 +142,7 @@ the pinned package. Microphone samples, local songs, charts, session snapshots a
 ## Verification and remaining device questions
 
 The release must be tested with R8 enabled on arm64. Check home with and without songs, the guide and permission dialogs,
-a share before setup, an invalid share, the ten-second no-file stop, an existing matching MP3 and an MP3 arriving after
+a share before setup, an invalid share, the ten-second no-file message and fifteen-second stop, an existing matching MP3 and an MP3 arriving after
 the share. Trace `watch.seen` identifies each source; a shell push is not evidence of NetEase writing a file.
 
 A muted emulator can establish layout, permission flow, file discovery, chart generation and microphone capture startup.

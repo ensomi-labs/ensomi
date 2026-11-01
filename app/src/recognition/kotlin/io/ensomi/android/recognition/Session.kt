@@ -57,6 +57,9 @@ enum class Ask {
     /** The share arrived and no file has. */
     WAIT_FOR_DOWNLOAD,
 
+    /** Audio has not arrived by the first idle mark; the session is still waiting. */
+    DOWNLOAD_HELP,
+
     /** The session needs the microphone, and Ensomi is not in front. */
     RETURN_TO_ENSOMI,
 
@@ -147,7 +150,9 @@ data class SessionState(
 /** The time limits of a session: generous, since a person is in the loop. */
 data class SessionLimits(
     /** Idle time waiting for a known song's audio, renewed by a matching file arriving or growing. */
-    val audioWaitMs: Long = 10_000,
+    val audioWaitMs: Long = 15_000,
+    /** Show the no-audio explanation while still waiting, on the same renewable idle clock. */
+    val audioMessageMs: Long = 10_000,
     /** How long capture may run without a final lock. */
     val syncMs: Long = 180_000,
     val titleOfferMs: Long = 180_000,
@@ -975,7 +980,11 @@ class SessionMachine private constructor(
     private fun asks(): List<Ask> = buildList {
         if (!state.running) return@buildList
         val waitingForFile = state.audio == null && state.shareNanos != null
-        if (waitingForFile && state.titleOfferPaths.isEmpty() && state.failure?.kind != FailureKind.PROTECTED_TRACK) add(Ask.WAIT_FOR_DOWNLOAD)
+        if (waitingForFile && state.titleOfferPaths.isEmpty() && state.failure?.kind != FailureKind.PROTECTED_TRACK) {
+            val explain = state.stage(Stage.LISTEN).status == StageStatus.DONE &&
+                state.audioWaitSinceNanos?.let { millisSince(it) >= limits.audioMessageMs } == true
+            add(if (explain) Ask.DOWNLOAD_HELP else Ask.WAIT_FOR_DOWNLOAD)
+        }
         if (state.stage(Stage.SYNC).status == StageStatus.RUNNING && !state.foreground) add(Ask.RETURN_TO_ENSOMI)
         if (state.capturing && state.silentSeconds >= limits.silentAfterSeconds) add(Ask.MICROPHONE_SILENT)
     }

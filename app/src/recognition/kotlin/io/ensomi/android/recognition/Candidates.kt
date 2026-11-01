@@ -246,11 +246,12 @@ object SongMatch {
         """[ \t]*\($CREDIT_MEDIUM[ \t]*$CREDIT_WORK$CREDIT_EPISODE[ \t]*$CREDIT_ROLE\)$""",
         RegexOption.IGNORE_CASE,
     )
+    private val ORIGINAL_CREDIT = Regex("""[ \t]*\(原曲[ \t]*《[^《》()\r\n]+》\)$""")
 
     /** The same title equivalence for session identity and file claims; known song IDs still take precedence. */
     internal fun titleKey(text: String): String {
         val folded = Normalizer.normalize(text, Normalizer.Form.NFKC).trim()
-        val withoutCredit = folded.replace(DISTRIBUTION_CREDIT, "").trim()
+        val withoutCredit = folded.replace(ORIGINAL_CREDIT, "").replace(DISTRIBUTION_CREDIT, "").trim()
         return normalize(withoutCredit.ifEmpty { folded })
     }
 
@@ -265,13 +266,27 @@ object SongMatch {
         if (knownPath != null && knownPath == file.path) return MatchStrength.SONG_ID
         val title = song.title?.let(::titleKey)?.takeIf { it.isNotEmpty() } ?: return MatchStrength.NONE
         val wanted = artists(song.artist)
+        val noArtistTag = file.artist.isNullOrBlank() || file.artist.trim().equals("<unknown>", ignoreCase = true)
         var best = MatchStrength.NONE
         for ((claimedTitle, claimedArtist) in claims(file)) {
             if (titleKey(claimedTitle) != title) continue
             if (artists(claimedArtist).any { it in wanted }) return MatchStrength.TITLE_ARTIST
+            if (noArtistTag && claimedArtist != null && containsAllArtists(claimedArtist, wanted)) {
+                return MatchStrength.TITLE_ARTIST
+            }
             best = MatchStrength.TITLE_ONLY
         }
         return best
+    }
+
+    /** Untagged downloads can join artists with spaces. A one-character name needs a whole token. */
+    private fun containsAllArtists(text: String, wanted: Set<String>): Boolean {
+        val folded = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+        val joined = normalize(folded)
+        val tokens = folded.split(Regex("""[^\p{L}\p{N}]+""")).toSet()
+        return wanted.isNotEmpty() && wanted.all { artist ->
+            if (artist.codePointCount(0, artist.length) == 1) artist in tokens else artist in joined
+        }
     }
 
     /** Title and artist as the tags have them, then the name read both ways round. */
