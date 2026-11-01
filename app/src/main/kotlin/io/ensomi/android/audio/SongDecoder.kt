@@ -259,6 +259,8 @@ object SongDecoder {
 internal class PcmBuilder(private val channels: Int, estimatedFrames: Int) {
     private var samples = FloatArray(maxOf(1, estimatedFrames) * channels)
     private var size = 0
+    private var floatInput = FloatArray(0)
+    private var shortInput = ShortArray(0)
 
     fun addSilence(frames: Int) {
         ensure(frames * channels)
@@ -282,12 +284,32 @@ internal class PcmBuilder(private val channels: Int, estimatedFrames: Int) {
         buffer.position(buffer.position() + skip * frameBytes)
         val kept = frames - skip
         ensure(kept * channels)
+        // Codec buffers are direct buffers. Copy their common PCM formats in bulk, then do the
+        // same channel arithmetic on arrays instead of reading each sample across that boundary.
+        val count = kept * fileChannels
+        val floats = if (encoding == AudioFormat.ENCODING_PCM_FLOAT && count > 0) {
+            if (floatInput.size < count) floatInput = FloatArray(count)
+            buffer.asFloatBuffer().get(floatInput, 0, count)
+            buffer.position(buffer.position() + count * 4)
+            floatInput
+        } else null
+        val shorts = if (encoding == AudioFormat.ENCODING_PCM_16BIT && count > 0) {
+            if (shortInput.size < count) shortInput = ShortArray(count)
+            buffer.asShortBuffer().get(shortInput, 0, count)
+            buffer.position(buffer.position() + count * 2)
+            shortInput
+        } else null
+        var inputAt = 0
         repeat(kept) {
             var left = 0f
             var right = 0f
             var sum = 0f
             for (c in 0 until fileChannels) {
-                val value = read(buffer, encoding)
+                val value = when {
+                    floats != null -> floats[inputAt++]
+                    shorts != null -> shorts[inputAt++] / 32_768f
+                    else -> read(buffer, encoding)
+                }
                 sum += value
                 if (c == 0) left = value
                 if (c == 1) right = value

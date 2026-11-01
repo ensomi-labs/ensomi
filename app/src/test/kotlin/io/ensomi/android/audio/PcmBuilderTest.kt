@@ -48,6 +48,21 @@ class PcmBuilderTest {
     }
 
     @Test
+    fun directBuffersRespectOffsetsTrimmingAndChannelSumOrder() {
+        val buffer = ByteBuffer.allocateDirect(44).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putFloat(99f)
+            floatArrayOf(2f, 3f, 4f, 0.75f, 1e-8f, -0.75f, 0.5f, 0.25f, -0.125f).forEach { putFloat(it) }
+            putFloat(77f)
+            position(4)
+            limit(40)
+        }
+        val builder = PcmBuilder(channels = 1, estimatedFrames = 2)
+        assertEquals(0L, builder.add(buffer, AudioFormat.ENCODING_PCM_FLOAT, fileChannels = 3, skipFrames = 1))
+        assertEquals(buffer.limit(), buffer.position())
+        assertArrayEquals(floatArrayOf(0f, 0.625f / 3), builder.build(), 0f)
+    }
+
+    @Test
     fun otherEncodingsConvertToFloat() {
         val builder = PcmBuilder(channels = 1, estimatedFrames = 4)
         val packed = ByteBuffer.wrap(byteArrayOf(0, 0, 0x40, 0, 0, 0x80.toByte()))
