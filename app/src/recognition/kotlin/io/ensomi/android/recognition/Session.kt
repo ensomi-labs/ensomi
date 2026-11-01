@@ -34,6 +34,7 @@ data class StageView(
 enum class FailureKind(val retryFrom: Stage) {
     NOT_A_SONG(Stage.SHARE),
     NO_FILE(Stage.AUDIO),
+    NAME_NEEDED(Stage.SHARE),
     PROTECTED_TRACK(Stage.AUDIO),
     MODEL_MISSING(Stage.CHART),
     CHART_FAILED(Stage.CHART),
@@ -498,6 +499,7 @@ class SessionMachine private constructor(
         when (verdict) {
             Verdict.PROTECTED -> refuseProtected(merged)
             Verdict.NO_SONG_YET, Verdict.NO_MATCH -> hold(merged)
+            Verdict.BEFORE_SESSION -> if (match == MatchStrength.TITLE_ONLY) hold(merged)
             Verdict.PROBE -> probeNext()
             else -> Unit
         }
@@ -545,8 +547,8 @@ class SessionMachine private constructor(
     }
 
     private fun hold(file: FileFacts) {
-        if (!CandidateRules.isAudio(file.name) || state.held.any { it.path == file.path }) return
-        state = state.copy(held = (state.held + file).takeLast(MAX_HELD_FILES))
+        if (!CandidateRules.isAudio(file.name)) return
+        state = state.copy(held = (state.held.filterNot { it.path == file.path } + file).takeLast(MAX_HELD_FILES))
     }
 
     private fun fileGone(path: String) {
@@ -558,7 +560,7 @@ class SessionMachine private constructor(
     }
 
     private fun useFile(path: String) {
-        val file = state.held.firstOrNull { it.path == path } ?: candidates[path]?.file ?: return
+        val file = candidates[path]?.file ?: state.held.firstOrNull { it.path == path } ?: return
         log("manual_intervention", "step" to "USE_FILE", "reason" to "person", "path" to path)
         val previous = candidates[path]
         candidates[path] = Candidate(
@@ -609,7 +611,7 @@ class SessionMachine private constructor(
             consider(candidate.file, candidate.evidence)
             return
         }
-        val verdict = CandidateRules.judgeDecoded(file, probe, state.song?.durationMs, candidate.person)
+        val verdict = CandidateRules.judgeDecoded(file, probe, candidate.person)
         val recheck = when (verdict) {
             Verdict.TRUNCATED, Verdict.CHANGED_WHILE_PROBED -> now.nanos + RECHECK_NANOS
             else -> null
@@ -618,7 +620,7 @@ class SessionMachine private constructor(
             candidate.file, candidate.evidence, candidate.lastChangeWallMs, verdict, candidate.match, candidate.person, recheck,
         )
         logCandidate(file, candidate.evidence, verdict, candidate.match)
-        if (verdict == Verdict.TRUNCATED || verdict == Verdict.DURATION_DIFFERS) hold(file)
+        if (verdict == Verdict.TRUNCATED) hold(file)
         if (verdict == Verdict.READY) audioReady(candidate, probe) else probeNext()
     }
 
@@ -791,9 +793,9 @@ class SessionMachine private constructor(
         lastTickNanos = now.nanos
         val waitingSince = state.audioWaitSinceNanos
         // A candidate already decoding is no longer waiting to arrive. Let its result decide whether it is usable.
-        if (state.audio == null && waitingSince != null && probing == null && millisSince(waitingSince) >= limits.audioWaitMs) {
+        if (state.audio == null && waitingSince != null && probing == null && state.held.isEmpty() && millisSince(waitingSince) >= limits.audioWaitMs) {
             val protected = state.protectedFileName
-            fail(if (protected != null) FailureKind.PROTECTED_TRACK else FailureKind.NO_FILE, Stage.AUDIO, protected)
+            fail(when { protected != null -> FailureKind.PROTECTED_TRACK; state.song?.title == null -> FailureKind.NAME_NEEDED; else -> FailureKind.NO_FILE }, Stage.AUDIO, protected)
             end("audio_wait_timeout", abort = true, keepFailure = true)
             return
         }
@@ -932,7 +934,7 @@ class SessionMachine private constructor(
     private fun asks(): List<Ask> = buildList {
         if (!state.running) return@buildList
         val waitingForFile = state.audio == null && state.shareNanos != null
-        if (waitingForFile && state.failure?.kind != FailureKind.PROTECTED_TRACK) add(Ask.WAIT_FOR_DOWNLOAD)
+        if (waitingForFile && state.held.isEmpty() && state.failure?.kind != FailureKind.PROTECTED_TRACK) add(Ask.WAIT_FOR_DOWNLOAD)
         if (state.stage(Stage.SYNC).status == StageStatus.RUNNING && !state.foreground) add(Ask.RETURN_TO_ENSOMI)
         if (state.capturing && state.silentSeconds >= limits.silentAfterSeconds) add(Ask.MICROPHONE_SILENT)
     }
@@ -977,7 +979,7 @@ class SessionMachine private constructor(
 
         /** Verdicts only a change to the file can alter. */
         private val FINAL_FOR_THIS_FILE = setOf(
-            Verdict.NOT_AUDIO, Verdict.TEMPORARY, Verdict.UNDECODABLE, Verdict.DURATION_DIFFERS, Verdict.TRUNCATED,
+            Verdict.NOT_AUDIO, Verdict.TEMPORARY, Verdict.UNDECODABLE, Verdict.TRUNCATED,
         )
 
         fun start(

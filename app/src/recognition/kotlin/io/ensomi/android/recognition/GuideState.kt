@@ -14,3 +14,7 @@ fun shareDecision(song: SharedSong?, guide: GuideState): ShareDecision = when {
     !guide.microphone || !guide.music -> ShareDecision.PERMISSIONS
     else -> ShareDecision.START
 }
+
+/** The guide gives a recent download its proper place in this attempt. */
+fun sessionBeginning(guide: SessionNow?, share: SessionNow): SessionNow =
+    guide?.takeIf { share.nanos - it.nanos in 0..1_800_000_000_000L } ?: share

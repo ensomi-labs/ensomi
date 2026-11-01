@@ -155,14 +155,9 @@ class SessionMachineTest {
     @Test
     fun theFileBeforeTheShare() {
         val bench = Bench()
-        bench.listening()
-        val file = bench.song(modified = bench.wallMs + 5_000)
-        bench.advance(6_000)
-        assertTrue(bench.on(SessionEvent.FileSeen(file, Evidence.CLOSE_WRITE)).isEmpty())
-        assertEquals("NO_SONG_YET", bench.events("audio.candidate").single()["verdict"])
-        assertEquals(listOf(file), bench.state.held)
-
-        val effects = bench.on(shared)
+        val file = bench.song(modified = bench.wallMs - 60_000)
+        bench.on(shared) // Production starts at the share, after this download finished.
+        val effects = bench.on(SessionEvent.IndexReady(listOf(file), emptyMap()))
         assertTrue(effects.toString(), SessionEffect.Probe(file) in effects)
         val ready = bench.on(bench.probed(file))
         assertTrue(ready.any { it is SessionEffect.MakeChart })

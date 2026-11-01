@@ -82,14 +82,6 @@ class CandidateRulesTest {
         assertEquals(Verdict.BEFORE_SESSION, judge(old, evidence = Evidence.INDEX, match = MatchStrength.TITLE_ONLY))
     }
 
-    @Test
-    fun anOlderFileByTitleAloneNeedsItsLengthToAgree() {
-        val old = file(modified = sessionStart - 86_400_000).copy(durationMs = 269_000)
-        val timed = song.copy(durationMs = 270_000)
-        assertEquals(Verdict.PROBE, judge(old, evidence = Evidence.INDEX, identity = timed, match = MatchStrength.TITLE_ONLY))
-        val far = song.copy(durationMs = 300_000)
-        assertEquals(Verdict.BEFORE_SESSION, judge(old, evidence = Evidence.INDEX, identity = far, match = MatchStrength.TITLE_ONLY))
-    }
 
     @Test
     fun aNewFileNeedsOnlyTheTitle() {
@@ -130,44 +122,38 @@ class CandidateRulesTest {
     @Test
     fun aWholeFileOfTheRightLengthIsReady() {
         val file = file()
-        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file), 200_000))
-        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file), expectedDurationMs = null))
-        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file, declaredMs = null), null))
+        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file)))
+        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file)))
+        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file, declaredMs = null)))
     }
 
     @Test
     fun aFileThatDoesNotDecodeIsRefused() {
         val file = file()
-        assertEquals(Verdict.UNDECODABLE, CandidateRules.judgeDecoded(file, decoded(file, ok = false), null))
-        assertEquals(Verdict.UNDECODABLE, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 0.0), null))
+        assertEquals(Verdict.UNDECODABLE, CandidateRules.judgeDecoded(file, decoded(file, ok = false)))
+        assertEquals(Verdict.UNDECODABLE, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 0.0)))
     }
 
     @Test
     fun aFileShorterThanItSaysIsStillArriving() {
         val file = file()
-        assertEquals(Verdict.TRUNCATED, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 120_000.0), null))
-        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 198_500.0), null))
+        assertEquals(Verdict.TRUNCATED, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 120_000.0)))
+        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 198_500.0)))
     }
 
-    @Test
-    fun aDifferentLengthFromTheSongsIsRefused() {
-        val file = file()
-        assertEquals(Verdict.DURATION_DIFFERS, CandidateRules.judgeDecoded(file, decoded(file), 210_000))
-        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file), 202_000))
-    }
 
     @Test
     fun aFileThatChangedUnderTheDecoderCountsForNothing() {
         val file = file()
         val grew = decoded(file).copy(sizeBytes = file.sizeBytes + 1)
-        assertEquals(Verdict.CHANGED_WHILE_PROBED, CandidateRules.judgeDecoded(file, grew, null))
+        assertEquals(Verdict.CHANGED_WHILE_PROBED, CandidateRules.judgeDecoded(file, grew))
     }
 
     @Test
     fun thePersonOverrulesTheLengthsButNotTheDecoder() {
         val file = file()
-        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 120_000.0), 200_000, personChose = true))
-        assertEquals(Verdict.UNDECODABLE, CandidateRules.judgeDecoded(file, decoded(file, ok = false), null, personChose = true))
+        assertEquals(Verdict.READY, CandidateRules.judgeDecoded(file, decoded(file, decodedMs = 120_000.0), personChose = true))
+        assertEquals(Verdict.UNDECODABLE, CandidateRules.judgeDecoded(file, decoded(file, ok = false), personChose = true))
     }
 
     @Test

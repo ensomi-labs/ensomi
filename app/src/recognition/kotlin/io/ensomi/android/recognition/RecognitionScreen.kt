@@ -475,6 +475,7 @@ private fun Ask.english(): Int = when (this) {
 /** The failure in Chinese and in English. */
 private fun FailureKind.words(): Pair<Int, Int> = when (this) {
     FailureKind.NOT_A_SONG -> R.string.recognition_failure_not_song_zh to R.string.recognition_failure_not_song_en
+    FailureKind.NAME_NEEDED -> R.string.recognition_failure_name_zh to R.string.recognition_failure_name_en
     FailureKind.NO_FILE -> R.string.recognition_failure_no_file_zh to R.string.recognition_failure_no_file_en
     FailureKind.PROTECTED_TRACK -> R.string.recognition_failure_protected_zh to R.string.recognition_failure_protected_en
     FailureKind.MODEL_MISSING -> R.string.recognition_failure_no_model_zh to R.string.recognition_failure_no_model_en

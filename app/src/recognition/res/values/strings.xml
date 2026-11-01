@@ -91,4 +91,6 @@
     <string name="guide_launch_failed">NetEase Cloud Music could not open. Open it yourself and follow these steps.</string>
     <string name="guide_show">Show the guide</string>
     <string name="guide_share_again">Ready. Share the song to Ensomi again to start.</string>
+    <string name="recognition_failure_name_zh" translatable="false">链接没有提供可匹配的歌曲名称，会话已停止。请从网易云音乐分享单曲；分享内容会包含歌名和歌手。</string>
+    <string name="recognition_failure_name_en" translatable="false">The link did not provide a name to match, so the session stopped. Share the song from NetEase Cloud Music; its share includes the song name and artist.</string>
 </resources>

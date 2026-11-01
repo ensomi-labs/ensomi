@@ -74,6 +74,7 @@ class RecognitionController private constructor(context: Context) {
     private var trace: SessionTrace? = null
     private var lastSaved: SessionState? = null
     private var frontmost = false
+    private var guideOpened: SessionNow? = null
     private var aligner: AmbientAligner? = null
     private var syncRun: SyncRun? = null
     private var syncGeneration = 0
@@ -104,6 +105,7 @@ class RecognitionController private constructor(context: Context) {
     }
 
     fun showGuide() = post {
+        guideOpened = now()
         feed(SessionEvent.Stop("guide"))
         machine = null
         mutableGame.value = null
@@ -215,7 +217,7 @@ class RecognitionController private constructor(context: Context) {
         trace = log
         val installed = modelInstalled()
         logDevice(log)
-        val (started, effects) = SessionMachine.start(cid, installed, time, limits()) { event, fields ->
+        val (started, effects) = SessionMachine.start(cid, installed, sessionBeginning(guideOpened, time), limits()) { event, fields ->
             log.log(event, fields)
         }
         machine = started

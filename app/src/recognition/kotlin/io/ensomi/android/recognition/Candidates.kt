@@ -2,7 +2,6 @@ package io.ensomi.android.recognition
 
 import java.text.Normalizer
 import java.util.Locale
-import kotlin.math.abs
 import kotlinx.serialization.Serializable
 
 /** Which song the session is after, as far as anything has said. */
@@ -11,13 +10,11 @@ data class SongIdentity(
     val songId: Long? = null,
     val title: String? = null,
     val artist: String? = null,
-    val durationMs: Long? = null,
 ) {
     fun merged(other: SongIdentity): SongIdentity = SongIdentity(
         songId ?: other.songId,
         title ?: other.title,
         artist ?: other.artist,
-        durationMs ?: other.durationMs,
     )
 
     /** False only when both say what they are and what they say differs. */
@@ -113,9 +110,6 @@ enum class Verdict {
     /** It decodes, shorter than the file says it should: it is still arriving. */
     TRUNCATED,
 
-    /** Its length differs from the song's by more than the tolerance. */
-    DURATION_DIFFERS,
-
     /** It changed while it was being decoded. */
     CHANGED_WHILE_PROBED,
 
@@ -210,7 +204,7 @@ object CandidateRules {
             MatchStrength.NONE -> return if (isNew) Verdict.NO_MATCH else Verdict.BEFORE_SESSION
             MatchStrength.NEW_FILE -> if (!isNew) return Verdict.BEFORE_SESSION
             // An older file with the right title and another artist: the title alone says too little.
-            MatchStrength.TITLE_ONLY -> if (!isNew && !durationAgrees(file.durationMs, song?.durationMs)) return Verdict.BEFORE_SESSION
+            MatchStrength.TITLE_ONLY -> if (!isNew) return Verdict.BEFORE_SESSION
             MatchStrength.TITLE_ARTIST, MatchStrength.SONG_ID, MatchStrength.PERSON -> Unit
         }
         // A new file found by listing the folder has not shown that its writer is done, as an old one has.
@@ -223,19 +217,15 @@ object CandidateRules {
      * The rules after the decoder has run. [file] is the file as it was when the decoder started. A length the file
      * declares can be a guess, for a VBR file without a header, so [personChose] sets the lengths aside.
      */
-    fun judgeDecoded(file: FileFacts, probe: ProbeFacts, expectedDurationMs: Long?, personChose: Boolean = false): Verdict {
+    fun judgeDecoded(file: FileFacts, probe: ProbeFacts, personChose: Boolean = false): Verdict {
         if (probe.sizeBytes != file.sizeBytes || probe.modifiedWallMs != file.modifiedWallMs) return Verdict.CHANGED_WHILE_PROBED
         if (!probe.decoded || probe.decodedMs <= 0) return Verdict.UNDECODABLE
         if (personChose) return Verdict.READY
-        val declared = probe.declaredMs
+        val declared = listOfNotNull(probe.declaredMs, file.durationMs).maxOrNull()
         if (declared != null && declared - probe.decodedMs > DURATION_TOLERANCE_MS) return Verdict.TRUNCATED
-        if (expectedDurationMs != null && abs(expectedDurationMs - probe.decodedMs) > DURATION_TOLERANCE_MS) {
-            return Verdict.DURATION_DIFFERS
-        }
         return Verdict.READY
     }
 
-    private fun durationAgrees(a: Long?, b: Long?): Boolean = a != null && b != null && abs(a - b) <= DURATION_TOLERANCE_MS
 }
 
 /** Whether a file is a song, by what each says of itself: tags, and names like `Artist - Title.mp3`. */

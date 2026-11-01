@@ -79,8 +79,7 @@ when the file preserves an older modification time. A raw shell push may need an
 
 The candidate must be MP3, complete and quiet, match the song, and decode to its declared length (within the existing
 length tolerance). Temporary suffixes cannot be decoded. Tags and filenames match title/artist; a previously known
-song ID may identify the same file. Older files require identity. New uncertain files may be offered for the person
-to choose. Matching folds width, case, punctuation and spacing, and removes only complete, recognised distribution
+song ID may identify the same file. Older files with title and artist (or a remembered ID) can match automatically. An older title-only match is offered under “Files that may be the song”; Use this file is required. While choices are offered, the idle timeout is suspended. New uncertain files may also be offered. The session’s file timeline starts when the guide was opened within the preceding 30 minutes, otherwise at the share. The unused song-duration field and unreachable duration-mismatch verdict are removed; decoding still compares against file metadata. A headerless partial MP3 whose metadata describes only the surviving frames cannot reliably be distinguished from a short complete recording. Matching folds width, case, punctuation and spacing, and removes only complete, recognised distribution
 credits; Live, Remix, Instrumental, TV Size and unknown parenthesised text stay distinct.
 
 **The 10-second wait starts at the share.** It is an idle limit. A first nonempty matching MP3 candidate and each observed
@@ -99,6 +98,8 @@ can see it, the wait ends with the ordinary message, in both languages:
 `.ncm` files are never opened, decoded, converted or read. A matching filename, if visible, records the protected
 format and gives a more specific refusal at timeout; a later MP3 can still proceed before that deadline. Such files
 will usually be invisible with the public permissions, so the ordinary message covers the protected-format case too.
+A bare link with no known file or new audio instead asks for a NetEase song share containing its name and artist.
+
 Timeout records `failure`, `abort` and `session.end` with `audio_wait_timeout`, cancels listeners, file and chart work,
 and releases capture and alignment. The explanation remains on screen with Back and a route to the guide.
 
