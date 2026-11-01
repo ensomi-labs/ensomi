@@ -155,7 +155,7 @@ class RecognitionController private constructor(context: Context) {
             }
             pendingRestore = null
             mutableShareNotice.value = null
-            if (startsNewSession(machine?.state, shared?.identity)) begin()
+            if (startsNewSession(machine?.state, shared?.identity)) begin(received)
             else if (machine?.state?.failure?.kind in setOf(FailureKind.SYNC_FAILED, FailureKind.SYNC_NEVER_LOCKED)) {
                 gameGeneration++
                 feed(SessionEvent.Retry(Stage.AUDIO, modelInstalled()))
@@ -219,7 +219,7 @@ class RecognitionController private constructor(context: Context) {
         return stores.model.state.value is ModelState.Installed
     }
 
-    private suspend fun begin() {
+    private suspend fun begin(sharedAt: SessionNow) {
         gameGeneration++
         mutableGame.value = null
         if (machine?.state?.running == true) feed(SessionEvent.Stop("replaced"))
@@ -233,7 +233,7 @@ class RecognitionController private constructor(context: Context) {
         trace = log
         val installed = modelInstalled()
         logDevice(log)
-        val (started, effects) = SessionMachine.start(cid, installed, sessionBeginning(guideOpened, time), limits()) { event, fields ->
+        val (started, effects) = SessionMachine.start(cid, installed, time, limits(), fileStartWallMs = sessionBeginning(guideOpened, sharedAt).wallMs) { event, fields ->
             log.log(event, fields)
         }
         machine = started
@@ -281,6 +281,7 @@ class RecognitionController private constructor(context: Context) {
             mutableShareNotice.value = if (!guide.modelReady) ShareDecision.MODEL else ShareDecision.PERMISSIONS
             return
         }
+        mutableShareNotice.value = null
         val log = SessionTrace(storage.traceFile(saved.cid), saved.cid, SystemClock::elapsedRealtimeNanos)
         trace = log
         val (restored, effects) = SessionMachine.restored(saved, now(), limits()) { event, fields -> log.log(event, fields) }

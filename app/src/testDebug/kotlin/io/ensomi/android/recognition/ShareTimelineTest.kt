@@ -92,6 +92,8 @@ class ShareTimelineTest {
         machine.on(SessionEvent.Retry(Stage.SHARE), time)
         assertNull(machine.state.song)
         assertNull(machine.state.audioWaitSinceNanos)
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time)
+        assertEquals(StageStatus.WAITING, machine.state.stage(Stage.AUDIO).status)
         machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 20_000_000_000))
         assertTrue(machine.state.running)
         machine.on(SessionEvent.ShareReceived("invented song", share, null), time)
@@ -116,6 +118,35 @@ class ShareTimelineTest {
         assertTrue(SessionEffect.StopListening in effects)
         assertFalse(machine.state.running)
         assertFalse(canResumeSnapshot(machine.state, time, SessionLimits()))
+    }
+
+    @Test fun guideAgeChangesFileMatchingWithoutAgingTheStageOrCaptureClocks() {
+        val earlier = time.wallMs - 30_000
+        val machine = SessionMachine.start("guide", true, time, fileStartWallMs = earlier) { _, _ -> }.first
+        assertEquals(earlier, machine.state.startedWallMs)
+        assertEquals(time.nanos, machine.state.startedNanos)
+        assertEquals(time.nanos, machine.state.stage(Stage.LISTEN).startedNanos)
+        machine.on(SessionEvent.ShareReceived("invented song", share, null), time)
+        machine.on(SessionEvent.IndexReady(emptyList(), emptyMap()), time)
+        assertEquals(time.nanos, machine.state.audioWaitSinceNanos)
+    }
+
+    @Test fun choosingAHeldFileUsesItsLatestPublishedUri() {
+        val machine = machine()
+        val old = file().copy(uri = null)
+        machine.on(SessionEvent.IndexReady(listOf(old), emptyMap()), time)
+        val published = old.copy(uri = "content://media/99")
+        machine.on(SessionEvent.FileSeen(published, Evidence.MEDIA_STORE), time)
+        assertEquals(listOf(SessionEffect.Probe(published)), machine.on(SessionEvent.UseFile(old.path), time))
+    }
+
+    @Test fun aStrongerMatchBeatsANewerTitleOnlyRowEvenWhenListedLast() {
+        val machine = machine()
+        val weak = file(modified = time.wallMs + 1000).copy(path = "/music/new-title-only.mp3")
+        val strong = file("Cloud Quartet")
+        val indexed = time.copy(nanos = time.nanos + 20_000_000_000, wallMs = time.wallMs + 20_000)
+        val effects = machine.on(SessionEvent.IndexReady(listOf(weak, strong), emptyMap()), indexed)
+        assertEquals(listOf(SessionEffect.Probe(strong)), effects)
     }
 
 }

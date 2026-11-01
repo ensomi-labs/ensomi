@@ -100,6 +100,7 @@ data class GameSummary(
 data class SessionState(
     val cid: String,
     val startedNanos: Long,
+    /** Earliest file time for this attempt: a recent guide opening, otherwise the share. */
     val startedWallMs: Long,
     val modelInstalled: Boolean,
     val stages: List<StageView> = Stage.entries.map { StageView(it) },
@@ -438,7 +439,8 @@ class SessionMachine private constructor(
 
     private fun startAudio() {
         if (state.audio != null) return
-        if (state.song != null && state.stage(Stage.LISTEN).status == StageStatus.DONE && state.audioWaitSinceNanos == null) {
+        if (state.song == null) { considerEverything(); return }
+        if (state.stage(Stage.LISTEN).status == StageStatus.DONE && state.audioWaitSinceNanos == null) {
             state = state.copy(audioWaitSinceNanos = now.nanos)
             log("audio.wait", "limit_ms" to limits.audioWaitMs)
         }
@@ -1008,10 +1010,12 @@ class SessionMachine private constructor(
             modelInstalled: Boolean,
             time: SessionNow,
             limits: SessionLimits = SessionLimits(),
+            fileStartWallMs: Long = time.wallMs,
             trace: (String, Map<String, Any?>) -> Unit,
         ): Pair<SessionMachine, List<SessionEffect>> {
-            val state = SessionState(cid, time.nanos, time.wallMs, modelInstalled)
+            val state = SessionState(cid, time.nanos, fileStartWallMs, modelInstalled)
             val machine = SessionMachine(state, trace, limits)
+            machine.now = time
             return machine to machine.begin()
         }
 

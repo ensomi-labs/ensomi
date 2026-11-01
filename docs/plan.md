@@ -131,12 +131,12 @@ timing, not a phone's):
   the frame targets (under 0.5 % late, work p99 under 3 ms) at every lean on `ensomi-36-16k`, and the debug build did
   not; the emulator's numbers decide nothing about the Redmi K80's 120 Hz.
 
-Step 14 now ships as Listen & Play. Home opens the guide; the person follows the four steps, and a valid share starts
+Step 14 now ships as Listen & Play. Home returns to a live session, or opens the guide; the person follows the four steps, and a valid share starts
 file discovery, chart generation and local microphone alignment. The session never starts NetEase or requests steps
 inside it. The release manifest includes microphone and music access, the NetEase package query and the text share
 target. Join lead is two seconds or the scroll time, whichever is longer.
 
-The public-flow checks cover missing prerequisites, invalid shares, the ten-second no-file stop, existing MP3s and a
+The public-flow checks cover missing prerequisites, invalid shares preserving live work, the ten-second no-file stop after indexing, existing title/artist MP3s, explicit choices for older title-only files, Back confirmation, dormant process restoration, a single launcher/share activity, and a
 file arriving during the wait. Scoped storage can expose a filename before it is readable: MediaStore publication must
 be allowed to retry that candidate without byte growth. A raw shell push may need a media scan, and is not evidence of
 NetEase writing a file. Muted emulator capture establishes startup, not room alignment; real music and the NetEase

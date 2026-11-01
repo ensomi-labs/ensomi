@@ -19,7 +19,7 @@ private class Bench(
     var effects: List<SessionEffect>
 
     init {
-        val (started, first) = SessionMachine.start("cid", modelInstalled, now(), limits, ::traceIt)
+        val (started, first) = SessionMachine.start("cid", modelInstalled, now(), limits, trace = ::traceIt)
         machine = started
         effects = first
     }
@@ -60,7 +60,7 @@ private class Bench(
     fun events(name: String) = traced.filter { it.first == name }.map { it.second }
 
     fun restoredFrom(state: SessionState): List<SessionEffect> {
-        val (restored, effects) = SessionMachine.restored(state, now(), limits, ::traceIt)
+        val (restored, effects) = SessionMachine.restored(state, now(), limits, trace = ::traceIt)
         machine = restored
         this.effects = effects
         return effects

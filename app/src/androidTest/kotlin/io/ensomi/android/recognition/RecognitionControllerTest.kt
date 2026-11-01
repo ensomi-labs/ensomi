@@ -108,6 +108,17 @@ class RecognitionControllerTest {
         assertFalse(controller.opens.value)
     }
 
+    @Test fun explicitOpeningResumesTheSessionAndConsumesTheRestoreNotice() = runBlocking {
+        val saved = saved()
+        storage.writeSnapshot(saved)
+        val controller = create()
+        controller.showGuide()
+        serialized(controller)
+        assertEquals(saved.cid, controller.session.value?.cid)
+        assertNull(controller.shareNotice.value)
+        assertFalse(controller.opens.value)
+    }
+
     @Test fun aSameSongShareAfterProcessDeathStartsAFreshWait() = runBlocking {
         val saved = saved(9_000)
         storage.writeSnapshot(saved)

@@ -2,6 +2,7 @@ package io.ensomi.android.recognition
 
 import android.content.Context
 import android.util.AtomicFile
+import androidx.core.content.edit
 import io.ensomi.android.prototype.DebugTools
 import java.io.File
 import kotlinx.serialization.Serializable
@@ -55,7 +56,7 @@ class SessionStorage(context: Context) {
         SessionNow(guidePrefs.getLong("nanos", 0), guidePrefs.getLong("wall", 0)) else null
 
     fun writeGuideTime(time: SessionNow) {
-        guidePrefs.edit().putLong("nanos", time.nanos).putLong("wall", time.wallMs).apply()
+        guidePrefs.edit { putLong("nanos", time.nanos); putLong("wall", time.wallMs) }
     }
 
     fun traceFile(cid: String) = File(outside, "session-$cid.jsonl")
