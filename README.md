@@ -5,7 +5,7 @@ written in Kotlin with Jetpack Compose. Chart generation and gameplay come from 
 [ensomi-runtime](https://github.com/ensomi-labs/runtime), through its Kotlin bindings. The app shares no
 code or history with the Swift app, which is the reference for what it does.
 
-The app is in development and is not distributed. It does drop-in play on the app's own stores: the settings, kept
+The app is an early play demo. It does drop-in play on the app's own stores: the settings, kept
 with Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding
 songs to PCM; the chart model, downloaded from Hugging Face at a pinned tag or installed from the package's files in a
 folder the player picks, either way only the pinned package and checked file by file; charts made on
@@ -17,14 +17,22 @@ shows what the device is (SoC, CPU, memory page size, display modes, audio, ther
 runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
 
-## Requirements
+## Get the demo
+
+Download the signed APK from the [Android 0.1.0 prerelease](https://github.com/ensomi-labs/ensomi/releases/tag/android-v0.1.0)
+when published, open it on your device, and allow installation from the app you opened it with. It needs Android 13 or
+later, an arm64-v8a device, an internet connection for the first-run model download from Hugging Face (about 120 MB),
+and a song you select through Android's system file picker. Chart generation runs on your device and needs additional
+storage and memory. This is a prerelease; performance and audio timing vary by device and output.
+
+## Build requirements
 
 - macOS. Builds run only there for now, and there is no CI.
 - Android Studio, whose bundled JDK runs Gradle (any JDK 17 or later works).
 - Android SDK platform 37, build-tools 37.0.0, NDK 30.0.16248370, platform-tools and the emulator.
 - A device or emulator with an arm64-v8a CPU and Android 13 (API 33) or later. The app is built for
   arm64-v8a only.
-- The runtime AAR, built in an ensomi-runtime checkout of `codex/android-perf-2` at `b12bb0f` with
+- The runtime AAR, built from ensomi-runtime commit `b12bb0f` with
   `scripts/build-android.sh` (see its `android/README.md`). The required AAR SHA-256 is
   `16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`.
 
@@ -36,7 +44,7 @@ Create `local.properties` at the repository root. Git ignores it.
 
 ```properties
 sdk.dir=/absolute/path/to/Android/sdk
-ensomi.runtime.aar=/absolute/path/to/ensomi-runtime--android-perf-2/build/android/ensomi-runtime.aar
+ensomi.runtime.aar=/absolute/path/to/ensomi-runtime/build/android/ensomi-runtime.aar
 ```
 
 `ensomi.runtime.aar` selects the runtime AAR the app links. Gradle stops with a message when it is missing

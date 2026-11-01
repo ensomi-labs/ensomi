@@ -46,6 +46,10 @@ android {
     }
 
     buildTypes {
+        getByName("release") {
+            // The owner signs the APK separately. Keep rules live in src/release/keepRules.
+            optimization { enable = true }
+        }
         // The checks build: not debuggable, as a release is not, so the phone checks measure frame pacing without ART's
         // debuggable mode. Signed with the debug key and without R8, so it installs over the debug build (keeping its
         // data, the model with it) and the debug build's instrumented checks can drive it. It keeps the scenarios and

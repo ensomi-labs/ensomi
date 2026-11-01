@@ -1,0 +1,6 @@
+# JNA uses reflection and native lookups. Its AAR does not supply these rules.
+# https://github.com/java-native-access/jna/blob/master/www/FrequentlyAskedQuestions.md
+# The runtime AAR separately keeps io.ensomi.runtime.** (UniFFI bindings and structures).
+-dontwarn java.awt.**
+-keep class com.sun.jna.** { *; }
+-keep class * extends com.sun.jna.** { *; }
