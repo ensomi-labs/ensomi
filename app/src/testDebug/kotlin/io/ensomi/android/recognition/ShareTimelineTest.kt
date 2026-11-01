@@ -170,4 +170,13 @@ class ShareTimelineTest {
         assertEquals("audio_wait_timeout", machine.state.ended)
     }
 
+    @Test fun audioRetryFallsBackToTheOnlyFile() {
+        val machine = machine()
+        val only = file("Cloud Quartet")
+        machine.on(SessionEvent.IndexReady(listOf(only), emptyMap()), time)
+        machine.on(SessionEvent.Probed(only, ProbeFacts(true, 10000.0, sizeBytes = only.sizeBytes, modifiedWallMs = only.modifiedWallMs)), time)
+        machine.on(SessionEvent.Retry(Stage.AUDIO), time)
+        assertEquals(listOf(SessionEffect.Probe(only)), machine.on(SessionEvent.IndexReady(listOf(only), emptyMap()), time))
+    }
+
 }

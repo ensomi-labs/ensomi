@@ -67,7 +67,7 @@ Three sources run concurrently. MediaStore with `READ_MEDIA_AUDIO` is the suppor
 A five-second poll checks both the folder and MediaStore. No build requests all-files access. Refreshing a candidate
 checks MediaStore first, preserving its content URI even when direct filesystem access is unavailable. A newly published
 URI retries an unreadable folder candidate even without size growth; a row added during the session is considered even
-when the file preserves an older modification time. Every index row is compared before the first probe; eligible files are ranked by match strength, then newest modification time. A remembered path is used only for an unnamed ID share, so it cannot override newer named evidence. Retry from Audio (also a same-song re-share after failed alignment) forgets that ID mapping and excludes the rejected file for the current attempt, allowing another take. It also invalidates outstanding alignment work. A raw shell push may need an explicit media scan before it is readable.
+when the file preserves an older modification time. Every index row is compared before the first probe; eligible files are ranked by match strength, then newest modification time. A remembered path is used only for an unnamed ID share, so it cannot override newer named evidence. Retry from Audio (also a same-song re-share after failed alignment) forgets that ID mapping and ranks the rejected file after other usable candidates, allowing another take while retaining the only file as a fallback. This applies to failed alignment and reference building alike. It also invalidates outstanding alignment work. A raw shell push may need an explicit media scan before it is readable.
 
 | Evidence | Meaning |
 | --- | --- |

@@ -133,4 +133,34 @@ class RecognitionControllerTest {
         assertTrue(state.audioWaitSinceNanos!! > saved.audioWaitSinceNanos!!)
         assertNull(field("pendingRestore").get(controller))
     }
+    @Test fun aReshareAfterAlignmentOrReferenceFailureKeepsTheOnlyFile() = runBlocking {
+        for (failure in listOf(FailureKind.SYNC_NEVER_LOCKED, FailureKind.SYNC_FAILED)) {
+            storage.clearSnapshot()
+            val controller = create()
+            val time = now()
+            val file = FileFacts("/music/Cloud Quartet - Paper Lantern Test.mp3", "Cloud Quartet - Paper Lantern Test.mp3", 1000, time.wallMs - 60_000)
+            val machine = SessionMachine.start("retry-$failure", true, time) { _, _ -> }.first
+            val text = "分享Cloud Quartet的单曲《Paper Lantern Test》: https://music.163.com/song?id=999999881"
+            machine.on(SessionEvent.ShareReceived(text, ShareParser.parse(text), null), time)
+            machine.on(SessionEvent.IndexReady(listOf(file), emptyMap()), time)
+            machine.on(SessionEvent.Probed(file, ProbeFacts(true, 10000.0, sizeBytes = file.sizeBytes, modifiedWallMs = file.modifiedWallMs)), time)
+            if (failure == FailureKind.SYNC_FAILED) machine.on(SessionEvent.ReferenceFailed("test"), time)
+            else {
+                machine.on(SessionEvent.Frontmost(true), time)
+                machine.on(SessionEvent.ReferenceReady("test", 0.0), time)
+                machine.on(SessionEvent.Tick, time.copy(nanos = time.nanos + 181_000_000_000))
+            }
+            assertEquals(failure, machine.state.failure?.kind)
+            serialized(controller) { field("machine").set(controller, machine) }
+            controller.share(text, "test")
+            serialized(controller)
+            assertSame(machine, field("machine").get(controller))
+            assertNull(controller.session.value?.failure)
+            assertEquals(StageStatus.RUNNING, controller.session.value?.stage(Stage.LISTEN)?.status)
+            serialized(controller) {
+                assertEquals(listOf(SessionEffect.Probe(file)), machine.on(SessionEvent.IndexReady(listOf(file), emptyMap()), now()))
+            }
+        }
+    }
+
 }

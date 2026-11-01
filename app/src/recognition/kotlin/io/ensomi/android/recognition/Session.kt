@@ -468,7 +468,7 @@ class SessionMachine private constructor(
     }
 
     private fun consider(file: FileFacts, evidence: Evidence) {
-        if (state.audio != null || file.path in rejectedPaths) return
+        if (state.audio != null) return
         val previous = candidates[file.path]
         val song = state.song
         val person = previous?.person == true
@@ -478,6 +478,7 @@ class SessionMachine private constructor(
         val match = when {
             protected && song != null -> SongMatch.strength(song, file.copy(title = null, artist = null, durationMs = null), null)
             person -> MatchStrength.PERSON
+            file.path in rejectedPaths -> MatchStrength.SONG_ID
             song != null -> SongMatch.strength(song, file.copy(name = downloadName ?: file.name), song.songId?.let { known[it] }.takeIf { song.title == null }).let {
                 // A share that gives only a link has no name to compare: a file that appears after it is all there is.
                 if (it == MatchStrength.NONE && song.title == null && isNew) MatchStrength.NEW_FILE else it
@@ -604,7 +605,7 @@ class SessionMachine private constructor(
     /** One decoder at a time: the surest candidate first. */
     private fun probeNext() {
         if (probing != null || state.audio != null || state.stage(Stage.LISTEN).status != StageStatus.DONE) return
-        val next = candidates.values.filter { it.verdict == Verdict.PROBE }.maxWithOrNull(compareBy<Candidate> { it.match.ordinal }.thenBy { it.file.modifiedWallMs }.thenBy { it.file.path }) ?: return
+        val next = candidates.values.filter { it.verdict == Verdict.PROBE }.maxWithOrNull(compareBy<Candidate> { it.file.path !in rejectedPaths }.thenBy { it.match.ordinal }.thenBy { it.file.modifiedWallMs }.thenBy { it.file.path }) ?: return
         probing = next.file.path
         effects += SessionEffect.Probe(next.file)
     }
