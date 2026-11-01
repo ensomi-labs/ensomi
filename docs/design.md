@@ -314,10 +314,12 @@ plum neutrals (`#130E1A` ground and `#2A2036` containers on dark), assigned to M
   Swift play screen uses SF Pro Rounded; Android has no system rounded face, and bundling one is not worth it for this
   round.
 - **Icons** are Material icons, kept as vector drawables in the app (Material 3 no longer pulls in an icon library).
-- **Launcher icon** uses the website’s original full-bleed square artwork, reduced to 264 px and inset by 21 dp
-  on each side of the 108 dp adaptive layer (central 66 dp). Its outer background is sampled from the image’s
-  top-right corner. The existing themed-icon layer uses the bright mark’s silhouette; there are no separate
-  round or legacy launcher assets. The artwork is scaled without redrawing or cropping.
+- **Launcher icon** uses the website’s original full-bleed square artwork, reduced to 264 px and inset by 16 dp
+  on each side of the 108 dp adaptive layer (76 dp artwork), covering the 72 dp launcher mask without exposing
+  the square’s edges. The bright mark measures 205 × 193 px (59.0 × 55.6 dp); its outermost pixel corner is
+  32.63 dp from center, within the 66 dp safe circle. A 14 dp inset would exceed that circle. Its outer
+  background is sampled from the image’s top-right corner. The themed-icon layer retains its 21 dp inset
+  and existing mark proportion. There are no separate round or legacy launcher assets; the PNGs are unchanged.
 - **Failures** are always words with a warning symbol, never colour alone; cancelling a picker is not a failure.
 
 **Game presentation** (Play, Pause, Results, Calibration) is always dark plum, whatever the system theme, with light

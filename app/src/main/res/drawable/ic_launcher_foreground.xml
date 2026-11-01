@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Preserve the full square artwork within the central 66 dp of the 108 dp adaptive layer. -->
+<!-- Cover the 72 dp mask with 76 dp artwork; keep the bright mark inside the 66 dp safe circle. -->
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:insetLeft="21dp"
-    android:insetTop="21dp"
-    android:insetRight="21dp"
-    android:insetBottom="21dp">
+    android:insetLeft="16dp"
+    android:insetTop="16dp"
+    android:insetRight="16dp"
+    android:insetBottom="16dp">
     <bitmap android:src="@drawable/ic_launcher_artwork" android:gravity="fill" />
 </inset>
