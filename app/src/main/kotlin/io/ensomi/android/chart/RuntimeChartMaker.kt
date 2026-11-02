@@ -412,7 +412,7 @@ class RuntimeChartMaker(
 
     private fun failed(songId: String, failure: Throwable, making: Making): MakeState = when {
         making.stopped.get() -> MakeState.Stopped(songId)
-        failure is GeneratorException.Cancelled -> MakeState.Stopped(songId)
+        failure is GeneratorException.Cancelled || failure is kotlinx.coroutines.CancellationException -> MakeState.Stopped(songId)
         failure is GeneratorException.Generation ->
             MakeState.Failed(songId, GeneratorChoices.refusal(failure.code, failure.message))
         failure is GeneratorException -> MakeState.Failed(songId, failure.message ?: failure.javaClass.simpleName)
