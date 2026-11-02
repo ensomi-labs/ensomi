@@ -1,8 +1,10 @@
 package io.ensomi.android.model
 
 import io.ensomi.android.chart.ChartCapabilities
+import io.ensomi.runtime.GeneratorException
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -15,59 +17,91 @@ class ModelOpenGuardTest {
     private val marker get() = File(root, "model-open-pending.json")
     private val recorded = mutableListOf<Pair<String, String>>()
     private val events = InstallEvents { event, phase, _ -> recorded += event to phase }
-    private fun guard(reason: Int? = null, afterMarker: () -> Unit = {}) =
-        ModelOpenGuard(root, { 123 }, events, afterMarker = afterMarker, exitReason = { _, _ -> reason })
+    private fun guard(reason: Int? = null) =
+        ModelOpenGuard(root, { 123 }, events, exitReason = { _, _ -> reason })
+    private fun interrupted(stage: String = "model_prepare", update: Long = key.lastUpdateTime, pid: Int = 321) {
+        // A dead process never reaches finally; reproduce precisely its persisted marker.
+        marker.writeText("""{"key":{"revision":"lumen-1","versionCode":7,"lastUpdateTime":$update},"wallTime":100,"pid":$pid,"stage":"$stage"}""")
+    }
     @After fun clean() { root.deleteRecursively() }
 
-    @Test fun markerBlocksEvenWithCapabilitiesAndNamesInference() = runBlocking {
+    @Test fun noMarkerAfterOpenOrBetweenInferencesAndOnlyFirstCallIsGuarded() = runBlocking {
         val first = guard()
-        first.read(key) { capabilities }
-        val second = guard()
-        assertNull(second.read(key) { error("Must not open") })
-        assertEquals(ModelOpenState.Blocked("model_prepare"), second.state.value)
-        assertTrue(marker.exists())
-    }
-    @Test fun openKeepsMarkerUntilFirstInferenceAndSecondMakerUsesSameGuard() = runBlocking {
-        val first = guard()
-        assertEquals(capabilities, first.read(key) { capabilities })
-        assertTrue(marker.exists())
-        assertEquals(capabilities, first.read(key) { error("Already open") })
-        first.inference("model_prepare") { assertTrue(marker.exists()); true }
+        assertEquals(capabilities, first.read(key) { assertTrue(marker.exists()); capabilities })
         assertFalse(marker.exists())
-        assertEquals(capabilities, guard().read(key) { error("Must use cache") })
+        assertEquals(capabilities, first.read(key) { error("Already open") })
+        // Cached preparation/play can leave the first inference pending across process lifetimes safely.
+        val second = guard()
+        assertEquals(capabilities, second.read(key) { error("Use stored capabilities before inference too") })
+        assertFalse(marker.exists())
+        second.inference("model_prepare") { assertTrue(marker.exists()); true }
+        assertFalse(marker.exists())
+        second.inference("model_chart") { assertFalse(marker.exists()); true }
+        val third = guard()
+        third.read(key) { error("Must use cache") }
+        third.inference("model_prepare") { assertFalse(marker.exists()); true }
         assertEquals(listOf("model_open" to "begin", "model_open" to "end", "model_prepare" to "begin", "model_prepare" to "end"), recorded)
     }
-    @Test fun inferenceCrashLeavesMarkerAndExplicitRetryRecovers() = runBlocking {
+    @Test fun cancellationsAndGenerationRefusalDoNotFailTheModelOrLeaveAMarker() = runBlocking {
+        for (failure in listOf(GeneratorException.Cancelled(), CancellationException("stop"),
+            GeneratorException.Generation("star_out_of_range", "refused"))) {
+            root.listFiles().orEmpty().forEach { it.delete() }
+            val first = guard()
+            first.read(key) { capabilities }
+            try { first.inference(if (failure is GeneratorException.Generation) "model_chart" else "model_prepare") {
+                assertTrue(marker.exists()); throw failure
+            }; fail("Expected exception") } catch (caught: Throwable) { assertSame(failure, caught) }
+            assertEquals(ModelOpenState.Ready, first.state.value)
+            assertFalse(marker.exists())
+            first.inference("model_prepare") { assertFalse(marker.exists()) }
+            val next = guard()
+            next.read(key) { error("No reopen after a normal stop/refusal") }
+            next.inference("model_chart") { assertFalse(marker.exists()) }
+        }
+    }
+    @Test fun modelLoadFailureIsFailedButReturnedExceptionNeverLeavesAMarker() = runBlocking {
         val first = guard()
         first.read(key) { capabilities }
-        try { first.inference("model_chart") { throw OutOfMemoryError("test") } } catch (_: OutOfMemoryError) { }
+        try { first.inference("model_chart") { throw GeneratorException.Model("missing model") } }
+        catch (_: GeneratorException.Model) { }
+        assertTrue(first.state.value is ModelOpenState.Failed)
+        assertFalse(marker.exists())
+    }
+    @Test fun previousProcessInferenceDeathBlocksAndExplicitRetryRecovers() = runBlocking {
+        guard().read(key) { capabilities }
+        interrupted("model_chart")
         val next = guard()
         assertNull(next.read(key) { error("Blocked") })
         assertEquals(ModelOpenState.Blocked("model_chart"), next.state.value)
         next.retry()
         assertEquals(capabilities, next.read(key) { capabilities })
+        assertFalse(marker.exists())
         next.inference("model_chart") { true }
         assertFalse(marker.exists())
+    }
+    @Test fun oldKeyOrCurrentPidMarkerIsDiscardedWithoutBlocking() = runBlocking {
+        for ((update, pid) in listOf(123L to 321, 1234L to 123)) {
+            root.listFiles().orEmpty().forEach { it.delete() }
+            guard().read(key) { capabilities }
+            interrupted(update = update, pid = pid)
+            var opened = false
+            val next = guard()
+            next.read(key) { opened = true; capabilities }
+            assertTrue(opened)
+            assertEquals(ModelOpenState.Ready, next.state.value)
+            assertFalse(marker.exists())
+            assertTrue("model_open" to "discard_marker" in recorded)
+        }
     }
     @Test fun userRequestedOrStoppedRetriesButUnknownReasonBlocks() = runBlocking {
         for (reason in listOf(10, 11, 5, null)) {
             root.listFiles().orEmpty().forEach { it.delete() }
-            guard().read(key) { capabilities }
+            interrupted()
             var opened = false
             val next = guard(reason)
             next.read(key) { opened = true; capabilities }
             assertEquals(reason == 10 || reason == 11, opened)
         }
-    }
-    @Test fun appUpdateOpensAgainAndCancelledInferenceDoesNotCompleteGuard() = runBlocking {
-        val first = guard()
-        first.read(key) { capabilities }
-        first.inference("model_prepare") { false }
-        assertTrue(marker.exists())
-        first.inference("model_chart") { true }
-        var opens = 0
-        guard().read(key.copy(lastUpdateTime = 5678)) { opens++; capabilities }
-        assertEquals(1, opens)
     }
     @Test fun ordinaryOpenFailureClearsMarkerAndWaitsForRetry() = runBlocking {
         val first = guard()
@@ -87,6 +121,6 @@ class ModelOpenGuardTest {
         first.read(key) { capabilities }
         synced = false
         first.inference("model_prepare") { assertTrue(synced); true }
-        Unit
+        assertFalse(marker.exists())
     }
 }

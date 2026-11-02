@@ -1,6 +1,7 @@
 package io.ensomi.android.model
 
 import io.ensomi.android.chart.ChartCapabilities
+import io.ensomi.runtime.GeneratorException
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -57,6 +58,7 @@ class ModelOpenGuard(
     suspend fun read(key: ModelOpenKey, open: suspend () -> ChartCapabilities): ChartCapabilities? {
         val retry = retries.value != handledRetry
         handledRetry = retries.value
+        val previousState = state.value
         try {
             if (retry) {
                 deleteMarker()
@@ -67,22 +69,34 @@ class ModelOpenGuard(
                 if (attemptedKey == key && state.value is ModelOpenState.Ready) return activeCapabilities
                 if (marker.exists()) {
                     val pending = runCatching { JSON.decodeFromString(Pending.serializer(), marker.readText()) }.getOrNull()
-                    val reason = pending?.let { exitReason(it.pid, it.wallTime) }
-                    if (reason == 10 || reason == 11) {
-                        deleteMarker()
-                        deleteCache()
-                        events.record("model_open", "user_stop", emptyMap())
-                    } else {
-                        blocked(pending?.stage ?: "model_open")
-                        return null
+                    when {
+                        pending != null && (pending.key != key || pending.pid == pid()) -> {
+                            deleteMarker()
+                            deleteCache()
+                            events.record("model_open", "discard_marker", mapOf(
+                                "reason" to if (pending.key != key) "old_key" else "current_process",
+                                "stage" to pending.stage,
+                            ))
+                        }
+                        else -> {
+                            val reason = pending?.let { exitReason(it.pid, it.wallTime) }
+                            if (reason == 10 || reason == 11) {
+                                deleteMarker()
+                                deleteCache()
+                                events.record("model_open", "user_stop", emptyMap())
+                            } else {
+                                blocked(pending?.stage ?: "model_open")
+                                return null
+                            }
+                        }
                     }
                 }
                 if (attemptedKey == key && state.value is ModelOpenState.Failed) return null
                 val saved = runCatching { cache.takeIf { it.isFile }?.let { JSON.decodeFromString(Saved.serializer(), it.readText()) } }.getOrNull()
-                if (saved?.key == key && saved.inferenceComplete) {
+                if (saved?.key == key) {
                     attemptedKey = key
                     activeCapabilities = saved.capabilities
-                    inferencePending = false
+                    inferencePending = !saved.inferenceComplete
                     log("Stored capabilities: no model open")
                     mutableState.value = ModelOpenState.Ready
                     return saved.capabilities
@@ -93,55 +107,63 @@ class ModelOpenGuard(
             pending(key, "model_open")
             events.record("model_open", "begin", emptyMap())
             log("Guarded model open begin")
-            afterMarker()
-            val capabilities = open()
+            val capabilities = try {
+                afterMarker()
+                open()
+            } finally {
+                // Native return/throw ends the risky interval before any cache or UI work.
+                deleteMarker()
+            }
             activeCapabilities = capabilities
             inferencePending = true
             save(key, capabilities, false)
-            // Keep the transaction pending until the first real native inference succeeds.
-            pending(key, "model_prepare")
             mutableState.value = ModelOpenState.Ready
             events.record("model_open", "end", emptyMap())
-            log("Guarded model open end; first inference pending")
+            log("Guarded model open end; first inference pending without marker")
             return capabilities
         } catch (e: Throwable) {
-            failure("model_open", e)
-            if (e is VirtualMachineError || e is CancellationException) throw e
+            if (e is CancellationException || e is GeneratorException.Cancelled) {
+                mutableState.value = previousState
+                events.record("model_open", "cancel", emptyMap())
+                throw e
+            }
+            mutableState.value = ModelOpenState.Failed(e.message ?: e.javaClass.simpleName)
+            events.record("model_open", "fail", mapOf("reason" to e.javaClass.simpleName))
+            log("Guarded model_open failed: ${e.javaClass.simpleName}")
+            if (e is VirtualMachineError) throw e
             return null
         }
     }
 
-    /** Wrap the whole first generator/inference scope, including its open. Cached preparation is not inference. */
-    suspend fun <T> inference(stage: String, work: suspend () -> T): T {
+    /** Called on the runtime worker, immediately around a native call, never cache/decoding/idle work. */
+    fun <T> inference(stage: String, work: () -> T): T {
         if (!inferencePending) return work()
         val key = checkNotNull(attemptedKey)
+        pending(key, stage)
+        events.record(stage, "begin", emptyMap())
+        log("Guarded $stage begin")
+        var failure: Throwable? = null
         try {
-            pending(key, stage)
-            events.record(stage, "begin", emptyMap())
-            log("Guarded $stage begin")
             afterInferenceMarker(stage)
-            val result = work()
-            // A cancelled preparation/scheduler did not validate native inference.
-            if (result != null && result != false) {
-                save(key, checkNotNull(activeCapabilities), true)
-                deleteMarker()
-                inferencePending = false
-                events.record(stage, "end", emptyMap())
-                log("Guarded $stage end; first inference complete")
-            } else events.record(stage, "cancel", emptyMap())
-            return result
+            return work()
         } catch (e: Throwable) {
-            failure(stage, e)
+            failure = e
+            // A refused chart or any cancellation says nothing bad about model readiness.
+            if (e is GeneratorException.Model) mutableState.value = ModelOpenState.Failed(e.message)
             throw e
-        }
-    }
-
-    private fun failure(stage: String, e: Throwable) {
-        mutableState.value = ModelOpenState.Failed(e.message ?: e.javaClass.simpleName)
-        events.record(stage, "fail", mapOf("reason" to e.javaClass.simpleName))
-        log("Guarded $stage failed: ${e.javaClass.simpleName}")
-        if (e !is VirtualMachineError) {
-            try { deleteMarker() } catch (_: IOException) { log("Could not clear pending marker") }
+        } finally {
+            // Only process death can bypass this cleanup. Even a cancelled/refused native call returned safely.
+            deleteMarker()
+            inferencePending = false
+            if (failure is GeneratorException.Model) deleteCache()
+            else save(key, checkNotNull(activeCapabilities), true)
+            val phase = when (failure) {
+                is GeneratorException.Cancelled, is CancellationException -> "cancel"
+                null -> "end"
+                else -> "fail"
+            }
+            events.record(stage, phase, failure?.let { mapOf("reason" to it.javaClass.simpleName) } ?: emptyMap())
+            log("Guarded $stage $phase; native call returned, marker cleared")
         }
     }
 

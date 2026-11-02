@@ -363,11 +363,9 @@ class RuntimeChartMaker(
             PeakMemory.reset()
             model.access.withLock {
                 check(modelReady() && preparedKey.substringAfterLast('/') == capabilitiesRevision) { unavailableModel() }
-                guardInference("model_chart") {
-                    worker.withGenerator(appContext, directory, options()) {
-                        val stages = prepared.get(preparedKey) ?: return@withGenerator null
-                        makePrepared(stages, runtimeRequest, making)
-                    }
+                worker.withGenerator(appContext, directory, options()) {
+                    val stages = prepared.get(preparedKey) ?: return@withGenerator null
+                    makePrepared(stages, runtimeRequest, making)
                 }
             }
         }
@@ -405,7 +403,7 @@ class RuntimeChartMaker(
         ChartScheduler.fromPrepared(this, stages, request, ScheduleMode.WHOLE_CHART, NO_PLAY).use { scheduler ->
             making.running(scheduler)
             try {
-                scheduler.work()
+                guardInference("model_chart") { scheduler.work() }
                 scheduler.result()
             } finally {
                 making.running(null)
@@ -489,9 +487,11 @@ class RuntimeChartMaker(
         PeakMemory.reset()
         var audioDone = 0L
         var audioPeak = "unknown"
-        val done = guardInference("model_prepare") { worker.withGenerator(appContext, directory, options()) {
+        val done = worker.withGenerator(appContext, directory, options()) {
             if (preparation.stopped.get()) return@withGenerator false
-            val stages = prepare(audio.samples, audio.sampleRate.toDouble(), preparation.cancellation)
+            val stages = guardInference("model_prepare") {
+                prepare(audio.samples, audio.sampleRate.toDouble(), preparation.cancellation)
+            }
             prepared.put(key, stages)
             if (!disk.write(key) { it.write(stages.bytes()) }) Log.w(TAG, "Preparation could not be stored")
             readyKeys.update { it + (song.id to key) }
@@ -502,7 +502,7 @@ class RuntimeChartMaker(
                 preparation.chart = finish(stages)
             }
             true
-        } }
+        }
         if (!done) return null
         Log.i(
             TAG,
@@ -537,10 +537,12 @@ class RuntimeChartMaker(
         return digest.digest().joinToString("") { String.format(Locale.ROOT, "%02x", it) }
     }
 
-    private suspend fun <T> guardInference(stage: String, work: suspend () -> T): T {
+    /** Every caller is already on the runtime worker and holds model.access. */
+    private fun <T> guardInference(stage: String, work: () -> T): T {
         val guard = model.openGuard ?: return work()
-        return worker.run { guard.inference(stage, work) }
+        return guard.inference(stage, work)
     }
+
 
     private fun modelReady(): Boolean {
         val installed = model.state.value as? ModelState.Installed ?: return false
