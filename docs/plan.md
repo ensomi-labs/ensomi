@@ -208,3 +208,24 @@ Install stages and crash reports are merged: durable install events, a guarded-o
 model-card Diagnostics, and the build-time AAR fingerprint are wired. Version 0.1.3 (4) uses runtime
 `d090374` without KleidiAI. Android 17 emulator checks cover update/crash recovery and the R8 release;
 the affected physical phone and any CPU with SME remain unverified. See [release.md](release.md).
+
+
+## 0.1.3 review fixes verified
+
+Cold chart makers and incoming shares wait up to 60 seconds for the model guard and capabilities.
+The guard covers first inference, distinguishes intentional Android user stops, and syncs marker directory
+renames. Startup/removal failures and accepted cancellation have bounded state transitions; unlisted staging
+files are removed. Diagnostics projection 2 retains the crashing thread first from up to 8 MiB of in-memory
+input, with a 512 KiB output cap. Journal startup only appends, correlation honors the summary run ID,
+exports retain referenced runs, and exception causes and ANR thread headers survive redaction.
+
+The requested Mac build passed with 377 JVM tests, lint with no errors, and an unsigned R8 release. On the
+muted Android 17 arm64 AVD, the 0.1.2 SIGILL upgrade stayed unmatched and supplied projection 2 frames;
+cold Listen & Play and cold shares made fresh charts. Open and first-preparation SIGILLs blocked after
+relaunch, matched the correct stage/run, and recovered with Try again. Force-stop during a held first open
+retried without blocking; a later launch used saved capabilities without opening ORT. The final APK passed
+16 KiB zip alignment, an empty permission diff, the expected runtime build ID, zero forbidden SME words,
+and no debug fault triggers in DEX. Evidence and updated release notes are in
+`artifacts/android-0.1.3/review-fixes/` and `artifacts/android-0.1.3/release-notes.md` on the owner's Mac.
+The optional hash-once optimization and keeping an old model usable during an update remain deferred.
+No CPU with SME has run this build; the affected tester's phone remains the release follow-up.
