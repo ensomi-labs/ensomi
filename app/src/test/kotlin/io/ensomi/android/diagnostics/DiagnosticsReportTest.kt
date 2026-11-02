@@ -24,15 +24,46 @@ class DiagnosticsReportTest {
     @Test
     fun jsonHasTheAgreedKeys() {
         val json = report.toJson()
-        assertTrue(json.startsWith("""{"schema":1,"collectedAt":"2026-10-28T12:00:00Z","""))
+        assertTrue(json.startsWith("""{"schema":2,"collectedAt":"2026-10-28T12:00:00Z","""))
         listOf(
             """"cores":[{"index":0,"maxFreqKHz":2265600},{"index":1,"maxFreqKHz":null}]""",
             """"pageSizeBytes":16384""",
             """"currentMode":{"id":1,"width":1080,"height":2424,"refreshRateHz":60.0}""",
             """"outputSampleRateHz":48000""",
             """"thermal":{"status":"none","headroom10s":null}""",
-            """"runtime":{"loaded":true,"initMillis":41.5,"noticeFiles":[],"checkPackage":"Model: bad manifest","error":null}""",
+            """"runtime":{"loaded":true,"initMillis":41.5,"noticeFiles":[],"checkPackage":"Model: bad manifest","error":null,""",
         ).forEach { assertTrue(it, it in json) }
+    }
+
+    @Test
+    fun schemaTwoRetainsEveryVersionOneKey() {
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(report.toJson()).plain() as Map<*, *>
+        val keys = mapOf(
+            "app" to listOf("applicationId", "versionName", "versionCode"),
+            "device" to listOf("manufacturer", "model", "socManufacturer", "socModel", "androidRelease", "sdkInt", "vendorOs", "vendorOsProperties"),
+            "cpu" to listOf("cores"),
+            "memory" to listOf("pageSizeBytes", "totalRamBytes", "advertisedRamBytes"),
+            "display" to listOf("currentMode", "supportedModes"),
+            "audio" to listOf("lowLatency", "pro", "outputSampleRateHz", "outputFramesPerBuffer", "unprocessedCapture"),
+            "thermal" to listOf("status", "headroom10s"),
+            "runtime" to listOf("loaded", "initMillis", "noticeFiles", "checkPackage", "error"),
+        )
+        assertTrue(json.keys.containsAll(keys.keys + listOf("schema", "collectedAt", "journal", "exits")))
+        keys.forEach { (section, fields) -> assertTrue(section, (json[section] as Map<*, *>).keys.containsAll(fields)) }
+        val cpu = (json["cpu"] as Map<*, *>)["cores"] as List<*>
+        assertTrue((cpu.first() as Map<*, *>).keys.containsAll(listOf("index", "maxFreqKHz")))
+        val display = json["display"] as Map<*, *>
+        for (mode in listOf(display["currentMode"]) + (display["supportedModes"] as List<*>)) {
+            assertTrue((mode as Map<*, *>).keys.containsAll(listOf("id", "width", "height", "refreshRateHz")))
+        }
+        val runtime = json["runtime"] as Map<*, *>
+        val selfTest = runtime["selfTest"] as Map<*, *>
+        assertEquals("refused", selfTest["expected"])
+        assertEquals("refused", selfTest["observed"])
+        assertEquals(true, selfTest["pass"])
+        assertEquals("checkPackage(\"{}\")", selfTest["call"])
+        assertEquals("unavailable", runtime["identity"])
+        assertEquals(null, RuntimeFacts(false, null, null, null, null).pass)
     }
 
     @Test

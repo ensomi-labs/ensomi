@@ -18,6 +18,7 @@ data class DiagnosticsRow(
 
 sealed interface DiagnosticsValue {
     data class Text(val text: String) : DiagnosticsValue
+    data class Label(@param:StringRes val resource: Int) : DiagnosticsValue
     data class Flag(val on: Boolean) : DiagnosticsValue
 
     /** Text shown as an error. */
@@ -48,10 +49,15 @@ fun DiagnosticsReport.sections(): List<DiagnosticsSection> = listOf(
     DiagnosticsSection(
         R.string.section_runtime,
         buildList {
-            add(DiagnosticsRow(R.string.label_runtime_loaded, DiagnosticsValue.Flag(runtime.loaded)))
+            add(DiagnosticsRow(R.string.label_runtime_loaded, if (runtime.observed == "not_run") DiagnosticsValue.Unknown else DiagnosticsValue.Flag(runtime.loaded)))
             add(DiagnosticsRow(R.string.label_runtime_init, text(runtime.initMillis?.let(Format::millis))))
             add(DiagnosticsRow(R.string.label_runtime_notice_files, list(runtime.noticeFiles)))
-            add(DiagnosticsRow(R.string.label_runtime_check_package, text(runtime.checkPackage)))
+            add(DiagnosticsRow(R.string.crash_self_test, DiagnosticsValue.Label(when (runtime.observed) {
+                "refused" -> if (runtime.pass == true) R.string.crash_test_pass else R.string.crash_test_failed
+                "accepted" -> R.string.crash_test_accepted
+                "error" -> R.string.crash_test_failed
+                else -> R.string.crash_test_not_run
+            })))
             runtime.error?.let { add(DiagnosticsRow(R.string.label_runtime_error, DiagnosticsValue.Problem(it))) }
         },
     ),

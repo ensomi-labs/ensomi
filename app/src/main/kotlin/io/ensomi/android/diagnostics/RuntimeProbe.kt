@@ -34,7 +34,7 @@ object RuntimeProbe {
                         checkPackage("{}")
                         "accepted"
                     } catch (error: GeneratorException.Model) {
-                        "Model: ${error.message}"
+                        "Model: ${Redact.text(error.message.orEmpty())}"
                     }
                 }
             }
@@ -43,12 +43,12 @@ object RuntimeProbe {
             throw cancelled
         } catch (failure: Throwable) {
             // Throwable on purpose: a missing or broken native library surfaces as an Error.
-            Log.w(TAG, "Runtime check failed", failure)
+            Log.w(TAG, "Runtime check failed: ${Redact.text(failure.javaClass.name)}")
             RuntimeFacts(loaded, initMillis, notices, packageCheck, error = describe(failure))
         }
     }
 
     /** The exception and up to two causes, for example an ExceptionInInitializerError and its UnsatisfiedLinkError. */
     fun describe(failure: Throwable): String =
-        generateSequence(failure) { it.cause }.take(3).joinToString(" / caused by ") { it.toString() }
+        generateSequence(failure) { it.cause }.take(3).joinToString(" / caused by ") { Redact.text(it.toString()) }
 }

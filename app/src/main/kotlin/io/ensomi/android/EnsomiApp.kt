@@ -39,6 +39,7 @@ import androidx.navigation3.ui.NavDisplay
 import io.ensomi.android.chart.MakeChartScreen
 import io.ensomi.android.chart.MakeChartViewModel
 import io.ensomi.android.diagnostics.DiagnosticsScreen
+import io.ensomi.android.diagnostics.DiagnosticsActivity
 import io.ensomi.android.library.LibraryScreen
 import io.ensomi.android.model.Notice
 import io.ensomi.android.model.NoticeTextScreen
@@ -229,7 +230,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onBack = { backStack.removeLastOrNull() },
                         onCalibrate = { backStack.add(Calibration) },
                         onPreview = { backStack.add(Play(null, loop = true)) },
-                        onDiagnostics = { backStack.add(Diagnostics) },
+                        onDiagnostics = { context.startActivity(DiagnosticsActivity.intent(context)) },
                         onDownloadModel = graph.model::download,
                         onCancelDownload = graph.model::cancel,
                         onRemoveModel = graph.model::remove,

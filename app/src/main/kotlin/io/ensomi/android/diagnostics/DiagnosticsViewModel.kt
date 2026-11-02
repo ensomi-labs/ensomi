@@ -1,42 +1,49 @@
 package io.ensomi.android.diagnostics
 
-import android.util.Log
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface DiagnosticsUiState {
     data object Loading : DiagnosticsUiState
-
-    /** [json] is what the copy action puts on the clipboard. */
-    data class Ready(val sections: List<DiagnosticsSection>, val json: String) : DiagnosticsUiState
-
+    data class Ready(val sections: List<DiagnosticsSection>, val json: String, val exitCount: Int = 0) : DiagnosticsUiState
     data class Failed(val message: String) : DiagnosticsUiState
 }
 
-/** Collects the report once per process and writes its JSON to logcat once. */
 class DiagnosticsViewModel(private val collector: DiagnosticsCollector) : ViewModel() {
     private val state = MutableStateFlow<DiagnosticsUiState>(DiagnosticsUiState.Loading)
     val uiState: StateFlow<DiagnosticsUiState> = state.asStateFlow()
+    private var runtime = RuntimeFacts(false, null, null, null, null)
+    init { refresh(false) }
 
-    init {
+    fun probe() = refresh(true)
+    private fun refresh(probe: Boolean) {
+        state.value = DiagnosticsUiState.Loading
         viewModelScope.launch {
-            state.value = try {
-                val report = collector.collect()
+            try {
+                if (probe) {
+                    Journal.record("runtime_self_test", "begin")
+                    runtime = RuntimeProbe.check()
+                    Journal.record("runtime_self_test", "end", mapOf("observed" to runtime.observed))
+                }
+                val report = collector.collect(runtime)
                 val json = report.toJson()
                 DiagnosticsLog.write(json)
-                DiagnosticsUiState.Ready(report.sections(), json)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                // Not under DiagnosticsLog.TAG, which carries only the JSON.
-                Log.e("Ensomi", "Diagnostics failed", failure)
-                DiagnosticsUiState.Failed(failure.toString())
-            }
+                state.value = DiagnosticsUiState.Ready(report.sections(), json, report.exits.size)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { fail(failure) }
         }
     }
+    suspend fun bundle(context: Context): File = withContext(Dispatchers.IO) {
+        DiagnosticsExport.create(context, collector.collect(runtime))
+    }
+    fun fail(failure: Exception) { state.value = DiagnosticsUiState.Failed(Redact.text(failure.javaClass.simpleName)) }
 }
