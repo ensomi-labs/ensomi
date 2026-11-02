@@ -7,6 +7,7 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.util.Collections
+import kotlinx.coroutines.async
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.junit.After
@@ -48,9 +49,8 @@ class ModelInstallerTest {
     @Test
     fun downloadsChecksAndInstallsWithARecordOfTheTag() {
         publish(FILES)
-        var verified: File? = null
         val reserved = mutableListOf<Long>()
-        val installer = installer(verify = { verified = it }, reserve = { reserved += it })
+        val installer = installer(reserve = { reserved += it })
         val progress = mutableListOf<Pair<Long, Long>>()
         val model = installer.download({ done, total -> progress += done to total }, { false })
 
@@ -60,7 +60,6 @@ class ModelInstallerTest {
         FILES.forEach { (path, bytes) -> assertArrayEquals(bytes, File(installer.installDirectory, path).readBytes()) }
         assertTrue(File(installer.installDirectory, ModelInstaller.RECORD).isFile)
         assertFalse(installer.stagingDirectory.exists())
-        assertEquals(installer.stagingDirectory.name, verified?.name)
         assertEquals(listOf(TOTAL), reserved)
         assertEquals(TOTAL to TOTAL, progress.last())
         assertTrue(installer.installed()!!.upToDate("r2-1.0.1"))
@@ -190,21 +189,144 @@ class ModelInstallerTest {
     }
 
     @Test
-    fun theRuntimeMustOpenTheModelBeforeItIsInstalled() {
+    fun fullyStagedPinnedPackageResumesWithoutAnyNetworkRequests() {
         publish(FILES)
-        val installer = installer(verify = { throw IllegalStateException("graph missing") })
-        assertEquals(ModelFailure.NotOpened("graph missing"), failureOf { installer.download({ _, _ -> }, { false }) })
+        val manifest = published.getValue("onnx/${ModelInstaller.MANIFEST}")
+        val installer = installer(pin = ModelInstaller.sha256(manifest))
+        stage(installer, manifest)
+        installer.download({ _, _ -> }, { false })
+        assertTrue(requests.isEmpty())
+        assertTrue(installer.installed()!!.complete)
+    }
+
+    @Test
+    fun aDifferentStagedManifestIsFetchedAgain() {
+        publish(FILES)
+        val manifest = published.getValue("onnx/${ModelInstaller.MANIFEST}")
+        val installer = installer(pin = ModelInstaller.sha256(manifest))
+        stage(installer, "not the pin".toByteArray())
+        installer.download({ _, _ -> }, { false })
+        assertEquals(listOf("ensomi-package.json range=0"), requests)
+    }
+
+    @Test
+    fun localWriteFailureIsStorageAndKeepsStaging() {
+        publish(FILES)
+        val installer = installer(output = { _, _ -> throw IOException("Disk full") })
+        assertEquals(ModelFailure.Storage("Disk full"), failureOf { installer.download({ _, _ -> }, { false }) })
+        assertTrue(File(installer.stagingDirectory, ModelInstaller.MANIFEST).exists())
+    }
+
+    @Test
+    fun verificationErrorIsTypedAndKeepsEveryStagedFile() {
+        publish(FILES)
+        val installer = installer(onPhase = { phase, _, _ -> if (phase == InstallPhase.VERIFYING && File(root, ".download-ensomi-r2/big.onnx").exists()) throw AssertionError("Lumen verification") })
+        assertEquals(ModelFailure.Stage(InstallPhase.VERIFYING, "Lumen verification"), failureOf { installer.download({ _, _ -> }, { false }) })
+        FILES.forEach { (path, bytes) -> assertArrayEquals(bytes, File(installer.stagingDirectory, path).readBytes()) }
         assertNull(installer.installed())
     }
 
-    private fun installer(verify: (File) -> Unit = {}, reserve: (Long) -> Unit = {}, pin: String? = null) = ModelInstaller(
+    @Test
+    fun uniffiInternalExceptionInVerificationIsTypedAndRetainsStaging() {
+        publish(FILES)
+        var checking = false
+        val installer = ModelInstaller(
+            root, "http://127.0.0.1:${server.address.port}/onnx/", "lumen-1",
+            checkManifest = { json ->
+                if (checking) throw io.ensomi.runtime.InternalException("Lumen runtime error")
+                check(json)
+            },
+            afterStaging = { checking = true },
+        )
+        assertEquals(ModelFailure.Stage(InstallPhase.VERIFYING, "Lumen runtime error"), failureOf { installer.download({ _, _ -> }, { false }) })
+        assertEquals(TOTAL, FILES.keys.sumOf { File(installer.stagingDirectory, it).length() })
+        assertFalse(installer.installDirectory.exists())
+    }
+
+    @Test
+    fun cancelAlreadyRequestedAtTransferEndPreventsCommit() {
+        publish(FILES)
+        val installer = installer()
+        var cancelled = false
+        try {
+            installer.download({ done, total -> if (done == total) cancelled = true }, { cancelled })
+            fail("Cancelled transfer must not commit")
+        } catch (_: kotlin.coroutines.cancellation.CancellationException) {
+            assertNull(installer.installed())
+            assertEquals(TOTAL to TOTAL, installer.staged())
+        }
+    }
+
+    @Test
+    fun cancelAfterCommitBeginsDoesNotContradictInstalledFiles() {
+        publish(FILES)
+        var cancelled = false
+        val installer = installer(onPhase = { phase, _, _ -> if (phase == InstallPhase.COMMITTING) cancelled = true })
+        val result = installer.download({ _, _ -> }, { cancelled })
+        assertTrue(result.complete)
+        assertTrue(installer.installed()!!.complete)
+    }
+
+    @Test
+    fun downloadOnlyChecksThePackageAndNeverNeedsAnOpen() {
+        publish(FILES)
+        val phases = mutableListOf<InstallPhase>()
+        val installer = installer(onPhase = { phase, _, _ -> phases += phase })
+        assertTrue(installer.download({ _, _ -> }, { false }).complete)
+        assertEquals(listOf(InstallPhase.STAGING, InstallPhase.VERIFYING, InstallPhase.COMMITTING), phases.distinct())
+    }
+
+    @Test
+    fun replacementWaitsForTheSharedModelAccessGate() = kotlinx.coroutines.runBlocking {
+        publish(FILES)
+        val gate = kotlinx.coroutines.sync.Mutex(locked = true)
+        val waiting = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val installer = ModelInstaller(
+            root, "http://127.0.0.1:${server.address.port}/onnx/", "lumen-1", ::check,
+            commit = { work ->
+                kotlinx.coroutines.runBlocking {
+                    waiting.complete(Unit)
+                    gate.lock()
+                    try { work() } finally { gate.unlock() }
+                }
+            },
+        )
+        val result = async(kotlinx.coroutines.Dispatchers.IO) {
+            installer.download({ _, _ -> }, { false })
+        }
+        kotlinx.coroutines.withTimeout(5_000) { waiting.await() }
+        assertFalse(installer.installDirectory.exists())
+        assertTrue(installer.stagingDirectory.exists())
+        gate.unlock()
+        assertTrue(kotlinx.coroutines.withTimeout(5_000) { result.await() }.complete)
+    }
+
+    @Test
+    fun oversizedManifestStopsAtTheLimit() {
+        published["onnx/${ModelInstaller.MANIFEST}"] = ByteArray(2 shl 20) { 32 }
+        assertTrue(failureOf { installer().download({ _, _ -> }, { false }) } is ModelFailure.Refused)
+    }
+
+    private fun stage(installer: ModelInstaller, manifest: ByteArray) {
+        installer.stagingDirectory.mkdirs()
+        File(installer.stagingDirectory, ModelInstaller.MANIFEST).writeBytes(manifest)
+        FILES.forEach { (path, bytes) -> File(installer.stagingDirectory, path).apply { parentFile?.mkdirs(); writeBytes(bytes) } }
+    }
+
+    private fun installer(
+        reserve: (Long) -> Unit = {},
+        pin: String? = null,
+        onPhase: (InstallPhase, Int, Int) -> Unit = { _, _, _ -> },
+        output: (File, Boolean) -> java.io.OutputStream = { file, append -> java.io.FileOutputStream(file, append) },
+    ) = ModelInstaller(
         root = root,
         baseUrl = "http://127.0.0.1:${server.address.port}/onnx/",
         revision = "r2-1.0.1",
         checkManifest = ::check,
         pinnedManifestSha256 = pin,
-        verify = verify,
         reserve = reserve,
+        onPhase = onPhase,
+        output = output,
     )
 
     private fun failureOf(block: () -> Unit): ModelFailure {

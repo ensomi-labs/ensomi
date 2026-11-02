@@ -1,9 +1,11 @@
 package io.ensomi.android.chart
 
+import kotlinx.serialization.Serializable
 import java.util.Locale
 import kotlin.math.roundToInt
 
 /** The section kinds the request can carry; which are offered comes from the model's capabilities. */
+@Serializable
 enum class SectionKind {
     JUMPSTREAM,
     CHORDSTREAM,
@@ -16,9 +18,11 @@ enum class SectionKind {
 }
 
 /** A kind the model offers, with the note its capabilities give for it. */
+@Serializable
 data class KindOption(val kind: SectionKind, val experimental: Boolean, val note: String)
 
 /** What the model accepts: the runtime's `ModelCapabilities`, with the kinds whose status is not "not working". */
+@Serializable
 data class ChartCapabilities(
     val modelName: String,
     val minStar: Double,

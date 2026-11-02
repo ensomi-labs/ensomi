@@ -106,7 +106,7 @@ class ModelCheck {
         assertTrue("$notPinned", notPinned is ModelFailure.NotPinned)
         assertFalse(installer.copyDirectory.exists())
 
-        // A copy cut short, as a provider that goes away, leaves no model and no copy.
+        // A copy cut short, as a provider that goes away, leaves no installed model and keeps the copy for retry.
         val cutShort = object : PackageFiles by files {
             override fun open(path: String): InputStream = files.open(path).let { input ->
                 if (path != "beatthis.onnx") input else object : FilterInputStream(input) {
@@ -120,10 +120,10 @@ class ModelCheck {
         }
         val interrupted = failure { installer.installFrom(cutShort, { _, _ -> }, { false }) }
         assertTrue("$interrupted", interrupted is ModelFailure.Unreadable)
-        assertFalse(installer.copyDirectory.exists())
+        assertTrue(installer.copyDirectory.exists())
         assertFalse(installer.installDirectory.exists())
 
-        // The whole package: copied, checked, opened by the runtime, recorded as from files.
+        // The whole package: copied, checked, recorded as from files, without opening the model.
         val started = System.nanoTime()
         val model = installer.installFrom(files, { _, _ -> }, { false })
         val seconds = (System.nanoTime() - started) / 1e9
@@ -148,7 +148,7 @@ class ModelCheck {
         }
         val mismatch = failure { installer.installFrom(flipped, { _, _ -> }, { false }) }
         assertEquals(ModelFailure.Mismatch("runtime.json"), mismatch)
-        assertFalse(installer.copyDirectory.exists())
+        assertTrue(installer.copyDirectory.exists())
         assertTrue(installer.installed()!!.complete)
 
         PhoneCheck.report(
@@ -170,7 +170,6 @@ class ModelCheck {
         revision = ModelSource.PINNED_REVISION,
         checkManifest = ::check,
         pinnedManifestSha256 = ModelSource.PINNED_MANIFEST_SHA256,
-        verify = { directory -> runBlocking { worker.withGenerator(context, directory) { capabilities() } } },
     )
 
     /** The runtime's `checkPackage` on its worker, as the app's store calls it. */

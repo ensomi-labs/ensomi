@@ -120,7 +120,7 @@ adb logcat -d -s EnsomiModelInstall:I -v raw
 The model's files are in the app's
 `no_backup/models/ensomi-r2` (`adb shell run-as io.ensomi.android ls no_backup/models/ensomi-r2`), with
 `ensomi-install.json` recording the tag, the manifest's SHA-256 and the source; an install from files copies into
-`no_backup/models/.files-ensomi-r2` first and leaves nothing there when it stops. The settings are in
+`no_backup/models/.files-ensomi-r2` first and keeps the staging when it stops. The settings are in
 `files/settings.json`, the library in `files/library.json`, and each song's last chart in `files/charts/<song id>/`
 (`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
 

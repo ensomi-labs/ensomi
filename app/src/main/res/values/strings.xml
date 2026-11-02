@@ -106,7 +106,6 @@
     <string name="model_failure_http">Hugging Face answered with HTTP %1$d.</string>
     <string name="model_failure_refused">This version of Ensomi cannot use the package: %1$s</string>
     <string name="model_failure_mismatch">%1$s did not match the package’s manifest.</string>
-    <string name="model_failure_not_opened">The model would not open: %1$s</string>
     <string name="model_failure_not_pinned">These are not the files of the Ensomi R2 package %1$s, the one this version of Ensomi uses.</string>
     <string name="model_failure_no_manifest">The folder has no ensomi-package.json. Pick the folder that holds the package’s files.</string>
     <string name="model_failure_missing">%1$s is not in the folder. The package needs every file its manifest lists.</string>
@@ -310,4 +309,18 @@
     <string name="calibration_strip_late">The middle of your last taps is %1$d ms late</string>
     <string name="calibration_strip_early">The middle of your last taps is %1$d ms early</string>
     <string name="library_prepared">Prepared</string>
+    <!-- Install stages -->
+    <string name="model_verifying">Checking model files… %1$d of %2$d</string>
+    <string name="model_committing">Installing the checked model…</string>
+    <string name="model_failure_storage">The model files could not be saved on this phone. Free some storage and try again.</string>
+    <string name="model_failure_staging">Staging the model failed: %1$s</string>
+    <string name="model_failure_verifying">Checking the model failed: %1$s</string>
+    <string name="model_failure_committing">Installing the checked model failed: %1$s</string>
+    <string name="model_opening">Opening the model on this phone…</string>
+    <string name="model_open_blocked">Ensomi closed while opening the model on this phone.</string>
+    <string name="model_open_failed">Opening the model failed: %1$s</string>
+    <string name="model_share_diagnostics">Share diagnostics</string>
+    <string name="model_chart_blocked">Ensomi closed while opening the model. Choose Try again on the model card.</string>
+    <string name="model_chart_open_failed">The model could not open: %1$s. Choose Try again on the model card.</string>
+    <string name="model_chart_wait">Wait for the chart model to finish installing and opening.</string>
 </resources>

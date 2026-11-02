@@ -41,6 +41,7 @@ import io.ensomi.android.chart.MakeChartViewModel
 import io.ensomi.android.diagnostics.DiagnosticsScreen
 import io.ensomi.android.library.LibraryScreen
 import io.ensomi.android.model.Notice
+import io.ensomi.android.model.ready
 import io.ensomi.android.model.NoticeTextScreen
 import io.ensomi.android.model.NoticesScreen
 import io.ensomi.android.audio.PlayAudioCache
@@ -157,6 +158,8 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onRemoveSong = { graph.songs.remove(it.id) },
                         onOpenSettings = { backStack.add(Settings) },
                         onDownloadModel = graph.model::download,
+                        onRetryModelOpen = graph.model::retryOpen,
+                        onRemoveModel = graph.model::remove,
                         onCancelDownload = graph.model::cancel,
                         onInstallModelFromFolder = graph.model::installFromFolder,
                         onListen = if (recognition) ({
@@ -185,6 +188,8 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onBack = { backStack.removeLastOrNull() },
                         onPlay = { backStack.add(Play(key.songId, loop = false)) },
                         onDownloadModel = graph.model::download,
+                        onRetryModelOpen = graph.model::retryOpen,
+                        onRemoveModel = graph.model::remove,
                         onCancelDownload = graph.model::cancel,
                         onInstallModelFromFolder = graph.model::installFromFolder,
                     )
@@ -231,6 +236,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onPreview = { backStack.add(Play(null, loop = true)) },
                         onDiagnostics = { backStack.add(Diagnostics) },
                         onDownloadModel = graph.model::download,
+                        onRetryModelOpen = graph.model::retryOpen,
                         onCancelDownload = graph.model::cancel,
                         onRemoveModel = graph.model::remove,
                         onInstallModelFromFolder = graph.model::installFromFolder,
@@ -267,7 +273,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 }
                 entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
                 entry<RecognitionSession> {
-                    RecognitionEntry.Content(settings = settings, waitingForLibrary = quietFor != RecognitionSession, modelReady = model is io.ensomi.android.model.ModelState.Installed, onBack = { backStack.removeLastOrNull() })
+                    RecognitionEntry.Content(settings = settings, waitingForLibrary = quietFor != RecognitionSession, modelReady = model.ready, onBack = { backStack.removeLastOrNull() })
                 }
             },
         )

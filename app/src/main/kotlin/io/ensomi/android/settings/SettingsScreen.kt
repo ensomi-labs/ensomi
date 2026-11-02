@@ -52,6 +52,7 @@ import io.ensomi.android.play.PlayfieldGeometry
 import io.ensomi.android.model.ModelPanel
 import io.ensomi.android.model.ModelSource
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.ready
 import io.ensomi.android.ui.sliderColorsWithoutTicks
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -77,6 +78,8 @@ fun SettingsScreen(
     onCancelDownload: () -> Unit,
     onRemoveModel: () -> Unit,
     onInstallModelFromFolder: (android.net.Uri) -> Unit,
+    onRetryModelOpen: () -> Unit = {},
+    onShareModelDiagnostics: (() -> Unit)? = null,
     onNotices: () -> Unit,
     /** The item the list opens at: [PLAYFIELD_SETTINGS] opens it at the playfield section (prototype scenarios). */
     firstItem: Int = 0,
@@ -210,6 +213,8 @@ fun SettingsScreen(
                         onCancel = onCancelDownload,
                         onRemove = onRemoveModel,
                         onInstallFromFolder = onInstallModelFromFolder,
+                        onRetryOpen = onRetryModelOpen,
+                        onShareDiagnostics = onShareModelDiagnostics,
                         inSettings = true,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )

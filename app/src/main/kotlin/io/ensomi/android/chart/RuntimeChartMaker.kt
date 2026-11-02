@@ -13,6 +13,9 @@ import io.ensomi.android.library.Song
 import io.ensomi.android.library.SongLibrary
 import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.ModelOpenKey
+import io.ensomi.android.model.ModelOpenState
+import kotlinx.coroutines.sync.withLock
 import io.ensomi.runtime.Cancellation
 import io.ensomi.runtime.ChartGenerator
 import io.ensomi.runtime.ChartResult
@@ -46,9 +49,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -82,6 +83,9 @@ class RuntimeChartMaker(
 ) : ChartMaker {
     private val appContext = context.applicationContext
     private val worker = RuntimeWorker()
+    private val packageInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+    @Volatile private var capabilitiesRevision: String? = null
+    private val noRetries = MutableStateFlow(0L)
     private val prepared = RecentValues<String, Prepared>(PREPARED_SONGS) { it.close() }
     private val mutableStates = MutableStateFlow<Map<String, MakeState>>(emptyMap())
     private val mutableCapabilities = MutableStateFlow<ChartCapabilities?>(null)
@@ -187,16 +191,25 @@ class RuntimeChartMaker(
 
     init {
         scope.launch {
-            model.state.map { (it as? ModelState.Installed)?.let { installed -> installed.revision ?: installed.name } }
-                .distinctUntilChanged()
-                .collectLatest { revision -> mutableCapabilities.value = revision?.let { readCapabilities() } }
+            combine(model.state, model.openGuard?.retries ?: noRetries) { state, retry ->
+                val installed = state as? ModelState.Installed
+                (installed?.takeIf { model.directory != null }?.let { it.revision ?: it.name }) to retry
+            }.distinctUntilChanged().collect { (revision, _) ->
+                mutableCapabilities.value = null
+                capabilitiesRevision = null
+                if (revision != null) {
+                    val capabilities = readCapabilities()
+                    capabilitiesRevision = revision
+                    mutableCapabilities.value = capabilities
+                }
+            }
         }
         scope.launch {
             var previous = emptyList<BackgroundSong>()
-            combine(songs.songs, model.state) { library, state ->
+            combine(songs.songs, model.state, capabilities) { library, state, caps ->
                 val installed = state as? ModelState.Installed
                 val revision = installed?.let { it.revision ?: it.name }
-                if (revision == null) emptyList() else library.filterNot { it.missing }.map {
+                if (revision == null || caps == null || !modelReady()) emptyList() else library.filterNot { it.missing }.map {
                     BackgroundSong(it.id, it.uri, revision)
                 }
             }.distinctUntilChanged().collect { next ->
@@ -235,6 +248,10 @@ class RuntimeChartMaker(
     private class DecodedInput(val audio: DecodedSong, val sha256: String)
 
     private fun makeWithAudio(songId: String, request: ChartRequest, input: DecodedInput?) {
+        if (!modelReady()) {
+            setState(songId, MakeState.Failed(songId, unavailableModel()))
+            return
+        }
         val making = Making()
         synchronized(lock) {
             if (makings[songId] != null) return
@@ -340,9 +357,12 @@ class RuntimeChartMaker(
         val started = completed?.chartStartedNanos?.takeIf { it != 0L } ?: System.nanoTime()
         val result = if (completed?.chartAttempted == true) completed.chart else {
             PeakMemory.reset()
-            worker.withGenerator(appContext, directory, options()) {
-                val stages = prepared.get(preparedKey) ?: return@withGenerator null
-                makePrepared(stages, runtimeRequest, making)
+            model.access.withLock {
+                check(modelReady() && preparedKey.substringAfterLast('/') == capabilitiesRevision) { unavailableModel() }
+                worker.withGenerator(appContext, directory, options()) {
+                    val stages = prepared.get(preparedKey) ?: return@withGenerator null
+                    makePrepared(stages, runtimeRequest, making)
+                }
             }
         }
         if (result == null) {
@@ -405,12 +425,14 @@ class RuntimeChartMaker(
     /** The song's preparation under way, or a new one; null without a model. Call it holding [lock]. */
     private fun startPreparation(songId: String, input: DecodedInput? = null): Preparation? {
         preparations[songId]?.let { return it }
-        if (model.directory == null) return null
+        if (!modelReady()) return null
         val preparation = Preparation(songId)
         preparations[songId] = preparation
         preparation.job = scope.launch {
             try {
-                preparation.key = worker.run { prepareSong(preparation, input) }
+                preparation.key = model.access.withLock {
+                    if (modelReady()) worker.run { prepareSong(preparation, input) } else null
+                }
             } catch (failure: Exception) {
                 if (!preparation.stopped.get()) {
                     Log.w(TAG, "Preparing $songId failed: $failure")
@@ -508,11 +530,32 @@ class RuntimeChartMaker(
         return digest.digest().joinToString("") { String.format(Locale.ROOT, "%02x", it) }
     }
 
-    private suspend fun readCapabilities(): ChartCapabilities? {
-        val directory = model.directory ?: return null
-        return try {
-            worker.withGenerator(appContext, directory, options()) { capabilities() }.toApp()
-        } catch (failure: GeneratorException) {
+    private fun modelReady(): Boolean {
+        val installed = model.state.value as? ModelState.Installed ?: return false
+        return model.directory != null && mutableCapabilities.value != null &&
+            capabilitiesRevision == (installed.revision ?: installed.name) &&
+            (model.openGuard?.state?.value ?: installed.openState) is ModelOpenState.Ready
+    }
+
+    private fun unavailableModel(): String = when (val state = model.openGuard?.state?.value) {
+        ModelOpenState.Blocked -> appContext.getString(R.string.model_chart_blocked)
+        is ModelOpenState.Failed -> appContext.getString(R.string.model_chart_open_failed, state.reason)
+        else -> appContext.getString(R.string.model_chart_wait)
+    }
+
+    private suspend fun readCapabilities(): ChartCapabilities? = model.access.withLock {
+        val directory = model.directory ?: return@withLock null
+        val installed = model.state.value as? ModelState.Installed ?: return@withLock null
+        val key = ModelOpenKey(installed.revision ?: installed.name, packageInfo.longVersionCode, packageInfo.lastUpdateTime)
+        try {
+            val guard = model.openGuard
+            if (guard == null) worker.withGenerator(appContext, directory, options()) { capabilities() }.toApp()
+            else worker.run {
+                guard.read(key) { worker.withGenerator(appContext, directory, options()) { capabilities() }.toApp() }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
             Log.w(TAG, "The model's capabilities could not be read: ${failure.message}")
             null
         }

@@ -1,6 +1,8 @@
 package io.ensomi.android.model
 
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.io.OutputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -50,6 +52,12 @@ sealed interface ModelFailure {
     /** The connection failed or dropped. */
     data class Network(val detail: String?) : ModelFailure
 
+    /** A local write failed while staging bytes. */
+    data class Storage(val detail: String?) : ModelFailure
+
+    /** A non-transfer failure, including UniFFI errors. */
+    data class Stage(val phase: InstallPhase, val reason: String) : ModelFailure
+
     /** The server answered with another status than the download asks for. */
     data class Http(val code: Int) : ModelFailure
 
@@ -61,9 +69,6 @@ sealed interface ModelFailure {
 
     /** The files still to fetch need [neededBytes]; [freeBytes] can be allocated. */
     data class NoSpace(val neededBytes: Long, val freeBytes: Long) : ModelFailure
-
-    /** The runtime would not open the downloaded model. */
-    data class NotOpened(val reason: String) : ModelFailure
 
     /** The manifest is not the pinned package's: its SHA-256 is [sha256], not the pinned one. */
     data class NotPinned(val sha256: String) : ModelFailure
@@ -118,7 +123,7 @@ class DirectoryPackageFiles(private val directory: File) : PackageFiles {
  * Installs a model package into `<root>/ensomi-r2`, the way the Swift app's solo-device mode does: fetch the
  * manifest (`ensomi-package.json`) at [baseUrl], check its SHA-256 against [pinnedManifestSha256] and its content with
  * [checkManifest] (the runtime's `checkPackage`), fetch exactly the files it lists into `<root>/.download-ensomi-r2`
- * and check each one's size and SHA-256, have [verify] open the result (the runtime's generator), then add
+ * and check each one's size and SHA-256, then add
  * `ensomi-install.json` and move the directory into place. [installFrom] does the same with files the player picked,
  * copied into `<root>/.files-ensomi-r2`.
  *
@@ -134,16 +139,41 @@ class ModelInstaller(
     private val checkManifest: (String) -> ModelPackage,
     /** The SHA-256 the manifest must have; null takes any manifest the runtime accepts (tests). */
     private val pinnedManifestSha256: String? = null,
-    private val verify: (File) -> Unit = {},
     private val reserve: (Long) -> Unit = {},
     private val connect: (URL) -> HttpURLConnection = { it.openConnection() as HttpURLConnection },
     /** Each request and its answer, for the log. */
     private val log: (String) -> Unit = {},
+    private val events: InstallEvents = InstallEvents.NONE,
+    private val onPhase: (InstallPhase, Int, Int) -> Unit = { _, _, _ -> },
+    /** Serializes replacement and publication with every user of the installed directory. */
+    private val commit: (() -> Unit) -> Unit = { it() },
+    private val afterStaging: () -> Unit = {},
+    private val output: (File, Boolean) -> OutputStream = { file, append -> FileOutputStream(file, append) },
 ) {
+    var phase: InstallPhase = InstallPhase.STAGING
+        private set
+
+    private fun phase(next: InstallPhase, checked: Int = 0, total: Int = 0) {
+        phase = next
+        onPhase(next, checked, total)
+    }
+
+    private inline fun <T> boundary(block: () -> T): T = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: ModelDownloadException) {
+        throw e
+    } catch (e: VirtualMachineError) {
+        throw e
+    } catch (e: Throwable) {
+        throw ModelDownloadException(ModelFailure.Stage(phase, e.message ?: e.javaClass.simpleName), e)
+    }
+
     val installDirectory = File(root, "ensomi-r2")
     val stagingDirectory = File(root, ".download-ensomi-r2")
 
-    /** Where an install from picked files copies them; it never outlives the install, done or failed. */
+    /** Where an install from picked files keeps its staging, including after a recoverable failure. */
     val copyDirectory = File(root, ".files-ensomi-r2")
 
     /** The model in [installDirectory], or null when there is none or the runtime refuses its manifest. */
@@ -183,29 +213,43 @@ class ModelInstaller(
      * with a [CancellationException] when [isCancelled] turns true, or a [ModelDownloadException]; both keep what is
      * staged.
      */
-    fun download(progress: (Long, Long) -> Unit, isCancelled: () -> Boolean): InstalledModel {
-        val manifestBytes = fetchSmall(MANIFEST)
+    fun download(progress: (Long, Long) -> Unit, isCancelled: () -> Boolean): InstalledModel = boundary {
+        phase(InstallPhase.STAGING)
+        val stagedManifest = File(stagingDirectory, MANIFEST)
+        val cached = stagedManifest.takeIf { it.isFile && it.length() <= MAX_MANIFEST_BYTES }
+            ?.readBytes()?.takeIf { pinnedManifestSha256 != null && sha256(it) == pinnedManifestSha256 }
+        val manifestBytes = cached ?: fetchSmall(MANIFEST)
+        events.record("manifest", if (cached != null) "staged" else "fetched", emptyMap())
         val pkg = checkedPackage(manifestBytes)
-        val paths = pkg.files.map { it.path }
-        stagingDirectory.mkdirs()
-        File(stagingDirectory, MANIFEST).writeBytes(manifestBytes)
+        storage {
+            stagingDirectory.mkdirs()
+            File(stagingDirectory, MANIFEST).writeBytes(manifestBytes)
+        }
 
         val installed = installed()?.takeIf { it.pkg.files.isNotEmpty() }
         val done = pkg.files.associate { it.path to 0L }.toMutableMap()
         fun report() = progress(done.values.sum(), pkg.totalBytes)
 
         // What is already right stays; the rest is fetched or copied, so that much space is asked for.
-        val todo = pkg.files.filter { file ->
+        events.record("verify", "begin", mapOf("purpose" to "resume"))
+        phase(InstallPhase.VERIFYING, 0, pkg.files.size)
+        val scanStarted = System.nanoTime()
+        val todo = pkg.files.filterIndexed { index, file ->
             val staged = File(stagingDirectory, file.path)
             val right = staged.length() == file.size && sha256(staged) == file.sha256
             if (right) done[file.path] = file.size
+            phase(InstallPhase.VERIFYING, index + 1, pkg.files.size)
             !right
         }
+        events.record("files", "checked", mapOf("count" to (pkg.files.size - todo.size).toString(), "total" to pkg.files.size.toString(), "milliseconds" to ((System.nanoTime() - scanStarted) / 1_000_000).toString()))
+        events.record("verify", "end", mapOf("purpose" to "resume"))
+        phase(InstallPhase.STAGING)
         val needed = todo.sumOf { file ->
             val part = File(stagingDirectory, file.path + PART)
             file.size - (if (part.isFile) minOf(part.length(), file.size) else 0L)
         }
         if (needed > 0) reserve(needed)
+        phase(InstallPhase.STAGING)
         report()
 
         for (file in todo) {
@@ -216,39 +260,24 @@ class ModelInstaller(
             val part = File(stagingDirectory, file.path + PART)
             val fromInstall = File(installDirectory, file.path)
             if (installed != null && fromInstall.length() == file.size && sha256(fromInstall) == file.sha256) {
-                fromInstall.copyTo(part, overwrite = true)
+                storage { fromInstall.copyTo(part, overwrite = true) }
             } else {
                 fetch(file, part, isCancelled) { bytes ->
                     done[file.path] = bytes
                     report()
                 }
             }
-            if (!part.renameTo(target)) throw IOException("Could not move ${file.path} into place.")
+            storage { if (!part.renameTo(target)) throw IOException("Could not stage the file.") }
             done[file.path] = file.size
             report()
         }
 
-        // Files the package does not list, such as those of an earlier tag, are left out.
-        val listed = paths.toSet() + MANIFEST
-        stagingDirectory.walkBottomUp().filter { it.isFile }.forEach { staged ->
-            if (staged.relativeTo(stagingDirectory).invariantSeparatorsPath !in listed) staged.delete()
-        }
-
-        verifyOpens(stagingDirectory)
-        val record = writeRecord(stagingDirectory, manifestBytes, InstallRecord.SOURCE_HUGGING_FACE)
-        replaceInstall(stagingDirectory)
-        return InstalledModel(pkg, record, complete = true)
+        finish(stagingDirectory, manifestBytes, pkg, InstallRecord.SOURCE_HUGGING_FACE, isCancelled)
     }
 
-    /**
-     * Installs the package in [files], as the player picked them, with the download's checks: the manifest's pinned
-     * SHA-256 and the runtime's `checkPackage`, every listed file there before anything is copied, the space reserved,
-     * each file's size and SHA-256 as it is copied into [copyDirectory], the runtime opening the copy, then the record
-     * (source [InstallRecord.SOURCE_FILES]) and the move into place. Whatever stops it, a refusal, a file that does not
-     * match, [isCancelled] or an error, the copy is deleted: an installed model is either the old one or the whole new
-     * one. Calls [progress] with the bytes copied and the total.
-     */
-    fun installFrom(files: PackageFiles, progress: (Long, Long) -> Unit, isCancelled: () -> Boolean): InstalledModel {
+    /** Copies only the picked package's files, preserving staging on any recoverable stop. Never opens a model. */
+    fun installFrom(files: PackageFiles, progress: (Long, Long) -> Unit, isCancelled: () -> Boolean): InstalledModel = boundary {
+        phase(InstallPhase.STAGING)
         val manifestBytes = readable { files.manifest() } ?: throw ModelDownloadException(ModelFailure.NoManifest)
         if (manifestBytes.size > MAX_MANIFEST_BYTES) throw ModelDownloadException(ModelFailure.NotPinned(sha256(manifestBytes)))
         val pkg = checkedPackage(manifestBytes)
@@ -256,31 +285,63 @@ class ModelInstaller(
             val size = readable { files.size(file.path) } ?: throw ModelDownloadException(ModelFailure.Missing(file.path))
             if (size >= 0 && size != file.size) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
         }
-        var installed = false
-        copyDirectory.deleteRecursively()
-        try {
-            reserve(pkg.totalBytes)
+        reserve(pkg.totalBytes)
+        storage {
             copyDirectory.mkdirs()
             File(copyDirectory, MANIFEST).writeBytes(manifestBytes)
-            var done = 0L
-            progress(0L, pkg.totalBytes)
-            for (file in pkg.files) {
-                if (isCancelled()) throw CancellationException("The install was cancelled.")
-                val target = File(copyDirectory, file.path)
-                target.parentFile?.mkdirs()
-                val sha = readable { copyChecked(files, file, target, isCancelled) { progress(done + it, pkg.totalBytes) } }
-                if (sha != file.sha256) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
-                done += file.size
-                progress(done, pkg.totalBytes)
-            }
-            verifyOpens(copyDirectory)
-            val record = writeRecord(copyDirectory, manifestBytes, InstallRecord.SOURCE_FILES)
-            replaceInstall(copyDirectory)
-            installed = true
-            return InstalledModel(pkg, record, complete = true)
-        } finally {
-            if (!installed) copyDirectory.deleteRecursively()
         }
+        events.record("manifest", "staged", mapOf("source" to InstallRecord.SOURCE_FILES))
+        var done = 0L
+        progress(0L, pkg.totalBytes)
+        for (file in pkg.files) {
+            if (isCancelled()) throw CancellationException("The install was cancelled.")
+            val target = File(copyDirectory, file.path)
+            if (target.length() != file.size || sha256(target) != file.sha256) {
+                storage { target.parentFile?.mkdirs() }
+                copyChecked(files, file, target, isCancelled) { progress(done + it, pkg.totalBytes) }
+            }
+            done += file.size
+            progress(done, pkg.totalBytes)
+        }
+        finish(copyDirectory, manifestBytes, pkg, InstallRecord.SOURCE_FILES, isCancelled)
+    }
+
+    private fun finish(
+        directory: File,
+        manifest: ByteArray,
+        pkg: ModelPackage,
+        source: String,
+        isCancelled: () -> Boolean,
+    ): InstalledModel {
+        if (isCancelled()) throw CancellationException("The install was cancelled.")
+        phase = InstallPhase.VERIFYING
+        events.record("verify", "begin", emptyMap())
+        phase(InstallPhase.VERIFYING, 0, pkg.files.size)
+        afterStaging()
+        val started = System.nanoTime()
+        val stagedManifest = File(directory, MANIFEST).readBytes()
+        if (!manifest.contentEquals(stagedManifest)) throw ModelDownloadException(ModelFailure.Mismatch(MANIFEST))
+        checkedPackage(stagedManifest)
+        pkg.files.forEachIndexed { index, file ->
+            val staged = File(directory, file.path)
+            if (staged.length() != file.size || sha256(staged) != file.sha256) {
+                throw ModelDownloadException(ModelFailure.Mismatch(file.path))
+            }
+            phase(InstallPhase.VERIFYING, index + 1, pkg.files.size)
+        }
+        events.record("files", "checked", mapOf("count" to pkg.files.size.toString(), "milliseconds" to ((System.nanoTime() - started) / 1_000_000).toString()))
+        events.record("verify", "end", emptyMap())
+        // Cancel is hidden after transfer. A request already in flight still wins before the commit boundary.
+        if (isCancelled()) throw CancellationException("The install was cancelled.")
+        phase(InstallPhase.COMMITTING)
+        var record: InstallRecord? = null
+        commit {
+            events.record("commit", "begin", emptyMap())
+            record = writeRecord(directory, manifest, source)
+            replaceInstall(directory)
+            events.record("commit", "end", emptyMap())
+        }
+        return InstalledModel(pkg, record, complete = true)
     }
 
     /** Copies [file] from [files] to [target], returning its SHA-256; a file longer or shorter than listed is refused. */
@@ -293,21 +354,23 @@ class ModelInstaller(
     ): String {
         val digest = MessageDigest.getInstance("SHA-256")
         var written = 0L
-        files.open(file.path).use { input ->
-            FileOutputStream(target).use { output ->
-                val buffer = ByteArray(CHUNK)
-                var reported = 0L
-                while (true) {
-                    if (isCancelled()) throw CancellationException("The install was cancelled.")
-                    val n = input.read(buffer)
-                    if (n < 0) break
-                    written += n
-                    if (written > file.size) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
-                    digest.update(buffer, 0, n)
-                    output.write(buffer, 0, n)
-                    if (written - reported >= REPORT_BYTES) {
-                        progress(written)
-                        reported = written
+        readable { files.open(file.path) }.use { input ->
+            storage {
+                output(target, false).use { output ->
+                    val buffer = ByteArray(CHUNK)
+                    var reported = 0L
+                    while (true) {
+                        if (isCancelled()) throw CancellationException("The install was cancelled.")
+                        val n = readable { input.read(buffer) }
+                        if (n < 0) break
+                        written += n
+                        if (written > file.size) throw ModelDownloadException(ModelFailure.Mismatch(file.path))
+                        digest.update(buffer, 0, n)
+                        output.write(buffer, 0, n)
+                        if (written - reported >= REPORT_BYTES) {
+                            progress(written)
+                            reported = written
+                        }
                     }
                 }
             }
@@ -336,16 +399,6 @@ class ModelInstaller(
             throw ModelDownloadException(ModelFailure.Refused("The manifest lists a path outside the model."))
         }
         return pkg
-    }
-
-    private fun verifyOpens(directory: File) {
-        try {
-            verify(directory)
-        } catch (e: ModelDownloadException) {
-            throw e
-        } catch (e: Exception) {
-            throw ModelDownloadException(ModelFailure.NotOpened(e.message ?: e.javaClass.simpleName), e)
-        }
     }
 
     private fun writeRecord(directory: File, manifestBytes: ByteArray, source: String): InstallRecord {
@@ -381,7 +434,21 @@ class ModelInstaller(
         try {
             val code = responseCode(connection)
             if (code != HttpURLConnection.HTTP_OK) throw ModelDownloadException(ModelFailure.Http(code))
-            return network { connection.inputStream.use { it.readBytes() } }
+            return network {
+                connection.inputStream.use { input ->
+                    val bytes = ByteArrayOutputStream()
+                    val buffer = ByteArray(CHUNK)
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        if (bytes.size() + n > MAX_MANIFEST_BYTES) {
+                            throw ModelDownloadException(ModelFailure.Refused("The manifest is too large."))
+                        }
+                        bytes.write(buffer, 0, n)
+                    }
+                    bytes.toByteArray()
+                }
+            }
         } finally {
             connection.disconnect()
         }
@@ -428,16 +495,16 @@ class ModelInstaller(
                     }
                     else -> throw ModelDownloadException(ModelFailure.Http(code))
                 }
-                network {
-                    connection.inputStream.use { input ->
-                        FileOutputStream(part, append).use { output ->
+                network { connection.inputStream }.use { input ->
+                    storage {
+                        output(part, append).use { output ->
                             val buffer = ByteArray(CHUNK)
                             var written = if (append) offset else 0L
                             var reported = written
                             progress(written)
                             while (true) {
                                 if (isCancelled()) throw CancellationException("The download was cancelled.")
-                                val n = input.read(buffer)
+                                val n = network { input.read(buffer) }
                                 if (n < 0) break
                                 output.write(buffer, 0, n)
                                 written += n
@@ -476,6 +543,12 @@ class ModelInstaller(
     }
 
     private fun responseCode(connection: HttpURLConnection): Int = network { connection.responseCode }
+
+    private inline fun <T> storage(block: () -> T): T = try {
+        block()
+    } catch (e: IOException) {
+        throw ModelDownloadException(ModelFailure.Storage(e.message), e)
+    }
 
     private inline fun <T> network(block: () -> T): T = try {
         block()

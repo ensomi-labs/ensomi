@@ -3,6 +3,7 @@ package io.ensomi.android.model
 import android.net.Uri
 import java.io.File
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
 
 /** Where the chart model stands on this device. Sizes are bytes. */
 sealed interface ModelState {
@@ -26,10 +27,10 @@ sealed interface ModelState {
     /** Downloading, or copying the files the player picked when [fromFiles]. */
     data class Downloading(val doneBytes: Long, val totalBytes: Long, val fromFiles: Boolean = false) : ModelState
 
-    /**
-     * A download that stopped: cancelled, or the connection dropped. The files so far are kept for a resume.
-     * [filesFailure] says why the last install from picked files stopped, if it did.
-     */
+    /** Hashing staged files or committing their checked package; Cancel is hidden. */
+    data class Finalizing(val phase: InstallPhase, val checked: Int, val total: Int) : ModelState
+
+    /** A stopped transfer or install stage. Staging is kept for retry. */
     data class Stopped(
         val doneBytes: Long,
         val totalBytes: Long,
@@ -47,11 +48,14 @@ sealed interface ModelState {
         val license: String,
         /** A download over this install, which stays in use until the download is in place. */
         val update: ModelUpdate? = null,
+        val openState: ModelOpenState = ModelOpenState.Ready,
     ) : ModelState
 }
 
 /** A download of the pinned tag over an installed model, or a copy of picked files when [Downloading.fromFiles]. */
 sealed interface ModelUpdate {
+    data class Finalizing(val phase: InstallPhase, val checked: Int, val total: Int) : ModelUpdate
+
     data class Downloading(val doneBytes: Long, val totalBytes: Long, val fromFiles: Boolean = false) : ModelUpdate
 
     /**
@@ -78,6 +82,12 @@ val ONNX_RUNTIME_NOTICES: List<Notice> = io.ensomi.runtime.onnxRuntimeLicenseAss
 interface ChartModelStore {
     val state: StateFlow<ModelState>
 
+    /** Every generator scope, preparation and commit shares this gate. */
+    val access: Mutex get() = FALLBACK_ACCESS
+    val openGuard: ModelOpenGuard? get() = null
+    fun retryOpen() { openGuard?.retry() }
+
+
     /** The installed model's directory, for the runtime's generator, or null when none is installed. */
     val directory: File?
 
@@ -97,3 +107,9 @@ interface ChartModelStore {
 
     fun remove()
 }
+
+private val FALLBACK_ACCESS = Mutex()
+
+/** A committed package whose first open for this app installation has succeeded. */
+val ModelState.ready: Boolean
+    get() = this is ModelState.Installed && openState is ModelOpenState.Ready && update !is ModelUpdate.Finalizing

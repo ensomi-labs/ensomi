@@ -61,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ensomi.android.R
 import io.ensomi.android.model.ModelPanel
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.ready
 import io.ensomi.android.model.Problem
 import io.ensomi.android.ui.ActionButton
 import io.ensomi.android.ui.sliderColorsWithoutTicks
@@ -92,6 +93,9 @@ fun MakeChartScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onInstallModelFromFolder: (android.net.Uri) -> Unit,
+    onRemoveModel: () -> Unit = {},
+    onRetryModelOpen: () -> Unit = {},
+    onShareModelDiagnostics: (() -> Unit)? = null,
     /** The maker's own [MakeChartViewModel.make] and [MakeChartViewModel.stop] once it is wired. */
     onMake: () -> Unit = viewModel::make,
     onStop: () -> Unit = viewModel::stop,
@@ -114,7 +118,8 @@ fun MakeChartScreen(
     }
     // Why Make chart is disabled, said next to it.
     val blocker = when {
-        model !is ModelState.Installed -> R.string.make_needs_model
+        model is ModelState.Installed && !model.ready -> R.string.model_chart_wait
+        !model.ready -> R.string.make_needs_model
         !ChartRequestRules.isSeedValid(viewModel.seedText) -> R.string.make_blocked_seed
         capabilities?.let(viewModel::issues)?.isNotEmpty() == true -> R.string.make_blocked_sections
         else -> null
@@ -158,13 +163,15 @@ fun MakeChartScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (model !is ModelState.Installed) {
+                if (!model.ready) {
                     ModelPanel(
                         model,
                         onDownload = onDownloadModel,
                         onCancel = onCancelDownload,
-                        onRemove = {},
+                        onRemove = onRemoveModel,
                         onInstallFromFolder = onInstallModelFromFolder,
+                        onRetryOpen = onRetryModelOpen,
+                        onShareDiagnostics = onShareModelDiagnostics,
                     )
                 }
                 StatusCard(state, onUseSeed = viewModel::useSeed)

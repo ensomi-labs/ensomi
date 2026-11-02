@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * The chart model in app storage under `noBackupFilesDir/models`, installed by [ModelInstaller] from
@@ -33,37 +36,63 @@ import kotlinx.coroutines.runBlocking
  *
  * Each install's outcome, and its start, goes to logcat as one JSON line under [INSTALL_TAG], for scripts.
  */
-class DownloadingChartModelStore(context: Context, private val scope: CoroutineScope) : ChartModelStore {
+class DownloadingChartModelStore(
+    context: Context,
+    private val scope: CoroutineScope,
+    private val events: InstallEvents = InstallEvents.NONE,
+) : ChartModelStore {
     private val appContext = context.applicationContext
     private val root = File(appContext.noBackupFilesDir, "models")
     private val storage = appContext.getSystemService(StorageManager::class.java)
     private val worker = RuntimeWorker()
+    override val access = Mutex()
+    override val openGuard = ModelOpenGuard(
+        appContext.noBackupFilesDir,
+        pid = { android.os.Process.myPid() },
+        events = events,
+        log = { Log.i(ModelOpenGuard.TAG, it) },
+        afterMarker = { ModelInstallFaults.afterMarker(appContext) },
+    )
     private val installer = ModelInstaller(
         root = root,
         baseUrl = ModelSource.BASE_URL,
         revision = ModelSource.PINNED_REVISION,
         checkManifest = ::check,
         pinnedManifestSha256 = ModelSource.PINNED_MANIFEST_SHA256,
-        verify = ::open,
         reserve = ::reserve,
         log = { Log.i(TAG, it) },
+        events = events,
+        onPhase = ::phaseChanged,
+        afterStaging = { ModelInstallFaults.afterStaging(appContext) },
+        commit = { work -> runBlocking { access.withLock { work() } } },
     )
     private val mutableState = MutableStateFlow<ModelState>(ModelState.Checking)
     private val lock = Any()
     private var installed: InstalledModel? = null
     private var running: Running? = null
+    private var phase = InstallPhase.STAGING
 
     private class Running(val job: Job, val cancelled: AtomicBoolean)
 
     override val state: StateFlow<ModelState> = mutableState.asStateFlow()
 
     override val directory: File?
-        get() = installer.installDirectory.takeIf { mutableState.value is ModelState.Installed }
+        get() = installer.installDirectory.takeIf {
+            val state = mutableState.value as? ModelState.Installed
+            state != null && state.update !is ModelUpdate.Finalizing
+        }
 
     override val notices: List<Notice>
         get() = installed?.pkg?.notices.orEmpty().map { Notice(it, asset = false) } + ONNX_RUNTIME_NOTICES
 
     init {
+        scope.launch {
+            openGuard.state.collect {
+                mutableState.update { state ->
+                    if (state is ModelState.Installed) state.copy(openState = openGuard.stateFor(state.revision ?: state.name)) else state
+                }
+            }
+        }
         scope.launch {
             val found = installer.installed()
             synchronized(lock) { installed = found }
@@ -107,10 +136,11 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
     }
 
     override fun cancel() {
-        val current = synchronized(lock) { running } ?: return
-        if (!current.cancelled.compareAndSet(false, true)) return
-        // The state says so before the download notices, between chunks; what is staged is read off the main thread.
-        scope.launch { mutableState.value = stoppedState(failure = null) }
+        synchronized(lock) {
+            if (phase != InstallPhase.STAGING) return
+            running?.cancelled?.set(true)
+        }
+        // Only the worker publishes a stop, after it has actually stopped touching the staged files.
     }
 
     override fun remove() {
@@ -118,50 +148,67 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         current?.cancelled?.set(true)
         scope.launch {
             current?.job?.join()
-            installer.remove()
-            synchronized(lock) { installed = null }
-            mutableState.value = ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes())
+            access.withLock {
+                mutableState.value = ModelState.Checking
+                installer.remove()
+                openGuard.remove()
+                synchronized(lock) { installed = null }
+                mutableState.value = ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes())
+            }
         }
+    }
+
+    private fun phaseChanged(next: InstallPhase, checked: Int, total: Int) {
+        synchronized(lock) { phase = next }
+        if (next == InstallPhase.STAGING) return
+        val model = synchronized(lock) { installed }
+        mutableState.value = if (model == null) ModelState.Finalizing(next, checked, total)
+            else installedState(model, ModelUpdate.Finalizing(next, checked, total))
+        if (checked == 0) Log.i(TAG, "Install stage: $next ($total files)")
     }
 
     private fun run(cancelled: AtomicBoolean) {
         if (cancelled.get()) return
         val started = System.nanoTime()
         logInstall(InstallRecord.SOURCE_HUGGING_FACE, "started", started)
+        events.record("download", "begin", mapOf(
+            "source" to InstallRecord.SOURCE_HUGGING_FACE,
+            "reason" to if (File(installer.stagingDirectory, ModelInstaller.MANIFEST).isFile) "resume" else "download",
+        ))
         try {
             val result = installer.download(
                 progress = { done, total ->
-                    if (!cancelled.get()) mutableState.value = progressState(done, total)
+                    if (!cancelled.get() && done < total) mutableState.value = progressState(done, total)
                 },
                 isCancelled = { cancelled.get() },
             )
             synchronized(lock) { installed = result }
-            if (!cancelled.get()) mutableState.value = installedState(result, update = null)
+            mutableState.value = installedState(result, update = null)
             Log.i(TAG, "Installed ${result.pkg.modelName} ${result.pkg.modelVersion}, package ${result.record?.revision}")
             logInstall(InstallRecord.SOURCE_HUGGING_FACE, "installed", started, result)
+            events.record("download", "stop", mapOf("reason" to "committed"))
         } catch (e: CancellationException) {
             Log.i(TAG, "Download cancelled")
             logInstall(InstallRecord.SOURCE_HUGGING_FACE, "cancelled", started)
+            events.record("download", "stop", mapOf("reason" to "cancelled"))
             mutableState.value = stoppedState(failure = null)
         } catch (e: ModelDownloadException) {
             Log.w(TAG, "Download stopped: ${e.failure}", e)
             logInstall(InstallRecord.SOURCE_HUGGING_FACE, "stopped", started, failure = describe(e.failure))
+            events.record("download", "stop", mapOf("reason" to e.failure.javaClass.simpleName, "stage" to phase.name.lowercase()))
             val failure = e.failure
             mutableState.value = if (failure is ModelFailure.NoSpace && synchronized(lock) { installed } == null) {
                 ModelState.Absent(failure.neededBytes, failure.freeBytes)
             } else {
-                stoppedState(describe(failure))
+                stoppedState(describeAtStage(failure))
             }
-        } catch (e: IOException) {
-            Log.w(TAG, "Download stopped", e)
-            val failure = e.message ?: appContext.getString(R.string.model_failure_network)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Install failed during $phase", e)
+            val failure = stageFailure(e.message ?: e.javaClass.simpleName)
+            events.record("download", "stop", mapOf("reason" to e.javaClass.simpleName, "stage" to phase.name.lowercase()))
             logInstall(InstallRecord.SOURCE_HUGGING_FACE, "stopped", started, failure = failure)
             mutableState.value = stoppedState(failure)
-        } catch (e: RuntimeException) {
-            Log.e(TAG, "Download failed", e)
-            val failure = e.message ?: e.javaClass.simpleName
-            logInstall(InstallRecord.SOURCE_HUGGING_FACE, "stopped", started, failure = failure)
-            mutableState.value = stoppedState(failure)
+            if (e is VirtualMachineError) throw e
         }
     }
 
@@ -170,11 +217,12 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         if (cancelled.get()) return
         val started = System.nanoTime()
         logInstall(InstallRecord.SOURCE_FILES, "started", started)
+        events.record("download", "begin", mapOf("source" to InstallRecord.SOURCE_FILES, "reason" to "copy"))
         val failure: String? = try {
             val result = installer.installFrom(
                 DocumentTreePackageFiles(appContext.contentResolver, folder),
                 progress = { done, total ->
-                    if (!cancelled.get()) mutableState.value = progressState(done, total, fromFiles = true)
+                    if (!cancelled.get() && done < total) mutableState.value = progressState(done, total, fromFiles = true)
                 },
                 isCancelled = { cancelled.get() },
             )
@@ -182,28 +230,31 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
             mutableState.value = installedState(result, update = null)
             Log.i(TAG, "Installed ${result.pkg.modelName} ${result.pkg.modelVersion} from files, package ${result.record?.revision}")
             logInstall(InstallRecord.SOURCE_FILES, "installed", started, result)
+            events.record("download", "stop", mapOf("reason" to "committed"))
             return
         } catch (e: CancellationException) {
             Log.i(TAG, "Install from files cancelled")
             logInstall(InstallRecord.SOURCE_FILES, "cancelled", started)
+            events.record("download", "stop", mapOf("reason" to "cancelled"))
             null
         } catch (e: ModelDownloadException) {
             Log.w(TAG, "Install from files stopped: ${e.failure}", e)
-            describe(e.failure).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
-        } catch (e: IOException) {
-            Log.w(TAG, "Install from files stopped", e)
-            (e.message ?: e.javaClass.simpleName).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
-        } catch (e: RuntimeException) {
-            Log.e(TAG, "Install from files failed", e)
-            (e.message ?: e.javaClass.simpleName).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
+            events.record("download", "stop", mapOf("reason" to e.failure.javaClass.simpleName, "stage" to phase.name.lowercase()))
+            describeAtStage(e.failure).also { logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = it) }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Install from files failed during $phase", e)
+            val detail = stageFailure(e.message ?: e.javaClass.simpleName)
+            events.record("download", "stop", mapOf("reason" to e.javaClass.simpleName, "stage" to phase.name.lowercase()))
+            logInstall(InstallRecord.SOURCE_FILES, "stopped", started, failure = detail)
+            if (e is VirtualMachineError) {
+                mutableState.value = stoppedState(detail)
+                throw e
+            }
+            detail
         }
         val model = synchronized(lock) { installed }
         mutableState.value = if (model != null) {
-            val update = if (upToDate(model)) {
-                null
-            } else {
-                ModelUpdate.Pending(ModelSource.PINNED_REVISION, failure, resumable = installer.staged() != null)
-            }
+            val update = ModelUpdate.Pending(ModelSource.PINNED_REVISION, failure, resumable = installer.staged() != null)
             installedState(model, update)
         } else {
             idleState(failure = null, filesFailure = failure)
@@ -236,6 +287,7 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         revision = model.record?.revision,
         sizeBytes = model.pkg.totalBytes,
         license = model.pkg.license,
+        openState = openGuard.stateFor(model.record?.revision ?: "${model.pkg.modelName} ${model.pkg.modelVersion}"),
         update = update ?: if (upToDate(model)) {
             null
         } else {
@@ -276,7 +328,8 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         is ModelFailure.Http -> appContext.getString(R.string.model_failure_http, failure.code)
         is ModelFailure.Refused -> appContext.getString(R.string.model_failure_refused, failure.reason)
         is ModelFailure.Mismatch -> appContext.getString(R.string.model_failure_mismatch, failure.path)
-        is ModelFailure.NotOpened -> appContext.getString(R.string.model_failure_not_opened, failure.reason)
+        is ModelFailure.Storage -> appContext.getString(R.string.model_failure_storage)
+        is ModelFailure.Stage -> stageFailure(failure.reason, failure.phase)
         is ModelFailure.NoSpace -> appContext.getString(
             R.string.model_no_space,
             megabytes(failure.neededBytes),
@@ -320,14 +373,17 @@ class DownloadingChartModelStore(context: Context, private val scope: CoroutineS
         throw ModelDownloadException(ModelFailure.Refused(e.message ?: e.javaClass.simpleName), e)
     }
 
-    /** Whether the runtime's generator opens the downloaded directory, as it must before it is installed. */
-    private fun open(directory: File) {
-        try {
-            runBlocking { worker.withGenerator(appContext, directory) { capabilities() } }
-        } catch (e: GeneratorException) {
-            throw ModelDownloadException(ModelFailure.NotOpened(e.message ?: e.javaClass.simpleName), e)
-        }
-    }
+    private fun describeAtStage(failure: ModelFailure): String =
+        if (failure is ModelFailure.Stage) describe(failure) else stageFailure(describe(failure))
+
+    private fun stageFailure(reason: String, at: InstallPhase = phase): String = appContext.getString(
+        when (at) {
+            InstallPhase.STAGING -> R.string.model_failure_staging
+            InstallPhase.VERIFYING -> R.string.model_failure_verifying
+            InstallPhase.COMMITTING -> R.string.model_failure_committing
+        },
+        reason,
+    )
 
     companion object {
         private const val TAG = "EnsomiModel"

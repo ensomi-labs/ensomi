@@ -43,6 +43,7 @@ import io.ensomi.android.R
 import io.ensomi.android.chart.ChartRequestRules
 import io.ensomi.android.model.ModelPanel
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.ready
 
 /**
  * The home screen: the songs the player added, each opening the screen that makes its chart. Until the chart model is
@@ -61,6 +62,9 @@ fun LibraryScreen(
     onDownloadModel: () -> Unit,
     onCancelDownload: () -> Unit,
     onInstallModelFromFolder: (android.net.Uri) -> Unit,
+    onRemoveModel: () -> Unit = {},
+    onRetryModelOpen: () -> Unit = {},
+    onShareModelDiagnostics: (() -> Unit)? = null,
     preparedSongs: Set<String> = emptySet(),
     onListen: (() -> Unit)? = null,
     /** Optional action in the top app bar. */
@@ -82,7 +86,7 @@ fun LibraryScreen(
             )
         },
         floatingActionButton = {
-            if (songs.isNotEmpty() && model !is ModelState.Installed) {
+            if (songs.isNotEmpty() && !model.ready) {
                 ExtendedFloatingActionButton(
                     text = { Text(stringResource(R.string.library_add_songs)) },
                     icon = { Icon(painterResource(R.drawable.ic_add), contentDescription = null) },
@@ -100,19 +104,21 @@ fun LibraryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (model !is ModelState.Installed && model !is ModelState.Checking) {
+                if (!model.ready && model !is ModelState.Checking) {
                     item(key = "model") {
                         ModelPanel(
                             state = model,
                             onDownload = onDownloadModel,
                             onCancel = onCancelDownload,
-                            onRemove = {},
+                            onRemove = onRemoveModel,
                             onInstallFromFolder = onInstallModelFromFolder,
+                            onRetryOpen = onRetryModelOpen,
+                            onShareDiagnostics = onShareModelDiagnostics,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
                 }
-                if (model is ModelState.Installed) {
+                if (model.ready) {
                     item(key = "actions") {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Button(onClick = onAddSongs, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.library_add_songs)) }
@@ -123,7 +129,7 @@ fun LibraryScreen(
                     }
                 }
                 if (songs.isEmpty()) {
-                    item(key = "empty") { EmptySongs(onAddSongs, model !is ModelState.Installed) }
+                    item(key = "empty") { EmptySongs(onAddSongs, !model.ready) }
                 } else {
                     item(key = "header") {
                         Text(

@@ -54,6 +54,9 @@ fun ModelPanel(
     modifier: Modifier = Modifier,
     /** In Settings the panel sits in a list and needs no card or introduction. */
     inSettings: Boolean = false,
+    onRetryOpen: () -> Unit = {},
+    /** Diagnostics merge hook. No button is shown until an action is provided. */
+    onShareDiagnostics: (() -> Unit)? = null,
 ) {
     // One folder holds the package's 30 files: picking it is one choice, where picking the files would be 30.
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { folder ->
@@ -66,8 +69,9 @@ fun ModelPanel(
                 ModelState.Checking -> Text(stringResource(R.string.model_checking), style = MaterialTheme.typography.bodyMedium)
                 is ModelState.Absent -> Absent(state, onDownload, pickFolder, inSettings)
                 is ModelState.Downloading -> Downloading(state, onCancel)
+                is ModelState.Finalizing -> Finalizing(state.phase, state.checked, state.total)
                 is ModelState.Stopped -> Stopped(state, onDownload, pickFolder)
-                is ModelState.Installed -> Installed(state, onDownload, onCancel, onRemove, pickFolder)
+                is ModelState.Installed -> Installed(state, onDownload, onCancel, onRemove, pickFolder, onRetryOpen, onShareDiagnostics)
             }
         }
     }
@@ -176,6 +180,8 @@ private fun Installed(
     onCancel: () -> Unit,
     onRemove: () -> Unit,
     onPickFolder: () -> Unit,
+    onRetryOpen: () -> Unit,
+    onShareDiagnostics: (() -> Unit)?,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(painterResource(R.drawable.ic_check_circle), contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -192,7 +198,26 @@ private fun Installed(
             )
         }
     }
+    when (val open = state.openState) {
+        ModelOpenState.Blocked, is ModelOpenState.Failed -> {
+            Problem(if (open is ModelOpenState.Failed) stringResource(R.string.model_open_failed, open.reason)
+                else stringResource(R.string.model_open_blocked))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRetryOpen) { Text(stringResource(R.string.model_try_again)) }
+                TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }
+            }
+            onShareDiagnostics?.let { share ->
+                OutlinedButton(onClick = share) { Text(stringResource(R.string.model_share_diagnostics)) }
+            }
+        }
+        ModelOpenState.Waiting, ModelOpenState.Opening -> {
+            Text(stringResource(R.string.model_opening), style = MaterialTheme.typography.bodyMedium)
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        ModelOpenState.Ready -> Unit
+    }
     when (val update = state.update) {
+        is ModelUpdate.Finalizing -> Finalizing(update.phase, update.checked, update.total)
         is ModelUpdate.Downloading -> {
             Text(
                 if (update.fromFiles) {
@@ -216,11 +241,22 @@ private fun Installed(
             }
             TextButton(onClick = onPickFolder) { Text(stringResource(R.string.model_install_files)) }
         }
-        null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        null -> if (state.openState is ModelOpenState.Ready) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = onDownloadAgain) { Text(stringResource(R.string.model_check_files)) }
             TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }
         }
     }
+}
+
+@Composable
+private fun Finalizing(phase: InstallPhase, checked: Int, total: Int) {
+    Text(
+        if (phase == InstallPhase.COMMITTING) stringResource(R.string.model_committing)
+        else stringResource(R.string.model_verifying, checked, total),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+    )
+    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
 }
 
 /** The system's screen for freeing space, where the phone has one. */

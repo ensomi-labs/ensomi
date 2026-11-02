@@ -11,6 +11,7 @@ import io.ensomi.android.R
 import io.ensomi.android.AppStores
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.ready
 import io.ensomi.android.play.AmbientGame
 import io.ensomi.android.play.PlayResult
 import io.ensomi.runtime.RuntimeWorker
@@ -217,7 +218,7 @@ class RecognitionController private constructor(context: Context) {
     private suspend fun modelInstalled(): Boolean {
         // At a cold start the store is still looking at what is installed.
         withTimeoutOrNull(MODEL_CHECK_MS) { stores.model.state.first { it !is ModelState.Checking } }
-        return stores.model.state.value is ModelState.Installed
+        return stores.model.state.value.ready
     }
 
     private suspend fun begin(sharedAt: SessionNow) {

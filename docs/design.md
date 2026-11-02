@@ -115,9 +115,9 @@ SHA-256. The record says which way the files came (`"source": "huggingface"` or 
   permission to the folder.
 - **The same checks as the download**: the manifest's pinned SHA-256 and `checkPackage`; every listed file present, at
   its listed size, before anything is copied; the space reserved with `allocateBytes`; each file's size and SHA-256 as
-  it is copied into `.files-ensomi-r2` beside the install; the runtime opening the copy; the record; one rename into
-  place. Whatever stops it (a refusal, a file that does not match, a provider that goes away, Cancel) deletes the
-  copy, so the installed model is the old one or the whole new one, never half of either.
+  it is copied into `.files-ensomi-r2` beside the install; the record; one rename into place. A recoverable stop keeps
+  the copy for another attempt. The install does not open the model. The installed model is the old one or the whole
+  new one, never half of either.
 - **What the player sees**: under Download, a line ("Can't reach Hugging Face? If you have the package's files, pick
   the folder that holds them") and an outlined **Install from files** button; while it copies, the download's
   progress bar under "Installing the Ensomi R2 model from files"; if it stops, the reason in words with a warning
@@ -130,10 +130,36 @@ SHA-256. The record says which way the files came (`"source": "huggingface"` or 
 | Not enough space | "Not enough space: the model needs 120 MB, and 80 MB is free." with a warning symbol | Try again; Free up space (the system's storage screen) |
 | Downloading | Progress bar, percent, megabytes of total; "You can add songs while it downloads." | Cancel |
 | Installing from files | The same progress, under "Installing the Ensomi R2 model from files" | Cancel |
+| Checking files | "Checking model files… 12 of 30" while hashing staged files | None; Cancel is hidden after transfer |
+| Installing | "Installing the checked model…" while writing the record and replacing the directory | None |
+| First open | "Opening the model on this phone…" after commit | None |
+| Open blocked | "Ensomi closed while opening the model on this phone." | Try again; Remove model; optional Share diagnostics when wired |
+| Open failed | "Opening the model failed:" and the reason | Try again; Remove model; optional Share diagnostics when wired |
 | Stopped | "The download stopped at 50.6 of 120.4 MB." and the reason; "Resume continues from the files already here." | Resume download; Install from files |
 | Installed (Settings only) | "Ensomi R2 r2-1.0", package tag and size | Download again; Remove |
 | Updating (Settings only) | The installed model, and progress to the pinned tag, which it stays in use until | Cancel |
 | Update pending (Settings only) | The installed tag, the pinned one, and that the installed model stays in use until the update arrives; why the last try stopped | Download again, or Resume download when files are kept; Remove; Install from files |
+
+The install has three boundaries: **staged** (network or copy), **verified** (pinned manifest, model-free
+`checkPackage`, file sizes and SHA-256), and **committed** (write the install record, replace the directory).
+Transferred bytes never imply an installed or usable model. The panel leaves transfer progress before showing a
+completed percentage. Storage write failures have their own message; failures during checking or commit name that
+stage. A Cancel accepted before the transfer finishes still stops the install before commit; once checking begins,
+Cancel is hidden and new cancel requests are ignored. Explicit removal waits for current work.
+
+A staged manifest whose SHA-256 matches the pin is reused without a request. With all files staged, Resume works
+offline. Other staged manifests are fetched again, with a 1 MiB response cap. Install from files reads its own
+manifest. Neither recoverable install failures nor first-open failures delete a package or staging.
+
+Opening the model is a separate, guarded operation after commit, on the chart maker's worker. Its key is the model
+revision plus the app version code and package last-update time. Before the first open for a key, the app writes and
+syncs `no_backup/model-open-pending.json` with that key, wall time and PID. Success stores the capabilities beside it,
+then removes the marker. Later starts read those capabilities without opening ONNX sessions. An app update changes
+the key and requires one guarded open. An ordinary open failure clears the marker and shows its reason; a marker
+left at startup blocks all automatic opening and preparation until the person chooses Try again or Remove model.
+Try again clears the old marker and runs the guarded open explicitly. The recovery card also appears in the library
+and on the chart screen. A shared mutex excludes commit and removal from every model open and preparation scope.
+Background preparation and requested charts require capabilities ready for the current revision.
 
 - Free space comes from `StorageManager.getAllocatableBytes`, which counts what the system can free from caches, and
   the download reserves what it still has to fetch with `allocateBytes`, which frees the system's caches if it must
@@ -184,6 +210,11 @@ One screen per song. The top app bar has Back and the song's title; under it, th
 | --- | --- | --- |
 | Ready | none | **Make chart**, with the reason beside it when it is disabled ("Install the chart model first.", "A section needs a change before the chart can be made.") |
 | Making | The five phases (Loading audio, Finding the beat, Placing notes, Arranging lanes, Finishing), each done, under way or to come, in words and a symbol | An indeterminate progress bar; **Stop** |
+| Checking files | "Checking model files… 12 of 30" while hashing staged files | None; Cancel is hidden after transfer |
+| Installing | "Installing the checked model…" while writing the record and replacing the directory | None |
+| First open | "Opening the model on this phone…" after commit | None |
+| Open blocked | "Ensomi closed while opening the model on this phone." | Try again; Remove model; optional Share diagnostics when wired |
+| Open failed | "Opening the model failed:" and the reason | Try again; Remove model; optional Share diagnostics when wired |
 | Stopped | "Stopped. No chart was made." | Make chart |
 | Failed | "The chart could not be made." with a warning symbol, the runtime's message under it | Try again |
 | Ready to play | "Chart ready", "1,229 notes: 999 taps, 230 long notes", the seed with **Use seed** | **Play** (primary) and Make another, side by side, stacked at large text sizes |

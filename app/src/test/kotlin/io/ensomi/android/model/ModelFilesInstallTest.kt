@@ -23,7 +23,6 @@ class ModelFilesInstallTest {
     private lateinit var root: File
     private lateinit var folder: File
     private val reserved = mutableListOf<Long>()
-    private var verified: File? = null
 
     @Before
     fun setUp() {
@@ -49,7 +48,6 @@ class ModelFilesInstallTest {
         FILES.forEach { (path, bytes) -> assertArrayEquals(bytes, File(installer.installDirectory, path).readBytes()) }
         assertArrayEquals(manifest, File(installer.installDirectory, ModelInstaller.MANIFEST).readBytes())
         assertEquals(listOf(TOTAL), reserved)
-        assertEquals(installer.copyDirectory.name, verified?.name)
         assertFalse(installer.copyDirectory.exists())
         assertEquals(TOTAL to TOTAL, progress.last())
         val found = installer.installed()!!
@@ -111,7 +109,7 @@ class ModelFilesInstallTest {
         File(folder, "big.onnx").writeBytes(ByteArray(before.size) { 3 })
         val failure = failureOf { installer.installFrom(DirectoryPackageFiles(folder), { _, _ -> }, { false }) }
         assertEquals(ModelFailure.Mismatch("big.onnx"), failure)
-        assertFalse(installer.copyDirectory.exists())
+        assertTrue(installer.copyDirectory.exists())
         assertArrayEquals(before, File(installer.installDirectory, "big.onnx").readBytes())
         assertTrue(installer.installed()!!.complete)
     }
@@ -135,7 +133,7 @@ class ModelFilesInstallTest {
         }
         val failure = failureOf { installer.installFrom(cutShort, { _, _ -> }, { false }) }
         assertEquals(ModelFailure.Unreadable("The provider went away."), failure)
-        assertFalse(installer.copyDirectory.exists())
+        assertTrue(installer.copyDirectory.exists())
         assertFalse(installer.installDirectory.exists())
         assertNull(installer.installed())
     }
@@ -150,11 +148,11 @@ class ModelFilesInstallTest {
                 if (path == "small.bin") (File(folder, path).readBytes() + ByteArray(10)).inputStream() else File(folder, path).inputStream()
         }
         assertEquals(ModelFailure.Mismatch("small.bin"), failureOf { installer.installFrom(longer, { _, _ -> }, { false }) })
-        assertFalse(installer.copyDirectory.exists())
+        assertTrue(installer.copyDirectory.exists())
     }
 
     @Test
-    fun cancellingDeletesTheCopy() {
+    fun cancellingKeepsTheCopy() {
         writePackage(FILES)
         val installer = installer()
         var seen = 0L
@@ -164,19 +162,7 @@ class ModelFilesInstallTest {
         } catch (e: CancellationException) {
             // Expected.
         }
-        assertFalse(installer.copyDirectory.exists())
-        assertNull(installer.installed())
-    }
-
-    @Test
-    fun theRuntimeMustOpenTheCopyBeforeItIsInstalled() {
-        writePackage(FILES)
-        val installer = installer(verify = { throw IllegalStateException("graph missing") })
-        assertEquals(
-            ModelFailure.NotOpened("graph missing"),
-            failureOf { installer.installFrom(DirectoryPackageFiles(folder), { _, _ -> }, { false }) },
-        )
-        assertFalse(installer.copyDirectory.exists())
+        assertTrue(installer.copyDirectory.exists())
         assertNull(installer.installed())
     }
 
@@ -205,7 +191,6 @@ class ModelFilesInstallTest {
 
     private fun installer(
         pin: String? = null,
-        verify: (File) -> Unit = { verified = it },
         reserve: (Long) -> Unit = { reserved += it },
     ) = ModelInstaller(
         root = root,
@@ -213,7 +198,6 @@ class ModelFilesInstallTest {
         revision = "r2-1.0.1",
         checkManifest = ::check,
         pinnedManifestSha256 = pin,
-        verify = verify,
         reserve = reserve,
     )
 
