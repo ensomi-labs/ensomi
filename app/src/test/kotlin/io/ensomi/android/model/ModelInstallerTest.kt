@@ -66,6 +66,26 @@ class ModelInstallerTest {
         assertFalse(installer.installed()!!.upToDate("r2-1.0.2"))
     }
 
+    @Test fun unlistedStagingFilesAreRemovedBeforeCommit() {
+        publish(FILES)
+        val installer = installer()
+        installer.stagingDirectory.mkdirs()
+        File(installer.stagingDirectory, "old-model.bin").writeText("unlisted")
+        installer.download({ _, _ -> }, { false })
+        assertFalse(File(installer.installDirectory, "old-model.bin").exists())
+    }
+
+    @Test fun cancelBeforeManifestMakesNoRequestAndNeverCommits() {
+        publish(FILES)
+        val installer = installer()
+        try {
+            installer.download({ _, _ -> }, { true })
+            fail("Cancelled")
+        } catch (_: kotlinx.coroutines.CancellationException) { }
+        assertTrue(requests.isEmpty())
+        assertFalse(installer.installDirectory.exists())
+    }
+
     @Test
     fun aDroppedConnectionKeepsThePartAndTheResumeAsksForTheRest() {
         publish(FILES)

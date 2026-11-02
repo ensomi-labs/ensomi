@@ -218,7 +218,9 @@ class ModelInstaller(
         val stagedManifest = File(stagingDirectory, MANIFEST)
         val cached = stagedManifest.takeIf { it.isFile && it.length() <= MAX_MANIFEST_BYTES }
             ?.readBytes()?.takeIf { pinnedManifestSha256 != null && sha256(it) == pinnedManifestSha256 }
-        val manifestBytes = cached ?: fetchSmall(MANIFEST)
+        if (isCancelled()) throw CancellationException("The download was cancelled.")
+        val manifestBytes = cached ?: fetchSmall(MANIFEST, isCancelled)
+        if (isCancelled()) throw CancellationException("The download was cancelled.")
         events.record("manifest", if (cached != null) "staged" else "fetched", emptyMap())
         val pkg = checkedPackage(manifestBytes)
         storage {
@@ -336,6 +338,10 @@ class ModelInstaller(
         phase(InstallPhase.COMMITTING)
         var record: InstallRecord? = null
         commit {
+            if (isCancelled()) throw CancellationException("The install was cancelled.")
+            val allowed = pkg.files.map { it.path }.toSet() + MANIFEST
+            directory.walkBottomUp().filter { it.isFile && it.relativeTo(directory).invariantSeparatorsPath !in allowed }
+                .forEach { if (!it.delete()) throw IOException("Could not remove an unlisted staged file.") }
             events.record("commit", "begin", emptyMap())
             record = writeRecord(directory, manifest, source)
             replaceInstall(directory)
@@ -381,10 +387,9 @@ class ModelInstaller(
 
     /** Deletes the installed model, any stopped download and any copy left by a stopped process. */
     fun remove() {
-        stagingDirectory.deleteRecursively()
-        copyDirectory.deleteRecursively()
-        installDirectory.deleteRecursively()
-        File(installDirectory.parentFile, OLD).deleteRecursively()
+        listOf(stagingDirectory, copyDirectory, installDirectory, File(installDirectory.parentFile, OLD)).forEach {
+            if (it.exists() && !it.deleteRecursively()) throw IOException("Could not remove model files.")
+        }
     }
 
     /** The manifest, if it is the pinned one and the runtime accepts it and its paths stay inside the model. */
@@ -429,16 +434,19 @@ class ModelInstaller(
         throw ModelDownloadException(ModelFailure.Unreadable(e.message), e)
     }
 
-    private fun fetchSmall(path: String): ByteArray {
+    private fun fetchSmall(path: String, isCancelled: () -> Boolean): ByteArray {
+        if (isCancelled()) throw CancellationException("The download was cancelled.")
         val connection = open(path)
         try {
             val code = responseCode(connection)
+            if (isCancelled()) throw CancellationException("The download was cancelled.")
             if (code != HttpURLConnection.HTTP_OK) throw ModelDownloadException(ModelFailure.Http(code))
             return network {
                 connection.inputStream.use { input ->
                     val bytes = ByteArrayOutputStream()
                     val buffer = ByteArray(CHUNK)
                     while (true) {
+                        if (isCancelled()) throw CancellationException("The download was cancelled.")
                         val n = input.read(buffer)
                         if (n < 0) break
                         if (bytes.size() + n > MAX_MANIFEST_BYTES) {

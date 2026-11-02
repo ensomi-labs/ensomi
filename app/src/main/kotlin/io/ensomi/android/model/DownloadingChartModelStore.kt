@@ -107,17 +107,18 @@ class DownloadingChartModelStore(
             }
         }
         scope.launch {
-            val found = installer.installed()
-            synchronized(lock) { installed = found }
-            when {
-                found != null -> {
-                    mutableState.value = installedState(found, update = null)
-                    if (!upToDate(found)) {
-                        Log.i(TAG, "The install is not ${ModelSource.PINNED_REVISION} with every file: updating it")
-                        download()
+            try {
+                val found = installer.installed()
+                synchronized(lock) { installed = found }
+                when {
+                    found != null -> {
+                        mutableState.value = installedState(found, update = null)
+                        if (!upToDate(found)) download()
                     }
+                    else -> mutableState.value = idleState(failure = null)
                 }
-                else -> mutableState.value = idleState(failure = null)
+            } catch (failure: Throwable) {
+                publishBoundaryFailure("startup", failure)
             }
         }
     }
@@ -151,9 +152,18 @@ class DownloadingChartModelStore(
     override fun cancel() {
         synchronized(lock) {
             if (phase != InstallPhase.STAGING) return
-            running?.cancelled?.set(true)
+            val active = running ?: return
+            if (!active.job.isActive) return
+            active.cancelled.set(true)
+            // No disk/native calls on the UI thread. The worker may still be unwinding its socket.
+            val current = mutableState.value
+            mutableState.value = when (current) {
+                is ModelState.Downloading -> ModelState.Stopped(current.doneBytes, current.totalBytes, null)
+                is ModelState.Stopped -> current.copy(failure = null)
+                is ModelState.Installed -> current.copy(update = ModelUpdate.Pending(ModelSource.PINNED_REVISION, null, true))
+                else -> ModelState.Stopped(0, ModelSource.PACKAGE_BYTES, null)
+            }
         }
-        // Only the worker publishes a stop, after it has actually stopped touching the staged files.
     }
 
     override fun remove() {
@@ -163,16 +173,32 @@ class DownloadingChartModelStore(
             current?.job?.join()
             access.withLock {
                 mutableState.value = ModelState.Checking
-                installer.remove()
-                openGuard.remove()
-                synchronized(lock) { installed = null }
-                mutableState.value = ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes())
+                try {
+                    installer.remove()
+                    openGuard.remove()
+                    synchronized(lock) { installed = null }
+                    mutableState.value = ModelState.Absent(ModelSource.PACKAGE_BYTES, freeBytes())
+                } catch (failure: Throwable) {
+                    publishBoundaryFailure("remove", failure)
+                }
             }
         }
     }
 
+    private fun publishBoundaryFailure(operation: String, failure: Throwable) {
+        Log.e(TAG, "$operation failed", failure)
+        events.record(operation, "fail", mapOf("reason" to failure.javaClass.simpleName))
+        // Do not call installed()/staged() again while handling a runtime/storage failure.
+        mutableState.value = ModelState.Stopped(0, ModelSource.PACKAGE_BYTES,
+            stageFailure(failure.message ?: failure.javaClass.simpleName))
+        if (failure is VirtualMachineError || failure is CancellationException) throw failure
+    }
+
     private fun phaseChanged(next: InstallPhase, checked: Int, total: Int) {
-        synchronized(lock) { phase = next }
+        synchronized(lock) {
+            if (running?.cancelled?.get() == true) throw CancellationException("The install was cancelled.")
+            phase = next
+        }
         if (next == InstallPhase.STAGING) return
         val model = synchronized(lock) { installed }
         mutableState.value = if (model == null) ModelState.Finalizing(next, checked, total)
@@ -195,8 +221,11 @@ class DownloadingChartModelStore(
                 },
                 isCancelled = { cancelled.get() },
             )
-            synchronized(lock) { installed = result }
-            mutableState.value = installedState(result, update = null)
+            synchronized(lock) {
+                if (cancelled.get()) throw CancellationException("The install was cancelled.")
+                installed = result
+                mutableState.value = installedState(result, update = null)
+            }
             Log.i(TAG, "Installed ${result.pkg.modelName} ${result.pkg.modelVersion}, package ${result.record?.revision}")
             logInstall(InstallRecord.SOURCE_HUGGING_FACE, "installed", started, result)
             events.record("download", "stop", mapOf("reason" to "committed"))
@@ -239,8 +268,11 @@ class DownloadingChartModelStore(
                 },
                 isCancelled = { cancelled.get() },
             )
-            synchronized(lock) { installed = result }
-            mutableState.value = installedState(result, update = null)
+            synchronized(lock) {
+                if (cancelled.get()) throw CancellationException("The install was cancelled.")
+                installed = result
+                mutableState.value = installedState(result, update = null)
+            }
             Log.i(TAG, "Installed ${result.pkg.modelName} ${result.pkg.modelVersion} from files, package ${result.record?.revision}")
             logInstall(InstallRecord.SOURCE_FILES, "installed", started, result)
             events.record("download", "stop", mapOf("reason" to "committed"))
@@ -328,7 +360,10 @@ class DownloadingChartModelStore(
     }
 
     private fun idleState(failure: String?, filesFailure: String? = null): ModelState {
-        val staged = installer.staged()
+        val staged = try { installer.staged() } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            return ModelState.Stopped(0, ModelSource.PACKAGE_BYTES, failure ?: (e.message ?: e.javaClass.simpleName), filesFailure)
+        }
         return if (staged != null) {
             ModelState.Stopped(staged.first, staged.second, failure, filesFailure)
         } else {
