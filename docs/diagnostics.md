@@ -2,8 +2,8 @@
 
 Diagnostics is a separate activity, available through the launcher icon's **Diagnostics** shortcut
 and Settings → About → Diagnostics. It works without `MainActivity`, `AppStores`, an installed model,
-or a native runtime load. `DiagnosticsActivity.intent(context)` is the integration point for a
-model recovery card. The screen explains the bundle before the person presses **Share diagnostics**.
+or a native runtime load. The model recovery card opens the same activity through
+`DiagnosticsActivity.intent(context)`. The screen explains the bundle before the person presses **Share diagnostics**.
 The Android chooser receives a ZIP through a narrowly scoped FileProvider, with ClipData and a
 read-only URI grant. Ensomi uploads nothing. **Copy JSON** still copies the summary.
 
@@ -49,7 +49,8 @@ a suppressed message, and up to fifteen class/method/line frames without source 
 Event/phase names must be fixed technical literals. Context must contain technical stage facts,
 operation IDs, counts, outcomes or error classes; **never supply a song title, document name or
 user input**, including in an event name. Reserved sensitive keys (title, song, filename, document,
-message) suppress their values completely. This is the merge contract for `InstallEvents`.
+message) suppress their values completely. Every `InstallEvents.record(event, phase, detail)` is forwarded to `Journal.record` with `durable = true`.
+This includes download, manifest, verification, commit and guarded `model_open` boundaries.
 
 ## Summary JSON
 
@@ -69,8 +70,8 @@ Additions:
 - `cpu.features`: the first Features line's value from `/proc/cpuinfo`, or null. `hwcap` and
   `hwcap2`: unsigned hexadecimal values of arm64 auxiliary vector keys 16 and 26 from
   `/proc/self/auxv`, or null. `sme` and `sme2` test whole tokens in Features; false when absent.
-- `runtime.identity`: an injected string, default `unavailable`. Pass the built AAR's SHA-256
-  through `DiagnosticsCollector(context, runtimeIdentity)` at integration. Reading identity must
+- `runtime.identity`: the built AAR's SHA-256, computed by Gradle and passed from
+  `BuildConfig.RUNTIME_AAR_SHA256` to `DiagnosticsCollector(context, runtimeIdentity)`. Reading identity must
   not load the runtime. Hex identities and tombstone build IDs are structured identifiers, exempt
   from free-text token suppression.
 - `runtime.selfTest`: `call: "checkPackage(\"{}\")"`, `expected: "refused"`, `observed` and `pass`.
@@ -102,7 +103,9 @@ signaled/native-crash exits; other statuses are not mislabelled as signals.
 A match requires the same PID, an exit timestamp from process start through the run's last event
 plus ten minutes inclusive, and the summary run ID if present. Exactly one candidate must remain.
 No header, overlapping PID-reuse windows, a different summary, or incompatible clock bounds means
-`match: "unmatched"`, `run: null`. The short `e1|<run8>|start` process summary is only a hint;
+`match: "unmatched"`, `run: null`. The ASCII `e1|<run8>|<stage>` process summary is at most 22 bytes: `start` at startup,
+`model_open` immediately before guarded native open, and `idle` on end/fail. Calls occur only on
+these transitions, with repeated states skipped and Android throttling failures caught. It is only a hint;
 Android can omit it. An exit from 0.1.2 stays unmatched because that build had no journal. Matched
 IDs are persisted with the exit; their older journal may subsequently age out.
 

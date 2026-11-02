@@ -18,8 +18,7 @@ shares device facts, recovered process exits and a bounded event journal. Loadin
 
 ## Get the demo
 
-Download the signed APK from the [Android 0.1.1 prerelease](https://github.com/ensomi-labs/ensomi/releases/tag/android-v0.1.1)
-when published, open it on your device, and allow installation from the app you opened it with. It needs Android 13 or
+Download the signed APK from the [Android 0.1.2 prerelease](https://github.com/ensomi-labs/ensomi/releases/tag/android-v0.1.2), open it on your device, and allow installation from the app you opened it with. It needs Android 13 or
 later, an arm64-v8a device, an internet connection for the first-run model download from Hugging Face (about 120 MB),
 and a song you select through Android's system file picker. Chart generation runs on your device and needs additional
 storage and memory. This is a prerelease; performance and audio timing vary by device and output.
@@ -31,9 +30,12 @@ storage and memory. This is a prerelease; performance and audio timing vary by d
 - Android SDK platform 37, build-tools 37.0.0, NDK 30.0.16248370, platform-tools and the emulator.
 - A device or emulator with an arm64-v8a CPU and Android 13 (API 33) or later. The app is built for
   arm64-v8a only.
-- The runtime AAR, built from ensomi-runtime commit `b12bb0f` with
+- The runtime AAR, built from ensomi-runtime commit `d090374` (ORT without KleidiAI) with
   `scripts/build-android.sh` (see its `android/README.md`). The required AAR SHA-256 is
-  `16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`.
+  `468a11aa3f53db041b44478fbf8d6e49d57411b72c5d01594f1c6b05a3ec0738`.
+
+The 0.1.3 candidate (code 4) removes KleidiAI kernels from ONNX Runtime to avoid the suspected
+SME-without-SME2 failure. It has not run on a CPU with SME; the affected phone still needs a tester rerun.
 
 Every version the build uses is pinned in `gradle/libs.versions.toml`.
 
@@ -47,7 +49,8 @@ ensomi.runtime.aar=/absolute/path/to/ensomi-runtime/build/android/ensomi-runtime
 ```
 
 `ensomi.runtime.aar` selects the runtime AAR the app links. Gradle stops with a message when it is missing
-or does not name a file. The AAR carries no dependency metadata, so the app declares JNA and
+or does not name a file. Gradle hashes that exact AAR into `BuildConfig.RUNTIME_AAR_SHA256`;
+Diagnostics exports it as `runtime.identity` without loading native code. The AAR carries no dependency metadata, so the app declares JNA and
 kotlinx-coroutines itself. Once a runtime release carries the AAR, the app will pin that release instead.
 
 ## Build, test and install
@@ -115,6 +118,17 @@ adb shell am force-stop io.ensomi.android
 adb shell am start -n io.ensomi.android/.MainActivity --ez download-model true
 adb logcat -d -s EnsomiModelInstall:I -v raw
 ```
+
+Installation separates transfer, file verification, commit and the first model open. A fully staged
+pinned package resumes without network access. Verification never opens the model. After commit,
+a durable marker protects the first open; a process death leaves a blocked card with **Try again**,
+**Remove model** and **Share diagnostics**. Capabilities are saved for the installed revision and app
+update, so subsequent starts do not open ORT. Stage boundaries are recorded durably in the journal;
+the OS process summary also names `model_open` while opening, then returns to `idle`.
+
+Install 0.1.3 over 0.1.2 without uninstalling to preserve Android's earlier crash record. To share it,
+long-press the launcher icon → **Diagnostics** → **Share diagnostics**. The ZIP has schema-2 device/CPU
+facts, the exact runtime identity, recovered exits and redacted traces (when Android provides them).
 
 The model's files are in the app's
 `no_backup/models/ensomi-r2` (`adb shell run-as io.ensomi.android ls no_backup/models/ensomi-r2`), with

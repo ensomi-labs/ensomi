@@ -200,3 +200,10 @@ contain neither trigger.
 Verification evidence and the remaining device limitations are recorded in
 `artifacts/android-install-stages/report.md` in the build worktree. This work does not establish a fix on the reported
 physical phone; that requires the parallel runtime fix and a tester rerun.
+
+## 0.1.3 integration
+
+Install stages and crash reports are merged: durable install events, a guarded-open process summary,
+model-card Diagnostics, and the build-time AAR fingerprint are wired. Version 0.1.3 (4) uses runtime
+`d090374` without KleidiAI. Android 17 emulator checks cover update/crash recovery and the R8 release;
+the affected physical phone and any CPU with SME remain unverified. See [release.md](release.md).

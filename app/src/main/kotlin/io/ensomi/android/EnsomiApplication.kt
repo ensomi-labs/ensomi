@@ -1,21 +1,18 @@
 package io.ensomi.android
 
 import android.app.Activity
-import android.app.ActivityManager
 import android.app.Application
 import android.os.Bundle
 import io.ensomi.android.diagnostics.ExitRecords
 import io.ensomi.android.diagnostics.Journal
+import io.ensomi.android.diagnostics.ProcessStage
 
 /** Recovery starts before any activity, app store or native runtime can be loaded. */
 class EnsomiApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Journal.start(this)
-        try {
-            getSystemService(ActivityManager::class.java)
-                .setProcessStateSummary("e1|${Journal.runId.take(8)}|start".toByteArray(Charsets.US_ASCII))
-        } catch (_: RuntimeException) { }
+        ProcessStage.set(this, ProcessStage.Stage.START)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
             try {

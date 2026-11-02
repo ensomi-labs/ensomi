@@ -46,13 +46,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.ensomi.android.BuildConfig
 import io.ensomi.android.R
 import kotlinx.coroutines.launch
 
 @Composable
 fun DiagnosticsScreen(modifier: Modifier = Modifier, onBack: (() -> Unit)? = null) {
     val appContext = LocalContext.current.applicationContext
-    val viewModel = viewModel { DiagnosticsViewModel(DiagnosticsCollector(appContext)) }
+    val viewModel = viewModel { DiagnosticsViewModel(DiagnosticsCollector(appContext, BuildConfig.RUNTIME_AAR_SHA256)) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

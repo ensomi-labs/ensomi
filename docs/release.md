@@ -3,10 +3,21 @@
 ## Public demo: the current process
 
 The Android play demo is built on the owner's Mac from a committed tree, then signed by the owner with one
-release key made by hand and published as a GitHub prerelease of `ensomi-labs/ensomi`. The current build uses `versionName` **0.1.2**,
-`versionCode` **3**; Swift's `v0.1.0` stays separate. The build produces an unsigned,
+release key made by hand and published as a GitHub prerelease of `ensomi-labs/ensomi`. The current build uses `versionName` **0.1.3**,
+`versionCode` **4**; Swift's `v0.1.0` stays separate. The build produces an unsigned,
 R8-optimized arm64-v8a APK, with JNA keep rules and the runtime AAR's UniFFI keep rules. The runtime is the local AAR
-whose SHA-256 is `16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`.
+whose SHA-256 is `468a11aa3f53db041b44478fbf8d6e49d57411b72c5d01594f1c6b05a3ec0738`.
+This candidate uses runtime commit `d090374`, with ORT built without KleidiAI. The runtime library now
+carries GNU build ID `1b2f996d51834c432054707ea55137a1204c543b`. Keep the exact unstripped
+`libensomi_runtime_ffi.so` per release alongside the AAR, its SHA-256 and R8 mapping for symbolizing
+reported offsets; rebuilding later is not a substitute for retaining that binary. Diagnostics
+`runtime.identity` is the SHA-256 of the AAR Gradle actually links.
+
+0.1.3 separates resumable transfer, verification, commit and guarded first open; persists capabilities;
+and adds durable install events, exit recovery and a launcher Diagnostics shortcut. Install over
+0.1.2 without uninstalling so earlier exit records survive. The candidate has not run on a CPU
+with SME, and the suspected affected-phone fix still needs a tester rerun.
+
 The owner keeps the keystore outside all repositories and signs separately with `apksigner`. CI has not run, so its
 duration is unknown. The remaining sections are the original proposal, including its future release prerequisites;
 they do not describe automation enabled for this demo.
@@ -124,7 +135,7 @@ A new `gradle/verification-metadata.xml` pins that one file and leaves other mod
    <components>
       <component group="io.ensomi" name="ensomi-runtime" version="android-aar-b12bb0f">
          <artifact name="ensomi-runtime-android-aar-b12bb0f.aar">
-            <sha256 value="16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880" origin="the release's digest"/>
+            <sha256 value="468a11aa3f53db041b44478fbf8d6e49d57411b72c5d01594f1c6b05a3ec0738" origin="the release's digest"/>
          </artifact>
       </component>
    </components>
@@ -142,7 +153,7 @@ Tested with Gradle 9.8.2 on the `v0.3.2` xcframework asset: 46.8 MB through GitH
 builds, a wrong or missing one stops the build. Not yet through AGP; JNA's line uses the same `artifact` form.
 
 **The runtime's side, first (step 1).** A prerelease `android-aar-b12bb0f` with the AAR the Mac builds from `codex/android-perf-2`
-at `b12bb0f`, SHA-256 `16c647da00a050f3cd13a33b7a1124f467c152819b36139a6186cd195f220880`.
+at `b12bb0f`, SHA-256 `468a11aa3f53db041b44478fbf8d6e49d57411b72c5d01594f1c6b05a3ec0738`.
 No runtime workflow fires, and `main`, npm and `Package.swift` stay untouched. It has no CI build or attestation and claims
 0.3.2 with API that 0.3.2 lacks, so it serves CI and internal builds only. The plan
 was a runtime CI job with the first release carrying the AAR, so this needs the owner's yes; without it, steps 2 and 3 wait for
@@ -204,13 +215,12 @@ provenance page. `--generate-notes` would compare histories that share nothing.
 **Notices.** The Notices screen has the model's and ONNX Runtime's. A public APK also needs AndroidX, Compose, Kotlin, kotlinx, JNA
 (under Apache-2.0), libc++ and the Rust crates: a generated list for the Kotlin side, the AAR for the native side.
 
-**R8.** `release` today is unsigned and without R8. Google: "You should always enable optimization for your app's release build"; on
+**R8 (proposal; already enabled for the public demo).** `release` is unsigned and R8-optimized. Google: "You should always enable optimization for your app's release build"; on
 AGP 9.3 and later that is `optimization { enable = true }`. Add JNA's rules, which neither its AAR nor the runtime's consumer rules
 carry: `-dontwarn java.awt.**`, `-keep class com.sun.jna.** { *; }`, `-keep class * extends com.sun.jna.** { *; }`. `checks` has no R8,
 so the release APK gets its own smoke test on the Mac AVD and by hand on both devices.
 
-**Mapping, symbols, 16 KB.** `mapping.txt` stays on the release. With no crash service nothing is uploaded; native symbols, if ever
-needed, come from rebuilding the runtime at its tag. CI checks zip alignment and every library's `LOAD` segments, and `sign`
+**Mapping, symbols, 16 KB.** `mapping.txt` stays on the release. With no crash service nothing is uploaded; the exact unstripped native library and its GNU build ID are retained per release for symbolizing. CI checks zip alignment and every library's `LOAD` segments, and `sign`
 checks the zip again.
 
 **The workflow.** `android-release.yml` on `dev/android`, on a push of `android-v*`. Job `build`, no secrets: check the tag and

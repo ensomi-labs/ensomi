@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.security.MessageDigest
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -26,6 +27,19 @@ val runtimeAar: File = run {
     aar
 }
 
+// Fingerprint the exact local artifact without loading any native code in Diagnostics.
+val runtimeIdentity = MessageDigest.getInstance("SHA-256").let { digest ->
+    runtimeAar.inputStream().use { input ->
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    digest.digest().joinToString("") { "%02x".format(it) }
+}
+
 android {
     namespace = "io.ensomi.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -39,6 +53,7 @@ android {
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = libs.versions.appVersionCode.get().toInt()
         versionName = libs.versions.appVersionName.get()
+        buildConfigField("String", "RUNTIME_AAR_SHA256", "\"$runtimeIdentity\"")
         ndk { abiFilters += "arm64-v8a" }
         // The phone checks (app/src/androidTest, docs/phone-checks.md), run with `am instrument` by
         // scripts/phone-checks.sh.
@@ -78,7 +93,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 kotlin {

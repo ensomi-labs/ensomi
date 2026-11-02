@@ -2,6 +2,9 @@ package io.ensomi.android
 
 import android.content.Context
 import io.ensomi.android.audio.PlayAudioCache
+import io.ensomi.android.diagnostics.Journal
+import io.ensomi.android.diagnostics.ProcessStage
+import io.ensomi.android.model.InstallEvents
 import io.ensomi.android.chart.ChartStore
 import io.ensomi.android.chart.RuntimeChartMaker
 import io.ensomi.android.library.ChartedSongLibrary
@@ -24,7 +27,13 @@ class AppStores private constructor(context: Context) {
     val route = SystemOutputRoute(context)
     val settings = DataStorePlaySettingsStore(DataStorePlaySettingsStore.dataStore(context, scope), route.route, scope)
     private val documents = DocumentSongLibrary(context, scope)
-    val model = DownloadingChartModelStore(context, scope)
+    val model = DownloadingChartModelStore(context, scope, InstallEvents { event, phase, detail ->
+        Journal.record(event, phase, detail, durable = true)
+        if (event == "model_open") when (phase) {
+            "begin" -> ProcessStage.set(context, ProcessStage.Stage.MODEL_OPEN)
+            "end", "fail" -> ProcessStage.set(context, ProcessStage.Stage.IDLE)
+        }
+    })
     val chartStore = ChartStore(File(context.filesDir, "charts"))
     val charts = RuntimeChartMaker(context, scope, documents, model, chartStore, RuntimeChartMaker.lowMemory(context))
     val songs = ChartedSongLibrary(documents, chartStore.songIds, scope) { charts.forget(it) }
