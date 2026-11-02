@@ -122,7 +122,7 @@ disk or exported**. The trace file is a redacted text projection of the capped s
 each trace starts with `projection=2`, then PID/TID, numeric signal/code/fault address, suppressed abort
 message and thread name. The crashing thread comes first with all its frames, followed by other threads
 with at most 16 frames each, within a 512 KiB UTF-8 output cap. Frames retain relative PCs, module basenames
-(including libraries inside APKs), build IDs and symbols. Symbols are exempt from token redaction and capped
+(including both `base.apk!libX.so` and `base.apk!lib/arm64-v8a/libX.so`), build IDs and symbols. Symbols are exempt from token redaction and capped
 at 512 characters. Memory, registers, logs, paths, arguments and unknown fields are omitted. ANRs retain
 thread headers, stack lines and native module basenames/build IDs. Truncation or unsupported protobuf is
 labelled. The raw input is only held in memory; offsets and build IDs support symbolization with the matching binary.
@@ -132,7 +132,7 @@ paths become `<path>`), content URIs with only their authority, and unapproved U
 Hugging Face/hf.co and their subdomains/CDNs retain scheme and host only. URL paths, queries,
 credentials and fragments do not survive. Quoted text, e-mail addresses, long hex/base64 tokens and
 recognisable filenames are suppressed. Every free-text field is bounded (default 1,024 characters;
-journal event/phase 80, context keys 64, up to 24 values of 512; CPU Features 4,096; symbols 512).
+journal event/phase 80, context keys 64, up to 32 values of 512; CPU Features 4,096; symbols 512).
 Arbitrary exception prose is completely suppressed because a title need not have a filename suffix.
 
 The ZIP contains `summary.json`, `journal.jsonl`, `exits.jsonl` and available redacted trace files.

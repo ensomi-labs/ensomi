@@ -123,7 +123,8 @@ Installation separates transfer, file verification, commit and the first model o
 pinned package resumes without network access. Verification never opens the model. After commit,
 a durable marker protects the first open and first preparation or chart; a crash leaves a blocked card with **Try again**,
 **Remove model** and **Share diagnostics**. Capabilities are saved for the installed revision and app
-update, and marked complete after first inference, so subsequent starts do not open ORT. An Android
+update, so subsequent starts do not open ORT even before inference. Each marker exists only during its
+native call and is removed on return, cancellation or refusal; the first returned inference completes that guard. An Android
 user-requested stop retries automatically. Stage boundaries are appended to the journal; the OS process
 summary names the active guarded stage. Cold shares and chart requests wait up to 60 seconds for readiness.
 

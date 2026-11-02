@@ -154,11 +154,15 @@ manifest. Neither recoverable install failures nor first-open failures delete a 
 Opening the model is a separate, guarded operation after commit, on the chart maker's worker. Its key is the model
 revision plus the app version code and package last-update time. Before the first open for a key, the app writes and
 syncs `no_backup/model-open-pending.json` and its directory with that key, wall time, PID and stage. Open success
-stores capabilities; the marker remains over the first preparation or chart, whichever comes first. Successful
-inference completes the cache and removes the marker. Later starts read capabilities without opening ONNX sessions. An app update changes
+clears the open marker immediately, then stores capabilities. The first native preparation or chart call writes its
+own marker and clears it on return or throw, before caching or other work. Cancellation and chart refusals leave
+model readiness unchanged. Any returned inference completes the guard for this key; a model-load error still
+reports Failed. Later starts read capabilities without opening ONNX sessions even when inference is still pending. An app update changes
 the key and requires one guarded open. An ordinary open failure clears the marker and shows its reason; a marker
 left at startup blocks automatic opening and preparation and names the stage. Android exit reasons USER_REQUESTED
-or USER_STOPPED instead retry automatically. Unknown or missing exit records remain blocked.
+or USER_STOPPED instead retry automatically. The earliest exit of the marker PID at or after its timestamp wins,
+so later PID reuse cannot hide a crash. Markers for another key or this process are discarded and journaled; an old
+key triggers a fresh guarded open. Unknown or missing exit records for the same key remain blocked.
 Try again clears the old marker and runs the guarded open explicitly. The recovery card also appears in the library
 and on the chart screen. A shared mutex excludes commit and removal from every model open and preparation scope.
 Background preparation and requested charts require capabilities ready for the current revision. Chart requests and

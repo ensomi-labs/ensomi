@@ -190,8 +190,8 @@ failures. Stage boundaries catch unexpected runtime exceptions and errors; virtu
 before being rethrown.
 
 The first open for model revision/app version code/package update time writes a synced pending marker before any
-ONNX session is opened. The marker covers first preparation or chart too; successful inference completes the
-capability cache for subsequent starts. A leftover marker after an intentional user stop retries; otherwise it blocks
+ONNX session is opened. A separate marker covers only the first native preparation or chart call; its return or throw clears
+that marker and completes the inference guard. Capabilities are reusable before first inference too. A leftover marker after an intentional user stop retries; otherwise it blocks
 native opening and preparation, with explicit Try again and Remove model actions. Ordinary failures show their
 reason and allow retry. The install directory has one shared access mutex for commit, removal, guarded opens and
 chart/preparation scopes. The diagnostics callback opens the independent Diagnostics activity, and every InstallEvents
@@ -229,3 +229,23 @@ and no debug fault triggers in DEX. Evidence and updated release notes are in
 `artifacts/android-0.1.3/review-fixes/` and `artifacts/android-0.1.3/release-notes.md` on the owner's Mac.
 The optional hash-once optimization and keeping an old model usable during an update remain deferred.
 No CPU with SME has run this build; the affected tester's phone remains the release follow-up.
+
+
+## Native-call-only guard correction
+
+The first-open marker now ends when the native open returns. The first native `prepare` or chart scheduler
+work call gets a separate marker, cleared on every return or throw. A cancellation or generation refusal leaves
+the model Ready; one returned inference completes the guard for that key. Saved capabilities remain usable
+before any inference, and no marker spans cached preparation, play, disk persistence or idle time. Old-key and
+current-process markers are discarded and journaled. Marker exit lookup uses the earliest matching PID lifetime.
+APK library basenames split at both `/` and `!`; the journal retains all fifteen uncaught-exception frames.
+
+
+Verification: the full requested Gradle command passed with 380 JVM tests and zero lint errors. On the
+muted Android 17 AVD, Home cancelled first preparation of a 240-second synthetic song without failing the
+model; returning completed it. An app reinstall with every song cached left inference pending without a marker;
+background `am kill` and relaunch used saved capabilities without blocking or opening ORT. Open and first-prepare
+SIGILL flags still blocked and recovered through Try again. A debug 0.1.2 SIGILL survived install-over update as
+an unmatched projection-2 trace with native module basenames. The final unsigned R8 APK passed alignment,
+permission diff, runtime build-ID/forbidden-word checks and fault-trigger removal. This round's evidence is in
+`artifacts/android-0.1.3/native-guard/`; release notes and the unsigned APK/hash were replaced beside it.
