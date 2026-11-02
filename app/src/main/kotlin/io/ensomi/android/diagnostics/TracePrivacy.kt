@@ -26,7 +26,7 @@ internal object TracePrivacy {
             }
             val crashing = threads.firstOrNull { thread -> thread.firstOrNull { it.id == 1 }?.number == tid }
             line("pid=${root.firstOrNull { it.id == 5 }?.number} tid=$tid")
-            line("signal=${signal.firstOrNull { it.id == 1 }?.number} code=${signal.firstOrNull { it.id == 3 }?.number} faultAddress=${signal.firstOrNull { it.id == 9 }?.number}")
+            line("signal=${signal.firstOrNull { it.id == 1 }?.number} code=${signal.firstOrNull { it.id == 3 }?.number ?: 0} faultAddress=${signal.firstOrNull { it.id == 9 }?.number}")
             val abort = root.firstOrNull { it.id == 14 }?.bytes?.toString(Charsets.UTF_8)
             // Arbitrary abort/exception prose can contain unquoted song titles.
             line("abortMessage=${abort?.let { Redact.detail("message", it) } ?: "unavailable"}")
@@ -40,9 +40,9 @@ internal object TracePrivacy {
                 for (item in frames) {
                     val frame = fields(item.bytes)
                     fun text(id: Int) = frame.firstOrNull { it.id == id }?.bytes?.toString(Charsets.UTF_8)
-                    val pc = frame.firstOrNull { it.id == 1 }?.number?.toULong()?.toString(16)
+                    val pc = (frame.firstOrNull { it.id == 1 }?.number ?: 0).toULong().toString(16)
                     val build = text(8)?.takeIf { it.matches(Regex("[0-9a-fA-F]{1,128}")) } ?: "unavailable"
-                    if (!line("frame pc=0x${pc ?: "?"} module=${module(text(6) ?: "")} buildId=$build symbol=${Redact.symbol(text(4) ?: "unavailable")}")) break
+                    if (!line("frame pc=0x$pc module=${module(text(6) ?: "")} buildId=$build symbol=${Redact.symbol(text(4) ?: "unavailable")}")) break
                 }
             }
             if (root.any { it.id == -1 } || bytes.size >= INPUT_LIMIT)
@@ -71,7 +71,7 @@ internal object TracePrivacy {
 
     private fun module(path: String): String {
         val name = path.substringAfterLast('/').substringBefore(" (deleted)")
-        return if (name.matches(Regex("[A-Za-z0-9_.+-]+\\.(so|apk|oat|jar|dex)|app_process64|\\[vdso\\]"))) name else "<module>"
+        return if (name.matches(Regex("[A-Za-z0-9_.+-]+\\.(so|apk|oat|odex|vdex|art|jar|dex)|app_process64|\\[vdso\\]"))) name else "<module>"
     }
 
     private data class Field(val id: Int, val number: Long = 0, val bytes: ByteArray = byteArrayOf())
