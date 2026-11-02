@@ -5,12 +5,12 @@ import android.content.Context
 
 /** An infrequent, best-effort hint; the durable journal remains authoritative. */
 object ProcessStage {
-    enum class Stage(val label: String) { START("start"), MODEL_OPEN("model_open"), IDLE("idle") }
+    enum class Stage(val label: String) { START("start"), MODEL_OPEN("model_open"), MODEL_PREPARE("model_prepare"), MODEL_CHART("model_chart"), IDLE("idle") }
     private var current: Stage? = null
 
     @Synchronized fun set(context: Context, stage: Stage) {
         if (current == stage) return
-        // Fixed ASCII labels plus eight hex digits: at most 22 bytes, below the 32-byte budget.
+        // Fixed ASCII labels plus eight hex digits: at most 25 bytes, below the 32-byte budget.
         // Called only at startup and guarded open boundaries, never for progress or lifecycle events.
         current = stage
         try {

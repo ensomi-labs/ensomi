@@ -138,7 +138,7 @@ class RuntimeChartMaker(
         var sha256: String? = null
 
         @Volatile
-        var failure: Exception? = null
+        var failure: Throwable? = null
 
         /** A waiting chart can finish inside preparation's model scope, without passing out a native handle. */
         @Volatile
@@ -267,7 +267,8 @@ class RuntimeChartMaker(
                     !ready || !modelReady() -> MakeState.Failed(songId, unavailableModel())
                     else -> makeChart(songId, request, making, input)
                 }
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
+                if (failure is VirtualMachineError) throw failure
                 failed(songId, failure, making)
             }
             synchronized(lock) {
@@ -362,9 +363,11 @@ class RuntimeChartMaker(
             PeakMemory.reset()
             model.access.withLock {
                 check(modelReady() && preparedKey.substringAfterLast('/') == capabilitiesRevision) { unavailableModel() }
-                worker.withGenerator(appContext, directory, options()) {
-                    val stages = prepared.get(preparedKey) ?: return@withGenerator null
-                    makePrepared(stages, runtimeRequest, making)
+                guardInference("model_chart") {
+                    worker.withGenerator(appContext, directory, options()) {
+                        val stages = prepared.get(preparedKey) ?: return@withGenerator null
+                        makePrepared(stages, runtimeRequest, making)
+                    }
                 }
             }
         }
@@ -409,7 +412,7 @@ class RuntimeChartMaker(
             }
         }
 
-    private fun failed(songId: String, failure: Exception, making: Making): MakeState = when {
+    private fun failed(songId: String, failure: Throwable, making: Making): MakeState = when {
         making.stopped.get() -> MakeState.Stopped(songId)
         failure is GeneratorException.Cancelled -> MakeState.Stopped(songId)
         failure is GeneratorException.Generation ->
@@ -436,7 +439,8 @@ class RuntimeChartMaker(
                 preparation.key = model.access.withLock {
                     if (modelReady()) worker.run { prepareSong(preparation, input) } else null
                 }
-            } catch (failure: Exception) {
+            } catch (failure: Throwable) {
+                if (failure is VirtualMachineError) throw failure
                 if (!preparation.stopped.get()) {
                     Log.w(TAG, "Preparing $songId failed: $failure")
                     preparation.failure = failure
@@ -485,7 +489,7 @@ class RuntimeChartMaker(
         PeakMemory.reset()
         var audioDone = 0L
         var audioPeak = "unknown"
-        val done = worker.withGenerator(appContext, directory, options()) {
+        val done = guardInference("model_prepare") { worker.withGenerator(appContext, directory, options()) {
             if (preparation.stopped.get()) return@withGenerator false
             val stages = prepare(audio.samples, audio.sampleRate.toDouble(), preparation.cancellation)
             prepared.put(key, stages)
@@ -498,7 +502,7 @@ class RuntimeChartMaker(
                 preparation.chart = finish(stages)
             }
             true
-        }
+        } }
         if (!done) return null
         Log.i(
             TAG,
@@ -533,6 +537,11 @@ class RuntimeChartMaker(
         return digest.digest().joinToString("") { String.format(Locale.ROOT, "%02x", it) }
     }
 
+    private suspend fun <T> guardInference(stage: String, work: suspend () -> T): T {
+        val guard = model.openGuard ?: return work()
+        return worker.run { guard.inference(stage, work) }
+    }
+
     private fun modelReady(): Boolean {
         val installed = model.state.value as? ModelState.Installed ?: return false
         return model.directory != null && mutableCapabilities.value != null &&
@@ -541,7 +550,7 @@ class RuntimeChartMaker(
     }
 
     private fun unavailableModel(): String = when (val state = model.openGuard?.state?.value) {
-        ModelOpenState.Blocked -> appContext.getString(R.string.model_chart_blocked)
+        is ModelOpenState.Blocked -> appContext.getString(if (state.stage == "model_open") R.string.model_chart_blocked else R.string.model_inference_blocked)
         is ModelOpenState.Failed -> appContext.getString(R.string.model_chart_open_failed, state.reason)
         else -> appContext.getString(R.string.model_chart_wait)
     }

@@ -55,6 +55,13 @@ object ExitRecords {
         }, "EnsomiExitHistory").start()
     }
     internal fun await() { ready.await() }
+    fun reasonFor(context: Context, pid: Int, after: Long): Int? {
+        await()
+        return read(context).filter { (it["pid"] as? Number)?.toInt() == pid &&
+            ((it["timestamp"] as? Number)?.toLong() ?: Long.MIN_VALUE) >= after }
+            .maxByOrNull { (it["timestamp"] as Number).toLong() }
+            ?.get("reasonCode").let { (it as? Number)?.toInt() }
+    }
     @Synchronized internal fun read(context: Context): List<Map<String, Any?>> =
         runCatching { readLines(File(Journal.directory(context), "exits.jsonl")) }.getOrDefault(emptyList())
 

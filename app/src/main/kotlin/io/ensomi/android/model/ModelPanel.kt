@@ -199,9 +199,9 @@ private fun Installed(
         }
     }
     when (val open = state.openState) {
-        ModelOpenState.Blocked, is ModelOpenState.Failed -> {
+        is ModelOpenState.Blocked, is ModelOpenState.Failed -> {
             Problem(if (open is ModelOpenState.Failed) stringResource(R.string.model_open_failed, open.reason)
-                else stringResource(R.string.model_open_blocked))
+                else stringResource(if ((open as ModelOpenState.Blocked).stage == "model_open") R.string.model_open_blocked else R.string.model_inference_blocked))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onRetryOpen) { Text(stringResource(R.string.model_try_again)) }
                 TextButton(onClick = onRemove) { Text(stringResource(R.string.model_remove)) }

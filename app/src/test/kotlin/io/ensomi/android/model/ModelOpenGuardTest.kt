@@ -15,82 +15,77 @@ class ModelOpenGuardTest {
     private val marker get() = File(root, "model-open-pending.json")
     private val recorded = mutableListOf<Pair<String, String>>()
     private val events = InstallEvents { event, phase, _ -> recorded += event to phase }
-    private fun guard(afterMarker: () -> Unit = {}) = ModelOpenGuard(root, { 123 }, events, afterMarker = afterMarker)
-
+    private fun guard(reason: Int? = null, afterMarker: () -> Unit = {}) =
+        ModelOpenGuard(root, { 123 }, events, afterMarker = afterMarker, exitReason = { _, _ -> reason })
     @After fun clean() { root.deleteRecursively() }
 
-    @Test fun markerAtStartBlocksEvenWithStoredCapabilities() = runBlocking {
-        guard().read(key) { capabilities }
-        marker.writeText("a previous process died")
-        val guard = guard()
-        assertEquals(ModelOpenState.Blocked, guard.state.value)
-        assertNull(guard.read(key) { error("Must not open") })
+    @Test fun markerBlocksEvenWithCapabilitiesAndNamesInference() = runBlocking {
+        val first = guard()
+        first.read(key) { capabilities }
+        val second = guard()
+        assertNull(second.read(key) { error("Must not open") })
+        assertEquals(ModelOpenState.Blocked("model_prepare"), second.state.value)
         assertTrue(marker.exists())
-        assertTrue("model_open" to "blocked" in recorded)
     }
-
-    @Test fun tryAgainClearsMarkerAndSuccessStoresCapabilities() = runBlocking {
-        marker.writeText("pending")
-        val guard = guard()
-        guard.retry()
-        var opens = 0
-        assertEquals(capabilities, guard.read(key) { opens++; capabilities })
-        assertEquals(1, opens)
+    @Test fun openKeepsMarkerUntilFirstInferenceAndSecondMakerUsesSameGuard() = runBlocking {
+        val first = guard()
+        assertEquals(capabilities, first.read(key) { capabilities })
+        assertTrue(marker.exists())
+        assertEquals(capabilities, first.read(key) { error("Already open") })
+        first.inference("model_prepare") { assertTrue(marker.exists()); true }
         assertFalse(marker.exists())
-        assertEquals(ModelOpenState.Ready, guard.state.value)
         assertEquals(capabilities, guard().read(key) { error("Must use cache") })
+        assertEquals(listOf("model_open" to "begin", "model_open" to "end", "model_prepare" to "begin", "model_prepare" to "end"), recorded)
     }
-
-    @Test fun storedCapabilitiesAvoidOpenAtStartButAppUpdateOpensOnce() = runBlocking {
-        guard().read(key) { capabilities }
-        assertEquals(capabilities, guard().read(key) { error("Must use cache") })
-        var opens = 0
-        val next = key.copy(lastUpdateTime = 5678)
-        guard().read(next) { opens++; capabilities }
-        guard().read(next) { error("Must use updated cache") }
-        assertEquals(1, opens)
-    }
-
-    @Test fun failedOpenPublishesReasonAndDeletesMarkerUntilExplicitRetry() = runBlocking {
-        val guard = guard()
-        assertNull(guard.read(key) { throw AssertionError("Lumen failed") })
-        assertEquals(ModelOpenState.Failed("Lumen failed"), guard.state.value)
-        assertFalse(marker.exists())
-        assertNull(guard.read(key) { error("No automatic retry") })
-        guard.retry()
-        assertEquals(capabilities, guard.read(key) { capabilities })
-    }
-
-    @Test fun uniffiInternalExceptionIsAnOpenFailureAndClearsMarker() = runBlocking {
-        val guard = guard()
-        assertNull(guard.read(key) { throw io.ensomi.runtime.InternalException("Lumen runtime error") })
-        assertEquals(ModelOpenState.Failed("Lumen runtime error"), guard.state.value)
+    @Test fun inferenceCrashLeavesMarkerAndExplicitRetryRecovers() = runBlocking {
+        val first = guard()
+        first.read(key) { capabilities }
+        try { first.inference("model_chart") { throw OutOfMemoryError("test") } } catch (_: OutOfMemoryError) { }
+        val next = guard()
+        assertNull(next.read(key) { error("Blocked") })
+        assertEquals(ModelOpenState.Blocked("model_chart"), next.state.value)
+        next.retry()
+        assertEquals(capabilities, next.read(key) { capabilities })
+        next.inference("model_chart") { true }
         assertFalse(marker.exists())
     }
-
-    @Test fun vmErrorPublishesAndRethrowsLeavingMarkerForNextStart() = runBlocking {
-        val guard = guard()
-        try {
-            guard.read(key) { throw OutOfMemoryError("Lumen memory") }
-            fail("Must rethrow")
-        } catch (_: OutOfMemoryError) {
-            assertTrue(guard.state.value is ModelOpenState.Failed)
-            assertTrue(marker.exists())
-            assertEquals(ModelOpenState.Blocked, guard().state.value)
+    @Test fun userRequestedOrStoppedRetriesButUnknownReasonBlocks() = runBlocking {
+        for (reason in listOf(10, 11, 5, null)) {
+            root.listFiles().orEmpty().forEach { it.delete() }
+            guard().read(key) { capabilities }
+            var opened = false
+            val next = guard(reason)
+            next.read(key) { opened = true; capabilities }
+            assertEquals(reason == 10 || reason == 11, opened)
         }
     }
-
-    @Test fun durableMarkerPrecedesOpenAndEventsAreOrdered() = runBlocking {
-        val guard = guard {
+    @Test fun appUpdateOpensAgainAndCancelledInferenceDoesNotCompleteGuard() = runBlocking {
+        val first = guard()
+        first.read(key) { capabilities }
+        first.inference("model_prepare") { false }
+        assertTrue(marker.exists())
+        first.inference("model_chart") { true }
+        var opens = 0
+        guard().read(key.copy(lastUpdateTime = 5678)) { opens++; capabilities }
+        assertEquals(1, opens)
+    }
+    @Test fun ordinaryOpenFailureClearsMarkerAndWaitsForRetry() = runBlocking {
+        val first = guard()
+        assertNull(first.read(key) { throw io.ensomi.runtime.InternalException("failed") })
+        assertTrue(first.state.value is ModelOpenState.Failed)
+        assertFalse(marker.exists())
+        assertNull(first.read(key) { error("No automatic retry") })
+        first.retry()
+        assertEquals(capabilities, first.read(key) { capabilities })
+    }
+    @Test fun markerRenameSyncsDirectoryBeforeNativeWork() = runBlocking {
+        var synced = false
+        val first = ModelOpenGuard(root, { 123 }, syncDirectory = { synced = true }, afterMarker = {
+            assertTrue(synced)
             assertTrue(marker.readText().contains("1234"))
-            assertTrue(marker.readText().contains("wallTime"))
-            assertTrue(marker.readText().contains("123"))
-        }
-        guard.read(key) {
-            assertTrue(marker.exists())
-            capabilities
-        }
-        assertEquals(listOf("model_open" to "begin", "model_open" to "end"), recorded)
-        assertFalse(marker.exists())
+        })
+        first.read(key) { capabilities }
+        synced = false
+        first.inference("model_prepare") { assertTrue(synced); true }
     }
 }

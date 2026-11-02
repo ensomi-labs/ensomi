@@ -7,7 +7,12 @@ import java.io.File
 
 /** Debug APK only. These flag names and signal calls are absent from the release source set. */
 internal object ModelInstallFaults {
+    fun afterInference(context: Context) {
+        if (File(context.filesDir, "fault-model-prepare").exists()) Os.kill(Os.getpid(), OsConstants.SIGILL)
+    }
+
     fun afterMarker(context: Context) {
+        if (File(context.filesDir, "hold-model-open").exists()) Thread.sleep(30_000)
         if (File(context.filesDir, "fault-model-open").exists()) Os.kill(Os.getpid(), OsConstants.SIGILL)
     }
 

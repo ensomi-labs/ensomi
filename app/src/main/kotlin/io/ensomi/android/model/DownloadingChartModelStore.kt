@@ -1,6 +1,9 @@
 package io.ensomi.android.model
 
 import android.content.Context
+import android.system.Os
+import android.system.OsConstants
+import io.ensomi.android.diagnostics.ExitRecords
 import android.net.Uri
 import android.os.storage.StorageManager
 import android.util.Log
@@ -52,6 +55,16 @@ class DownloadingChartModelStore(
         events = events,
         log = { Log.i(ModelOpenGuard.TAG, it) },
         afterMarker = { ModelInstallFaults.afterMarker(appContext) },
+        exitReason = { pid, after -> ExitRecords.reasonFor(appContext, pid, after) },
+        syncDirectory = { dir ->
+            try {
+                val fd = Os.open(dir.path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+                try { Os.fsync(fd) } finally { Os.close(fd) }
+            } catch (failure: android.system.ErrnoException) {
+                throw IOException("Could not sync model state directory.", failure)
+            }
+        },
+        afterInferenceMarker = { ModelInstallFaults.afterInference(appContext) },
     )
     private val installer = ModelInstaller(
         root = root,

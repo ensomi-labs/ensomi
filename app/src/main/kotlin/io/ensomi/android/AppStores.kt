@@ -29,9 +29,13 @@ class AppStores private constructor(context: Context) {
     private val documents = DocumentSongLibrary(context, scope)
     val model = DownloadingChartModelStore(context, scope, InstallEvents { event, phase, detail ->
         Journal.record(event, phase, detail, durable = true)
-        if (event == "model_open") when (phase) {
-            "begin" -> ProcessStage.set(context, ProcessStage.Stage.MODEL_OPEN)
-            "end", "fail" -> ProcessStage.set(context, ProcessStage.Stage.IDLE)
+        if (event in setOf("model_open", "model_prepare", "model_chart")) when (phase) {
+            "begin" -> ProcessStage.set(context, when (event) {
+                "model_prepare" -> ProcessStage.Stage.MODEL_PREPARE
+                "model_chart" -> ProcessStage.Stage.MODEL_CHART
+                else -> ProcessStage.Stage.MODEL_OPEN
+            })
+            "end", "fail", "cancel" -> ProcessStage.set(context, ProcessStage.Stage.IDLE)
         }
     })
     val chartStore = ChartStore(File(context.filesDir, "charts"))

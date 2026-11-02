@@ -333,4 +333,5 @@
     <string name="crash_test_pass">Passed: refused as expected</string>
     <string name="crash_test_accepted">Unexpectedly accepted</string>
     <string name="crash_test_failed">Self-test failed</string>
+    <string name="model_inference_blocked">Ensomi closed during the first model preparation or chart. Choose Try again on the model card.</string>
 </resources>

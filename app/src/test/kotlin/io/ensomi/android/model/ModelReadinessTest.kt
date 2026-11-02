@@ -23,7 +23,7 @@ class ModelReadinessTest {
         assertFalse(make.isCompleted)
         state.value = installed(ModelOpenState.Ready)
         assertTrue(make.await())
-        state.value = installed(ModelOpenState.Blocked)
+        state.value = installed(ModelOpenState.Blocked())
         assertFalse(awaitModelReady(state))
     }
 
