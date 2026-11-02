@@ -338,7 +338,6 @@ class ModelInstaller(
         phase(InstallPhase.COMMITTING)
         var record: InstallRecord? = null
         commit {
-            if (isCancelled()) throw CancellationException("The install was cancelled.")
             val allowed = pkg.files.map { it.path }.toSet() + MANIFEST
             directory.walkBottomUp().filter { it.isFile && it.relativeTo(directory).invariantSeparatorsPath !in allowed }
                 .forEach { if (!it.delete()) throw IOException("Could not remove an unlisted staged file.") }

@@ -58,7 +58,7 @@ class DownloadingChartModelStore(
         exitReason = { pid, after -> ExitRecords.reasonFor(appContext, pid, after) },
         syncDirectory = { dir ->
             try {
-                val fd = Os.open(dir.path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+                val fd = Os.open(dir.path, OsConstants.O_RDONLY, 0)
                 try { Os.fsync(fd) } finally { Os.close(fd) }
             } catch (failure: android.system.ErrnoException) {
                 throw IOException("Could not sync model state directory.", failure)
@@ -217,7 +217,7 @@ class DownloadingChartModelStore(
         try {
             val result = installer.download(
                 progress = { done, total ->
-                    if (!cancelled.get() && done < total) mutableState.value = progressState(done, total)
+                    synchronized(lock) { if (!cancelled.get() && done < total) mutableState.value = progressState(done, total) }
                 },
                 isCancelled = { cancelled.get() },
             )
@@ -264,7 +264,7 @@ class DownloadingChartModelStore(
             val result = installer.installFrom(
                 DocumentTreePackageFiles(appContext.contentResolver, folder),
                 progress = { done, total ->
-                    if (!cancelled.get() && done < total) mutableState.value = progressState(done, total, fromFiles = true)
+                    synchronized(lock) { if (!cancelled.get() && done < total) mutableState.value = progressState(done, total, fromFiles = true) }
                 },
                 isCancelled = { cancelled.get() },
             )

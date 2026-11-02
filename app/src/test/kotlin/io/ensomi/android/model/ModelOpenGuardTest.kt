@@ -87,5 +87,6 @@ class ModelOpenGuardTest {
         first.read(key) { capabilities }
         synced = false
         first.inference("model_prepare") { assertTrue(synced); true }
+        Unit
     }
 }
