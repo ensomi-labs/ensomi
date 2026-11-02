@@ -124,8 +124,8 @@ pinned package resumes without network access. Verification never opens the mode
 a durable marker protects the first open and first preparation or chart; a crash leaves a blocked card with **Try again**,
 **Remove model** and **Share diagnostics**. Capabilities are saved for the installed revision and app
 update, so subsequent starts do not open ORT even before inference. Each marker exists only during its
-native call and is removed on return, cancellation or refusal; the first returned inference completes that guard. An Android
-user-requested stop retries automatically. Stage boundaries are appended to the journal; the OS process
+native call and is removed on return, cancellation or refusal. Only the first successful inference completes
+that guard; cancelled or refused calls leave the next inference guarded. An Android user-requested stop retries automatically. Stage boundaries are appended to the journal; the OS process
 summary names the active guarded stage. Cold shares and chart requests wait up to 60 seconds for readiness.
 
 Install 0.1.3 over 0.1.2 without uninstalling to preserve Android's earlier crash record. To share it,

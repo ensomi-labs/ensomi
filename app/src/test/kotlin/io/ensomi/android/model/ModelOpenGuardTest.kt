@@ -3,9 +3,13 @@ package io.ensomi.android.model
 import io.ensomi.android.chart.ChartCapabilities
 import io.ensomi.runtime.GeneratorException
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -23,6 +27,9 @@ class ModelOpenGuardTest {
         // A dead process never reaches finally; reproduce precisely its persisted marker.
         marker.writeText("""{"key":{"revision":"lumen-1","versionCode":7,"lastUpdateTime":$update},"wallTime":100,"pid":$pid,"stage":"$stage"}""")
     }
+    private fun inferenceComplete(): Boolean = kotlinx.serialization.json.Json
+        .parseToJsonElement(File(root, "model-capabilities.json").readText()).jsonObject
+        .get("inferenceComplete")?.jsonPrimitive?.booleanOrNull ?: false
     @After fun clean() { root.deleteRecursively() }
 
     @Test fun noMarkerAfterOpenOrBetweenInferencesAndOnlyFirstCallIsGuarded() = runBlocking {
@@ -34,7 +41,9 @@ class ModelOpenGuardTest {
         val second = guard()
         assertEquals(capabilities, second.read(key) { error("Use stored capabilities before inference too") })
         assertFalse(marker.exists())
+        assertFalse(inferenceComplete())
         second.inference("model_prepare") { assertTrue(marker.exists()); true }
+        assertTrue(inferenceComplete())
         assertFalse(marker.exists())
         second.inference("model_chart") { assertFalse(marker.exists()); true }
         val third = guard()
@@ -42,22 +51,34 @@ class ModelOpenGuardTest {
         third.inference("model_prepare") { assertFalse(marker.exists()); true }
         assertEquals(listOf("model_open" to "begin", "model_open" to "end", "model_prepare" to "begin", "model_prepare" to "end"), recorded)
     }
-    @Test fun cancellationsAndGenerationRefusalDoNotFailTheModelOrLeaveAMarker() = runBlocking {
-        for (failure in listOf(GeneratorException.Cancelled(), CancellationException("stop"),
-            GeneratorException.Generation("star_out_of_range", "refused"))) {
-            root.listFiles().orEmpty().forEach { it.delete() }
-            val first = guard()
-            first.read(key) { capabilities }
+    @Test fun cancelledFirstInferenceLeavesTheNextCallGuarded() = failedInferenceRemainsGuarded(GeneratorException.Cancelled())
+    @Test fun coroutineCancellationLeavesTheNextCallGuarded() = failedInferenceRemainsGuarded(CancellationException("stop"))
+    @Test fun refusedFirstChartLeavesTheNextCallGuarded() =
+        failedInferenceRemainsGuarded(GeneratorException.Generation("star_out_of_range", "refused"))
+    @Test fun otherFailureLeavesTheNextCallGuarded() = failedInferenceRemainsGuarded(IOException("failed"))
+
+    private fun failedInferenceRemainsGuarded(failure: Throwable) = runBlocking {
+        val first = guard()
+        first.read(key) { capabilities }
+        repeat(2) {
+            // The second call in this process must get a marker too.
             try { first.inference(if (failure is GeneratorException.Generation) "model_chart" else "model_prepare") {
                 assertTrue(marker.exists()); throw failure
             }; fail("Expected exception") } catch (caught: Throwable) { assertSame(failure, caught) }
             assertEquals(ModelOpenState.Ready, first.state.value)
             assertFalse(marker.exists())
-            first.inference("model_prepare") { assertFalse(marker.exists()) }
-            val next = guard()
-            next.read(key) { error("No reopen after a normal stop/refusal") }
-            next.inference("model_chart") { assertFalse(marker.exists()) }
+            assertFalse(inferenceComplete())
         }
+        // Persisted false survives a process restart, without reopening just to read capabilities.
+        val next = guard()
+        next.read(key) { error("Use cached capabilities") }
+        next.inference("model_prepare") { assertTrue(marker.exists()); true }
+        assertFalse(marker.exists())
+        assertTrue(inferenceComplete())
+        next.inference("model_chart") { assertFalse(marker.exists()) }
+        val completed = guard()
+        completed.read(key) { error("Must use cache") }
+        completed.inference("model_prepare") { assertFalse(marker.exists()) }
     }
     @Test fun modelLoadFailureIsFailedButReturnedExceptionNeverLeavesAMarker() = runBlocking {
         val first = guard()

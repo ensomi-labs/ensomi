@@ -152,11 +152,16 @@ class ModelOpenGuard(
             if (e is GeneratorException.Model) mutableState.value = ModelOpenState.Failed(e.message)
             throw e
         } finally {
-            // Only process death can bypass this cleanup. Even a cancelled/refused native call returned safely.
+            // Always end this call's marker, but only success proves the risky kernels ran safely.
             deleteMarker()
-            inferencePending = false
-            if (failure is GeneratorException.Model) deleteCache()
-            else save(key, checkNotNull(activeCapabilities), true)
+            when (failure) {
+                null -> {
+                    save(key, checkNotNull(activeCapabilities), true)
+                    inferencePending = false
+                }
+                is GeneratorException.Model -> deleteCache()
+                else -> save(key, checkNotNull(activeCapabilities), false)
+            }
             val phase = when (failure) {
                 is GeneratorException.Cancelled, is CancellationException -> "cancel"
                 null -> "end"

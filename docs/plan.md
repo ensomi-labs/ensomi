@@ -191,7 +191,8 @@ before being rethrown.
 
 The first open for model revision/app version code/package update time writes a synced pending marker before any
 ONNX session is opened. A separate marker covers only the first native preparation or chart call; its return or throw clears
-that marker and completes the inference guard. Capabilities are reusable before first inference too. A leftover marker after an intentional user stop retries; otherwise it blocks
+that marker. Only success completes the inference guard; cancellation/refusal leaves the next call guarded.
+Capabilities are reusable before first inference too. A leftover marker after an intentional user stop retries; otherwise it blocks
 native opening and preparation, with explicit Try again and Remove model actions. Ordinary failures show their
 reason and allow retry. The install directory has one shared access mutex for commit, removal, guarded opens and
 chart/preparation scopes. The diagnostics callback opens the independent Diagnostics activity, and every InstallEvents
@@ -235,7 +236,8 @@ No CPU with SME has run this build; the affected tester's phone remains the rele
 
 The first-open marker now ends when the native open returns. The first native `prepare` or chart scheduler
 work call gets a separate marker, cleared on every return or throw. A cancellation or generation refusal leaves
-the model Ready; one returned inference completes the guard for that key. Saved capabilities remain usable
+the model Ready. Only successful inference completes the guard for that key; cancelled/refused calls leave it
+pending. Saved capabilities remain usable
 before any inference, and no marker spans cached preparation, play, disk persistence or idle time. Old-key and
 current-process markers are discarded and journaled. Marker exit lookup uses the earliest matching PID lifetime.
 APK library basenames split at both `/` and `!`; the journal retains all fifteen uncaught-exception frames.
@@ -249,3 +251,12 @@ SIGILL flags still blocked and recovered through Try again. A debug 0.1.2 SIGILL
 an unmatched projection-2 trace with native module basenames. The final unsigned R8 APK passed alignment,
 permission diff, runtime build-ID/forbidden-word checks and fault-trigger removal. This round's evidence is in
 `artifacts/android-0.1.3/native-guard/`; release notes and the unsigned APK/hash were replaced beside it.
+
+
+The successful-inference correction passed the full build with 383 JVM tests and zero lint errors. In one
+Android 17 run, Home cancelled the first preparation after a fresh staged-package install, leaving inference
+pending without a marker. Arming the preparation fault before returning caused SIGILL on the next guarded
+call; relaunch showed Blocked. The same run's journal has begin/cancel/begin without an end for the crash.
+Clearing the flag and Try again completed preparation and persisted successful inference. Final unsigned APK
+alignment, permission diff, runtime build ID/SME-word and release-DEX fault-trigger checks passed. Evidence is
+in `artifacts/android-0.1.3/successful-inference/`; the unsigned APK, SHA-256 and release notes are replaced.

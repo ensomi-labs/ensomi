@@ -156,7 +156,8 @@ revision plus the app version code and package last-update time. Before the firs
 syncs `no_backup/model-open-pending.json` and its directory with that key, wall time, PID and stage. Open success
 clears the open marker immediately, then stores capabilities. The first native preparation or chart call writes its
 own marker and clears it on return or throw, before caching or other work. Cancellation and chart refusals leave
-model readiness unchanged. Any returned inference completes the guard for this key; a model-load error still
+model readiness unchanged. Only a successful inference completes the guard for this key; cancellation, refusal and other failures leave
+the next native call guarded, including after a restart. A model-load error still
 reports Failed. Later starts read capabilities without opening ONNX sessions even when inference is still pending. An app update changes
 the key and requires one guarded open. An ordinary open failure clears the marker and shows its reason; a marker
 left at startup blocks automatic opening and preparation and names the stage. Android exit reasons USER_REQUESTED
