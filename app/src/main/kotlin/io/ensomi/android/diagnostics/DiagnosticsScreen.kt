@@ -28,6 +28,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -51,12 +54,26 @@ fun DiagnosticsScreen(modifier: Modifier = Modifier, onBack: (() -> Unit)? = nul
     val appContext = LocalContext.current.applicationContext
     val viewModel = viewModel { DiagnosticsViewModel(DiagnosticsCollector(appContext)) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    DiagnosticsContent(uiState, modifier, onBack)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var sharing by remember { mutableStateOf(false) }
+    DiagnosticsContent(uiState, modifier, onBack, onProbe = viewModel::probe, onShare = {
+        if (!sharing) {
+            sharing = true
+            scope.launch {
+                try { DiagnosticsExport.share(context, viewModel.bundle(appContext)) }
+                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (failure: Exception) { viewModel.fail(failure) }
+                finally { sharing = false }
+            }
+        }
+    }, sharing = sharing)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiagnosticsContent(uiState: DiagnosticsUiState, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null) {
+fun DiagnosticsContent(uiState: DiagnosticsUiState, modifier: Modifier = Modifier, onBack: (() -> Unit)? = null,
+    onProbe: (() -> Unit)? = null, onShare: (() -> Unit)? = null, sharing: Boolean = false) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val clipLabel = stringResource(R.string.diagnostics_clip_label)
@@ -99,7 +116,7 @@ fun DiagnosticsContent(uiState: DiagnosticsUiState, modifier: Modifier = Modifie
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(innerPadding).padding(16.dp),
             )
-            is DiagnosticsUiState.Ready -> SectionList(uiState.sections, innerPadding)
+            is DiagnosticsUiState.Ready -> SectionList(uiState.sections, innerPadding, uiState.exitCount, onProbe, onShare, sharing)
         }
     }
 }
@@ -115,7 +132,8 @@ private fun Loading(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SectionList(sections: List<DiagnosticsSection>, scaffoldPadding: PaddingValues) {
+private fun SectionList(sections: List<DiagnosticsSection>, scaffoldPadding: PaddingValues, exitCount: Int,
+    onProbe: (() -> Unit)?, onShare: (() -> Unit)?, sharing: Boolean) {
     val direction = LocalLayoutDirection.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -128,6 +146,17 @@ private fun SectionList(sections: List<DiagnosticsSection>, scaffoldPadding: Pad
         ),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.crash_contents))
+                Text(stringResource(R.string.crash_exits, exitCount))
+                if (onShare != null) androidx.compose.material3.Button(onClick = onShare, enabled = !sharing) {
+                    Text(stringResource(R.string.crash_share))
+                }
+                Text(stringResource(R.string.crash_probe_help), style = MaterialTheme.typography.bodySmall)
+                if (onProbe != null) TextButton(onClick = onProbe, enabled = !sharing) { Text(stringResource(R.string.crash_probe)) }
+            }
+        }
         items(sections, key = { it.title }) { section -> SectionCard(section) }
     }
 }
@@ -164,6 +193,7 @@ private fun ValueRow(row: DiagnosticsRow) {
     val label = row.labelArgument?.let { stringResource(row.label, it) } ?: stringResource(row.label)
     val value = when (val rowValue = row.value) {
         is DiagnosticsValue.Text -> rowValue.text
+        is DiagnosticsValue.Label -> stringResource(rowValue.resource)
         is DiagnosticsValue.Problem -> rowValue.text
         is DiagnosticsValue.Flag -> stringResource(if (rowValue.on) R.string.value_yes else R.string.value_no)
         DiagnosticsValue.None -> stringResource(R.string.value_none)

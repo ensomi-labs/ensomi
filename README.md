@@ -12,9 +12,8 @@ folder the player picks, either way only the pinned package and checked file by 
 the device by the runtime from the player's songs, the last one per song kept; play: the chart on the song's own sound,
 timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with
 the lanes leaning back by default (the orientation and the lean are settings with a live preview); and the timing
-calibration, on a click track through the same output and clock. Diagnostics, under Settings,
-shows what the device is (SoC, CPU, memory page size, display modes, audio, thermal state) and checks that the
-runtime's native library loads. The design is in [docs/design.md](docs/design.md) and
+calibration, on a click track through the same output and clock. Diagnostics, under Settings or the launcher icon’s long-press shortcut,
+shares device facts, recovered process exits and a bounded event journal. Loading the runtime is an optional self-test. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
 
 ## Get the demo
@@ -177,8 +176,10 @@ adb logcat -d -s EnsomiPhoneCheck:I -v raw
 
 ## Diagnostics output
 
-The Diagnostics screen reads the device at launch. **Copy JSON** copies everything as one JSON object.
-The same JSON goes to logcat once per launch, under the tag `EnsomiDiagnostics`:
+The independent Diagnostics activity reads device facts and previous process exits without creating app stores
+or loading the runtime. **Share diagnostics** opens the Android chooser with a redacted ZIP; **Copy JSON**
+copies the schema-2 summary. The optional runtime self-test expects the empty package to be refused.
+See [the schema and privacy contract](docs/diagnostics.md). The summary also goes to logcat under `EnsomiDiagnostics`:
 
 ```sh
 adb logcat -d -s EnsomiDiagnostics:I -v raw

@@ -32,7 +32,6 @@
     <string name="label_runtime_loaded">Native library loaded</string>
     <string name="label_runtime_init">Load time</string>
     <string name="label_runtime_notice_files">Notice files, no model</string>
-    <string name="label_runtime_check_package">Package check, empty manifest</string>
     <string name="label_runtime_error">Error</string>
 
     <string name="label_page_size">Page size</string>
@@ -323,4 +322,15 @@
     <string name="model_chart_blocked">Ensomi closed while opening the model. Choose Try again on the model card.</string>
     <string name="model_chart_open_failed">The model could not open: %1$s. Choose Try again on the model card.</string>
     <string name="model_chart_wait">Wait for the chart model to finish installing and opening.</string>
+    <!-- Crash reports -->
+    <string name="crash_contents">Share device and CPU facts, recent process exits, the last three runs of the event journal, and up to three redacted crash traces. Song audio and titles are excluded. Nothing is uploaded by Ensomi.</string>
+    <string name="crash_share">Share diagnostics</string>
+    <string name="crash_probe">Run runtime self-test</string>
+    <string name="crash_probe_help">Optional: loads the native runtime without opening a model. The empty test package is expected to be refused. You can share previous crashes without running this test.</string>
+    <string name="crash_self_test">Empty-package self-test (expected refusal)</string>
+    <string name="crash_exits">Recovered process exits: %1$d</string>
+    <string name="crash_test_not_run">Not run</string>
+    <string name="crash_test_pass">Passed: refused as expected</string>
+    <string name="crash_test_accepted">Unexpectedly accepted</string>
+    <string name="crash_test_failed">Self-test failed</string>
 </resources>

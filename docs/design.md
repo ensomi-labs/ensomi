@@ -512,3 +512,12 @@ results are the runtime's real score of that game; and the calibration's picture
 `prototype/Fakes.kt` (sample songs, a fixed model and chart state, settings in memory, a click track without sound and
 16 sample taps); `scripts/capture-prototype.sh` drives them all and plays one real game. Nothing in the screens says
 "not built yet" any more.
+
+### Crash recovery diagnostics
+
+The launcher icon's **Diagnostics** shortcut and Settings → About → Diagnostics open a separate
+activity that does not create app stores or open a model. It explains the contents before a single
+**Share diagnostics** action opens Android's chooser; **Copy JSON** remains available. The native
+runtime self-test is optional and explicitly labelled as an expected empty-package refusal.
+Previous exits can be shared even when normal app initialization crashes. See
+[Crash reports](diagnostics.md) for storage, privacy, schema and the model-card intent factory.

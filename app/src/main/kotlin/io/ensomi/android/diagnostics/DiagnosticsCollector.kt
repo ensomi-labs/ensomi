@@ -12,30 +12,36 @@ import android.system.OsConstants
 import android.view.Display
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
-/** Reads the device facts and runs the runtime check. Every read is best effort. */
-class DiagnosticsCollector(context: Context) {
+/** Device and previous-process facts only. Native code is called solely by the explicit probe action. */
+class DiagnosticsCollector(context: Context, private val runtimeIdentity: String = "unavailable") {
     private val context = context.applicationContext
 
-    suspend fun collect(): DiagnosticsReport = coroutineScope {
-        val runtime = async { RuntimeProbe.check() }
+    suspend fun collect(runtime: RuntimeFacts = RuntimeFacts(false, null, null, null, null)): DiagnosticsReport =
         withContext(Dispatchers.IO) {
+            ExitRecords.await()
+            val failures = linkedMapOf<String, String>()
             DiagnosticsReport(
                 collectedAt = Instant.now().toString(),
-                app = app(),
-                device = device(),
-                cpu = CpuFacts(CpuCores.read()),
-                memory = memory(),
-                display = display(),
-                audio = audio(),
-                thermal = thermal(),
-                runtime = runtime.await(),
+                app = fact(failures, "app", AppFacts(context.packageName, null, 0), ::app),
+                device = fact(failures, "device", DeviceFacts("unknown", "unknown", "unknown", "unknown", "unknown", Build.VERSION.SDK_INT, "unknown", emptyMap()), ::device),
+                cpu = fact(failures, "cpu", CpuFacts(emptyList()), CpuFeatures::read),
+                memory = fact(failures, "memory", MemoryFacts(0, 0, null), ::memory),
+                display = fact(failures, "display", DisplayFacts(null, emptyList()), ::display),
+                audio = fact(failures, "audio", AudioFacts(false, false, null, null, false), ::audio),
+                thermal = fact(failures, "thermal", ThermalFacts("unknown", null), ::thermal),
+                runtime = runtime.copy(identity = runtimeIdentity),
+                exits = ExitRecords.read(context), journal = Journal.snapshot(3),
+                exitCollection = ExitRecords.collection, collectionErrors = failures,
             )
         }
-    }
+
+    private fun <T> fact(failures: MutableMap<String, String>, name: String, fallback: T, read: () -> T): T =
+        try { read() } catch (failure: Exception) {
+            failures[name] = Redact.text(failure.javaClass.name)
+            fallback
+        }
 
     private fun app(): AppFacts {
         val info = context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
