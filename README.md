@@ -121,10 +121,11 @@ adb logcat -d -s EnsomiModelInstall:I -v raw
 
 Installation separates transfer, file verification, commit and the first model open. A fully staged
 pinned package resumes without network access. Verification never opens the model. After commit,
-a durable marker protects the first open; a process death leaves a blocked card with **Try again**,
+a durable marker protects the first open and first preparation or chart; a crash leaves a blocked card with **Try again**,
 **Remove model** and **Share diagnostics**. Capabilities are saved for the installed revision and app
-update, so subsequent starts do not open ORT. Stage boundaries are recorded durably in the journal;
-the OS process summary also names `model_open` while opening, then returns to `idle`.
+update, and marked complete after first inference, so subsequent starts do not open ORT. An Android
+user-requested stop retries automatically. Stage boundaries are appended to the journal; the OS process
+summary names the active guarded stage. Cold shares and chart requests wait up to 60 seconds for readiness.
 
 Install 0.1.3 over 0.1.2 without uninstalling to preserve Android's earlier crash record. To share it,
 long-press the launcher icon → **Diagnostics** → **Share diagnostics**. The ZIP has schema-2 device/CPU

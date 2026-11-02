@@ -153,13 +153,18 @@ manifest. Neither recoverable install failures nor first-open failures delete a 
 
 Opening the model is a separate, guarded operation after commit, on the chart maker's worker. Its key is the model
 revision plus the app version code and package last-update time. Before the first open for a key, the app writes and
-syncs `no_backup/model-open-pending.json` with that key, wall time and PID. Success stores the capabilities beside it,
-then removes the marker. Later starts read those capabilities without opening ONNX sessions. An app update changes
+syncs `no_backup/model-open-pending.json` and its directory with that key, wall time, PID and stage. Open success
+stores capabilities; the marker remains over the first preparation or chart, whichever comes first. Successful
+inference completes the cache and removes the marker. Later starts read capabilities without opening ONNX sessions. An app update changes
 the key and requires one guarded open. An ordinary open failure clears the marker and shows its reason; a marker
-left at startup blocks all automatic opening and preparation until the person chooses Try again or Remove model.
+left at startup blocks automatic opening and preparation and names the stage. Android exit reasons USER_REQUESTED
+or USER_STOPPED instead retry automatically. Unknown or missing exit records remain blocked.
 Try again clears the old marker and runs the guarded open explicitly. The recovery card also appears in the library
 and on the chart screen. A shared mutex excludes commit and removal from every model open and preparation scope.
-Background preparation and requested charts require capabilities ready for the current revision.
+Background preparation and requested charts require capabilities ready for the current revision. Chart requests and
+cold shares wait up to 60 seconds through checking, waiting and opening. Cancel publishes Stopped immediately;
+a cancelled transfer cannot publish Installed. Startup checks and removal catch runtime/storage failures and leave
+an actionable failure. Unlisted staging files are removed before commit.
 
 - Free space comes from `StorageManager.getAllocatableBytes`, which counts what the system can free from caches, and
   the download reserves what it still has to fetch with `allocateBytes`, which frees the system's caches if it must

@@ -27,24 +27,25 @@ Journal.record(
 
 Both entry points are process-wide, thread-safe and never throw. Startup calls `start` once;
 subsequent calls are harmless. Before startup or if storage fails, recording is best effort. A
-durable call writes complete UTF-8 lines and calls `FileDescriptor.sync()` before returning.
-Non-durable events accumulate in memory; the next durable event, activity `onStop`, or report
-snapshot flushes and syncs them. An 8 KiB pending threshold writes batches without forcing a sync.
-Rotation syncs the old segment too. Do not journal per-frame work or frequent download progress.
+durable call appends the pending batch and record with one write before returning. Process death preserves
+those bytes in the kernel page cache. Only `model_open/begin` fsyncs the journal, on the runtime worker.
+Non-durable events flush at the next durable event, activity `onStop`, snapshot or 8 KiB threshold.
+Do not journal per-frame work or frequent download progress.
 
 The two segments `journal-0.jsonl` (older) and `journal-1.jsonl` (newer) live in
-`noBackupFilesDir/diagnostics/`, each at most 65,536 bytes. Startup prunes to the previous seven
-runs before writing the new header. Retention is **at most eight runs**, also limited by the byte
-budget. A busy run can evict old headers. JSON parsing ignores unknown fields and drops a torn
-last line; it never treats a partial line as an event. A failed prune may lose old context but
-cannot create a correlation. Export includes the last three retained runs.
+`noBackupFilesDir/diagnostics/`, each at most 65,536 bytes. Startup only appends its header. Background
+exit recovery rewrites segments only when pruning is needed, retaining the last eight runs plus runs
+referenced by exits, within the byte budget. A busy run can evict old headers. A newline separates a torn
+tail before the next append; parsing drops incomplete/invalid rows. Export includes the last three
+retained runs and every retained run named by `exits[].run`.
 
 Each JSON line has `v:1`, `t` (wall milliseconds), `up` (elapsed realtime milliseconds), `run`
 (random 64-bit ID, sixteen hex digits), `seq` (increasing within the run), `ev`, `ph`, and `ctx`.
 `run/start` has PID, process start elapsed realtime, inferred process start wall time, current
 wall/elapsed times, version name/code, SDK integer and full SDK integer (API 36+), incremental
 build, security patch, fingerprint and primary ABI. `uncaught_exception/crash` has exception class,
-a suppressed message, and up to fifteen class/method/line frames without source filenames.
+a suppressed message, up to five causes (class and suppressed message), and bounded class/method/line
+frames without source filenames. Dotted class names are preserved.
 
 Event/phase names must be fixed technical literals. Context must contain technical stage facts,
 operation IDs, counts, outcomes or error classes; **never supply a song title, document name or
@@ -79,7 +80,7 @@ Additions:
   not a load failure). A `GeneratorException.Model` refusal produces `refused/true`. Unexpected
   acceptance gives `accepted/false`; an unexpected failure gives `error/false`. Unexpected failures remain in `runtime.error`. The expected
   refusal is labelled explicitly and is never displayed as an installed-model error.
-- `exits`: up to 32 persisted previous-process records. `journal`: last three retained runs.
+- `exits`: up to 32 persisted previous-process records. `journal`: last three retained runs plus retained runs referenced by exits.
 - `exitCollection`: `complete`, or `unavailable: <exception class>`. An empty list with a collection
   failure does not claim that no crashes occurred. `collectionErrors` maps failed device-fact sections
   to exception classes; those sections use unknown/zero defaults so a vendor API failure cannot
@@ -100,18 +101,17 @@ Reasons 17 and 18 are named `REASON_MEMORY_LIMITER` and `REASON_ANOMALY` using n
 this remains source-compatible with SDKs without those constants. `status` is a signal only for
 signaled/native-crash exits; other statuses are not mislabelled as signals.
 
-A match requires the same PID, an exit timestamp from process start through the run's last event
-plus ten minutes inclusive, and the summary run ID if present. Exactly one candidate must remain.
-No header, overlapping PID-reuse windows, a different summary, or incompatible clock bounds means
-`match: "unmatched"`, `run: null`. The ASCII `e1|<run8>|<stage>` process summary is at most 22 bytes: `start` at startup,
-`model_open` immediately before guarded native open, and `idle` on end/fail. Calls occur only on
-these transitions, with repeated states skipped and Android throttling failures caught. It is only a hint;
-Android can omit it. An exit from 0.1.2 stays unmatched because that build had no journal. Matched
-IDs are persisted with the exit; their older journal may subsequently age out.
+A matching PID and summary run ID identify the run even after a long event-free period. Without a
+summary ID, the exit must fall between process start and the last event plus ten minutes inclusive.
+Exactly one candidate must remain. Ambiguous or absent headers stay unmatched. Persisted rows without
+numeric timestamps are dropped. The ASCII `e1|<run8>|<stage>` process summary is at most 25 bytes:
+`start`, `model_open`, `model_prepare`, `model_chart`, or `idle`. Repeated states are skipped and Android
+throttling failures are caught. Android can omit this hint. An exit from 0.1.2 stays unmatched because
+that build had no journal. Matched IDs are persisted; retained referenced journal runs are included in exports.
 
 ## Traces, privacy and limits
 
-For native crashes and ANRs, read at most 256 KiB from
+For native crashes and ANRs, read at most 8 MiB from
 [`getTraceInputStream`](https://developer.android.com/reference/android/app/ApplicationExitInfo#getTraceInputStream()).
 Null or unreadable streams produce `trace: "unavailable"`. Only the last three traces are kept;
 older references become `expired`. Other reasons use `not_requested`.
@@ -119,11 +119,13 @@ older references become `expired`. Other reasons use `not_requested`.
 Raw native tombstones contain memory, logs and private filenames. They are **never written to
 disk or exported**. The trace file is a redacted text projection of the capped stream, using
 [AOSP's tombstone schema](https://android.googlesource.com/platform/system/core/+/refs/heads/main/debuggerd/proto/tombstone.proto):
-PID/TID, numeric signal/code/address, per-thread PCs/offsets, redacted function symbols, and build
-IDs. Memory, register dumps, logs, file lists, arguments, arbitrary messages and unknown fields
-are omitted. ANRs keep redacted stack lines only. Unsupported or truncated protobuf data is
-labelled. Each resulting trace is also capped at 256 KiB. This deliberately trades raw-tombstone
-completeness for privacy; offsets and build IDs support symbolization with the matching binary.
+each trace starts with `projection=2`, then PID/TID, numeric signal/code/fault address, suppressed abort
+message and thread name. The crashing thread comes first with all its frames, followed by other threads
+with at most 16 frames each, within a 512 KiB UTF-8 output cap. Frames retain relative PCs, module basenames
+(including libraries inside APKs), build IDs and symbols. Symbols are exempt from token redaction and capped
+at 512 characters. Memory, registers, logs, paths, arguments and unknown fields are omitted. ANRs retain
+thread headers, stack lines and native module basenames/build IDs. Truncation or unsupported protobuf is
+labelled. The raw input is only held in memory; offsets and build IDs support symbolization with the matching binary.
 
 `Redact` replaces app/external paths with `<files>`, `<nobackup>`, `<cache>`, `<ext>` (other absolute
 paths become `<path>`), content URIs with only their authority, and unapproved URLs with `<url>`.

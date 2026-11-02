@@ -190,12 +190,13 @@ failures. Stage boundaries catch unexpected runtime exceptions and errors; virtu
 before being rethrown.
 
 The first open for model revision/app version code/package update time writes a synced pending marker before any
-ONNX session is opened. Capabilities are stored on success and read at subsequent starts. A leftover marker blocks
+ONNX session is opened. The marker covers first preparation or chart too; successful inference completes the
+capability cache for subsequent starts. A leftover marker after an intentional user stop retries; otherwise it blocks
 native opening and preparation, with explicit Try again and Remove model actions. Ordinary failures show their
 reason and allow retry. The install directory has one shared access mutex for commit, removal, guarded opens and
 chart/preparation scopes. The diagnostics callback opens the independent Diagnostics activity, and every InstallEvents
-record is forwarded durably to the journal. Debug-only flags exercise death after staging and immediately after the pending marker; release source sets
-contain neither trigger.
+record is forwarded durably to the journal. Debug-only flags exercise death after staging, at open and at first inference, plus a held open for force-stop checks;
+release source sets contain no fault triggers.
 
 Verification evidence and the remaining device limitations are recorded in
 `artifacts/android-install-stages/report.md` in the build worktree. This work does not establish a fix on the reported

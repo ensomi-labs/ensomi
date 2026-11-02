@@ -14,7 +14,9 @@ reported offsets; rebuilding later is not a substitute for retaining that binary
 `runtime.identity` is the SHA-256 of the AAR Gradle actually links.
 
 0.1.3 separates resumable transfer, verification, commit and guarded first open; persists capabilities;
-and adds durable install events, exit recovery and a launcher Diagnostics shortcut. Install over
+and adds durable install events, exit recovery and a launcher Diagnostics shortcut. The guard now covers first
+inference; cold shares wait for readiness. Crash projection 2 prioritizes the crashing thread, reads up to 8 MiB
+in memory and exports up to 512 KiB of redacted evidence. Install over
 0.1.2 without uninstalling so earlier exit records survive. The candidate has not run on a CPU
 with SME, and the suspected affected-phone fix still needs a tester rerun.
 
