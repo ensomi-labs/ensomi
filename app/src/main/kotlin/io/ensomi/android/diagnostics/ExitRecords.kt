@@ -25,6 +25,13 @@ internal fun matchExit(pid: Int, timestamp: Long, summary: String?, runs: List<J
     }.singleOrNull()?.id
 }
 
+/** The marker belongs to the first lifetime ending after it, not a later reuse of the same PID. */
+internal fun markerExitReason(rows: List<Map<String, Any?>>, pid: Int, after: Long): Int? =
+    rows.filter { (it["pid"] as? Number)?.toInt() == pid &&
+        ((it["timestamp"] as? Number)?.toLong() ?: Long.MIN_VALUE) >= after }
+        .minByOrNull { (it["timestamp"] as Number).toLong() }
+        ?.get("reasonCode").let { (it as? Number)?.toInt() }
+
 internal fun validExitRows(rows: List<Map<String, Any?>>) = rows.filter { it["timestamp"] is Number }
 
 internal fun reasonName(reason: Int): String = when (reason) {
@@ -59,10 +66,7 @@ object ExitRecords {
     internal fun await() { ready.await() }
     fun reasonFor(context: Context, pid: Int, after: Long): Int? {
         await()
-        return read(context).filter { (it["pid"] as? Number)?.toInt() == pid &&
-            ((it["timestamp"] as? Number)?.toLong() ?: Long.MIN_VALUE) >= after }
-            .maxByOrNull { (it["timestamp"] as Number).toLong() }
-            ?.get("reasonCode").let { (it as? Number)?.toInt() }
+        return markerExitReason(read(context), pid, after)
     }
     @Synchronized internal fun read(context: Context): List<Map<String, Any?>> =
         runCatching { readLines(File(Journal.directory(context), "exits.jsonl")) }.getOrDefault(emptyList())

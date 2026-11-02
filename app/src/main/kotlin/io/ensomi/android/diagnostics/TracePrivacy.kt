@@ -70,7 +70,7 @@ internal object TracePrivacy {
     }
 
     private fun module(path: String): String {
-        val name = path.substringAfterLast('/').substringBefore(" (deleted)")
+        val name = path.substringAfterLast('/').substringAfterLast('!').substringBefore(" (deleted)")
         return if (name.matches(Regex("[A-Za-z0-9_.+-]+\\.(so|apk|oat|odex|vdex|art|jar|dex)|app_process64|\\[vdso\\]"))) name else "<module>"
     }
 

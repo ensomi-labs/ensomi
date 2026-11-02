@@ -48,4 +48,17 @@ class ExitRecordsTest {
         assertEquals(listOf(valid), validExitRows(listOf(mapOf("pid" to 43), mapOf("timestamp" to "bad"), valid)))
     }
 
+    @Test fun markerUsesEarliestExitBeforeLaterPidReuse() {
+        val rows = listOf(
+            mapOf("pid" to 42, "timestamp" to 3000L, "reasonCode" to 10),
+            mapOf("pid" to 42, "timestamp" to 999L, "reasonCode" to 11),
+            mapOf("pid" to 42, "timestamp" to 1500L, "reasonCode" to 5),
+            mapOf("pid" to 43, "timestamp" to 1000L, "reasonCode" to 10),
+            mapOf("pid" to 42, "reasonCode" to 11),
+        )
+        assertEquals(5, markerExitReason(rows, 42, 1000))
+        assertEquals(10, markerExitReason(rows, 42, 1501))
+        assertNull(markerExitReason(rows, 42, 3001))
+    }
+
 }

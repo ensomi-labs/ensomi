@@ -51,7 +51,7 @@ class TracePrivacyTest {
         val symbol = "kai_run_matmul_clamp_f32_bf16p8x4_bf16p12x4b_8x12_neon_mmla_".repeat(3)
         fun thread(id: Int, count: Int): ByteArray {
             var body = scalar(1, id) + text(2, if (id == 99) "main" else "worker-$id")
-            repeat(count) { pc -> body += blob(4, scalar(1, pc + id * 1000) + text(6, "/data/app/private/base.apk!lib/arm64-v8a/libX.so") + text(8, build) + text(4, symbol)) }
+            repeat(count) { pc -> body += blob(4, scalar(1, pc + id * 1000) + text(6, "/data/app/private/base.apk!libX.so") + text(8, build) + text(4, symbol)) }
             return blob(16, scalar(1, id) + blob(2, body))
         }
         var input = scalar(5, 42) + scalar(6, 99) + blob(10, scalar(1, 4) + scalar(3, 0))
@@ -73,7 +73,7 @@ class TracePrivacyTest {
     @Test fun anrKeepsMainThreadAndNativeModuleBuildId() {
         val build = "abcdef0123456789".repeat(4)
         val output = TracePrivacy.sanitise(("\"main\" prio=5 tid=1 Native\n" +
-            "  native: #00 pc 001234 /data/app/private/base.apk!lib/arm64-v8a/libX.so (native_call+4) (BuildId: $build)\n").toByteArray(), false)
+            "  native: #00 pc 001234 /data/app/private/base.apk!libX.so (native_call+4) (BuildId: $build)\n").toByteArray(), false)
         assertTrue(output.contains("\"main\" prio=5 tid=1"))
         assertTrue(output.contains("module=libX.so buildId=$build"))
         assertFalse(output.contains("/data/app"))

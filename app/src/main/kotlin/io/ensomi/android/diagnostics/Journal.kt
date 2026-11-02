@@ -75,7 +75,7 @@ internal class JournalEngine(
     @Synchronized fun record(event: String, phase: String, detail: Map<String, String>, durable: Boolean) {
         val record = linkedMapOf("v" to 1, "t" to wall(), "up" to elapsed(), "run" to run, "seq" to ++seq,
             "ev" to Redact.text(event, 80), "ph" to Redact.text(phase, 80),
-            "ctx" to detail.entries.take(24).associate { Redact.text(it.key, 64) to Redact.detail(it.key, it.value).take(512) })
+            "ctx" to detail.entries.take(32).associate { Redact.text(it.key, 64) to Redact.detail(it.key, it.value).take(512) })
         pending.append(Json.encode(record)).append('\n')
         if (durable || pending.length >= 8192) writePending()
         if (event == "model_open" && phase == "begin") {
