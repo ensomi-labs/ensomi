@@ -193,8 +193,8 @@ The first open for model revision/app version code/package update time writes a 
 ONNX session is opened. Capabilities are stored on success and read at subsequent starts. A leftover marker blocks
 native opening and preparation, with explicit Try again and Remove model actions. Ordinary failures show their
 reason and allow retry. The install directory has one shared access mutex for commit, removal, guarded opens and
-chart/preparation scopes. The optional diagnostics callback and InstallEvents journal hook await the diagnostics
-merge. Debug-only flags exercise death after staging and immediately after the pending marker; release source sets
+chart/preparation scopes. The diagnostics callback opens the independent Diagnostics activity, and every InstallEvents
+record is forwarded durably to the journal. Debug-only flags exercise death after staging and immediately after the pending marker; release source sets
 contain neither trigger.
 
 Verification evidence and the remaining device limitations are recorded in

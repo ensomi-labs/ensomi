@@ -133,8 +133,8 @@ SHA-256. The record says which way the files came (`"source": "huggingface"` or 
 | Checking files | "Checking model files… 12 of 30" while hashing staged files | None; Cancel is hidden after transfer |
 | Installing | "Installing the checked model…" while writing the record and replacing the directory | None |
 | First open | "Opening the model on this phone…" after commit | None |
-| Open blocked | "Ensomi closed while opening the model on this phone." | Try again; Remove model; optional Share diagnostics when wired |
-| Open failed | "Opening the model failed:" and the reason | Try again; Remove model; optional Share diagnostics when wired |
+| Open blocked | "Ensomi closed while opening the model on this phone." | Try again; Remove model; Share diagnostics |
+| Open failed | "Opening the model failed:" and the reason | Try again; Remove model; Share diagnostics |
 | Stopped | "The download stopped at 50.6 of 120.4 MB." and the reason; "Resume continues from the files already here." | Resume download; Install from files |
 | Installed (Settings only) | "Ensomi R2 r2-1.0", package tag and size | Download again; Remove |
 | Updating (Settings only) | The installed model, and progress to the pinned tag, which it stays in use until | Cancel |
@@ -213,8 +213,8 @@ One screen per song. The top app bar has Back and the song's title; under it, th
 | Checking files | "Checking model files… 12 of 30" while hashing staged files | None; Cancel is hidden after transfer |
 | Installing | "Installing the checked model…" while writing the record and replacing the directory | None |
 | First open | "Opening the model on this phone…" after commit | None |
-| Open blocked | "Ensomi closed while opening the model on this phone." | Try again; Remove model; optional Share diagnostics when wired |
-| Open failed | "Opening the model failed:" and the reason | Try again; Remove model; optional Share diagnostics when wired |
+| Open blocked | "Ensomi closed while opening the model on this phone." | Try again; Remove model; Share diagnostics |
+| Open failed | "Opening the model failed:" and the reason | Try again; Remove model; Share diagnostics |
 | Stopped | "Stopped. No chart was made." | Make chart |
 | Failed | "The chart could not be made." with a warning symbol, the runtime's message under it | Try again |
 | Ready to play | "Chart ready", "1,229 notes: 999 taps, 230 long notes", the seed with **Use seed** | **Play** (primary) and Make another, side by side, stacked at large text sizes |
