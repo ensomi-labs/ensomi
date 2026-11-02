@@ -7,7 +7,7 @@ object Redact {
     @Volatile private var roots: Map<String, String> = emptyMap()
     fun configure(paths: Map<String, String>) { roots = paths.entries.sortedByDescending { it.key.length }.associate { it.toPair() } }
 
-    fun text(value: String, cap: Int = 1024): String {
+    fun text(value: String, cap: Int = 1024, tokens: Boolean = true): String {
         var result = value.take(16_384)
         // Quoted prose can contain an arbitrary title with no recognisable extension.
         result = result.replace(Regex("\"[^\"]*\"|'[^']*'"), "<redacted>")
@@ -30,10 +30,14 @@ object Redact {
         result = result.replace(Regex("/(?:storage|sdcard|mnt/media_rw)(?:/[^\\s<>\"']*)?"), "<ext>")
         result = result.replace(Regex("(?<![:/a-zA-Z0-9])/(?:[^\\s<>\"']+)"), "<path>")
         result = result.replace(Regex("[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"), "<email>")
-        result = result.replace(Regex("(?i)\\b[0-9a-f]{32,}\\b|(?<![A-Za-z0-9])[A-Za-z0-9+/=_-]{48,}(?![A-Za-z0-9])"), "<token>")
-        result = result.replace(Regex("(?i)(?:[\\p{L}\\p{N}_-]+[ ]+)*[\\p{L}\\p{N}_.-]+\\.(?:mp3|wav|flac|m4a|ogg|aac|opus|aiff|wma|mp4|zip|json|onnx|bin|txt|csv|pdf|jpg|png|kt|java|so|apk)\\b"), "<file>")
+        if (tokens) result = result.replace(Regex("(?i)\\b[0-9a-f]{32,}\\b|(?<![A-Za-z0-9])[A-Za-z0-9+/=_-]{48,}(?![A-Za-z0-9])"), "<token>")
+        result = result.replace(Regex("(?i)(?:[\\p{L}\\p{N}_-]+[ ]+)*[\\p{L}\\p{N}_.-]+\\.(?:mp3|wav|flac|m4a|ogg|aac|opus|aiff|wma|mp4|zip|json|onnx|bin|txt|csv|pdf|jpg|png|kt|java|so|apk)(?![\\p{L}\\p{N}_$.])"), "<file>")
         return result.replace(Regex("[\\p{Cc}&&[^\\n\\t]]"), " ").take(cap)
     }
+
+    fun symbol(value: String): String = text(value, 512, tokens = false)
+    fun threadName(value: String): String =
+        if (value.matches(Regex("[A-Za-z0-9_$.:/-]{1,128}"))) text(value, 128) else "<redacted>"
 
     fun detail(key: String, value: String): String =
         if (Regex("(?i)title|filename|file_name|song|document|message").containsMatchIn(key)) "<redacted>"

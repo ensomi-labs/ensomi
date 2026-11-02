@@ -20,10 +20,12 @@ internal fun journalRuns(rows: List<Map<String, Any?>>): List<JournalRun> = rows
 internal fun matchExit(pid: Int, timestamp: Long, summary: String?, runs: List<JournalRun>): String? {
     val summaryRun = summary?.let { Regex("^e1\\|([0-9a-f]{8}|[0-9a-f]{16})\\|").find(it)?.groupValues?.get(1) }
     return runs.filter {
-        it.pid == pid && it.last >= it.start && timestamp >= it.start && timestamp <= it.last + 600_000 &&
-            (summaryRun == null || it.id.startsWith(summaryRun))
+        it.pid == pid && if (summaryRun != null) it.id.startsWith(summaryRun)
+        else it.last >= it.start && timestamp >= it.start && timestamp <= it.last + 600_000
     }.singleOrNull()?.id
 }
+
+internal fun validExitRows(rows: List<Map<String, Any?>>) = rows.filter { it["timestamp"] is Number }
 
 internal fun reasonName(reason: Int): String = when (reason) {
     0 -> "REASON_UNKNOWN"; 1 -> "REASON_EXIT_SELF"; 2 -> "REASON_SIGNALED"; 3 -> "REASON_LOW_MEMORY"
@@ -68,9 +70,9 @@ object ExitRecords {
     @Synchronized private fun collect(context: Context) {
         val dir = Journal.directory(context).also { it.mkdirs() }
         val file = File(dir, "exits.jsonl")
-        val records = read(context).toMutableList()
+        val records = validExitRows(read(context)).toMutableList()
         val seen = records.map { it["pid"].toString() to it["timestamp"].toString() }.toSet()
-        val runs = journalRuns(Journal.snapshot())
+        val runs = journalRuns(Journal.snapshot(Int.MAX_VALUE))
         val history = context.getSystemService(ActivityManager::class.java)
             .getHistoricalProcessExitReasons(context.packageName, 0, 0)
         for (exit in history.sortedBy { it.timestamp }) {
@@ -80,9 +82,9 @@ object ExitRecords {
             val trace = if (exit.reason == 5 || exit.reason == 6) {
                 try {
                     exit.traceInputStream?.use { input ->
-                        val bytes = input.readNBytes(TracePrivacy.LIMIT + 1)
+                        val bytes = input.readNBytes(TracePrivacy.INPUT_LIMIT)
                         val name = "trace-${exit.timestamp}-${exit.pid}.txt"
-                        val safe = TracePrivacy.sanitise(bytes.take(TracePrivacy.LIMIT).toByteArray(), exit.reason == 5)
+                        val safe = TracePrivacy.sanitise(bytes, exit.reason == 5)
                         atomicWrite(File(dir, name), safe.toByteArray().take(TracePrivacy.LIMIT).toByteArray())
                         name
                     } ?: "unavailable"
@@ -95,13 +97,14 @@ object ExitRecords {
                 "pss" to exit.pss, "rss" to exit.rss, "processStateSummary" to summary,
                 "match" to (if (run == null) "unmatched" else "matched"), "run" to run, "trace" to trace))
         }
-        val kept = records.sortedBy { (it["timestamp"] as Number).toLong() }.takeLast(32)
+        val kept = validExitRows(records).sortedBy { (it["timestamp"] as? Number)?.toLong() ?: 0L }.takeLast(32)
         val traces = kept.mapNotNull { it["trace"] as? String }.filter { it.startsWith("trace-") }.takeLast(3).toSet()
         dir.listFiles().orEmpty().filter { it.name.startsWith("trace-") && it.name !in traces }.forEach { it.delete() }
         val final = kept.map { row ->
             if ((row["trace"] as? String)?.startsWith("trace-") == true && row["trace"] !in traces)
                 row + ("trace" to "expired") else row
         }
+        Journal.prune(final.mapNotNull { it["run"] as? String }.toSet())
         atomicWrite(file, final.joinToString("", transform = { Json.encode(it) + "\n" }).toByteArray())
     }
 }

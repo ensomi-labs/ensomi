@@ -21,8 +21,8 @@ class TracePrivacyTest {
         val bytes = scalar(5, 42) + blob(10, scalar(1, 6)) + text(14, "Aster Song") + blob(16, scalar(1, 42) + blob(2, thread)) + text(17, "secret")
         val output = TracePrivacy.sanitise(bytes, true)
         assertTrue(output.contains("pid=42"))
-        assertTrue(output.contains("signal.1=6"))
-        assertTrue(output.contains("frame.1=1234"))
+        assertTrue(output.contains("signal=6"))
+        assertTrue(output.contains("frame pc=0x4d2"))
         assertTrue(output.contains("symbol=invented::open"))
         assertTrue(output.contains("buildId=$buildId"))
         for (private in listOf("Aster", "secret", "/data", "example.invalid")) assertFalse(output, output.contains(private))
@@ -37,13 +37,46 @@ class TracePrivacyTest {
         val bytes = scalar(5, 42) + blob(16, scalar(1, 42) + blob(2, thread))
         val output = TracePrivacy.sanitise(bytes.copyOf(40), true)
         assertTrue(output.contains("pid=42"))
-        assertTrue(output.contains("frame.1=1234"))
+        assertTrue(output.contains("frame pc=0x4d2"))
         assertFalse(output.contains("private memory"))
     }
-    @Test fun anrProjectionDropsMessagesAndThreadNames() {
+    @Test fun anrProjectionKeepsTechnicalHeadersButDropsPrivateMessages() {
         val output = TracePrivacy.sanitise("\"Aster Song\" tid=42\nmessage: Aster Song\n  at invented.Type.run(Type.kt:42)\n".toByteArray(), false)
         assertFalse(output.contains("Aster"))
         assertFalse(output.contains("Type.kt"))
         assertTrue(output.contains("invented.Type.run"))
     }
+    @Test fun sixtyThreadsPutCrashingThreadLastInInputAndFirstInProjection() {
+        val build = "1234567890abcdef".repeat(4)
+        val symbol = "kai_run_matmul_clamp_f32_bf16p8x4_bf16p12x4b_8x12_neon_mmla_".repeat(3)
+        fun thread(id: Int, count: Int): ByteArray {
+            var body = scalar(1, id) + text(2, if (id == 99) "main" else "worker-$id")
+            repeat(count) { pc -> body += blob(4, scalar(1, pc + id * 1000) + text(6, "/data/app/private/base.apk!lib/arm64-v8a/libX.so") + text(8, build) + text(4, symbol)) }
+            return blob(16, scalar(1, id) + blob(2, body))
+        }
+        var input = scalar(5, 42) + scalar(6, 99) + blob(10, scalar(1, 4) + scalar(3, 0))
+        repeat(59) { input += thread(it + 1, 100) }
+        input += thread(99, 120)
+        assertTrue(input.size > 256 * 1024)
+        val output = TracePrivacy.sanitise(input, true)
+        assertTrue(output.startsWith("projection=2\n"))
+        assertTrue(output.indexOf("thread=99 name=main crashing") < output.indexOf("thread=1 name=worker-1"))
+        val crash = output.substringAfter("thread=99 name=main crashing").substringBefore("thread=1 name=worker-1")
+        assertEquals(120, crash.lineSequence().count { it.startsWith("frame ") })
+        assertTrue(crash.contains("module=libX.so"))
+        assertTrue(crash.contains("buildId=$build"))
+        assertTrue(crash.contains(symbol))
+        assertFalse(output.contains("/data/app"))
+        assertEquals(120 + 59 * 16, output.lineSequence().count { it.startsWith("frame ") })
+    }
+
+    @Test fun anrKeepsMainThreadAndNativeModuleBuildId() {
+        val build = "abcdef0123456789".repeat(4)
+        val output = TracePrivacy.sanitise(("\"main\" prio=5 tid=1 Native\n" +
+            "  native: #00 pc 001234 /data/app/private/base.apk!lib/arm64-v8a/libX.so (native_call+4) (BuildId: $build)\n").toByteArray(), false)
+        assertTrue(output.contains("\"main\" prio=5 tid=1"))
+        assertTrue(output.contains("module=libX.so buildId=$build"))
+        assertFalse(output.contains("/data/app"))
+    }
+
 }

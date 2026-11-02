@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import io.ensomi.android.diagnostics.ExitRecords
+import io.ensomi.android.diagnostics.exceptionContext
 import io.ensomi.android.diagnostics.Journal
 import io.ensomi.android.diagnostics.ProcessStage
 
@@ -16,14 +17,7 @@ class EnsomiApplication : Application() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, failure ->
             try {
-                Journal.record("uncaught_exception", "crash", buildMap {
-                    put("class", failure.javaClass.name)
-                    // Messages can include unquoted song titles; omit their prose entirely.
-                    put("message", failure.message ?: "")
-                    failure.stackTrace.take(15).forEachIndexed { index, frame ->
-                        put("frame$index", "${frame.className}.${frame.methodName}:${frame.lineNumber}")
-                    }
-                })
+                Journal.record("uncaught_exception", "crash", exceptionContext(failure))
             } finally { previous?.uncaughtException(thread, failure) }
         }
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

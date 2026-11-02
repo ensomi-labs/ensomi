@@ -1,41 +1,78 @@
 package io.ensomi.android.diagnostics
 
-/**
- * Never store raw tombstones: they contain memory, log buffers, open file names and command arguments.
- * Project the capped protobuf onto numeric signal/stack data and redacted symbols. Unknown fields are skipped.
- * Field numbers: AOSP system/core/debuggerd/proto/tombstone.proto. ANRs retain only stack lines.
- */
+import java.io.ByteArrayOutputStream
+
+/** Raw input exists only in memory. Projection prioritizes the crashing thread over map serialization order. */
 internal object TracePrivacy {
-    const val LIMIT = 256 * 1024
-    fun sanitise(bytes: ByteArray, native: Boolean): String = buildString {
-        appendLine("Redacted trace; input capped at 256 KiB. Memory, filenames, messages and logs omitted.")
-        if (native) {
-            try {
-                fields(bytes).forEach { field -> when (field.id) {
-                    -1 -> appendLine("Remaining trace unavailable: truncated or unsupported protobuf.")
-                    5 -> appendLine("pid=${field.number}")
-                    6 -> appendLine("tid=${field.number}")
-                    10 -> fields(field.bytes).filter { it.id in setOf(1, 3, 9) }.forEach { appendLine("signal.${it.id}=${it.number}") }
-                    16 -> fields(field.bytes).firstOrNull { it.id == 2 }?.let { thread ->
-                        fields(thread.bytes).forEach { item -> when (item.id) {
-                            1 -> appendLine("thread=${item.number}")
-                            4 -> {
-                                val frame = fields(item.bytes)
-                                appendLine(frame.filter { it.id in setOf(1, 5, 7) }.joinToString(" ") { "frame.${it.id}=${it.number}" })
-                                frame.firstOrNull { it.id == 4 }?.let { appendLine("symbol=${Redact.text(it.bytes.toString(Charsets.UTF_8), 512)}") }
-                                // A build ID is a structured binary identity, not a free-text token.
-                                frame.firstOrNull { it.id == 8 }?.bytes?.toString(Charsets.UTF_8)?.takeIf { it.matches(Regex("[0-9a-fA-F]{1,128}")) }
-                                    ?.let { appendLine("buildId=$it") }
-                            }
-                        } }
-                    }
-                } }
-            } catch (_: Exception) { appendLine("Remaining trace unavailable: truncated or unsupported protobuf.") }
-        } else {
-            bytes.toString(Charsets.UTF_8).lineSequence().filter { it.trimStart().startsWith("at ") || it.trimStart().startsWith("native: #") }
-                .take(500).forEach { appendLine(Redact.text(it, 512)) }
+    const val INPUT_LIMIT = 8 * 1024 * 1024
+    const val LIMIT = 512 * 1024
+
+    fun sanitise(bytes: ByteArray, native: Boolean): String {
+        val output = ByteArrayOutputStream()
+        fun line(value: String): Boolean {
+            val data = (value + "\n").toByteArray(Charsets.UTF_8)
+            if (output.size() + data.size > LIMIT) return false
+            output.write(data)
+            return true
         }
-    }.take(LIMIT)
+        line("projection=2")
+        line("Redacted trace; input capped at 8 MiB; output capped at 512 KiB.")
+        if (native) {
+            val root = fields(bytes.copyOfRange(0, minOf(bytes.size, INPUT_LIMIT)))
+            val tid = root.firstOrNull { it.id == 6 }?.number
+            val signal = fields(root.firstOrNull { it.id == 10 }?.bytes ?: byteArrayOf())
+            val threads = root.filter { it.id == 16 }.mapNotNull { entry ->
+                fields(entry.bytes).firstOrNull { it.id == 2 }?.let { fields(it.bytes) }
+            }
+            val crashing = threads.firstOrNull { thread -> thread.firstOrNull { it.id == 1 }?.number == tid }
+            line("pid=${root.firstOrNull { it.id == 5 }?.number} tid=$tid")
+            line("signal=${signal.firstOrNull { it.id == 1 }?.number} code=${signal.firstOrNull { it.id == 3 }?.number} faultAddress=${signal.firstOrNull { it.id == 9 }?.number}")
+            val abort = root.firstOrNull { it.id == 14 }?.bytes?.toString(Charsets.UTF_8)
+            // Arbitrary abort/exception prose can contain unquoted song titles.
+            line("abortMessage=${abort?.let { Redact.detail("message", it) } ?: "unavailable"}")
+            line("threadName=${crashing?.firstOrNull { it.id == 2 }?.bytes?.toString(Charsets.UTF_8)?.let(Redact::threadName) ?: "unavailable"}")
+            val ordered = listOfNotNull(crashing) + threads.filter { it !== crashing }
+            for (thread in ordered) {
+                val id = thread.firstOrNull { it.id == 1 }?.number
+                val name = thread.firstOrNull { it.id == 2 }?.bytes?.toString(Charsets.UTF_8)?.let(Redact::threadName)
+                if (!line("thread=$id name=${name ?: "unavailable"}${if (thread === crashing) " crashing" else ""}")) break
+                val frames = thread.filter { it.id == 4 }.let { if (thread === crashing) it else it.take(16) }
+                for (item in frames) {
+                    val frame = fields(item.bytes)
+                    fun text(id: Int) = frame.firstOrNull { it.id == id }?.bytes?.toString(Charsets.UTF_8)
+                    val pc = frame.firstOrNull { it.id == 1 }?.number?.toULong()?.toString(16)
+                    val build = text(8)?.takeIf { it.matches(Regex("[0-9a-fA-F]{1,128}")) } ?: "unavailable"
+                    if (!line("frame pc=0x${pc ?: "?"} module=${module(text(6) ?: "")} buildId=$build symbol=${Redact.symbol(text(4) ?: "unavailable")}")) break
+                }
+            }
+            if (root.any { it.id == -1 } || bytes.size >= INPUT_LIMIT)
+                line("Remaining trace unavailable: truncated or unsupported protobuf.")
+        } else {
+            for (raw in bytes.toString(Charsets.UTF_8).lineSequence()) {
+                val value = raw.trimStart()
+                val header = Regex("^\"([^\"]+)\"(.*)$").matchEntire(value)
+                val safe = when {
+                    header != null -> "\"${Redact.threadName(header.groupValues[1])}\"${Redact.text(header.groupValues[2], 512)}"
+                    value.startsWith("at ") -> Redact.text(value, 512)
+                    value.startsWith("native: #") -> {
+                        val frame = Regex("native: #(\\d+)\\s+pc\\s+([0-9a-fA-F]+)\\s+(\\S+)(.*)").matchEntire(value)
+                        if (frame == null) Redact.text(value, 512) else {
+                            val build = Regex("BuildId: ([0-9a-fA-F]+)").find(frame.groupValues[4])?.groupValues?.get(1) ?: "unavailable"
+                            "native: #${frame.groupValues[1]} pc=${frame.groupValues[2]} module=${module(frame.groupValues[3])} buildId=$build symbol=${Redact.symbol(frame.groupValues[4].substringBefore("(BuildId:"))}"
+                        }
+                    }
+                    else -> continue
+                }
+                if (!line(safe)) break
+            }
+        }
+        return output.toString(Charsets.UTF_8.name())
+    }
+
+    private fun module(path: String): String {
+        val name = path.substringAfterLast('/').substringBefore(" (deleted)")
+        return if (name.matches(Regex("[A-Za-z0-9_.+-]+\\.(so|apk|oat|jar|dex)|app_process64|\\[vdso\\]"))) name else "<module>"
+    }
 
     private data class Field(val id: Int, val number: Long = 0, val bytes: ByteArray = byteArrayOf())
     private fun fields(bytes: ByteArray): List<Field> {

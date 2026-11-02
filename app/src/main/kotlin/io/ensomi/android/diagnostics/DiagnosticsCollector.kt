@@ -22,6 +22,7 @@ class DiagnosticsCollector(context: Context, private val runtimeIdentity: String
         withContext(Dispatchers.IO) {
             ExitRecords.await()
             val failures = linkedMapOf<String, String>()
+            val exits = ExitRecords.read(context)
             DiagnosticsReport(
                 collectedAt = Instant.now().toString(),
                 app = fact(failures, "app", AppFacts(context.packageName, null, 0), ::app),
@@ -32,7 +33,7 @@ class DiagnosticsCollector(context: Context, private val runtimeIdentity: String
                 audio = fact(failures, "audio", AudioFacts(false, false, null, null, false), ::audio),
                 thermal = fact(failures, "thermal", ThermalFacts("unknown", null), ::thermal),
                 runtime = runtime.copy(identity = runtimeIdentity),
-                exits = ExitRecords.read(context), journal = Journal.snapshot(3),
+                exits = exits, journal = Journal.snapshot(3, exits.mapNotNull { it["run"] as? String }.toSet()),
                 exitCollection = ExitRecords.collection, collectionErrors = failures,
             )
         }

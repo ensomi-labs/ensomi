@@ -13,26 +13,31 @@ class JournalTest {
         var data = ""
         var syncs = 0
         var writes = 0
+        var replacements = 0
         override fun read() = parseLines(data)
         override fun append(bytes: ByteArray, durable: Boolean) { data += bytes.toString(Charsets.UTF_8); writes++; if (durable) sync() }
-        override fun replace(records: List<Map<String, Any?>>) { data = records.joinToString("") { Json.encode(it) + "\n" } }
+        override fun replace(records: List<Map<String, Any?>>) { replacements++; data = records.joinToString("") { Json.encode(it) + "\n" } }
         override fun sync() { syncs++ }
     }
-    @Test fun durableWritesSyncBeforeReturningAndBatchPendingRecords() {
+    @Test fun durableBatchesAppendBeforeReturningAndOnlyOpenBeginSyncs() {
         val sink = Sink()
         val journal = JournalEngine(sink, "0123456789abcdef", { 1000 }, { 100 })
         journal.record("install", "begin", emptyMap(), true)
-        assertEquals(1, sink.syncs)
+        assertEquals(0, sink.syncs)
         journal.record("progress", "waiting", emptyMap(), false)
         journal.record("progress", "waiting", emptyMap(), false)
         assertEquals(1, sink.writes)
         journal.record("install", "end", emptyMap(), true)
-        assertEquals(2, sink.syncs)
+        assertEquals(0, sink.syncs)
         assertEquals(listOf(1L, 2L, 3L, 4L), sink.read().map { it["seq"] })
         journal.record("progress", "waiting", emptyMap(), false)
         journal.flush()
-        assertEquals(3, sink.syncs)
+        assertEquals(0, sink.syncs)
         assertEquals(5, sink.read().size)
+        assertEquals(3, sink.writes)
+        journal.record("model_open", "begin", emptyMap(), true)
+        assertEquals(1, sink.syncs)
+        assertEquals(0, sink.replacements)
     }
     @Test fun concurrentRecordsKeepSequenceOrder() {
         val sink = Sink()
@@ -72,12 +77,14 @@ class JournalTest {
     @Test fun retainsAtMostEightRunsAndExportsThree() {
         val sink = Sink()
         repeat(12) { run ->
-            JournalEngine(sink, run.toString(), { run.toLong() }, { run.toLong() })
-                .record("run", "start", emptyMap(), true)
+            val journal = JournalEngine(sink, run.toString(), { run.toLong() }, { run.toLong() })
+            journal.record("run", "start", emptyMap(), true)
+            journal.prune()
         }
         assertEquals((4..11).map(Int::toString), sink.read().map { it["run"] })
         val journal = JournalEngine(sink, "12", { 12 }, { 12 })
         journal.record("run", "start", emptyMap(), true)
         assertEquals(listOf("10", "11", "12"), journal.snapshot(3).map { it["run"] })
+        assertEquals(listOf("4", "10", "11", "12"), journal.snapshot(3, setOf("4")).map { it["run"] })
     }
 }

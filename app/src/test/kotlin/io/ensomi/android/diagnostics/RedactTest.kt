@@ -32,4 +32,11 @@ class RedactTest {
         assertEquals(20, Redact.text("word ".repeat(100), 20).length)
         assertEquals("java.lang.IllegalStateException", Redact.text("java.lang.IllegalStateException"))
     }
+    @Test fun dottedClassesAndLongKernelSymbolsSurvive() {
+        for (value in listOf("io.ensomi.android.json.Json.encode:12", "java.util.zip.ZipFile"))
+            assertEquals(value, Redact.text(value))
+        val symbol = "kai_run_matmul_clamp_f32_bf16p8x4_bf16p12x4b_8x12_neon_mmla"
+        assertEquals(symbol, Redact.symbol(symbol))
+    }
+
 }

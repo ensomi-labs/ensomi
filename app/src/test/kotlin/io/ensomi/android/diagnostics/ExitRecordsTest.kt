@@ -21,7 +21,8 @@ class ExitRecordsTest {
         assertEquals(reused.id, matchExit(42, 1900, "e1|fedcba9876543210|start", listOf(run, reused)))
         assertNull(matchExit(42, 1900, "e1|deadbeef|start", listOf(run, reused)))
         assertNull(matchExit(43, 1900, "e1|01234567|start", listOf(run)))
-        assertNull(matchExit(42, 999, "e1|01234567|start", listOf(run)))
+        assertEquals(run.id, matchExit(42, 999, "e1|01234567|start", listOf(run)))
+        assertEquals(run.id, matchExit(42, 9_000_000, "e1|01234567|model_open", listOf(run)))
     }
     @Test fun headerSuppliesPidAndProcessStartAndLastEventSuppliesEnd() {
         val rows = parseLines("""{"run":"a","t":1100,"ev":"run","ph":"start","ctx":{"pid":"42","startWall":"1000"}}
@@ -42,4 +43,9 @@ class ExitRecordsTest {
         assertEquals("SIGSEGV", signalName(11))
         assertNull(signalName(0))
     }
+    @Test fun badTimestampRowsAreDropped() {
+        val valid = mapOf<String, Any?>("timestamp" to 123L, "pid" to 42)
+        assertEquals(listOf(valid), validExitRows(listOf(mapOf("pid" to 43), mapOf("timestamp" to "bad"), valid)))
+    }
+
 }
