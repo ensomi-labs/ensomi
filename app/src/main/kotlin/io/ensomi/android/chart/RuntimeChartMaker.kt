@@ -13,6 +13,7 @@ import io.ensomi.android.library.Song
 import io.ensomi.android.library.SongLibrary
 import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
+import io.ensomi.android.model.awaitModelReady
 import io.ensomi.android.model.ModelOpenKey
 import io.ensomi.android.model.ModelOpenState
 import kotlinx.coroutines.sync.withLock
@@ -49,6 +50,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -248,10 +250,6 @@ class RuntimeChartMaker(
     private class DecodedInput(val audio: DecodedSong, val sha256: String)
 
     private fun makeWithAudio(songId: String, request: ChartRequest, input: DecodedInput?) {
-        if (!modelReady()) {
-            setState(songId, MakeState.Failed(songId, unavailableModel()))
-            return
-        }
         val making = Making()
         synchronized(lock) {
             if (makings[songId] != null) return
@@ -263,7 +261,12 @@ class RuntimeChartMaker(
         setState(songId, MakeState.Making(songId, MakePhase.LOADING))
         scope.launch {
             val state = try {
-                makeChart(songId, request, making, input)
+                val ready = awaitModelReady(model.state, mutableCapabilities.map { it != null })
+                when {
+                    making.stopped.get() -> MakeState.Stopped(songId)
+                    !ready || !modelReady() -> MakeState.Failed(songId, unavailableModel())
+                    else -> makeChart(songId, request, making, input)
+                }
             } catch (failure: Exception) {
                 failed(songId, failure, making)
             }

@@ -12,6 +12,7 @@ import io.ensomi.android.AppStores
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.model.ModelState
 import io.ensomi.android.model.ready
+import io.ensomi.android.model.awaitModelReady
 import io.ensomi.android.play.AmbientGame
 import io.ensomi.android.play.PlayResult
 import io.ensomi.runtime.RuntimeWorker
@@ -217,8 +218,7 @@ class RecognitionController private constructor(context: Context) {
 
     private suspend fun modelInstalled(): Boolean {
         // At a cold start the store is still looking at what is installed.
-        withTimeoutOrNull(MODEL_CHECK_MS) { stores.model.state.first { it !is ModelState.Checking } }
-        return stores.model.state.value.ready
+        return awaitModelReady(stores.model.state, timeoutMillis = MODEL_CHECK_MS)
     }
 
     private suspend fun begin(sharedAt: SessionNow) {
@@ -570,7 +570,7 @@ class RecognitionController private constructor(context: Context) {
     companion object {
         private const val TAG = "EnsomiRecognition"
         private const val TICK_MS = 1_000L
-        private const val MODEL_CHECK_MS = 5_000L
+        private const val MODEL_CHECK_MS = 60_000L
         private const val CID_SUFFIX = 6
 
         /**
