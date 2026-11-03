@@ -140,8 +140,8 @@ What the suggestion means for keyboard play is decision 6 ([Timing](#timing)).
 The labels belong to the game presentation ([design.md, Visual language](design.md#visual-language)): muted text
 `#C7BCD6` on the cap's `#2A2036` (8.5:1), bold, 20 dp in landscape's 44 dp caps and 24 dp in portrait's 68 dp caps, a
 fixed size like the judgement word. A held lane lights its cap additively in lavender, which makes the cap nearly white
-at full light, so the label switches from light text `#F6F1FB` to the ground's ink `#130E1A` once the cap's light passes
-45 %. Bold at 20 dp or more, the labels are WCAG large text (14 pt bold), for which 3:1 is the minimum; with that switch
+at full light. The label brightens with the light, from `#C7BCD6` towards light text `#F6F1FB`, as the Swift caps do,
+and switches to the ground's ink `#130E1A` once the cap's light passes 45 %. Bold at 20 dp or more, the labels are WCAG large text (14 pt bold), for which 3:1 is the minimum; with that switch
 every step of the light keeps 4.0:1 or more (computed from the palette, light added to the cap as the renderer does).
 The label has no motion of its own: it follows `laneBrightness`, so Remove animations changes nothing for it. There are
 no new haptics: keys have their own feel, and play has none ([design.md, Haptics](design.md#haptics)).
