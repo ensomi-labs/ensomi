@@ -67,7 +67,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -113,8 +112,8 @@ import kotlinx.coroutines.isActive
  * applied or confirmed: Back leaves.
  *
  * In portrait the field is at the top and stays there, the readings under it, and the controls scroll below them; wider
- * than tall, the field fills the left, and the readings and the controls take the right. Either way the field stays in
- * sight while a value moves.
+ * than tall, the field fills the left, and the readings and the controls take the right, or at large text sizes the
+ * readings go under the field. Either way the field stays in sight while a value moves.
  *
  * The clicks pause when the app leaves the foreground or another app takes audio focus, and the field says so; a tap on
  * it, or a lane key, makes them go on. A change of output starts the readings over; the slots stay as chosen.
@@ -296,9 +295,28 @@ fun CalibrationScreen(
                     .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal)),
             ) {
                 val wide = maxWidth > maxHeight
+                // Wider than tall with large text, the readings would leave the controls beside them no height: they go
+                // under the field instead, which gives up a share of its height for them (L3's round 2).
+                val readingsUnderField = wide && LocalDensity.current.fontScale > LARGE_TEXT_SCALE
                 val fieldWidth = if (wide) (maxWidth - GAP) / 2 else maxWidth
-                // The field keeps its share however large the text: the readings and controls beside or under it give way.
-                val fieldHeight = if (wide) maxHeight else maxHeight * FIELD_SHARE
+                // Otherwise the field keeps its height however large the text: the readings and controls give way.
+                val fieldHeight = when {
+                    readingsUnderField -> maxHeight * WIDE_FIELD_SHARE
+                    wide -> maxHeight
+                    else -> maxHeight * FIELD_SHARE
+                }
+                val readingsPart: @Composable (Modifier) -> Unit = { modifier ->
+                    Readings(
+                        readings,
+                        method,
+                        settings,
+                        onClear = {
+                            Log.i(AudioClickTracks.TAG, "Hits cleared")
+                            readings = readings.cleared()
+                        },
+                        modifier = modifier,
+                    )
+                }
                 CalibrationField(
                     player = player,
                     settings = settings,
@@ -324,16 +342,7 @@ fun CalibrationScreen(
                             .weight(1f)
                             .padding(start = if (wide) 0.dp else 16.dp, end = 16.dp),
                     ) {
-                        Readings(
-                            readings,
-                            method,
-                            settings,
-                            onClear = {
-                                Log.i(AudioClickTracks.TAG, "Hits cleared")
-                                readings = readings.cleared()
-                            },
-                            modifier = Modifier.fillMaxWidth().padding(top = if (wide) 0.dp else 8.dp),
-                        )
+                        if (!readingsUnderField) readingsPart(Modifier.fillMaxWidth().padding(top = if (wide) 0.dp else 8.dp))
                         Controls(
                             settings = settings,
                             route = route,
@@ -344,6 +353,15 @@ fun CalibrationScreen(
                             modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 12.dp, bottom = 16.dp),
                         )
                     }
+                }
+                if (readingsUnderField) {
+                    readingsPart(
+                        Modifier
+                            .padding(top = fieldHeight)
+                            .size(fieldWidth, maxHeight - fieldHeight)
+                            .verticalScroll(rememberScrollState())
+                            .padding(start = 16.dp, end = 8.dp, top = 4.dp),
+                    )
                 }
             }
         }
@@ -377,6 +395,8 @@ private fun CalibrationField(
 ) {
     val description = stringResource(R.string.calibration_field_description)
     val pausedText = stringResource(R.string.calibration_paused)
+    // TalkBack puts its own full stop before "Button".
+    val pausedSaid = pausedText.trimEnd('.')
     Box(modifier) {
         if (player != null) {
             key(player) {
@@ -434,7 +454,7 @@ private fun CalibrationField(
                     .matchParentSize()
                     .background(Brand.Plum.copy(alpha = PAUSED_SCRIM))
                     .clickable(role = Role.Button, onClick = onGoOn)
-                    .semantics { contentDescription = pausedText },
+                    .semantics { contentDescription = pausedSaid },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -523,25 +543,25 @@ private fun offsetWords(ms: Double, @StringRes early: Int, @StringRes late: Int,
 /**
  * The hits on a track from [STRIP_MS] early to as late, the newest brightest: early in lavender on the left, late in rose
  * on the right, a hit further out at the end it is on. The middle is the judgement line's coral, where a hit on the click
- * lands, and white marks show the average the line states. TalkBack hears how far the hits spread.
+ * lands, and white marks show the average the line states. TalkBack hears how far the hits spread, "from 2 ms late to
+ * 11 ms late".
  */
 @Composable
 private fun HitStrip(errorsMs: List<Double>, averageMs: Double?, method: InputSource) {
-    val description = stringResource(if (method == InputSource.KEYBOARD) R.string.calibration_strip_key else R.string.calibration_strip_touch)
-    val state = if (errorsMs.isEmpty()) {
+    val spread = if (errorsMs.isEmpty()) {
         stringResource(R.string.calibration_strip_empty)
     } else {
         val early = offsetWords(errorsMs.min(), R.string.calibration_early, R.string.calibration_late, R.string.calibration_on_time)
         val late = offsetWords(errorsMs.max(), R.string.calibration_early, R.string.calibration_late, R.string.calibration_on_time)
         stringResource(R.string.calibration_strip_range, early, late)
     }
+    // One sentence: TalkBack read a state before the description it belongs to (L3's round 2).
+    val description = stringResource(
+        if (method == InputSource.KEYBOARD) R.string.calibration_strip_key else R.string.calibration_strip_touch,
+        spread,
+    )
     Column {
-        Canvas(
-            Modifier.fillMaxWidth().height(STRIP_HEIGHT).semantics {
-                contentDescription = description
-                stateDescription = state
-            },
-        ) {
+        Canvas(Modifier.fillMaxWidth().height(STRIP_HEIGHT).semantics { contentDescription = description }) {
             val radius = 5.dp.toPx()
             val middle = size.width / 2
             val reach = middle - radius
@@ -724,6 +744,9 @@ private fun PanelNote(text: String) {
 
 /** The field's share of a tall window's height: the rest is the readings and the controls, which scroll. */
 private const val FIELD_SHARE = 0.42f
+
+/** The field's share of a wide window's height when the readings go under it, at large text sizes. */
+private const val WIDE_FIELD_SHARE = 0.55f
 
 /** Room above the lanes: the field has no HUD. */
 private const val FIELD_TOP_DP = 12f

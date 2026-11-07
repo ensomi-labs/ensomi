@@ -56,6 +56,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
@@ -421,7 +423,9 @@ object StepRepeat {
  * A latency value on a slider from [SLIDER_MS]'s −150 to +150 ms, in whole milliseconds, beside its steps, which reach
  * the whole range; a value beyond the slider's shows at its end. While it has focus the arrow keys move it 1 ms ([onStep]
  * hears ±1), Page Up and Page Down 10 ms, and a held key repeats as the keyboard repeats it. [what] names it for TalkBack,
- * which hears its value.
+ * which hears it with its value at one stop. As its text, not its content description: Compose moves a content
+ * description of a node like the slider's, which merges its children, to a node of its own, and TalkBack stopped on
+ * that one after the slider (L3's round 2).
  */
 @Composable
 internal fun LatencySlider(value: Int, what: String, onValue: (Int) -> Unit, onStep: (Int) -> Unit, modifier: Modifier = Modifier) {
@@ -449,7 +453,7 @@ internal fun LatencySlider(value: Int, what: String, onValue: (Int) -> Unit, onS
                 true
             }
             .semantics {
-                contentDescription = what
+                text = AnnotatedString(what)
                 stateDescription = PlaySettings.formatOffset(value)
             },
     )

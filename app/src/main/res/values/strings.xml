@@ -431,11 +431,11 @@
     <string name="calibration_early">%1$d&#160;ms early</string>
     <string name="calibration_late">%1$d&#160;ms late</string>
     <string name="calibration_on_time">on time</string>
-    <!-- TalkBack: the strip of hits, and how far they spread: "From 12 ms early to 20 ms late". -->
-    <string name="calibration_strip_touch">Your last touch hits, from early on the left to late on the right</string>
-    <string name="calibration_strip_key">Your last key hits, from early on the left to late on the right</string>
-    <string name="calibration_strip_range">From %1$s to %2$s</string>
-    <string name="calibration_strip_empty">No hits yet</string>
+    <!-- TalkBack: the strip of hits and how far they spread, "…: from 12 ms early to 20 ms late", or "…: none yet". -->
+    <string name="calibration_strip_touch">Your last touch hits, early on the left and late on the right: %1$s</string>
+    <string name="calibration_strip_key">Your last key hits, early on the left and late on the right: %1$s</string>
+    <string name="calibration_strip_range">from %1$s to %2$s</string>
+    <string name="calibration_strip_empty">none yet</string>
     <string name="library_prepared">Prepared</string>
     <!-- Install stages -->
     <string name="model_verifying">Checking model files… %1$d of %2$d</string>
