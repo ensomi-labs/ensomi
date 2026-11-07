@@ -647,7 +647,8 @@ went on to its tail; let go during the pause, it was judged a miss as play went 
 of these added a late input, and no touch was cancelled. A game without a pause reached Results as before, with one
 late input: a tap's up handled 22 ms after it happened, after an autoplay press stamped 18 ms later had reached the
 session (the autoplay delivers as soon as its time comes and does not wait out the allowance). No real song's game, on
-the audio clock, was paused: the AVD had none; `InputQueueTest` covers the audio clock's hold at the resume.
+the audio clock, was paused: the AVD had none; `InputQueueTest` covers the audio clock's hold at the resume, in two cases
+added after the emulator run (job `pause-b2` at `d73cc1e`: 450 JVM tests passed, lint unchanged).
 
 When the steps are done, design.md takes the screens and the keys table, gameplay.md the input path and edge cases,
 plan.md the steps and what they showed, phone-checks.md the rows, and design.md's "Not carried over in this round"
