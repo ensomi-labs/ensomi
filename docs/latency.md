@@ -508,6 +508,27 @@ adds, where it differs, and how it bridges the screens L2 to L4 will make:
 - **Scenarios** over the app's own stores, for the checks: `play-stored`, `settings-stored`, `calibration-stored` and
   `calibration-picture-stored` (README).
 
+What L1 showed (Astra jobs `android-keyboard-l1-b1` to `-b4` on `ensomi-36-16k`, 16 KB pages). Round 1, at `ab2757e`,
+compiled cleanly and failed one random `InputQueueTest` case: a key's release late while the keyboard was not counted
+live, which the next commit fixed (above). Round 2, at `7da1c58`, passed the full build with 484 JVM tests and the same
+6 lint warnings as before L1. The AVD held the pause step's debug build; its own Settings wrote the speaker's key,
+`speaker/sdk_gphone16k_arm64`, and a 0.1.3-shaped file was made from it with offsets for a Bluetooth pair (−120 ms),
+the speaker (−7), wired headphones (−30) and a USB headset (−15), and a visual offset of +9 ms, which the old build
+showed. The new build's first start moved it once, as the rule says: audio slots "WH-1000XM4" +111, "Phone speaker"
+−2 (active, the output in use) and "Wired headphones" +21 ms, the USB headset dropped, touch's slot 0 at +9 ms, the
+old fields gone, one `EnsomiSettings` line, and no second move at the next start. Settings, both calibration steps and
+the sample game read the slots ("Latency for this game: audio slot 1 −2 ms; touch slot 0 +9 ms; keyboard slot 1 0 ms"
+from the picture step), and Settings' + and the picture step's slider changed only the active slot. The sample game,
+played by 60 `input tap`s with touch's slot at 0 and at +30 ms, reached Results both times: every touch input's chart
+time less its song time was 0.0 ms and then −30.0 ms, all 120 were handed on by the frame that took them, and neither
+the runtime nor the per-source counts had a late input; touch's first input held the input clock 13.5 ms at +30 ms, and
+the autoplay's inputs, held behind touch's, waited up to 39.6 ms, the difference and a frame. Settings, calibration and
+Results read coherently in light, dark and landscape. At 200 % font the sound step squeezed its pad to 82 px with its
+label gone, the output line having grown by a line; round 3, at `5c2055b`, with the line as short as before, left it
+166 px with the label clipped (82 px for a named slot), and round 4, at `37ae89f`, with the readings capped at 55 % of the
+step and scrolling, gave the pad 401 px with its label for both, the readings reachable by scrolling and nothing changed
+at 100 %. Rounds 3 and 4 passed the full build with 484 JVM tests and the same 6 lint warnings.
+
 ## Open questions, decided (owner, 2026-11-07)
 
 The owner took every recommendation below, and amended which methods count as live for the input clock ([Live
