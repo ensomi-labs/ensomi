@@ -33,7 +33,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -302,27 +301,7 @@ fun SettingsScreen(
             }
         }
     }
-    naming?.let { open ->
-        val audio = open.kind == LatencyKind.AUDIO
-        val slots = if (audio) settings.audioLatency.slots else settings.inputLatency.slots
-        key(open) {
-            NameSlotDialog(
-                title = stringResource(if (audio) R.string.latency_name_audio else R.string.latency_name_input, open.slot),
-                name = slots[open.slot].name,
-                onSave = { name ->
-                    onChange {
-                        if (audio) {
-                            it.copy(audioLatency = it.audioLatency.withName(open.slot, name))
-                        } else {
-                            it.copy(inputLatency = it.inputLatency.withName(open.slot, name))
-                        }
-                    }
-                    naming = null
-                },
-                onDismiss = { naming = null },
-            )
-        }
-    }
+    naming?.let { open -> NameSlot(open, settings, onChange, onClose = { naming = null }) }
 }
 
 /** The index of the playfield section's header in the settings list. */
