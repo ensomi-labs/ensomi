@@ -151,6 +151,35 @@ class KeyLanesTest {
         assertEquals(listOf(1L, 2L), sent.map { it.sequence })
     }
 
+    @Test
+    fun keysHeldAtAPauseKeepTheirLanesAndThoseLetGoAreReleasedAtTheResume() {
+        val keys = lanes()
+        keys.input(down(KeyEvent.KEYCODE_Z, timeMs = 100))
+        keys.input(down(KeyEvent.KEYCODE_X, timeMs = 100))
+        keys.input(down(KeyEvent.KEYCODE_PERIOD, timeMs = 110))
+        sent.clear()
+        sender.pause()
+        // The panel and the count-in take lane keys' downs (pressing = false); their ups still come here.
+        assertFalse("Let go: kept for the resume", keys.play(up(KeyEvent.KEYCODE_Z, timeMs = 300), 0, pressing = false))
+        assertFalse(
+            "Focus leaving the window cancels the keys held, and that up waits for the resume too",
+            keys.play(up(KeyEvent.KEYCODE_X, flags = KeyEvent.FLAG_CANCELED, timeMs = 320), 1, pressing = false),
+        )
+        assertFalse("A press in the pause is dropped", keys.play(down(KeyEvent.KEYCODE_SLASH, timeMs = 330), 3, true))
+        assertTrue(sent.isEmpty())
+        assertEquals(listOf(0, 1), sender.resume(eventNanos = 900_000_000))
+        assertEquals(
+            listOf(
+                LaneInput(0, press = false, 900_000_000, 4, InputSource.KEYBOARD, atPause = true),
+                LaneInput(1, press = false, 900_000_000, 5, InputSource.KEYBOARD, atPause = true),
+            ),
+            sent,
+        )
+        assertTrue("The period key held through the pause still holds lane 3", keys.input(up(KeyEvent.KEYCODE_PERIOD)))
+        assertFalse("The slash key's down was dropped, so its up is nothing", keys.input(up(KeyEvent.KEYCODE_SLASH)))
+        assertEquals(listOf(LaneInput(2, press = false, 200_000_000, 6, InputSource.KEYBOARD)), sent.drop(2))
+    }
+
     private companion object {
         const val FRENCH = 3
         const val US = 4

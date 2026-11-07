@@ -152,20 +152,33 @@ class PlayfieldView @JvmOverloads constructor(
     @Volatile
     private var pausePending = false
 
+    /**
+     * Pauses the game, or keeps it paused: through the pause panel and the count-in until [resume]. Every finger or key
+     * down keeps its lane and the session is told nothing (keyboard.md, O7); presses are dropped meanwhile.
+     */
     fun pause() {
         pausePending = true
         controller?.clock?.pause(System.nanoTime())
-        // Lanes still down are let go, so nothing stays pressed here across the pause; the session is not told.
-        lanes.forget()
+        lanes.pause()
     }
 
     /** Whether the song has not started yet: the lead-in, or before the render thread has begun. */
     fun inLeadIn(): Boolean = (controller?.clock?.songTimeMs(System.nanoTime()) ?: -1.0) < 0
 
+    /**
+     * Play goes on. The lanes whose fingers and keys all let go during the pause are released at the pause's song time,
+     * queued before the clock runs again so that the first frame to run takes them; those still held hold on.
+     */
     fun resume() {
         pausePending = false
-        controller?.clock?.resume(System.nanoTime())
+        val now = System.nanoTime()
+        val released = lanes.resume(now)
+        controller?.clock?.resume(now)
+        Log.i(TAG, "Resumed: released at the pause's time ${numbered(released)}, held on ${numbered(lanes.heldLanes())}")
     }
+
+    /** Lanes as the logs number them, 1 to 4. */
+    private fun numbered(lanes: List<Int>): String = lanes.joinToString(prefix = "[", postfix = "]") { "${it + 1}" }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -219,6 +232,8 @@ class PlayfieldView @JvmOverloads constructor(
         super.onDetachedFromWindow()
         renderThread?.quitAndJoin()
         renderThread = null
+        // No finger, key or lane let go during a pause outlives this game: Restart and Quit make a new playfield.
+        lanes.clear()
         // The session and the sound are let go off the main thread; no frame uses them any more.
         val closing = controller ?: return
         controller = null

@@ -109,15 +109,174 @@ class LaneHoldsTest {
     }
 
     @Test
-    fun aPauseForgetsEveryHolderAndSendsNothing() {
+    fun aPauseKeepsEveryHolderAndSendsNothing() {
         sender.press(finger(0), 0, 10)
         sender.press(key(54), 1, 10)
         sent.clear()
-        sender.forget()
+        sender.pause()
+        sender.pause()
+        assertTrue("The game hears nothing of the pause", sent.isEmpty())
+        assertEquals(listOf(0, 1), sender.heldLanes())
+        assertTrue("Nothing was let go, so the resume releases nothing", sender.resume(eventNanos = 50).isEmpty())
         assertTrue(sent.isEmpty())
-        assertFalse("The lane was let go, so the finger's up releases nothing", sender.release(finger(0), 20))
-        assertFalse(sender.release(key(54), 20))
-        assertTrue("A lane let go presses again", sender.press(finger(1), 0, 30))
+        assertTrue("The finger still holds its lane after the pause", sender.release(finger(0), 60))
+        assertTrue(sender.release(key(54), 70))
+        assertEquals(
+            listOf(
+                LaneInput(0, press = false, 60, 3, InputSource.TOUCH),
+                LaneInput(1, press = false, 70, 4, InputSource.KEYBOARD),
+            ),
+            sent,
+        )
+    }
+
+    @Test
+    fun aLaneLetGoDuringThePauseIsReleasedAtTheResume() {
+        sender.press(finger(0), 0, 10)
+        sender.press(key(54), 2, 10)
+        sender.press(finger(1), 3, 10)
+        sent.clear()
+        sender.pause()
+        assertFalse("While paused a release is kept for the resume", sender.release(finger(0), 20))
+        assertFalse(sender.release(key(54), 30))
+        assertTrue(sent.isEmpty())
+        assertEquals("Let go, so no longer held", listOf(3), sender.heldLanes())
+        assertEquals(listOf(0, 2), sender.resume(eventNanos = 90))
+        assertEquals(
+            "Released at the resume, each from its source, to be judged at the pause's time",
+            listOf(
+                LaneInput(0, press = false, 90, 4, InputSource.TOUCH, atPause = true),
+                LaneInput(2, press = false, 90, 5, InputSource.KEYBOARD, atPause = true),
+            ),
+            sent,
+        )
+        assertTrue("A second resume releases nothing again", sender.resume(eventNanos = 95).isEmpty())
+        assertTrue("A lane released presses again", sender.press(finger(2), 0, 100))
+    }
+
+    @Test
+    fun aLaneStillHeldAtTheResumeHoldsOnThroughTheCountIn() {
+        sender.press(finger(0), 1, 10)
+        sender.press(key(52), 1, 20)
+        sent.clear()
+        sender.pause()
+        assertFalse("The key still holds the lane", sender.release(finger(0), 30))
+        assertFalse("A press in the count-in sends nothing for a lane already held", sender.press(finger(4), 1, 40))
+        assertTrue("Still held at the resume: nothing is released", sender.resume(eventNanos = 50).isEmpty())
+        assertTrue(sent.isEmpty())
+        assertEquals(listOf(1), sender.heldLanes())
+        assertFalse("The finger that went down in the count-in holds nothing", sender.release(finger(4), 60))
+        assertTrue(sender.release(key(52), 70))
+        assertEquals(listOf(LaneInput(1, press = false, 70, 2, InputSource.KEYBOARD)), sent)
+    }
+
+    @Test
+    fun pressesDuringThePauseAreDropped() {
+        sender.pause()
+        assertFalse(sender.press(finger(0), 0, 10))
+        assertFalse(sender.press(key(54), 2, 10))
+        assertTrue(sender.heldLanes().isEmpty())
+        assertFalse("A finger that went down during the pause releases nothing", sender.release(finger(0), 20))
+        assertTrue(sender.resume(eventNanos = 30).isEmpty())
+        assertFalse("A key held from the pause on releases nothing after it", sender.release(key(54), 40))
+        assertTrue(sent.isEmpty())
+        assertEquals(0L, sequence)
+    }
+
+    @Test
+    fun aCancelOrAKeyboardGoingDuringThePauseWaitsForTheResume() {
+        sender.press(finger(0), 0, 10)
+        sender.press(key(54, deviceId = 3), 1, 10)
+        sender.press(key(52, deviceId = 4), 2, 10)
+        sent.clear()
+        sender.pause()
+        sender.releasePointers(eventNanos = 20)
+        sender.releaseKeys(deviceId = 3, eventNanos = 30)
+        assertTrue(sent.isEmpty())
+        assertEquals(listOf(2), sender.heldLanes())
+        sender.resume(eventNanos = 40)
+        assertEquals(
+            listOf(
+                LaneInput(0, press = false, 40, 4, InputSource.TOUCH, atPause = true),
+                LaneInput(1, press = false, 40, 5, InputSource.KEYBOARD, atPause = true),
+            ),
+            sent,
+        )
+    }
+
+    @Test
+    fun aLaneTakesTheSourceOfItsLastHolder() {
+        val holds = LaneHolds()
+        holds.press(finger(0), 3)
+        holds.press(key(54), 3)
+        holds.pause()
+        assertNull(holds.release(key(54)))
+        assertNull(holds.release(finger(0)))
+        assertEquals(listOf(3 to InputSource.TOUCH), holds.resume())
+        assertFalse(holds.isPaused)
+    }
+
+    @Test
+    fun clearingForgetsTheHoldersAndTheLanesLetGo() {
+        sender.press(finger(0), 0, 10)
+        sender.press(key(54), 1, 10)
+        sender.pause()
+        sender.release(finger(0), 20)
+        sent.clear()
+        // Restart, Quit or leaving: the playfield closes and its holders go with it.
+        sender.clear()
+        assertTrue(sender.heldLanes().isEmpty())
+        assertTrue("Nothing let go is released into another game", sender.resume(eventNanos = 30).isEmpty())
+        assertFalse(sender.release(key(54), 40))
+        assertTrue(sent.isEmpty())
+        assertTrue(sender.press(finger(0), 0, 50))
+    }
+
+    /**
+     * The session hears every press and release that is sent, and holds a lane from its press to its release, as the
+     * runtime's pressed flag does. Through any presses, releases, cancels, keyboards going, pauses and resumes, it then
+     * holds the lanes the app holds whenever the game plays, and through a pause the lanes held as it began.
+     */
+    @Test
+    fun theSessionHoldsWhatTheAppHolds() {
+        val random = Random(7)
+        repeat(300) {
+            sent.clear()
+            val sender = LaneSender({ ++sequence }) { sent += it }
+            val pressed = BooleanArray(4)
+            var paused = false
+            var atPause = emptyList<Int>()
+            repeat(80) { step ->
+                val holder = when (random.nextBoolean()) {
+                    true -> finger(random.nextInt(4))
+                    false -> key(50 + random.nextInt(4), deviceId = 3 + random.nextInt(2))
+                }
+                val resuming = paused
+                when (random.nextInt(14)) {
+                    in 0..4 -> sender.press(holder, random.nextInt(4), step.toLong())
+                    in 5..8 -> sender.release(holder, step.toLong())
+                    9 -> sender.releasePointers(step.toLong())
+                    10 -> sender.releaseKeys(3 + random.nextInt(2), step.toLong())
+                    11 -> if (!paused) {
+                        sender.pause()
+                        paused = true
+                        atPause = sender.heldLanes()
+                    }
+                    else -> if (paused) {
+                        sender.resume(step.toLong())
+                        paused = false
+                    }
+                }
+                for (input in sent) {
+                    assertEquals("A press of a lane not pressed, a release of one", !input.press, pressed[input.lane])
+                    assertEquals("Only a resume marks a release for the pause", resuming && !paused, input.atPause)
+                    pressed[input.lane] = input.press
+                }
+                sent.clear()
+                val expected = if (paused) atPause else sender.heldLanes()
+                assertEquals(expected, (0 until 4).filter { pressed[it] })
+            }
+        }
     }
 
     /**

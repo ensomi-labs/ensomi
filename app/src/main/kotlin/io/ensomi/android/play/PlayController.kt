@@ -13,7 +13,7 @@ import io.ensomi.runtime.Phase
 import io.ensomi.runtime.Ruleset
 import io.ensomi.runtime.Score
 import io.ensomi.runtime.VisibleObject
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Where a lane input came from: a finger, a key on a keyboard, or the autoplay's script. */
@@ -23,7 +23,18 @@ enum class InputSource { TOUCH, KEYBOARD, AUTOPLAY }
  * A lane press or release from a touch, a key or the autoplay, stamped on the `System.nanoTime()` clock. [source] goes
  * into the logs.
  */
-data class LaneInput(val lane: Int, val press: Boolean, val eventNanos: Long, val sequence: Long, val source: InputSource)
+data class LaneInput(
+    val lane: Int,
+    val press: Boolean,
+    val eventNanos: Long,
+    val sequence: Long,
+    val source: InputSource,
+    /**
+     * A release sent at the resume for a lane whose holders all let go while the game was paused: judged at the song
+     * time the game paused at, since its clock was frozen, whatever [eventNanos] says (the resume, for the lane light).
+     */
+    val atPause: Boolean = false,
+)
 
 /** The offsets and scroll time a game keeps from start to end. */
 data class PlayTiming(val audioOffsetMs: Double, val visualOffsetMs: Double, val scrollTimeMs: Double)
@@ -94,7 +105,7 @@ class PlayController(
     private val hud: MutableStateFlow<PlayHud>,
     private val nextSequence: () -> Long,
 ) : AutoCloseable {
-    private val queue = ConcurrentLinkedQueue<LaneInput>()
+    private val inputs = InputQueue(clock, taken = ::taken, deliver = ::deliver)
     private val visibleWindow = VisibleWindow()
     private var visible = emptyList<VisibleObject>()
     private val laneAsking = LaneAsking()
@@ -105,7 +116,10 @@ class PlayController(
 
     /** Events were recorded since the batches and the judgement word were last read. */
     private var feedbackChanged = false
-    private val pending = ArrayList<Pair<Double, LaneInput>>()
+
+    /** The last frame was paused: the next one that is not logs what the session holds as play goes on. */
+    private var wasPaused = false
+
     private val runtimeChart = chart.toRuntime()
     private var audioOffsetMs = timing.audioOffsetMs
     private var pendingOffset = resolveAudioOffset
@@ -128,13 +142,19 @@ class PlayController(
     private val hitOffsets = ArrayList<Double>()
     private val pressesBySource = IntArray(InputSource.entries.size)
 
+    /** The lanes released at the pause's time since the last resume was logged, one bit each. */
+    private var resumeReleased = 0
+
     fun start(nanoTime: Long) {
         if (ownsClock) clock.start(nanoTime, fromMs = -leadInMs)
     }
 
-    /** Queues an input for the next frame. Inputs while paused are dropped, as the session judges none then. */
+    /**
+     * Queues an input for the next frame. Every one reaches the session, a paused frame's too ([InputQueue]): what is
+     * dropped at a pause, [LaneSender] never sends. The calibration's picture step judges nothing and takes none.
+     */
     fun enqueue(input: LaneInput) {
-        if (!clock.isPaused) queue.add(input)
+        if (judging) inputs.add(input)
     }
 
     /** One frame at [nowNanos], drawn for [presentNanos], the frame's expected presentation time. */
@@ -147,15 +167,18 @@ class PlayController(
             Log.i(TAG, "Audio offset for this game: $audioOffsetMs ms")
         }
         val gameplayMs = songNow + audioOffsetMs
-        if (clock.isPaused) {
-            // A paused session judges nothing; inputs stamped before the pause are dropped, as in the Swift app.
-            queue.clear()
-            pending.clear()
-        } else if (judging) {
-            runScript(gameplayMs)
-            deliverInputs(gameplayMs)
-            record(session.advance(gameplayMs - INPUT_ALLOWANCE_MS), gameplayMs)
+        val paused = clock.isPaused
+        if (judging) {
+            // A paused frame hands on what was queued before the pause, at the pause's time at the latest, so that the
+            // session holds the lanes the app holds, and advances nothing: the session's clock stays where it was.
+            if (!paused) runScript(gameplayMs)
+            inputs.frame(gameplayMs, audioOffsetMs, paused)
+            if (!paused) {
+                if (wasPaused) logResume(gameplayMs)
+                record(session.advance(gameplayMs - INPUT_ALLOWANCE_MS), gameplayMs)
+            }
         }
+        wasPaused = paused
         // The score changes only when events are decided; each call through the bindings costs time.
         val score = lastScore?.takeIf { !scoreChanged } ?: session.score().also {
             lastScore = it
@@ -211,29 +234,48 @@ class PlayController(
         while (scriptIndex < script.size && script[scriptIndex].songMs <= gameplayMs) {
             val input = script[scriptIndex++]
             val eventNanos = clock.nanoTimeAt(input.songMs - audioOffsetMs)
-            queue.add(LaneInput(input.lane, input.press, eventNanos, nextSequence(), InputSource.AUTOPLAY))
+            inputs.add(LaneInput(input.lane, input.press, eventNanos, nextSequence(), InputSource.AUTOPLAY))
         }
     }
 
-    private fun deliverInputs(gameplayMs: Double) {
-        while (true) {
-            val input = queue.poll() ?: break
-            val song = clock.songTimeMs(input.eventNanos) ?: continue
-            val phase = if (input.press) Phase.PRESS else Phase.RELEASE
-            feedback.recordInput(input.lane.toUInt(), phase, input.sequence.toULong(), input.eventNanos / 1e6)
-            laneAsking.touched(input.lane)
-            pending += (song + audioOffsetMs) to input
-        }
-        if (pending.isEmpty()) return
-        pending.sortWith(compareBy({ it.first }, { it.second.sequence }))
-        val due = pending.takeWhile { it.first <= gameplayMs }
-        for ((chartMs, input) in due) {
-            if (input.press) pressesBySource[input.source.ordinal]++
-            val phase = if (input.press) Phase.PRESS else Phase.RELEASE
-            record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs)
-            visibleWindow.invalidate()
-        }
-        pending.subList(0, due.size).clear()
+    /** An input a frame took: the lane light follows it at once, at the time it was made. */
+    private fun taken(input: LaneInput) {
+        val phase = if (input.press) Phase.PRESS else Phase.RELEASE
+        feedback.recordInput(input.lane.toUInt(), phase, input.sequence.toULong(), input.eventNanos / 1e6)
+        laneAsking.touched(input.lane)
+    }
+
+    /** An input due at [chartMs], to the session. */
+    private fun deliver(chartMs: Double, input: LaneInput) {
+        if (input.press) pressesBySource[input.source.ordinal]++
+        if (input.atPause) resumeReleased = resumeReleased or (1 shl input.lane)
+        val phase = if (input.press) Phase.PRESS else Phase.RELEASE
+        record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs)
+        visibleWindow.invalidate()
+    }
+
+    /**
+     * The first frame after a pause: the lanes released at the pause's time, and the lanes the session holds as play
+     * goes on with the holds held in them, which must be the lanes the app's holders hold (`EnsomiPlayfield` logs those
+     * at the resume). Lanes are numbered 1 to 4. Once a pause, so the runtime's lane states are asked for only then.
+     */
+    private fun logResume(gameplayMs: Double) {
+        val lanes = session.laneStates()
+        Log.i(
+            TAG,
+            String.format(
+                Locale.ROOT,
+                "Resumed at chart time %.1f ms: released at the pause's time [%s]; the session holds [%s], holding a " +
+                    "hold in [%s]; late inputs so far %d",
+                gameplayMs,
+                (0 until PlayfieldGeometry.LANES).filter { resumeReleased and (1 shl it) != 0 }
+                    .joinToString { "${it + 1}" },
+                lanes.filter { it.isPressed }.joinToString { "${it.lane.toInt() + 1}" },
+                lanes.filter { it.holdingObject != null }.joinToString { "${it.lane.toInt() + 1}" },
+                session.lateInputs().toInt(),
+            ),
+        )
+        resumeReleased = 0
     }
 
     private fun record(events: List<JudgementEvent>, chartMs: Double) {
@@ -281,8 +323,8 @@ class PlayController(
         publishedScore = null
         hitOffsets.clear()
         pressesBySource.fill(0)
-        queue.clear()
-        pending.clear()
+        resumeReleased = 0
+        inputs.clear()
         visibleWindow.invalidate()
         laneAsking.reset()
         brightness.fill(DARK)
