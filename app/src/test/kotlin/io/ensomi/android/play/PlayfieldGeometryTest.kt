@@ -2,7 +2,6 @@ package io.ensomi.android.play
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -135,35 +134,6 @@ class PlayfieldGeometryTest {
         assertEquals(3, phone.laneAt(phone.lineLeft + phone.lineWidth - 1))
         assertEquals(0, phone.laneAt(0f))
         assertEquals(3, phone.laneAt(1080f))
-    }
-
-    @Test
-    fun aLaneIsPressedFromItsFirstPointerToItsLast() {
-        val tracker = LaneTouchTracker()
-        assertTrue(tracker.down(pointerId = 0, lane = 1))
-        assertFalse("A second finger on the same lane sends no press", tracker.down(pointerId = 1, lane = 1))
-        assertNull("The lane is still held", tracker.up(0))
-        assertEquals(1, tracker.up(1))
-        assertNull("An unknown pointer releases nothing", tracker.up(7))
-    }
-
-    @Test
-    fun chordsPressEachLaneAndCancelReleasesThemAll() {
-        val tracker = LaneTouchTracker()
-        assertTrue(tracker.down(0, 0))
-        assertTrue(tracker.down(1, 3))
-        assertTrue(tracker.down(2, 2))
-        assertEquals(listOf(0, 2, 3), tracker.cancel())
-        assertFalse(tracker.isPressed(0))
-        assertNull(tracker.up(1))
-    }
-
-    @Test
-    fun aPointerStaysInTheLaneItWentDownIn() {
-        val tracker = LaneTouchTracker()
-        assertTrue(tracker.down(5, 2))
-        assertFalse("The same pointer cannot go down twice", tracker.down(5, 3))
-        assertEquals(2, tracker.up(5))
     }
 
     @Test

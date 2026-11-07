@@ -130,7 +130,10 @@ class PlayfieldView @JvmOverloads constructor(
     val hud: StateFlow<PlayHud> = mutableHud.asStateFlow()
 
     private val sequence = AtomicLong()
-    private val tracker = LaneTouchTracker()
+
+    /** Every press and release of the playfield's lanes goes through here, numbered from [sequence], to the game. */
+    private val lanes = LaneSender({ sequence.incrementAndGet() }) { input -> controller?.enqueue(input) }
+
     private val renderer = PlayfieldRenderer(playfieldWords(context))
 
     @Volatile
@@ -152,8 +155,8 @@ class PlayfieldView @JvmOverloads constructor(
     fun pause() {
         pausePending = true
         controller?.clock?.pause(System.nanoTime())
-        // Lanes still down are released, so nothing stays pressed across the pause.
-        tracker.cancel()
+        // Lanes still down are let go, so nothing stays pressed here across the pause; the session is not told.
+        lanes.forget()
     }
 
     /** Whether the song has not started yet: the lead-in, or before the render thread has begun. */
@@ -262,26 +265,18 @@ class PlayfieldView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (previewSize != null) return false
         val g = geometry ?: return true
-        val target = controller ?: return true
+        if (controller == null) return true
         val nanos = eventNanos(event)
         if (touchLogFile != null) touchLog.record(event.actionMasked, nanos, System.nanoTime(), event.pointerCount)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = event.actionIndex
-                val lane = g.laneAt(event.getX(index))
-                if (tracker.down(event.getPointerId(index), lane)) {
-                    target.enqueue(LaneInput(lane, press = true, nanos, sequence.incrementAndGet()))
-                }
+                lanes.press(LaneHolder.Pointer(event.getPointerId(index)), g.laneAt(event.getX(index)), nanos)
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                // A pointer the system cancelled (FLAG_CANCELED, a palm for example) still lifts its lane.
-                tracker.up(event.getPointerId(event.actionIndex))?.let { lane ->
-                    target.enqueue(LaneInput(lane, press = false, nanos, sequence.incrementAndGet()))
-                }
-            }
-            MotionEvent.ACTION_CANCEL -> tracker.cancel().forEach { lane ->
-                target.enqueue(LaneInput(lane, press = false, nanos, sequence.incrementAndGet()))
-            }
+            // A pointer the system cancelled (FLAG_CANCELED, a palm for example) still lifts its lane.
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
+                lanes.release(LaneHolder.Pointer(event.getPointerId(event.actionIndex)), nanos)
+            MotionEvent.ACTION_CANCEL -> lanes.releasePointers(nanos)
         }
         return true
     }

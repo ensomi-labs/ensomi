@@ -16,8 +16,14 @@ import io.ensomi.runtime.VisibleObject
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/** A lane press or release from a touch or the preview's autoplay, stamped on the `System.nanoTime()` clock. */
-data class LaneInput(val lane: Int, val press: Boolean, val eventNanos: Long, val sequence: Long)
+/** Where a lane input came from: a finger, a key on a keyboard, or the autoplay's script. */
+enum class InputSource { TOUCH, KEYBOARD, AUTOPLAY }
+
+/**
+ * A lane press or release from a touch, a key or the autoplay, stamped on the `System.nanoTime()` clock. [source] goes
+ * into the logs.
+ */
+data class LaneInput(val lane: Int, val press: Boolean, val eventNanos: Long, val sequence: Long, val source: InputSource)
 
 /** The offsets and scroll time a game keeps from start to end. */
 data class PlayTiming(val audioOffsetMs: Double, val visualOffsetMs: Double, val scrollTimeMs: Double)
@@ -120,6 +126,7 @@ class PlayController(
     private var scoreChanged = true
     private var publishedScore: Score? = null
     private val hitOffsets = ArrayList<Double>()
+    private val pressesBySource = IntArray(InputSource.entries.size)
 
     fun start(nanoTime: Long) {
         if (ownsClock) clock.start(nanoTime, fromMs = -leadInMs)
@@ -204,7 +211,7 @@ class PlayController(
         while (scriptIndex < script.size && script[scriptIndex].songMs <= gameplayMs) {
             val input = script[scriptIndex++]
             val eventNanos = clock.nanoTimeAt(input.songMs - audioOffsetMs)
-            queue.add(LaneInput(input.lane, input.press, eventNanos, nextSequence()))
+            queue.add(LaneInput(input.lane, input.press, eventNanos, nextSequence(), InputSource.AUTOPLAY))
         }
     }
 
@@ -221,6 +228,7 @@ class PlayController(
         pending.sortWith(compareBy({ it.first }, { it.second.sequence }))
         val due = pending.takeWhile { it.first <= gameplayMs }
         for ((chartMs, input) in due) {
+            if (input.press) pressesBySource[input.source.ordinal]++
             val phase = if (input.press) Phase.PRESS else Phase.RELEASE
             record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs)
             visibleWindow.invalidate()
@@ -248,7 +256,8 @@ class PlayController(
             Log.i(
                 TAG,
                 "Game over: accuracy ${score.accuracy}, max combo ${score.maxCombo}, ${hitOffsets.size} hits timed, " +
-                    "late inputs ${session.lateInputs()}",
+                    "late inputs ${session.lateInputs()}, presses " +
+                    InputSource.entries.joinToString { "${it.name.lowercase()} ${pressesBySource[it.ordinal]}" },
             )
         }
         val next = PlayHud(
@@ -271,6 +280,7 @@ class PlayController(
         scoreChanged = true
         publishedScore = null
         hitOffsets.clear()
+        pressesBySource.fill(0)
         queue.clear()
         pending.clear()
         visibleWindow.invalidate()

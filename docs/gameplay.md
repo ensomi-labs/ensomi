@@ -284,7 +284,8 @@ logs.
 - `ACTION_CANCEL` (the system took the gesture) releases every pressed lane at the cancel's time.
 - A pointer that lifts with `FLAG_CANCELED` (API 33; the system decided it was not deliberate, a palm for example)
   still releases its lane, the only way to keep press and release paired.
-- Pausing releases every lane in the tracker; inputs queued before the pause are dropped, as in the Swift app.
+- Pausing lets go of every lane the app holds (`LaneHolds`) without telling the session; inputs queued before the
+  pause are dropped, as in the Swift app.
 - **System gestures.** Back is an inward swipe from the left or right edge, home a swipe from the bottom
   ([gesture navigation](https://developer.android.com/develop/ui/views/touch-and-input/gestures/gesturenav)). Taps are
   not affected; a finger that slides at an edge could be. Play is immersive, which makes a bottom swipe first show the
