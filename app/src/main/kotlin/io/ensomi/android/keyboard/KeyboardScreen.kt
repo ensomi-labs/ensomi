@@ -49,6 +49,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +57,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -63,6 +66,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -139,13 +143,29 @@ fun KeyboardScreen(
     BackHandler(enabled = capture.waiting != null) { capture = capture.cancel() }
     BackHandler(enabled = test.testing) { test = test.stop() }
 
-    val startSlot = { slot: KeySlot ->
+    // After a touch, the window is in touch mode, and Android spends the first Enter, Space, Tab or arrow key on leaving
+    // it (ViewRootImpl's EarlyPostImeInputStage) before the activity sees the key: a wait or a test started by touch
+    // leaves touch mode at once, so that its first key, Space or an arrow among them, reaches it.
+    val view = LocalView.current
+    val slotFocus = remember { KeySlot.entries.associateWith { FocusRequester() } }
+    val startSlot: (KeySlot) -> Unit = { slot ->
         test = test.stop()
         capture = capture.start(slot)
+        if (capture.waiting != null && view.isInTouchMode) view.requestFocusFromTouch()
     }
-    val toggleTest = {
+    val toggleTest: () -> Unit = {
         capture = capture.quiet()
         test = if (test.testing) test.stop() else test.start()
+        if (test.testing && view.isInTouchMode) view.requestFocusFromTouch()
+    }
+    // Focus follows the wait, as it moves on lane by lane, so the slot waiting is the one with focus; a test gives it to
+    // the button that stops it.
+    LaunchedEffect(capture.waiting) {
+        capture.waiting?.let { slot -> runCatching { slotFocus.getValue(slot).requestFocus() } }
+    }
+    val testFocus = remember { FocusRequester() }
+    LaunchedEffect(test.testing) {
+        if (test.testing) runCatching { testFocus.requestFocus() }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -190,6 +210,7 @@ fun KeyboardScreen(
                         words = words,
                         capture = capture,
                         canWait = canUseKeys,
+                        slotFocus = slotFocus,
                         onSlot = startSlot,
                         onClear = { capture.clear(currentMap())?.let { (next, cleared) -> capture = next; onMap(cleared) } },
                         onCancel = { capture = capture.cancel() },
@@ -200,7 +221,7 @@ fun KeyboardScreen(
                     )
                 }
                 val testSection: @Composable () -> Unit = {
-                    TestSection(map, labelling, words, test, devices, canTest = canUseKeys, onToggle = toggleTest)
+                    TestSection(map, labelling, words, test, devices, canTest = canUseKeys, focus = testFocus, onToggle = toggleTest)
                 }
                 if (wideWindow) {
                     Row(verticalAlignment = Alignment.Top) {
@@ -277,6 +298,7 @@ private fun KeysSection(
     words: KeyboardWords,
     capture: KeyCapture,
     canWait: Boolean,
+    slotFocus: Map<KeySlot, FocusRequester>,
     onSlot: (KeySlot) -> Unit,
     onClear: () -> Unit,
     onCancel: () -> Unit,
@@ -284,7 +306,7 @@ private fun KeysSection(
 ) {
     SectionHeader(stringResource(R.string.keyboard_keys), first)
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SlotGrid(map, keyboard, words, capture.waiting, canWait, onSlot)
+        SlotGrid(map, keyboard, words, capture.waiting, canWait, slotFocus, onSlot)
         // With one lane empty and a keyboard to press it with, the notice says how, and the hint would say it twice.
         val lone = map.emptyLanes.singleOrNull()?.takeIf { canWait }
         KeyboardText.emptyLanes(map, words)?.let { sentence ->
@@ -341,6 +363,7 @@ private fun SlotGrid(
     words: KeyboardWords,
     waiting: KeySlot?,
     canWait: Boolean,
+    focus: Map<KeySlot, FocusRequester>,
     onSlot: (KeySlot) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -373,7 +396,7 @@ private fun SlotGrid(
                 waiting = waiting == which,
                 enabled = canWait,
                 onClick = { onSlot(which) },
-                modifier = Modifier.width(width).fillMaxHeight(),
+                modifier = Modifier.focusRequester(focus.getValue(which)).width(width).fillMaxHeight(),
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(GAP)) {
@@ -500,6 +523,7 @@ private fun TestSection(
     test: KeyTest,
     devices: DeviceKeys,
     canTest: Boolean,
+    focus: FocusRequester,
     onToggle: () -> Unit,
 ) {
     SectionHeader(stringResource(R.string.keyboard_test))
@@ -527,7 +551,7 @@ private fun TestSection(
         }
         test.limit?.let { WarningLine(stringResource(R.string.keyboard_test_limit, it.toString())) }
         // A keyboard leaving mid-test leaves the test to stop.
-        FilledTonalButton(onClick = onToggle, enabled = canTest || test.testing) {
+        FilledTonalButton(onClick = onToggle, enabled = canTest || test.testing, modifier = Modifier.focusRequester(focus)) {
             Text(
                 stringResource(
                     when {
