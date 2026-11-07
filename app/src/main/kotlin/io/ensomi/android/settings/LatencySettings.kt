@@ -75,7 +75,7 @@ internal fun AudioLatencySetting(
 ) {
     val labels = latency.slots.mapIndexed { i, slot -> latencySlotLabel(i, slot) }
     val descriptions = labels.map { stringResource(R.string.settings_audio_slot, it) }
-    Column(Modifier.padding(top = 8.dp)) {
+    Column(Modifier.padding(top = 16.dp)) {
         Text(
             stringResource(R.string.settings_audio_latency),
             style = MaterialTheme.typography.bodyLarge,
@@ -88,27 +88,49 @@ internal fun AudioLatencySetting(
             // A segment's width less its own padding, and whether the text is set large.
             val room = with(density) { (maxWidth / Latency.SLOTS - SEGMENT_PADDING).toPx() }
             val large = density.fontScale > LARGE_TEXT
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                latency.slots.forEachIndexed { index, slot ->
-                    val showName = slot.name.isNotEmpty() &&
-                        (!large || measurer.measure(slot.name, nameStyle).size.width <= room)
-                    SegmentedButton(
-                        selected = latency.active == index,
-                        onClick = { onChange { it.withActive(index) } },
-                        shape = SegmentedButtonDefaults.itemShape(index, Latency.SLOTS),
-                        icon = {},
-                        modifier = Modifier.semantics { contentDescription = descriptions[index] },
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clearAndSetSemantics { }) {
-                            Text(
-                                index.toString(),
-                                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                            )
-                            if (showName) {
-                                Text(slot.name, style = nameStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val shown = latency.slots.map { slot ->
+                slot.name.isNotEmpty() && (!large || measurer.measure(slot.name, nameStyle).size.width <= room)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    latency.slots.forEachIndexed { index, slot ->
+                        SegmentedButton(
+                            selected = latency.active == index,
+                            onClick = { onChange { it.withActive(index) } },
+                            shape = SegmentedButtonDefaults.itemShape(index, Latency.SLOTS),
+                            icon = {},
+                            modifier = Modifier.semantics { contentDescription = descriptions[index] },
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.clearAndSetSemantics { },
+                            ) {
+                                Text(
+                                    index.toString(),
+                                    style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                                )
+                                // While any segment shows a name, each keeps a line for one, so the three stay one height.
+                                if (shown.any { it }) {
+                                    Text(
+                                        if (shown[index]) slot.name else " ",
+                                        style = nameStyle,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                             }
                         }
                     }
+                }
+                // The active slot's name, when its segment had no room for it: still in sight, whole.
+                val activeSlot = latency.slots[latency.active]
+                if (activeSlot.name.isNotEmpty() && !shown[latency.active]) {
+                    Text(
+                        labels[latency.active],
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clearAndSetSemantics { },
+                    )
                 }
             }
         }
@@ -136,7 +158,7 @@ internal fun InputLatencySetting(
     onChange: ((InputLatency) -> InputLatency) -> Unit,
     onName: (Int) -> Unit,
 ) {
-    Column(Modifier.padding(top = 8.dp)) {
+    Column(Modifier.padding(top = 16.dp)) {
         Text(
             stringResource(R.string.settings_input_latency),
             style = MaterialTheme.typography.bodyLarge,

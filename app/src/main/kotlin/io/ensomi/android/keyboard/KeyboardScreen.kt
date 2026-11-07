@@ -94,7 +94,8 @@ import io.ensomi.android.ui.WarningLine
  * Settings › Keyboard (keyboard.md, Settings › Keyboard): the one place the key map is set. The keyboards connected,
  * with links to Android's Bluetooth and keyboard layout settings; the five slots, each waiting for its key when pressed
  * ([KeyCapture]); the empty lane's mark and notice; Use default keys; and the key test ([KeyTest]). Chrome, in one
- * column centred at 640 dp at most, with the test beside the slots on a window wider than tall.
+ * column centred at 640 dp at most; on a window wider than tall, two columns at 840 dp at most, the slots on the left
+ * and the keyboards and the test on the right, so that the four lanes keep one row and the slots open the screen.
  *
  * [map] is the key map the screen shows; [currentMap] reads the settings' map as it is now and [onMap] changes it, so
  * that keys pressed in quick succession bind in turn, before the screen has drawn the first. While a slot waits or the
@@ -175,14 +176,14 @@ fun KeyboardScreen(
             Column(
                 Modifier
                     .padding(start = padding.calculateStartPadding(direction), end = padding.calculateEndPadding(direction))
-                    .widthIn(max = 640.dp)
+                    .widthIn(max = if (wideWindow) 840.dp else 640.dp)
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
             ) {
-                Status(connected)
-                val keysSection: @Composable () -> Unit = {
+                val keysSection: @Composable (Boolean) -> Unit = { first ->
                     KeysSection(
+                        first = first,
                         map = map,
                         keyboard = first,
                         words = words,
@@ -202,11 +203,15 @@ fun KeyboardScreen(
                 }
                 if (wideWindow) {
                     Row(verticalAlignment = Alignment.Top) {
-                        Column(Modifier.weight(1f)) { keysSection() }
-                        Column(Modifier.weight(1f)) { testSection() }
+                        Column(Modifier.weight(1f)) { keysSection(true) }
+                        Column(Modifier.weight(1f)) {
+                            Status(connected)
+                            testSection()
+                        }
                     }
                 } else {
-                    keysSection()
+                    Status(connected)
+                    keysSection(false)
                     testSection()
                 }
             }
@@ -264,6 +269,8 @@ private fun Status(connected: List<Keyboard>) {
 /** The five slots, what the wait for a key says, the empty lanes' notice, and the actions. */
 @Composable
 private fun KeysSection(
+    /** The first section of its column, with no divider above it. */
+    first: Boolean,
     map: KeyMap,
     keyboard: Keyboard?,
     words: KeyboardWords,
@@ -274,16 +281,13 @@ private fun KeysSection(
     onCancel: () -> Unit,
     onDefaults: () -> Unit,
 ) {
-    SectionHeader(stringResource(R.string.keyboard_keys))
+    SectionHeader(stringResource(R.string.keyboard_keys), first)
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SlotGrid(map, keyboard, words, capture.waiting, canWait, onSlot)
+        // With one lane empty and a keyboard to press it with, the notice says how, and the hint would say it twice.
+        val lone = map.emptyLanes.singleOrNull()?.takeIf { canWait }
         KeyboardText.emptyLanes(map, words)?.let { sentence ->
-            val lone = map.emptyLanes.singleOrNull()
-            val how = if (lone != null && canWait) {
-                " " + stringResource(R.string.keyboard_lane_empty_how, KeyboardText.number(lone))
-            } else {
-                ""
-            }
+            val how = lone?.let { " " + stringResource(R.string.keyboard_lane_empty_how, KeyboardText.number(it)) }.orEmpty()
             WarningLine(sentence + how)
         }
         val waiting = capture.waiting
@@ -293,7 +297,7 @@ private fun KeysSection(
             waiting != null -> Message(prompt(waiting), MaterialTheme.colorScheme.onSurface)
             note is CaptureNote.Swapped -> Message(KeyboardText.swapped(note, keyboard, words), MaterialTheme.colorScheme.onSurface)
             !canWait -> Message(stringResource(R.string.keyboard_hint_no_keyboard), MaterialTheme.colorScheme.onSurfaceVariant)
-            else -> Message(stringResource(R.string.keyboard_hint), MaterialTheme.colorScheme.onSurfaceVariant)
+            lone == null -> Message(stringResource(R.string.keyboard_hint), MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     // Text buttons' labels sit 12 dp in from their edges: these line up with the slots.
