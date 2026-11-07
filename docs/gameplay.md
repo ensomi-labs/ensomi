@@ -298,7 +298,8 @@ logs.
   chart time. Frames advance the session only to their time less the allowance, and nothing delivered is stamped after
   the pause, so the session's clock has not passed that time and the release is never counted late; no input taken
   after a pause is stamped before it either. The playfield logs the lanes it released and still holds at each resume
-  (`EnsomiPlayfield`), and the game the lanes the session holds and the holds held in them (`EnsomiPlay`).
+  (`EnsomiPlayfield`), and the game, at the first frame of a pause and after it, the lanes the session holds, the holds
+  held in them and the late inputs so far (`EnsomiPlay`).
 - **System gestures.** Back is an inward swipe from the left or right edge, home a swipe from the bottom
   ([gesture navigation](https://developer.android.com/develop/ui/views/touch-and-input/gestures/gesturenav)). Taps are
   not affected; a finger that slides at an edge could be. Play is immersive, which makes a bottom swipe first show the

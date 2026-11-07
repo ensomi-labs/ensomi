@@ -39,8 +39,9 @@ class InputQueue(
     /**
      * One frame at [gameplayMs], with the game's [audioOffsetMs]. While [paused] the song time is frozen, so whatever
      * is taken is stamped at the pause's time, and everything waiting is handed on: all of it came before the pause.
+     * The number of inputs handed on.
      */
-    fun frame(gameplayMs: Double, audioOffsetMs: Double, paused: Boolean) {
+    fun frame(gameplayMs: Double, audioOffsetMs: Double, paused: Boolean): Int {
         if (paused) {
             pausedAtMs = gameplayMs
             pausedSince = true
@@ -57,7 +58,7 @@ class InputQueue(
             pending += chartMs to input
         }
         if (!paused) pausedSince = false
-        if (pending.isEmpty()) return
+        if (pending.isEmpty()) return 0
         pending.sortWith(compareBy({ it.first }, { it.second.sequence }))
         // Nothing stamped at the pause's time waits, though a clock that runs again may read a hair before it.
         val dueBy = maxOf(gameplayMs, pausedAtMs)
@@ -67,6 +68,7 @@ class InputQueue(
             deliver(if (paused) minOf(chartMs, gameplayMs) else chartMs, input)
         }
         pending.subList(0, due).clear()
+        return due
     }
 
     /** Everything queued and waiting is dropped, and the pause forgotten: the game starts again. */

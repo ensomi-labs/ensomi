@@ -142,7 +142,7 @@ class PlayController(
     private val hitOffsets = ArrayList<Double>()
     private val pressesBySource = IntArray(InputSource.entries.size)
 
-    /** The lanes released at the pause's time since the last resume was logged, one bit each. */
+    /** The lanes released at the pause's time since the last frame that was not paused, one bit each. */
     private var resumeReleased = 0
 
     fun start(nanoTime: Long) {
@@ -172,9 +172,11 @@ class PlayController(
             // A paused frame hands on what was queued before the pause, at the pause's time at the latest, so that the
             // session holds the lanes the app holds, and advances nothing: the session's clock stays where it was.
             if (!paused) runScript(gameplayMs)
-            inputs.frame(gameplayMs, audioOffsetMs, paused)
+            val delivered = inputs.frame(gameplayMs, audioOffsetMs, paused)
+            if (paused && !wasPaused) logLanes("Paused", gameplayMs, "delivered $delivered inputs queued before it")
             if (!paused) {
-                if (wasPaused) logResume(gameplayMs)
+                if (wasPaused) logLanes("Resumed", gameplayMs, "released at the pause's time [${lanes(resumeReleased)}]")
+                resumeReleased = 0
                 record(session.advance(gameplayMs - INPUT_ALLOWANCE_MS), gameplayMs)
             }
         }
@@ -255,28 +257,30 @@ class PlayController(
     }
 
     /**
-     * The first frame after a pause: the lanes released at the pause's time, and the lanes the session holds as play
-     * goes on with the holds held in them, which must be the lanes the app's holders hold (`EnsomiPlayfield` logs those
-     * at the resume). Lanes are numbered 1 to 4. Once a pause, so the runtime's lane states are asked for only then.
+     * The first frame of a pause, and the first after it: the lanes the session holds then, and the holds held in them,
+     * which must be the lanes the app's holders hold (`EnsomiPlayfield` logs those at the resume), with the late inputs
+     * so far. Lanes are numbered 1 to 4. Once each, so the runtime's lane states are asked for only then.
      */
-    private fun logResume(gameplayMs: Double) {
+    private fun logLanes(what: String, gameplayMs: Double, detail: String) {
         val lanes = session.laneStates()
         Log.i(
             TAG,
             String.format(
                 Locale.ROOT,
-                "Resumed at chart time %.1f ms: released at the pause's time [%s]; the session holds [%s], holding a " +
-                    "hold in [%s]; late inputs so far %d",
+                "%s at chart time %.1f ms: %s; the session holds [%s], holding a hold in [%s]; late inputs so far %d",
+                what,
                 gameplayMs,
-                (0 until PlayfieldGeometry.LANES).filter { resumeReleased and (1 shl it) != 0 }
-                    .joinToString { "${it + 1}" },
+                detail,
                 lanes.filter { it.isPressed }.joinToString { "${it.lane.toInt() + 1}" },
                 lanes.filter { it.holdingObject != null }.joinToString { "${it.lane.toInt() + 1}" },
                 session.lateInputs().toInt(),
             ),
         )
-        resumeReleased = 0
     }
+
+    /** The lanes of [bits], numbered 1 to 4. */
+    private fun lanes(bits: Int): String =
+        (0 until PlayfieldGeometry.LANES).filter { bits and (1 shl it) != 0 }.joinToString { "${it + 1}" }
 
     private fun record(events: List<JudgementEvent>, chartMs: Double) {
         if (events.isEmpty()) return
