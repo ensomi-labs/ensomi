@@ -76,6 +76,19 @@ class AmbientPlayClockTest {
         assertEquals(66_000.0, clock.songTimeMs(10_000 * ms)!!, 1e-6)
     }
 
+    /** An input made before a pause and taken while paused keeps the time the music was at then. */
+    @Test
+    fun whilePausedAnEventBeforeThePauseIsWhereTheMusicWasThen() {
+        val clock = running()
+        clock.songTimeMs(6_016 * ms)
+        clock.pause(6_000 * ms)
+        assertEquals(61_990.0, clock.eventSongTimeMs(5_990 * ms)!!, 1e-6)
+        assertEquals("Never past the time held", 62_016.0, clock.eventSongTimeMs(6_000 * ms)!!, 1e-6)
+        assertEquals(62_016.0, clock.eventSongTimeMs(9_000 * ms)!!, 1e-6)
+        clock.resume(10_000 * ms)
+        assertEquals(66_000.0, clock.eventSongTimeMs(10_000 * ms)!!, 1e-6)
+    }
+
     @Test
     fun aPauseHoldsTheFurthestTimeShownNotTheTimeOfThePause() {
         val clock = running()

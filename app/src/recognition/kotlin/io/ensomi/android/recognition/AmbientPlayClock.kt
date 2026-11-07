@@ -31,6 +31,10 @@ class AmbientPlayClock(private val anchor: LockAnchor) : PlayClock {
     /** The latest time asked for while running: nothing shown up to it may move back. */
     private var latestQueryNanos = Long.MIN_VALUE
 
+    /** When the clock paused, and the least it showed before that pause, for [eventSongTimeMs]. */
+    private var pausedAtNanos = Long.MIN_VALUE
+    private var heldBeforeMs = Double.NEGATIVE_INFINITY
+
     /** Where the music is at [nanoTime], paused or not. */
     fun heardMs(nanoTime: Long): Double = anchor.referenceMs + (nanoTime - anchor.captureNanos) / 1e6
 
@@ -47,11 +51,22 @@ class AmbientPlayClock(private val anchor: LockAnchor) : PlayClock {
         return maxOf(heardMs(nanoTime), heldMs)
     }
 
+    /** While paused, a time before the pause as it was heard then, up to the time held. */
+    @Synchronized
+    override fun eventSongTimeMs(nanoTime: Long): Double? {
+        if (!started) return null
+        if (!paused) return songTimeMs(nanoTime)
+        if (nanoTime >= pausedAtNanos) return heldMs
+        return minOf(maxOf(heardMs(nanoTime), heldBeforeMs), heldMs)
+    }
+
     override fun nanoTimeAt(songMs: Double): Long = anchor.captureNanos + ((songMs - anchor.referenceMs) * 1e6).toLong()
 
     @Synchronized
     override fun pause(nanoTime: Long) {
         if (!started || paused) return
+        heldBeforeMs = heldMs
+        pausedAtNanos = nanoTime
         heldMs = maxOf(heardMs(maxOf(nanoTime, latestQueryNanos)), heldMs)
         paused = true
     }
