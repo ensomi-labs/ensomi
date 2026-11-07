@@ -1,5 +1,8 @@
 package io.ensomi.android.play
 
+import io.ensomi.android.audio.AudioPlayClock
+import io.ensomi.android.audio.OutputTimestamp
+import io.ensomi.android.audio.PlayOutput
 import java.util.Random
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -122,6 +125,93 @@ class InputQueueTest {
         val press = input(2, press = true, atMs = 1_100)
         frame(1_200)
         assertEquals(listOf(-1_900.0 to press), delivered)
+    }
+
+    /** An output whose timestamps a test sets, for the game's own clock. */
+    private class Output : PlayOutput {
+        var next: OutputTimestamp? = null
+
+        override fun timestamp(): OutputTimestamp? = next
+
+        override fun play() = Unit
+
+        override fun pause() = Unit
+    }
+
+    private val rate = 48_000
+
+    private fun frames(songMs: Double) = (songMs * rate / 1000).toLong()
+
+    /**
+     * The audio clock, as a game runs on it: a frame updates it, asks its song time now and at the frame's presentation
+     * 16 ms later, and hands the queue the time now. The release at the resume is stamped with the time the clock held
+     * at, whether the first frame after the resume finds the clock still waiting for a timestamp or already past one.
+     */
+    @Test
+    fun onTheAudioClockAReleaseAtTheResumeTakesTheTimeItHeldAt() {
+        for (timestampFirst in listOf(false, true)) {
+            val output = Output()
+            val audio = AudioPlayClock(output, rate, leadInFrames = 0)
+            val delivered = ArrayList<Pair<Double, LaneInput>>()
+            val queue = InputQueue(audio, taken = {}, deliver = { at, input -> delivered += at to input })
+            fun frame(atMs: Long) {
+                audio.update(atMs * ms)
+                val song = audio.songTimeMs(atMs * ms)!!
+                audio.songTimeMs((atMs + 16) * ms)
+                queue.frame(song, 0.0, audio.isPaused)
+            }
+            audio.start(0, 0.0)
+            output.next = OutputTimestamp(frames(5_000.0), 5_000 * ms)
+            frame(5_000)
+            val press = LaneInput(2, press = true, 5_005 * ms, 1, InputSource.TOUCH).also(queue::add)
+            frame(5_016)
+            // Paused 4 ms after that frame, whose presentation was asked for at 5 032 ms: the clock holds 5 032.
+            audio.pause(5_020 * ms)
+            frame(5_030)
+            frame(9_000)
+            // The output stopped at 5 012 ms. The playfield queues the release, then the clock runs again.
+            output.next = OutputTimestamp(frames(5_012.0), 5_013 * ms)
+            val release = LaneInput(2, press = false, 20_000 * ms, 2, InputSource.TOUCH, atPause = true)
+            queue.add(release)
+            audio.resume(20_000 * ms)
+            if (timestampFirst) output.next = OutputTimestamp(frames(5_013.0), 20_005 * ms)
+            frame(20_010)
+            assertEquals(listOf(5_005.0 to press, 5_032.0 to release), delivered)
+        }
+    }
+
+    /**
+     * The first timestamp after a resume may put the audio clock ahead of the time it held at, which it takes at once.
+     * A press made while it still held, taken by a later frame, then maps before that time; it is stamped at it
+     * instead, where the session's clock already is after the release at the resume, so it is not late.
+     */
+    @Test
+    fun onTheAudioClockAPressAfterTheResumeIsNeverStampedBeforeTheTimeItHeldAt() {
+        val output = Output()
+        val audio = AudioPlayClock(output, rate, leadInFrames = 0)
+        val delivered = ArrayList<Pair<Double, LaneInput>>()
+        val queue = InputQueue(audio, taken = {}, deliver = { at, input -> delivered += at to input })
+        audio.start(0, 0.0)
+        output.next = OutputTimestamp(frames(5_000.0), 5_000 * ms)
+        audio.update(5_000 * ms)
+        queue.frame(audio.songTimeMs(5_000 * ms)!!, 0.0, paused = false)
+        audio.pause(5_010 * ms)
+        queue.frame(audio.songTimeMs(5_020 * ms)!!, 0.0, audio.isPaused)
+        output.next = OutputTimestamp(frames(5_010.0), 5_011 * ms)
+        queue.add(LaneInput(0, press = false, 20_000 * ms, 1, InputSource.TOUCH, atPause = true))
+        audio.resume(20_000 * ms)
+        // A press handled while the clock still waited, but only taken by the frame that finds the first timestamp,
+        // which is ahead of the held time by then: 5 022 ms at 20 020 ms.
+        val press = LaneInput(0, press = true, 20_004 * ms, 2, InputSource.TOUCH)
+        audio.update(20_002 * ms)
+        queue.frame(audio.songTimeMs(20_002 * ms)!!, 0.0, audio.isPaused)
+        queue.add(press)
+        output.next = OutputTimestamp(frames(5_012.0), 20_010 * ms)
+        audio.update(20_020 * ms)
+        assertEquals("On the new line it is before the pause", 5_006.0, audio.songTimeMs(press.eventNanos)!!, 1e-9)
+        queue.frame(audio.songTimeMs(20_020 * ms)!!, 0.0, audio.isPaused)
+        assertEquals(listOf(5_010.0, 5_010.0), delivered.map { it.first })
+        assertEquals(press, delivered.last().second)
     }
 
     /**
