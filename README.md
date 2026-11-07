@@ -6,7 +6,7 @@ written in Kotlin with Jetpack Compose. Chart generation and gameplay come from 
 code or history with the Swift app, which is the reference for what it does.
 
 The app is an early play demo. It does drop-in play on the app's own stores: the settings, kept
-with Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding
+with Jetpack DataStore (latency slots for the sound and for each input method); the song library, from the system's document picker; decoding
 songs to PCM; the chart model, downloaded from Hugging Face at a pinned tag or installed from the package's files in a
 folder the player picks, either way only the pinned package and checked file by file; charts made on
 the device by the runtime from the player's songs, the last one per song kept; play: the chart on the song's own sound,
@@ -87,6 +87,10 @@ adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-
 
 MainActivity is `singleTask`: debug launch extras are read only when a new instance is created. Force-stop the app before launching with those extras.
 
+A few scenarios use the app's own stores instead of fakes: `results-stored` (the sample results, whose Use writes the
+active audio latency slot), `play-stored` (the sample game, no sound, played with the stored input latency slots),
+`settings-stored`, `calibration-stored` and `calibration-picture-stored` (the stored latency slots on those screens).
+
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
 screen, the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
@@ -137,12 +141,18 @@ The model's files are in the app's
 `ensomi-install.json` recording the tag, the manifest's SHA-256 and the source; an install from files copies into
 `no_backup/models/.files-ensomi-r2` first and keeps the staging when it stops. The settings are in
 `files/settings.json`, the library in `files/library.json`, and each song's last chart in `files/charts/<song id>/`
-(`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
+(`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`). The settings keep the latency slots
+(`audioLatency`, `inputLatency`, docs/latency.md); the first start of this build moves a 0.1.x file's `audioOffsets` and
+`visualOffsetMs` into them and logs the move under `EnsomiSettings` by slot number, and later writes leave the old
+fields out.
 
 Making charts logs under `EnsomiCharts` (each song's audio stages and each chart, with their times and the peak
-resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, at the first frame of
-each pause and after it the inputs delivered then or the lanes released at the pause's time, the lanes the session
-holds and the holds held in them, numbered 1 to 4, and the late inputs so far, the score), their sound under
+resident memory), games under `EnsomiPlay` (the latency for the game, "Latency for this game: audio slot 1 +142 ms; touch slot 0 +8 ms;
+keyboard slot 1 +30 ms", with "(no slot)" for a value no slot gave; each input method's first press and how far the
+input clock held for it; why each pause happened; at the first frame of each pause and after it the inputs delivered
+then or the lanes released at the pause's time, the lanes the session holds and the holds held in them, numbered 1 to
+4, and the late inputs so far; at game over the score, the presses by source, the methods that pressed, the hits timed
+by source with their average error, and the late inputs by source), their sound under
 `EnsomiAudio` (the track's buffer, its route and its underruns), and the playfield under `EnsomiPlayfield`: at each
 resume the lanes it released at the pause's time and those still held, and from its render thread the frame rate it
 asked for and got, then every two seconds the frames drawn, the vsyncs missed, the frames finished after their
@@ -168,8 +178,14 @@ A debuggable build (and the checks build) also writes each game's frame times to
 `files/frame-log.csv` (`vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos,startNanos,recordNanos,postNanos,renderUs,notes,syncResult,drained`:
 the frame's deadline from `FrameData`, when its drawing was posted, when its work began, the time recording the canvas
 and handing it to HWUI, the song time drawn in microseconds, the objects in the frame, HWUI's answer for it, and 1 when
-the vsync before it drew nothing to drain the buffer queue), and each touch but moves to `files/touch-log.csv`
-(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it). The same builds take the launch extras above; the `pacing-flat`,
+the vsync before it drew nothing to drain the buffer queue), each touch but moves to `files/touch-log.csv`
+(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it), and
+every input the game's session was given to `files/input-log.csv`
+(`sequence,source,lane,press,atPause,eventNanos,songMs,chartMs,takenNanos,deliveredNanos,inputClockMs,late`: its
+event's song time and its chart time, whose difference is minus the audio latency and its source's input latency, the
+frames that took it and handed it on, the input clock then, and 1 when it was late), summarised by source under
+`EnsomiPlay` as the game closes ("Inputs: touch 113, chart less song time −30.0 to −30.0 ms, waited 0 (most 0.0 ms),
+late 0; …"). The same builds take the launch extras above; the `pacing-flat`,
 `pacing`, `pacing-lean-max` and `pacing-portrait` scenarios play the sample game without end at each lean, for the
 frame pacing check.
 

@@ -41,7 +41,7 @@ class AppGraph(
     val model: ChartModelStore,
     val charts: ChartMaker,
     val settings: PlaySettingsStore,
-    /** The device a game's sound plays on, for its audio offset. */
+    /** The device a game's sound plays on, which the pause panel names when it changes. */
     val outputs: PlayOutputs,
     /** The calibration's click track. */
     val clicks: ClickTracks,
@@ -222,8 +222,18 @@ data class Scenario(
                 holdCountdown = true,
             ),
             "results" to Scenario(listOf(Library, MakeChart(SONG), Results(SONG, SAMPLE_RESULT))),
-            // The sample result over the app's own stores: Use writes the stored offset.
+            // The sample result over the app's own stores: Use writes the active audio latency slot.
             "results-stored" to Scenario(listOf(Library, Results(null, SAMPLE_RESULT)), real = true),
+            // Over the app's own stores, for the latency checks: the sample game, played with the stored input
+            // latency slots (no sound, so no audio slot), and Settings and the calibration showing the stored slots.
+            "play-stored" to Scenario(listOf(Library, Play(null, loop = false)), real = true),
+            "settings-stored" to Scenario(listOf(Library, Settings), real = true),
+            "calibration-stored" to Scenario(listOf(Library, Settings, Calibration), real = true),
+            "calibration-picture-stored" to Scenario(
+                listOf(Library, Settings, Calibration),
+                calibrationStep = CalibrationStep.PICTURE,
+                real = true,
+            ),
             "settings" to Scenario(listOf(Library, Settings)),
             "settings-playfield" to Scenario(listOf(Library, Settings), settingsItem = PLAYFIELD_SETTINGS),
             "settings-playfield-flat" to Scenario(listOf(Library, Settings), settings = FLAT, settingsItem = PLAYFIELD_SETTINGS),
