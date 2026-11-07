@@ -76,7 +76,8 @@ a commit and hand the build to Astra (Codex on the Mac) with `ens astra`. A buil
 1. `local.properties` with `sdk.dir` and `ensomi.runtime.aar`.
 2. `./gradlew assembleDebug assembleDebugAndroidTest assembleChecks testDebugUnitTest lint assembleRelease`, with Android Studio's
    bundled JDK.
-3. On the arm64 AVD `ensomi-36` (and `ensomi-36-16k` for 16 KB pages): boot it headless, install, run
+3. On the arm64 AVD `ensomi-36-16k` (16 KB pages), the only one: emulator runs take turns on it, and nobody creates,
+   deletes or wipes an AVD. Boot it headless, install, run
    `scripts/capture-prototype.sh` for the screens, or launch and read the Diagnostics JSON with
    `adb logcat -d -s EnsomiDiagnostics:I -v raw`, then shut the emulator down.
 4. For the phone checks: a kit from `scripts/make-phone-kit.sh`, then `scripts/phone-checks.sh -k KIT` on the booted

@@ -187,7 +187,7 @@ Runtime run under translation is unknown. Keep it if a week of runs is stable; o
 | Where | What runs | When |
 | --- | --- | --- |
 | `ubuntu-24.04` | Builds, JVM tests, lint, 16 KB check | Every push |
-| Mac, arm64 AVDs `ensomi-36` and `ensomi-36-16k` | Screens, flows, real 16 KB loading, the phone checks on an emulator, the release APK's smoke test | A build brief through Astra |
+| Mac, arm64 AVD `ensomi-36-16k` | Screens, flows, real 16 KB loading, the phone checks on an emulator, the release APK's smoke test | A build brief through Astra |
 | Phones | Timing, audio, HyperOS, the checklist | A person, before a release |
 
 **The kit.** Built on the Mac from a commit whose CI passed, without the override, by `scripts/make-phone-kit.sh`, which should
