@@ -68,10 +68,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
 import io.ensomi.android.ui.sliderColorsWithoutTicks
-import kotlin.math.max
-import kotlin.math.pow
+import kotlin.math.floor
 import kotlin.math.roundToInt
-import kotlin.math.roundToLong
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -114,6 +112,7 @@ internal fun AudioLatencySetting(
             nameLabel = stringResource(R.string.latency_name_audio, active),
             onStep = { step -> onChange { it.withActiveMs(it.activeMs + step) } },
             onName = { onName(active) },
+            modifier = SETTINGS_STEPPER,
         )
         Supporting(stringResource(R.string.settings_audio_latency_help))
         Supporting(stringResource(R.string.settings_sound_now, route.name), Modifier.padding(top = 4.dp))
@@ -246,8 +245,12 @@ private fun MethodSlot(
         nameLabel = stringResource(R.string.latency_name_input, slot),
         onStep = onStep,
         onName = onName,
+        modifier = SETTINGS_STEPPER,
     )
 }
+
+/** Icon buttons' symbols sit 12 dp in from their edges: in Settings' list these line up with the text above. */
+private val SETTINGS_STEPPER = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
 
 /**
  * A menu field labelled [label], "Touch uses slot", whose value is [slot], "0" or "1 · K380": the app's exposed dropdown
@@ -295,10 +298,10 @@ internal fun InputSlotMenu(
 }
 
 /**
- * A slot's value in whole milliseconds, "+120 ms", nudged a millisecond at a time within the range ([onStep] hears −1 or
- * +1), and its Name button at the row's end. A step held down repeats, faster the longer it is held ([StepRepeat]), so a
- * Bluetooth output's 150 ms or more is about three seconds away and every value on the way can still be stopped at.
- * [what] names the value for TalkBack, which hears each new value as it changes.
+ * A slot's value in whole milliseconds, "+120 ms", nudged a millisecond at a time within the range ([onStep] hears how
+ * many milliseconds, −1 or +1 for a tap), and its Name button at the row's end. A step held down repeats, faster the
+ * longer it is held ([StepRepeat]), so a Bluetooth output's 150 ms or more is about two seconds away; a tap then puts it
+ * on the millisecond. [what] names the value for TalkBack, which hears each new value as it changes.
  */
 @Composable
 internal fun LatencyStepper(
@@ -307,14 +310,13 @@ internal fun LatencyStepper(
     nameLabel: String,
     onStep: (Int) -> Unit,
     onName: () -> Unit,
-    // Icon buttons' symbols sit 12 dp in from their edges: these line up with the text above.
-    modifier: Modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+    modifier: Modifier = Modifier,
     valueStyle: TextStyle = MaterialTheme.typography.titleMedium,
 ) {
     val decrease = stringResource(R.string.settings_offset_decrease)
     val increase = stringResource(R.string.settings_offset_increase)
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        StepButton(R.drawable.ic_remove, "$decrease $what", enabled = value > Latency.RANGE.first) { onStep(-1) }
+        StepButton(R.drawable.ic_remove, "$decrease $what", enabled = value > Latency.RANGE.first) { steps -> onStep(-steps) }
         Text(
             PlaySettings.formatOffset(value),
             style = valueStyle.copy(fontFeatureSettings = "tnum"),
@@ -323,7 +325,7 @@ internal fun LatencyStepper(
                 .widthIn(min = 88.dp)
                 .semantics { liveRegion = LiveRegionMode.Polite },
         )
-        StepButton(R.drawable.ic_add, "$increase $what", enabled = value < Latency.RANGE.last) { onStep(1) }
+        StepButton(R.drawable.ic_add, "$increase $what", enabled = value < Latency.RANGE.last) { steps -> onStep(steps) }
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onName) {
             Icon(painterResource(R.drawable.ic_edit), contentDescription = nameLabel)
@@ -332,12 +334,12 @@ internal fun LatencyStepper(
 }
 
 /**
- * An icon button whose step comes on its click, and again and again while it is held ([StepRepeat]): by a finger, or by
- * Enter or Space while it has focus. A press that repeated adds nothing when it is let go. TalkBack's double tap is one
- * click, one step.
+ * An icon button whose step comes on its click, and keeps coming while it is held ([StepRepeat]): by a finger, or by
+ * Enter or Space while it has focus. [onStep] hears how many steps are due, 1 for a click. A press that repeated adds
+ * nothing when it is let go. TalkBack's double tap is one click, one step.
  */
 @Composable
-private fun StepButton(@DrawableRes icon: Int, description: String, enabled: Boolean, onStep: () -> Unit) {
+private fun StepButton(@DrawableRes icon: Int, description: String, enabled: Boolean, onStep: (Int) -> Unit) {
     val source = remember { MutableInteractionSource() }
     val step by rememberUpdatedState(onStep)
     val press = remember { HeldPress() }
@@ -349,12 +351,18 @@ private fun StepButton(@DrawableRes icon: Int, description: String, enabled: Boo
                     press.repeated = false
                     repeating?.cancel()
                     repeating = launch {
+                        // By the time held, not by the frames run: a slow frame makes the next step larger, not later.
+                        val from = System.nanoTime()
+                        var done = 0
                         delay(StepRepeat.HOLD_MS)
-                        var repeat = 0
                         while (isActive) {
-                            press.repeated = true
-                            step()
-                            delay(StepRepeat.waitMs(++repeat))
+                            val due = StepRepeat.stepsAfter((System.nanoTime() - from) / 1_000_000) - done
+                            if (due > 0) {
+                                press.repeated = true
+                                done += due
+                                step(due)
+                            }
+                            delay(StepRepeat.TICK_MS)
                         }
                     }
                 }
@@ -369,7 +377,7 @@ private fun StepButton(@DrawableRes icon: Int, description: String, enabled: Boo
     }
     IconButton(
         onClick = {
-            if (!press.repeated) step()
+            if (!press.repeated) step(1)
             press.repeated = false
         },
         enabled = enabled,
@@ -385,19 +393,28 @@ private class HeldPress {
 }
 
 /**
- * How a held step repeats: the first repeat after [HOLD_MS], as a long press, then a little sooner each time, from
- * [FIRST_WAIT_MS] down to [FASTEST_WAIT_MS], about one a frame. Each repeat is 1 ms, so from 0 the steps reach +150 ms in
- * 3.3 seconds and pass through every value on the way. A slider takes a value most of the way faster.
+ * How a held step repeats, by the time it has been held: nothing for [HOLD_MS], as a long press, then the first step,
+ * and steps coming faster and faster, from [SLOWEST_PER_S] a second to [FASTEST_PER_S] over [SPEED_UP_MS], then that
+ * fast. A step is 1 ms: from 0, +150 ms is 2.3 s away and +300 ms 3.8 s; letting go shows the value reached, and a tap
+ * moves it by one. A slider takes a value most of the way faster still.
  */
 object StepRepeat {
     const val HOLD_MS = 400L
-    const val FIRST_WAIT_MS = 150.0
-    const val FASTEST_WAIT_MS = 16L
-    private const val SPEED_UP = 0.8
+    const val TICK_MS = 16L
+    const val SLOWEST_PER_S = 10.0
+    const val FASTEST_PER_S = 100.0
+    const val SPEED_UP_MS = 800.0
 
-    /** The wait after repeat [repeat], counted from 1. */
-    fun waitMs(repeat: Int): Long =
-        max(FASTEST_WAIT_MS, (FIRST_WAIT_MS * SPEED_UP.pow(repeat - 1)).roundToLong())
+    /** The steps due after the step has been held for [heldMs]: 0 before [HOLD_MS], then never fewer than before. */
+    fun stepsAfter(heldMs: Long): Int {
+        if (heldMs < HOLD_MS) return 0
+        val x = (heldMs - HOLD_MS).toDouble()
+        val ramp = minOf(x, SPEED_UP_MS)
+        // The rate rises in a straight line over the ramp, so the steps are its integral, then the fastest rate's.
+        val rising = (SLOWEST_PER_S * ramp + (FASTEST_PER_S - SLOWEST_PER_S) * ramp * ramp / (2 * SPEED_UP_MS)) / 1000
+        val steady = FASTEST_PER_S * (x - ramp) / 1000
+        return 1 + floor(rising + steady).toInt()
+    }
 }
 
 /**

@@ -121,13 +121,18 @@ class CalibrationEditsTest {
         }
     }
 
+    /** A held step comes faster the longer it is held, by the time held: +150 ms in a little over two seconds. */
     @Test
-    fun aHeldStepReaches150MsInAboutThreeSecondsThroughEveryValue() {
-        val waits = (1..149).map(StepRepeat::waitMs)
-        assertTrue("Each wait no longer than the last", waits.zipWithNext().all { (a, b) -> b <= a })
-        assertEquals(StepRepeat.FASTEST_WAIT_MS, waits.last())
-        val toReach150 = StepRepeat.HOLD_MS + waits.sum()
-        assertTrue("$toReach150 ms", toReach150 in 3_000L..3_500L)
+    fun aHeldStepComesFasterTheLongerItIsHeld() {
+        assertEquals("A tap is a click, not a hold", 0, StepRepeat.stepsAfter(StepRepeat.HOLD_MS - 1))
+        assertEquals(1, StepRepeat.stepsAfter(StepRepeat.HOLD_MS))
+        val ticks = (StepRepeat.HOLD_MS..5_000L step StepRepeat.TICK_MS).map(StepRepeat::stepsAfter)
+        assertTrue("Never fewer than before", ticks.zipWithNext().all { (a, b) -> b >= a })
+        assertTrue("At most two a frame, so the value is seen moving", ticks.zipWithNext().all { (a, b) -> b - a <= 2 })
+        val to150 = (0L..10_000L).first { StepRepeat.stepsAfter(it) >= 150 }
+        val to300 = (0L..10_000L).first { StepRepeat.stepsAfter(it) >= 300 }
+        assertTrue("$to150 ms to +150 ms", to150 in 2_000L..2_500L)
+        assertTrue("$to300 ms to +300 ms", to300 in 3_500L..4_000L)
     }
 
     private fun read(file: File): PlaySettings =
