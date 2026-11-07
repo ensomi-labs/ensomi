@@ -624,7 +624,7 @@ on `ensomi-36-16k` by touches held across a pause.
 | --- | --- | --- | --- | --- |
 | K1 (done) | `LaneHolds` in place of `LaneTouchTracker`, touch unchanged; `LaneInput.source`; the key map (table, defaults, swap, Clear, completeness, storage) in `StoredSettings`; `KeyLanes` and `GameKeys` as pure logic | The JVM tests above; a game from `adb shell input tap` and the capture script as before; `settings.json` keeps every field and gains `keys` | — | D1 to D3, D5; O9, O10 |
 | K2 (done) | Keyboard play: the manifest's `keyboard\|keyboardHidden\|navigation`; `HardwareKeys` in `MainActivity`; `ConnectedKeyboards` in `AppStores` with a fake for the scenarios; lane keys, the Pause key with its fresh-down rule and the taken keys in play; `FLAG_ALT_FOCUSABLE_IM` on the game's screens; labels on the caps; the key log and the game log's additions | `input keyevent` taps judged; `--duration` gives one press and one release, and a held Pause key pauses once; `emu event send` chords and holds judged; a `hid` keyboard registered mid-game: `am get-config` before and after, `MainActivity` created once (a debug log line), the song goes on; `hid` closed: canceled ups in the key log, no lane left lit, no pause; the window flag in `dumpsys window`; captures with labels in both orientations | 14, 16, 17, 20 | K1; latency.md L1; O6, O7 |
-| K3 | Settings › Keyboard: status, links, the five slots, capture with Clear, Cancel and moving on, swap, refusal, the empty lane's mark and notice, defaults, the key test and its limit sentence; the Settings row; scenarios with a fake keyboard | Capture by `input keyevent`, Escape included; kept after a force-stop; Clear on a lane shows the mark and the notice, and the Settings row says so; the test lit by `emu event send` holds (4 of 4) and by a `hid` keyboard that never reports a fourth key (the sentence); UI Automator dumps; TalkBack walk; 200 % font; landscape | 14, 15 | K2; O5, O9, O10 |
+| K3 (done) | Settings › Keyboard: status, links, the five slots, capture with Clear, Cancel and moving on, swap, refusal, the empty lane's mark and notice, defaults, the key test and its limit sentence; the Settings row; scenarios with a fake keyboard | Capture by `input keyevent`, Escape included; kept after a force-stop; Clear on a lane shows the mark and the notice, and the Settings row says so; the test lit by `emu event send` holds (4 of 4) and by a `hid` keyboard that never reports a fourth key (the sentence); UI Automator dumps; TalkBack walk; 200 % font; landscape | 14, 15 | K2; O5, O9, O10 |
 | K4 | Keys around the game: the Pause key in the count-in and on the pause panel, lane keys taken on the panel and Results, Escape in and out of the game, first focus on Resume and Play again; a focus pass over every screen; optionally the game's keys in Android's keyboard shortcuts list (`Activity.onProvideKeyboardShortcuts`, API 24) | `input keyevent` sequences of Tab, arrows, Enter, Space and Escape from the Library to a game, its pause, its results and back, without a tap; a lane key (Space bound to a lane) sent as the panel and Results open presses nothing; screenshots of every focus state; UI Automator's `focused` | 21 | K2; O1 to O4 |
 | K5 | Calibration with keys: lane keys as presses on the calibration screen, judged with the keyboard's slot; the method in the calibration log | Key presses from `input keyevent` at logged event times give the runtime's errors when recomputed with the keyboard's slot, as latency.md's check does for taps | 18, 19 | K2; latency.md L3 |
 | K6 | Diagnostics and runbook: the journal's `input_device`, the summary's `input.keyboards`, the `manual` collection of `key-log.csv`, checklist rows 14 to 21 in phone-checks.md | Redaction tests; the Diagnostics JSON lists a `hid` keyboard by vendor and product; no device name anywhere in the export or the archive | The checklist run | K2; O8 |
@@ -741,6 +741,116 @@ build with 509 JVM tests and lint's same 6 warnings as before the step, and ran 
 - Not from keys: every game logs a pause on `ON_PAUSE` as it gives way to Results, the play screen's lifecycle ending
   after the game is over. It changes nothing.
 
+### K3 as built
+
+Built as the K3 row says, from [Settings › Keyboard](#settings--keyboard) and its state table. What it adds, and where
+it goes further than the row or differs:
+
+- **The row.** Settings has a Keyboard section after Playfield with one row, "Keyboard": "Lanes: Z X . / · Pause:
+  Esc · Connected: K380", every keyboard connected listed, or "… · No keyboard connected". An empty lane shows as "—"
+  among the lanes and an empty Pause as "none"; while a lane is empty a second line says which, "Lane 3 has no key.",
+  with a warning symbol in the error colour, under the first rather than in its place, so the row still names the keys
+  and the connection. Labels are the first keyboard's, or the US QWERTY keycaps without one (`KeyboardText.row`).
+- **The screen** (`keyboard/KeyboardScreen`) is chrome in one column centred at 640 dp at most. On a window wider than
+  tall it takes two columns, 840 dp at most: the slots on the left, the keyboards and the key test on the right. That
+  goes past the design's 640 dp: within it a phone's landscape column was too narrow for the four lanes in one row, and
+  the status above both columns pushed the slots below the fold (round 1's captures). Status lists each keyboard by
+  name, with "Connected" under it. The links are left out when `PackageManager.resolveActivity` finds no activity for their
+  intents; the manifest declares the two actions in `<queries>`, since package visibility would otherwise hide
+  Settings' activities from that look. That is no permission.
+- **The slots.** Four lanes across when a lane's name with the warning symbol, "Space" and "None" fit four across at
+  the text size set, two by two otherwise; Pause beside the lanes, 16 dp apart, when five fit at 80 dp or more each,
+  under lane 1 otherwise (a phone in portrait or a column of a wide window). A key's character is in large tabular
+  type, a word ("Space", "Esc", "None") smaller, as keycaps print words. A waiting slot takes the primary container and
+  a 2 dp primary outline; an empty lane the error colour for its outline, name and label, and a warning symbol beside
+  its name. Without a keyboard the slots are flat, without an outline, and not buttons.
+- **The line under the slots** says one thing at a time, a polite live region: the prompt, the refusal with a warning
+  symbol, or what a swap moved; otherwise "Press a lane or Pause, then the key you want it to take.", or "Connect a
+  keyboard to change the keys." without a keyboard. Those two hints are additions; the first gives way while one lane is
+  empty, since the notice then says the same. The empty lanes' notice sits above the line, also a polite live region;
+  "Press Lane 3, then the key you want." follows only when one lane is empty and a keyboard is connected.
+- **The actions.** Use default keys, enabled while the map differs from the default, gives way to Clear and Cancel
+  while a slot waits, as the state table lists them; Clear is enabled while the waiting slot has a key. Pressing the
+  waiting slot's button again ends the wait; another slot's moves it there. "A touch elsewhere" is a tap that no control
+  takes (the Final pass of the screen's pointer input), so scrolling the screen does not end the wait.
+- **The capture** (`KeyCapture`, pure Kotlin) takes keys from alphabetic keyboards and the virtual keyboard of
+  `adb shell input`; keys of other devices, such as the phone's own volume buttons, go on. While a slot waits it takes
+  every key from them but Back, which goes on to the activity and ends the wait as Back does; a key whose down it took
+  keeps its repeats and its up, even after the wait ends, so the up of the key that bound lane 4 reaches nothing. A
+  pressed key binds by its place, through `InputDevice.getKeyCodeForKeyLocation` of its own keyboard, asked once per
+  device. Clear ends the wait.
+- **Touch mode.** After a touch the window is in touch mode, and Android spends the first Enter, Space, Tab or arrow
+  key on leaving it (ViewRootImpl's `EarlyPostImeInputStage`) before the activity sees the key, so round 3's first Enter
+  after a tap gave no refusal, and a first Space or arrow meant for the slot would have been lost. A wait or a test
+  started by touch therefore leaves touch mode at once (`View.requestFocusFromTouch`), and focus goes to the waiting
+  slot, following the wait lane by lane, or to the test's button. A focused slot draws a 3 dp outline, since Material's
+  focus state layer alone was faint on the plum (round 4). Not run, read from ViewRootImpl: in a game, the
+  first press of a lane on Space or an arrow after a touch would be spent the same way; that is K4's to meet.
+- **TalkBack** hears each slot as keyboard.md lists ("Lane 2 key, X", "Pause key, Escape", "Lane 3 key, none" with
+  the state "Lane 3 has no key", "Waiting for a key"), with keys whose labels are symbols in words: "Lane 3 key,
+  period", "left arrow". A lone "." after a comma reads as the end of a sentence, so round 3's walk heard "Lane 3 key,
+  ." without its key. The swap line, "Also held" and the Settings row say keys the same way ("Lanes: Z, X, period,
+  slash · Pause: Escape · …"); the words are strings.
+- **Labels after a bind.** A `Keyboard` keeps the map it was resolved with, so a label is found by key
+  (`Keyboard.labelOf`) and stays right in the moment before the roster resolves the keyboard again with the new map.
+- **The key test** (`KeyTest`, pure Kotlin) reads keys from alphabetic keyboards and the virtual keyboard, each
+  resolved with the map on that device, not through the roster. Its tiles are the tray's caps: `#2A2036` on the tray's
+  `#171020`, lit to `#DFD3FF`, the cap with the lavender added as the renderer adds it, with the label in the ground's
+  ink; the labels are 24 sp for a character and 18 sp for a word, narrowed if a word is wider than its tile, as on the
+  game's caps. "Also held" names keys outside the table in words (Shift, Ctrl, Alt, Meta, Caps Lock, Tab, Enter,
+  Backspace, Delete, Fn), by the character their key character map gives, or by Android's own name. What a test found
+  stays when it stops, and the button then reads "Test keys again". A keyboard leaving mid-test leaves the button
+  enabled to stop it.
+- **The limit sentence** comes once every lane key has been pressed and the most held together, the number the screen
+  shows from 2 on, is under four. Read from "when that number is under four": with keys pressed one at a time no number
+  shows, so no limit is said either, which would otherwise read "at most 1 lane key at once" and blame the keyboard for
+  how it was pressed.
+- **Fakes.** `FakeKeyboard` is a made-up device with a layout; `FakeKeyboards` resolves them with the settings' map
+  through a `KeyboardRoster`, as the app's are, so a scenario's labels follow its binds. `FakeKeyboards.GERMAN` gives Y
+  X . - for the default lanes.
+- **Scenarios** for every state of the table: `keyboard`, `keyboard-connected`, `keyboard-two`, `keyboard-waiting`,
+  `keyboard-refused`, `keyboard-swapped`, `keyboard-lane-empty`, `keyboard-lanes-empty`, `keyboard-lane-empty-none`,
+  `keyboard-pause-empty`, `keyboard-testing` and `keyboard-limit`; the row in `settings-keyboard`,
+  `settings-keyboard-connected` and `settings-keyboard-lane-empty`; over the app's stores `keyboard-stored` and
+  `settings-stored-keyboard`. The capture script's `keyboard-settings` group shoots them light and dark, at 200 % font
+  size and in landscape, and dumps their UI hierarchies.
+
+What K3 showed (Astra jobs `android-keyboard-k3l2-b1` to `-b5` of `claude/android-keyboard`, on `ensomi-36-16k`, which
+reports `nokeys`; TalkBack 16.0 is on the image). Every round that built passed the full build: 550 JVM tests, 551 in
+round 5, and no lint warning beyond the 6 before the step (round 5's lint skipped two of its own update notices, so it
+listed 4). Round 1, at `e0d8e1f`, captured every scenario light and dark, at 200 % font and in landscape: the two-column
+layout and the hint that repeated a lone empty lane's notice changed in `f5c0b8b`. Round 2 stopped at a compiler error
+that change brought, fixed in `6324d7b`. Rounds 3 and 4 used `hid` keyboards (bus Bluetooth, the boot keyboard descriptor),
+since `emu event send` keys reach nothing on this AVD, and `input keyevent` keys:
+
+- **The key test**, over the app's stores: one report with Z X . / and Shift and A lit four tiles, with "Also held:
+  Shift, A" and "Most lane keys held together: 4 of 4"; released, the tiles went dark and the number stayed. A keyboard
+  whose reports never carried a fourth key (Z X . together, then / alone) gave "3 of 4" and then the limit sentence,
+  which stayed when the test stopped, the button reading "Test keys again". Escape stopped a test. The window had
+  `ALT_FOCUSABLE_IM` while a test ran or a slot waited, and not otherwise.
+- **The capture**, with a `hid` keyboard connected and keys from `input keyevent`: A S K L set lanes 1 to 4 and the
+  wait ended; Pause then A swapped ("A now pauses, and Escape plays lane 1."); lane 4 then Escape bound Escape and the
+  screen stayed ("Escape now plays lane 4, and L lane 1."); Tab was refused with the wait open; Back, Cancel and a tap
+  on the "Keys" title each ended a wait; Clear on lane 3 gave its mark and notice. After a force-stop `settings.json`
+  held `{"lanes":["L","S",null,"ESCAPE"],"pause":"A"}`, the screen showed it, and the Settings row read "Lanes: L S — Esc
+  · Pause: A · Connected: …" with "Lane 3 has no key." under it. Use default keys put Z X . / and Esc back; with the
+  keyboard gone the screen said "No keyboard connected". Both links' intents resolve on the AVD
+  (`ConnectedDeviceDashboardActivity`, `PhysicalKeyboardActivity`), and each link showed in its state. The first Enter
+  after a tap gave no refusal, which led to the touch mode handling above (`8c4d473`); in round 4, after a tap, the
+  first Space, Enter, Tab and Up each reached the wait, and the first held Space after tapping Test keys lit its lane.
+- **TalkBack**, its speech read from its verbose log: the headings, "K380, Connected", each slot ("Lane 1 key, Z",
+  "Pause key, Escape"), each tile ("Lane 1, not held"), the empty lane ("Lane 3 has no key. Lane 3 key, none", TalkBack
+  putting its own full stop between state and label) and its notice. Round 3 heard "Lane 3 key, ." and a stray full stop
+  of the app's (`f451875`); round 5 heard "Lane 3 key, period", "Lane 4 key, slash", "Lane 4 key, minus" on the German
+  fake, and the Settings row as "Keyboard. Lanes: Z, X, period, slash · Pause: Escape · No keyboard connected".
+- **Focus**, round 5, light and dark: Tab reached Keyboard layout, then the slots in order, each with its outline; a
+  tapped slot waited with focus, and focus stayed on lane 4 after A S D set lanes 2 to 4.
+
+Opened at a section, Settings lets TalkBack visit an item half under the top app bar first, as the list's scroll leaves
+it; that is the list's, not this step's. The app's settings were as found at the end of every round. An Android
+Bluetooth service crash (`bt_stack_manage`, a hardware error event) recurred on the image in rounds 1, 4 and 5, with no
+crash of the app.
+
 When the steps are done, design.md takes the screens and the keys table, gameplay.md the input path and edge cases,
 plan.md the steps and what they showed, phone-checks.md the rows, and design.md's "Not carried over in this round"
 drops key bindings.
@@ -846,6 +956,8 @@ keyboard page's usages.
   pause step it delivered nothing.
 - Whether Material 3's focus state is clearly visible on the brand's plum in the game presentation, and whether its
   sliders step with the arrow keys (K4's captures).
+- Whether, in a game, the first press after a touch of a lane on Space or an arrow is spent on leaving touch mode, as
+  it was for Enter on Settings › Keyboard in K3's round 3 (K3 as built).
 
 ## Decisions
 

@@ -1,7 +1,8 @@
 # Ensomi for Android: latency slots and one calibration screen (accepted)
 
-Step L1 of this design is built on `claude/android-keyboard` ([L1 as built](#l1-as-built)); L2 to L5 are not. It was
-written against `dev/android` at `8a09ddf`, the shipped `android-v0.1.3`, from the owner's decisions of 2026-11-07, and
+Steps L1 and L2 of this design are built on `claude/android-keyboard` ([L1 as built](#l1-as-built), [L2 as
+built](#l2-as-built)); L3 to L5 are not. It was written against `dev/android` at `8a09ddf`, the shipped
+`android-v0.1.3`, from the owner's decisions of 2026-11-07, and
 accepted by the owner the same day, every open question decided as recommended, with one amendment to which methods
 count as live ([Open questions, decided](#open-questions-decided-owner-2026-11-07)). It replaces decision 6 of the
 keyboard proposal ([keyboard.md](keyboard.md#timing)) and changes timing for touch play as well as for keys. Once it is
@@ -442,8 +443,8 @@ or a permission.
 
 | Step | Builds | Emulator check | Phone check | Needs |
 | --- | --- | --- | --- | --- |
-| L1 | The model: the slots and the methods' slots in `StoredSettings`, the migration, `PlaySettings` and `PlayTiming` carrying A and I per source; `PlayController`'s formulas, input clock and watermark; `resolveAudioOffset`, the per-output offset and the visual offset removed; the previews without offsets; the game log | The JVM tests; the migration check; a game by `input tap` at 0 and at +30 ms | — | `LaneInput.source` (keyboard.md K1, or added here first); O1, O2, O5 |
-| L2 | Settings › Sound and timing: the audio slots, the input rows, the name dialog | Captures; UI Automator dumps; values kept after a force-stop | — | L1 |
+| L1 (done) | The model: the slots and the methods' slots in `StoredSettings`, the migration, `PlaySettings` and `PlayTiming` carrying A and I per source; `PlayController`'s formulas, input clock and watermark; `resolveAudioOffset`, the per-output offset and the visual offset removed; the previews without offsets; the game log | The JVM tests; the migration check; a game by `input tap` at 0 and at +30 ms | — | `LaneInput.source` (keyboard.md K1, or added here first); O1, O2, O5 |
+| L2 (done) | Settings › Sound and timing: the audio slots, the input rows, the name dialog | Captures; UI Automator dumps; values kept after a force-stop | — | L1 |
 | L3 | The calibration screen: the field judging on the click track, both values, the slot and method choices, the readings, nothing to confirm; the pad, the suggestion and the steps removed; the calibration log | The calibration check; TalkBack walk; landscape | 4 | L1, L2; O3 |
 | L4 | Results and pause: the suggestion removed, the slots line, the per-method averages; the pause panel's line | Captures; a game by `input tap` to its results | 5 | L1; O4, O6 |
 | L5 | design.md, gameplay.md, plan.md and phone-checks.md updated as [What changes once built](#what-changes-once-built) lists | — | — | L1–L4 |
@@ -506,14 +507,13 @@ adds, where it differs, and how it bridges the screens L2 to L4 will make:
   game over the methods that pressed, the hits timed and late inputs by source, with the hits' average error. Debug
   builds also write `input-log.csv`, every input with its song and chart times, the frames that took and handed it on
   and the input clock, summarised under `EnsomiPlay` when the game closes, for this design's emulator checks.
-- **Bridging, until L2 to L4.** Settings › Sound and timing has one row, "Audio latency, slot 1 · WH-1000XM4", that
-  edits the active slot's value with the steppers; the visual offset row is gone (L2 brings the slot choice, the input
-  rows and names). The calibration keeps its two steps (L3 replaces them): the sound step's suggestion is the median
+- **Bridging, until L2 to L4.** Settings › Sound and timing had one row, "Audio latency, slot 1 · WH-1000XM4", that
+  edited the active slot's value with the steppers, until L2's screen replaced it; the visual offset row is gone. The calibration keeps its two steps (L3 replaces them): the sound step's suggestion is the median
   tap error less touch's input latency, and Use writes it to the active audio slot; the picture step draws at the
   audio latency and its slider, −150 to +150 ms, moves the active slot's value live. Both steps set the same value, the
   later one standing. Results' suggestion is offered for the active slot, the runtime's suggested offset change taken
   with the latency's sign (L4 removes it). The pause panel's output line says "Sound moved to Pixel Buds. This game
-  keeps its audio latency." (L4 names the slot). The input slots have no screen until L2; they keep their stored or
+  keeps its audio latency." (L4 names the slot). The input slots had no screen until L2; they kept their stored or
   migrated values.
 - **Scenarios** over the app's own stores, for the checks: `play-stored`, `settings-stored`, `calibration-stored` and
   `calibration-picture-stored` (README).
@@ -538,6 +538,55 @@ label gone, the output line having grown by a line; round 3, at `5c2055b`, with 
 166 px with the label clipped (82 px for a named slot), and round 4, at `37ae89f`, with the readings capped at 55 % of the
 step and scrolling, gave the pad 401 px with its label for both, the readings reachable by scrolling and nothing changed
 at 100 %. Rounds 3 and 4 passed the full build with 484 JVM tests and the same 6 lint warnings.
+
+### L2 as built
+
+Built as the L2 row says, from [Settings › Sound and timing](#settings--sound-and-timing) and [Naming a
+slot](#naming-a-slot), in place of L1's bridging row (`settings/LatencySettings.kt`). What it adds, and where it differs:
+
+- **Audio latency.** The segmented row of "0", "1" and "2", each with its name under its number in small type, the
+  active slot selected; choosing one makes it active and moves no value. Under it the active slot's value with −/+
+  steps of 1 ms, disabled at −300 and +300, and Name at the row's end ("Name audio slot 1"). Then the supporting text,
+  and "Sound now: …", the output Android would play on now. At a font scale above 1.3 a name too wide for its segment
+  is dropped and the segment keeps its number; below that a long name ends in an ellipsis rather than dropping, so a
+  24-character name still shows its start. While any segment shows a name, the others keep a line for one, so the
+  three stay one height; when the active slot's name is dropped, it shows whole under the row ("1 · Phone speaker").
+- **Input latency.** One row per method, Touch and Keyboard: a menu field labelled "Touch uses slot" whose value is the
+  slot, "0" or "1 · K380", the app's exposed dropdown menu as Make chart's section kind uses it; its items show each
+  slot's value. Under it that slot's value with −/+ steps and Name ("Name input slot 1"). Methods on one slot show its
+  value in both rows and change it together. The supporting text comes after the two rows, as a slider's comes after
+  the slider.
+- **Steps** change the stored value as it is when they land (`PlaySettingsStore.update` with a function of it), so
+  quick taps never step from a value the screen has not drawn yet.
+- **The name dialog** is Material's alert dialog: the title, a one-line field labelled "Name" with the placeholder "No
+  name" and a counter, "8/24"; Done on the input method saves. Typing past 24 characters, counted by code point as
+  `Latency.name` cuts, changes nothing. Clear name removes the name and closes, enabled while the slot has one; Cancel
+  closes; Save keeps the field as `Latency.name` trims it, empty for no name. The field takes focus and asks for the
+  input method as the dialog opens. On a phone in landscape the input method covers the dialog's buttons, as it does any
+  dialog's there; Done saves, and Back lowers the input method to reach the rest.
+- **TalkBack.** A segment is "Audio latency slot 1 · WH-1000XM4"; the steps are "Decrease Audio latency, slot 1 ·
+  Phone speaker" and "Increase Touch, input slot 0"; the value is a polite live region, so each new value is heard.
+- **Scenarios.** `settings-latency` (named and unnamed slots), `settings-latency-plain`, `settings-latency-shared` (both
+  methods on one slot, values at the ends of the range), `settings-latency-long` (24-character names),
+  `settings-latency-name` and `settings-latency-name-empty` (the dialog), and `settings-stored-sound` over the app's
+  stores; the capture script's `latency-settings` group.
+- The calibration keeps L1's bridging steps until L3, and Results their suggestion until L4.
+
+What L2 showed (Astra jobs `android-keyboard-k3l2-b1` to `-b3`, with keyboard.md's K3, on `ensomi-36-16k`). Round 1,
+at `e0d8e1f`, passed the full build with 550 JVM tests and lint's same 6 warnings, and captured every scenario light and
+dark, at 200 % font and in landscape; the segments' uneven heights and the dropped name were changed in `f5c0b8b`
+(above). Round 3, at `6324d7b`, over the app's stores: audio slot 2 chosen and three steps up, +3 ms; its name typed
+through the input method, "Desk" on Gboard's keys and " DAC" by `input text`, the field reading "Desk DAC" and "8/24";
+`dumpsys input_method` had the input method shown for the app (`mInputShown=true`), and the dialog's window, a window of
+its own, had no `ALT_FOCUSABLE_IM`. Touch's menu listed the three input slots with their values; touch went to input
+slot 2, five steps up, and the keyboard to slot 0, named "Thumbs". After a force-stop `settings.json` held exactly that
+and Settings showed it. The sample game logged "Latency for this game: audio 0 ms (no slot); touch slot 2 +5 ms;
+keyboard slot 0 0 ms", and the calibration's picture step "audio slot 2 +3 ms; touch slot 2 +5 ms; keyboard slot 0
+0 ms". Clear name left slot 2 without a name in the file. TalkBack heard each segment as a radio button ("Selected,
+Audio latency slot 1 · Phone speaker, Radio button, 2 of 3"), the steps and Name by slot ("Decrease Touch, input slot
+0"), each value, and the menus ("1 · K380, Keyboard uses slot, Drop down list"). Two things TalkBack met are older than
+L2: opened at a section, Settings lets it visit the row half under the top app bar, and Music volume's slider takes two
+stops. The app's settings were written back as found at the end of each round.
 
 ## Open questions, decided (owner, 2026-11-07)
 
