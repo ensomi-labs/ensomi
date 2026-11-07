@@ -48,6 +48,35 @@ object PlayPalette {
     }
 }
 
+/**
+ * A key cap's label while a keyboard is connected (keyboard.md, Visual language): muted text on the unlit cap,
+ * brightening with the cap's light to light text, and the ground's ink once the light passes [INK_FROM], where the
+ * lavender added to the cap makes it pale. Every step keeps 4.0:1 or more against the cap as the renderer lights it.
+ * Bold at a fixed size, larger on portrait's taller caps.
+ */
+object CapLabel {
+    const val INK_FROM = 0.45f
+    const val LANDSCAPE_DP = 20f
+    const val PORTRAIT_DP = 24f
+
+    /** The label's colour on a cap lit by [light], 0 to 1 (the runtime's receptor brightness, as the cap uses it). */
+    fun color(light: Float): Int {
+        val lit = light.coerceIn(0f, 1f)
+        if (lit > INK_FROM) return PlayPalette.GROUND
+        return mix(PlayPalette.MUTED_TEXT, PlayPalette.TEXT, lit / INK_FROM)
+    }
+
+    /** Opaque [from] moved [t] of the way to [to], channel by channel. */
+    fun mix(from: Int, to: Int, t: Float): Int {
+        fun channel(shift: Int): Int {
+            val a = from shr shift and 0xFF
+            val b = to shr shift and 0xFF
+            return (a + (b - a) * t + 0.5f).toInt().coerceIn(0, 255) shl shift
+        }
+        return (0xFF shl 24) or channel(16) or channel(8) or channel(0)
+    }
+}
+
 /** The words the playfield draws, from the app's string resources. */
 data class PlayfieldWords(
     val ready: String,
@@ -94,6 +123,10 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         typeface = Typeface.create(Typeface.DEFAULT, 600, false)
         textAlign = Paint.Align.CENTER
     }
+    private val capLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = bold
+        textAlign = Paint.Align.CENTER
+    }
 
     /** A vertical ramp from transparent at the top to the colour at the bottom, one per colour, in unit space. */
     private val fadeUpShaders = HashMap<Int, LinearGradient>()
@@ -107,10 +140,13 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
      * The judgement word and the combo are drawn after the lanes and before the notes: they sit on the lanes, and a
      * note passing through them stays whole, since a note covered at the moment it must be read is a miss the player
      * could not see coming. The words are large and change slowly, so a note crossing them hides little of them.
+     *
+     * [capLabels] are the lanes' key labels while a keyboard is connected, lane 1 to 4, null for a lane without a key;
+     * null for none at all.
      */
-    fun draw(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry) {
+    fun draw(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry, capLabels: List<String?>? = null) {
         drawGround(canvas, g)
-        drawTray(canvas, frame, g)
+        drawTray(canvas, frame, g, capLabels)
         onLanes(canvas, g) { drawLanes(canvas, frame, g) }
         if (frame != null && frame.judging && !frame.paused) drawJudgement(canvas, frame, g)
         onLanes(canvas, g) {
@@ -180,8 +216,11 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         }
     }
 
-    /** Screen space: the tray and its caps are the touch zones at the line, so they never lean. */
-    private fun drawTray(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry) {
+    /**
+     * Screen space: the tray and its caps are the touch zones at the line, so they never lean, and nor do the caps'
+     * labels.
+     */
+    private fun drawTray(canvas: Canvas, frame: PlayFrame?, g: PlayfieldGeometry, capLabels: List<String?>?) {
         val right = g.lineLeft + g.lineWidth
         val corner = g.dp(14f)
         canvas.withClip(g.lineLeft, g.lineY, right, g.trayBottom) {
@@ -202,8 +241,21 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
                 additive.alpha = (minOf(1f, light) * 255).toInt()
                 canvas.drawRoundRect(rect, capCorner, capCorner, additive)
             }
+            capLabels?.getOrNull(lane)?.let { drawCapLabel(canvas, it, light, g) }
         }
         }
+    }
+
+    /** [label] centred on the cap in [rect], in [CapLabel]'s colour for the cap's [light]; narrowed if it is too wide. */
+    private fun drawCapLabel(canvas: Canvas, label: String, light: Float, g: PlayfieldGeometry) {
+        val size = g.dp(if (g.landscape) CapLabel.LANDSCAPE_DP else CapLabel.PORTRAIT_DP)
+        capLabelPaint.textSize = size
+        val room = rect.width() - g.dp(8f)
+        val width = capLabelPaint.measureText(label)
+        if (width > room && room > 0f) capLabelPaint.textSize = size * room / width
+        capLabelPaint.color = CapLabel.color(light)
+        val baseline = rect.centerY() - (capLabelPaint.ascent() + capLabelPaint.descent()) / 2
+        canvas.drawText(label, rect.centerX(), baseline, capLabelPaint)
     }
 
     /**

@@ -509,7 +509,7 @@ class PlayfieldView @JvmOverloads constructor(
                     if (size.isEmpty) return
                     val canvas = target.begin(size.width(), size.height())
                     try {
-                        renderer.draw(canvas, frame, g)
+                        renderer.draw(canvas, frame, g, capLabels)
                     } finally {
                         recordDone = System.nanoTime()
                         syncResult = target.post()

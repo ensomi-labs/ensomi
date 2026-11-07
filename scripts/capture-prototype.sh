@@ -3,19 +3,21 @@
 # every scenario of app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt in light and dark mode,
 # the game at each lean and in both orientations, a few screens at 200 % font size and with the phone in landscape,
 # UI hierarchy dumps, the render thread's frame log and a Perfetto FrameTimeline trace at each lean, a recording of the
-# playfield preview (landscape, the default lean), and a real game on the app's own stores.
+# playfield preview (landscape, the default lean), the caps' key labels with a keyboard connected, and a real game on
+# the app's own stores.
 #
 #   scripts/capture-prototype.sh OUT_DIR [GROUP...]
 #   REAL_SONG="Song title" scripts/capture-prototype.sh OUT_DIR real
 #
-# GROUP is any of screens, game, lean, font, landscape, dumps, pacing, recording, real; all of them when none is given.
+# GROUP is any of screens, game, lean, keyboard, font, landscape, dumps, pacing, recording, real; all of them when none
+# is given.
 # The real group plays REAL_SONG, a song in the library with a chart, by the autoplay (a debug launch extra), with the
 # settings the app has; it is skipped when REAL_SONG is not set.
 set -euo pipefail
 
 OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
 shift
-GROUPS_WANTED=${*:-screens game lean font landscape dumps pacing recording real}
+GROUPS_WANTED=${*:-screens game lean keyboard font landscape dumps pacing recording real}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 PKG=io.ensomi.android
@@ -141,6 +143,16 @@ for mode in light dark; do
   launch results; sleep 3; shot "$mode-results"; swipe_up_landscape; shot "$mode-results-scrolled"
 done
 adb shell cmd uimode night no
+fi
+
+if wanted keyboard; then
+# A keyboard connected (a fake one): each cap carries its key's label, in landscape and portrait, while the autoplay
+# lights the caps, and behind the pause panel. Several shots, so some catch a cap lit past the label's ink switch.
+for name in play-keyboard play-portrait-keyboard; do
+  launch "$name"
+  for moment in 1 2 3; do sleep 2; shot "keyboard-$name-$moment"; done
+done
+launch play-paused-keyboard; sleep 15; shot keyboard-play-paused-keyboard
 fi
 
 if wanted lean; then

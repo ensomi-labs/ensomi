@@ -203,6 +203,18 @@ data class Scenario(
             "play-flat" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = FLAT),
             "play-lean-max" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = MOST_LEAN),
             "play-portrait" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), settings = PORTRAIT),
+            // A keyboard connected: the caps carry the keys' labels (keyboard.md, O6).
+            "play-keyboard" to Scenario(listOf(Library, MakeChart(SONG), Play(SONG, loop = false)), keyboard = true),
+            "play-portrait-keyboard" to Scenario(
+                listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
+                settings = PORTRAIT,
+                keyboard = true,
+            ),
+            "play-paused-keyboard" to Scenario(
+                listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
+                pauseAfterMs = 12_400,
+                keyboard = true,
+            ),
             "play-width-max" to Scenario(
                 listOf(Library, MakeChart(SONG), Play(SONG, loop = false)),
                 settings = PlaySettings(landscapeWidth = 0.98f),
