@@ -651,6 +651,51 @@ session (the autoplay delivers as soon as its time comes and does not wait out t
 the audio clock, was paused: the AVD had none; `InputQueueTest` covers the audio clock's hold at the resume, in two cases
 added after the emulator run (job `pause-b2` at `d73cc1e`: 450 JVM tests passed, lint unchanged).
 
+### K2 as built
+
+Built as the K2 row says, from [How keys reach the game](#how-keys-reach-the-game) and the keys table. What it adds,
+and where it goes further than the row or differs:
+
+- **The router.** `keyboard/HardwareKeys`, made with `MainActivity` and provided as `LocalHardwareKeys`, holds a
+  `KeyRouter` of handlers, the newest first; `HardwareKeyHandler` registers one while a screen is composed. The play
+  screen's handler runs until its game is over, then Results' takes over. The TalkBack notice before play is a dialog,
+  a window of its own, so its keys never reach the activity, as the table has it.
+- **Escape as Back** (O2) is built now, since Results' row needs it: `MainActivity.onKeyDown` tracks an Escape no view
+  handled and `onKeyUp` goes Back on its up, on every screen but the Library (`HardwareKeys.escapeGoesBack`, set from
+  the back stack). An up whose down went elsewhere, such as a Pause key held as the game ended, does nothing. K4's focus
+  pass and first focus on Resume and Play again are not built.
+- **Who is connected.** `keyboard/ConnectedKeyboards` keeps a `KeyboardRoster`, pure Kotlin: each non-virtual
+  alphabetic device with its `ResolvedKeys` and its cap labels, asked of the system when it connects, when it changes,
+  at every `ON_START` (`EnsomiApp`'s `LifecycleStartEffect`) and when Settings' map changes, never per key. Two
+  additions: a key from a device the listener has not yet reported resolves that device once, since the key can come
+  first, and a device that is no keyboard is remembered as such until it changes. The scenarios on fakes have
+  `FakeKeyboards`: none, or a sample keyboard for the label scenarios, so they take injected keys only.
+- **Keys in play.** The handler hands each event to `PlayfieldView.keyInput`, which makes a `KeyInput` and asks
+  `GameKeys` in the play screen's phase; lane keys go through `KeyLanes` to the playfield's one `LaneSender` as
+  `LaneHolder.Key`, source `KEYBOARD`, so they take the keyboard's input latency slot through L1's formulas and the input
+  clock. Until the playfield's game exists a lane key's down presses nothing. Two additions to `KeyLanes`: a lane key
+  whose down it saw belongs to that lane until its up, even when its keyboard no longer resolves by then (the roster
+  can drop a keyboard before Android's canceled ups for it arrive); and a keyboard leaving the roster lets go of its
+  keys at once through `LaneSender.releaseKeys`, so whichever comes first releases. The Pause key's `RESUME` does nothing
+  behind the window-too-small notice, whose panel cannot be seen.
+- **The window and the input method.** `KeepInputMethodAway` on the play screen, Results and the calibration screen
+  sets `FLAG_ALT_FOCUSABLE_IM`, counted by `InputMethodGuard`, so a screen replacing another keeps the flag on. The
+  calibration takes no keys yet (K5).
+- **Labels.** `PlayfieldRenderer` draws the first keyboard's lane labels on the caps, in screen space, bold at 20 dp in
+  landscape and 24 dp in portrait, narrowed only if a word is wider than its cap. `CapLabel.color` reads "brightens from
+  `#C7BCD6` towards `#F6F1FB`" as reaching light text when the light reaches 45 %, then the ink: computed as the renderer
+  adds the light, its worst step is 4.06:1, at 44.8 %. Brightening with the light itself, reaching only 45 % of the way
+  at the switch, would fall to 3.1:1 there. Words: `key_space` and `key_escape`.
+- **Logs.** `key-log.csv` in debug and checks builds, every event the playfield was handed, devices numbered in the
+  order the game saw them (−1 for injected keys); its summary under `EnsomiPlayfield` adds the most lane keys held
+  together. At game over `EnsomiPlay` gives, after L1's "Game over" line with presses and late inputs by source, a
+  "Keys:" line: the most lane keys held together (lanes with a key down, so the same lane on two keyboards is one), the
+  keyboards seen by index, vendor and product id, whether injected keys came, and the map by key names. `EnsomiKeys`
+  (debug and checks builds) logs each keyboard connected or removed by vendor and product id, each `MainActivity`
+  created and each configuration change taken in place, for the restart check. No log carries a device name.
+- **Scenarios** `play-keyboard`, `play-portrait-keyboard` and `play-paused-keyboard`, and the capture script's
+  `keyboard` group.
+
 When the steps are done, design.md takes the screens and the keys table, gameplay.md the input path and edge cases,
 plan.md the steps and what they showed, phone-checks.md the rows, and design.md's "Not carried over in this round"
 drops key bindings.

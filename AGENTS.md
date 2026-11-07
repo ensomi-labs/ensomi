@@ -17,12 +17,13 @@ Ensomi never operates another app. It uses no Accessibility service, reads no ot
 
 - One Gradle module, `:app`, with the Gradle project at the repository root.
 - `app/src/main/kotlin/io/ensomi/android/`:
-  - `MainActivity.kt`: the main UI activity; the exported share entry forwards to it.
+  - `MainActivity.kt`: the main UI activity; the exported share entry forwards to it. It takes hardware keys first
+    (`dispatchKeyEvent`) and hands them to `keyboard/HardwareKeys`.
   - `EnsomiApp.kt`: navigation with Navigation 3. A screen is a `NavKey` plus an `entry`. Screens
     navigate through callbacks that push keys, never by referring to each other.
   - `AppStores.kt`: the app's stores, one per process (DataStore allows one per file): settings, songs,
-    the chart model, the charts made (`RuntimeChartMaker`, `ChartStore`) and the sound of the song last played.
-    Screens reach them through the `AppGraph` interfaces, never directly.
+    the chart model, the charts made (`RuntimeChartMaker`, `ChartStore`), the sound of the song last played and the
+    keyboards connected (`ConnectedKeyboards`). Screens reach them through the `AppGraph` interfaces, never directly.
   - `Destinations.kt`: the navigation keys.
   - One package per feature (`library/`, `model/`, `chart/`, `play/`, `settings/`, `diagnostics/`), holding
     its screens, ViewModels and data sources. `audio/` decodes songs (`SongDecoder`, `Mp3Lead`), plays a
@@ -37,6 +38,10 @@ Ensomi never operates another app. It uses no Accessibility service, reads no ot
   - `prototype/`: the screenshot scenarios (`Prototype.kt`), opened by a launch extra in debuggable builds, and the
     fakes behind them (`Fakes.kt`); a normal launch uses the app's stores. The feature packages hold no samples,
     apart from the sample charts the playfield preview and the calibration's picture step play (`SampleCharts`).
+  - `keyboard/`: hardware keyboards (`docs/keyboard.md`). `HardwareKeys` routes the activity's key events to the
+    screens that take them, newest first, through a `CompositionLocal`, and keeps the game's screens' window from being
+    an input method target; `ConnectedKeyboards` keeps the keyboards and each one's resolved key map. The key map is
+    `settings/KeyMap.kt`; what keys do in a game is `play/KeyLanes.kt` and `play/GameKeys.kt`, pure Kotlin.
   - `ui/`: shared components and the Material 3 theme. `json/`: a small JSON encoder.
 - `app/src/recognition/`: public Listen & Play, included in debug, checks and release with its guide, session,
   share target and permissions. `SessionMachine` holds plain state and rules for shares, files, matching, waiting and
@@ -61,7 +66,7 @@ Ensomi never operates another app. It uses no Accessibility service, reads no ot
 - The logcat tag `EnsomiDiagnostics` carries only the Diagnostics JSON, `EnsomiDecodeCheck` only the decode check's
   JSON lines, `EnsomiModelInstall` only each model install's start and outcome as a JSON line, and `EnsomiPhoneCheck`
   only the phone checks' results, one JSON object each (README). Scripts read them. `EnsomiCharts`, `EnsomiPlay`, `EnsomiAudio`,
-  `EnsomiPlayfield`, `EnsomiCalibration` and `EnsomiRecognition` are for people reading a check's log; the README lists the
+  `EnsomiPlayfield`, `EnsomiCalibration`, `EnsomiKeys` and `EnsomiRecognition` are for people reading a check's log; the README lists the
   debug launch extras, broadcasts and files the checks use.
 - The model comes only as the pinned package: `ModelSource` names the tag and its manifest's SHA-256, and both ways in,
   the download and Install from files, refuse any other manifest. Change both together, nowhere else.

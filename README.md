@@ -91,6 +91,11 @@ A few scenarios use the app's own stores instead of fakes: `results-stored` (the
 active audio latency slot), `play-stored` (the sample game, no sound, played with the stored input latency slots),
 `settings-stored`, `calibration-stored` and `calibration-picture-stored` (the stored latency slots on those screens).
 
+Games take keys from a hardware keyboard (docs/keyboard.md): Z X . / play the lanes and Escape pauses by default.
+`play-keyboard`, `play-portrait-keyboard` and `play-paused-keyboard` connect a sample keyboard, so the caps carry the
+keys' labels. Scenarios on fakes take keys only from `adb shell input keyevent` (the virtual keyboard); those over the
+app's stores, such as `play-stored`, take every keyboard's, `adb emu event send` and a `hid` keyboard among them.
+
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
 screen, the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
@@ -152,12 +157,16 @@ keyboard slot 1 +30 ms", with "(no slot)" for a value no slot gave; each input m
 input clock held for it; why each pause happened; at the first frame of each pause and after it the inputs delivered
 then or the lanes released at the pause's time, the lanes the session holds and the holds held in them, numbered 1 to
 4, and the late inputs so far; at game over the score, the presses by source, the methods that pressed, the hits timed
-by source with their average error, and the late inputs by source), their sound under
+by source with their average error, and the late inputs by source, then the keys: the most lane keys held together,
+the keyboards seen by their index in the game, vendor and product id, whether injected keys came, and the map by key
+names), their sound under
 `EnsomiAudio` (the track's buffer, its route and its underruns), and the playfield under `EnsomiPlayfield`: at each
 resume the lanes it released at the pause's time and those still held, and from its render thread the frame rate it
 asked for and got, then every two seconds the frames drawn, the vsyncs missed, the frames finished after their
 deadline, and the time in the runtime and in drawing (average, most, and the whole frame's work at the median and the
-99th percentile). The calibration logs under `EnsomiCalibration`: the output the clicks play on, every five seconds
+99th percentile). Debug and checks builds log keyboards under `EnsomiKeys`, by vendor and product id and never by name:
+each connected or removed, those connected at each start, each `MainActivity` created and each configuration change it
+took in place (a keyboard's comes as `keyboard`, `keyboardHidden` and `navigation`). The calibration logs under `EnsomiCalibration`: the output the clicks play on, every five seconds
 when click 0 was heard on the `System.nanoTime()` clock, and each tap's event time, song time, error and the suggestion.
 A debuggable build takes these extras on a normal launch, for checks on an emulator:
 
@@ -179,7 +188,12 @@ A debuggable build (and the checks build) also writes each game's frame times to
 the frame's deadline from `FrameData`, when its drawing was posted, when its work began, the time recording the canvas
 and handing it to HWUI, the song time drawn in microseconds, the objects in the frame, HWUI's answer for it, and 1 when
 the vsync before it drew nothing to drain the buffer queue), each touch but moves to `files/touch-log.csv`
-(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it), and
+(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it), each
+key event the playfield saw to `files/key-log.csv`
+(`action,eventNanos,handledNanos,keyCode,scanCode,repeat,flags,keyboard,lane,sent`: the `KeyEvent` action, its own
+time, when the playfield handled it, the device by its index in the game, −1 for injected keys, the lane its slot
+plays, −1 for none and −2 for the Pause key, and 1 when a press or release went to the game; summarised under
+`EnsomiPlayfield` with the handling delay and the most lane keys held together), and
 every input the game's session was given to `files/input-log.csv`
 (`sequence,source,lane,press,atPause,eventNanos,songMs,chartMs,takenNanos,deliveredNanos,inputClockMs,late`: its
 event's song time and its chart time, whose difference is minus the audio latency and its source's input latency, the
