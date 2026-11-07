@@ -71,10 +71,11 @@ Pause, Escape by default.
 | Playing | The four lane keys | Press and release their lanes |
 | | The Pause key | Pauses, as the Pause button does |
 | | Back (a keyboard's own Back key, or Meta + Escape, which Android turns into Back) | Pauses, as Back does now |
-| | Escape, Space, Tab, arrows and Enter when the map does not hold them | Nothing: taken by the game, so focus never moves onto the HUD under the player (O2, O3) |
+| | Escape, Space, Tab, arrows and Enter (numeric Enter and the D-pad centre with it, which Compose's clickable takes as Enter) when the map does not hold them | Nothing: taken by the game, so focus never moves onto the HUD under the player (O2, O3) |
 | | Volume, media keys and anything the system handles | Passed on unchanged |
 | Count-in | Lane keys | Nothing, as touches during the count-in are dropped now |
 | | The Pause key | Back to the pause panel |
+| | Escape, Space, Tab, arrows and Enter when the map does not hold them | Nothing, as while playing |
 | Paused | The Pause key | Resumes with the count-in (O1) |
 | | Enter, or Space when the map does not hold it | Presses the focused button; Resume has focus when the panel opens after a key |
 | | Lane keys | Nothing (O4) |
@@ -84,6 +85,7 @@ Pause, Escape by default.
 | Results | Enter, or Space when the map does not hold it | Play again, which has focus first when the game ended after a key |
 | | Lane keys | Nothing (O4) |
 | | Escape, unless it plays a lane | Back to song (O2) |
+| | The Pause key, when it is not Escape | Nothing: there is nothing to pause |
 | Other screens | Tab, arrows, Enter, Space | Compose's focus navigation and activation |
 | | Escape | Back, on every screen but the Library (O2) |
 | TalkBack notice before play | Escape | Back, as the dialog handles it itself |
@@ -597,12 +599,20 @@ those at the resume, at the pause's song time, with `LaneHoldsTest`'s pause case
 
 | Step | Builds | Emulator check | Phone check | Needs |
 | --- | --- | --- | --- | --- |
-| K1 | `LaneHolds` in place of `LaneTouchTracker`, touch unchanged; `LaneInput.source`; the key map (table, defaults, swap, Clear, completeness, storage) in `StoredSettings`; `KeyLanes` and `GameKeys` as pure logic | The JVM tests above; a game from `adb shell input tap` and the capture script as before; `settings.json` keeps every field and gains `keys` | — | D1 to D3, D5; O9, O10 |
+| K1 (done) | `LaneHolds` in place of `LaneTouchTracker`, touch unchanged; `LaneInput.source`; the key map (table, defaults, swap, Clear, completeness, storage) in `StoredSettings`; `KeyLanes` and `GameKeys` as pure logic | The JVM tests above; a game from `adb shell input tap` and the capture script as before; `settings.json` keeps every field and gains `keys` | — | D1 to D3, D5; O9, O10 |
 | K2 | Keyboard play: the manifest's `keyboard\|keyboardHidden\|navigation`; `HardwareKeys` in `MainActivity`; `ConnectedKeyboards` in `AppStores` with a fake for the scenarios; lane keys, the Pause key with its fresh-down rule and the taken keys in play; `FLAG_ALT_FOCUSABLE_IM` on the game's screens; labels on the caps; the key log and the game log's additions | `input keyevent` taps judged; `--duration` gives one press and one release, and a held Pause key pauses once; `emu event send` chords and holds judged; a `hid` keyboard registered mid-game: `am get-config` before and after, `MainActivity` created once (a debug log line), the song goes on; `hid` closed: canceled ups in the key log, no lane left lit, no pause; the window flag in `dumpsys window`; captures with labels in both orientations | 14, 16, 17, 20 | K1; latency.md L1; O6, O7 |
 | K3 | Settings › Keyboard: status, links, the five slots, capture with Clear, Cancel and moving on, swap, refusal, the empty lane's mark and notice, defaults, the key test and its limit sentence; the Settings row; scenarios with a fake keyboard | Capture by `input keyevent`, Escape included; kept after a force-stop; Clear on a lane shows the mark and the notice, and the Settings row says so; the test lit by `emu event send` holds (4 of 4) and by a `hid` keyboard that never reports a fourth key (the sentence); UI Automator dumps; TalkBack walk; 200 % font; landscape | 14, 15 | K2; O5, O9, O10 |
 | K4 | Keys around the game: the Pause key in the count-in and on the pause panel, lane keys taken on the panel and Results, Escape in and out of the game, first focus on Resume and Play again; a focus pass over every screen; optionally the game's keys in Android's keyboard shortcuts list (`Activity.onProvideKeyboardShortcuts`, API 24) | `input keyevent` sequences of Tab, arrows, Enter, Space and Escape from the Library to a game, its pause, its results and back, without a tap; a lane key (Space bound to a lane) sent as the panel and Results open presses nothing; screenshots of every focus state; UI Automator's `focused` | 21 | K2; O1 to O4 |
 | K5 | Calibration with keys: lane keys as presses on the calibration screen, judged with the keyboard's slot; the method in the calibration log | Key presses from `input keyevent` at logged event times give the runtime's errors when recomputed with the keyboard's slot, as latency.md's check does for taps | 18, 19 | K2; latency.md L3 |
 | K6 | Diagnostics and runbook: the journal's `input_device`, the summary's `input.keyboards`, the `manual` collection of `key-log.csv`, checklist rows 14 to 21 in phone-checks.md | Redaction tests; the Diagnostics JSON lists a `hid` keyboard by vendor and product; no device name anywhere in the export or the archive | The checklist run | K2; O8 |
+
+What K1 showed (builds b1 and b2 of `claude/android-keyboard`, `991ac24` and `691b628`, on an `ensomi-36` made afresh,
+since the old one was gone): the full build passed with 431 JVM tests, 51 of them in `LaneHoldsTest`, `KeyLanesTest`,
+`KeyMapTest` and `GameKeysTest`, and lint found nothing the commit before K1 did not. A `settings.json` in 0.1.3's shape
+read unchanged after the update, and the first change of a setting wrote every field back with `keys` added. The sample
+game played by `adb shell input tap` reached Results with its taps judged, as on the build before K1, and its log said
+`presses touch 113, keyboard 0, autoplay 168`, as many touch presses as the touch log's downs. The capture script's
+screens looked as before. The AVD had no songs or charts, so no real song was played by taps.
 
 When the steps are done, design.md takes the screens and the keys table, gameplay.md the input path and edge cases,
 plan.md the steps and what they showed, phone-checks.md the rows, and design.md's "Not carried over in this round"
