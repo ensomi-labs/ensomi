@@ -115,7 +115,8 @@ fun KeyboardScreen(
     initialTest: KeyTest = KeyTest(),
 ) {
     val connected by keyboards.keyboards.collectAsStateWithLifecycle()
-    val first = connected.firstOrNull()
+    // The first keyboard connected gives the labels.
+    val labelling = connected.firstOrNull()
     val canUseKeys = connected.isNotEmpty()
     var capture by remember { mutableStateOf(initialCapture) }
     var test by remember { mutableStateOf(initialTest) }
@@ -181,11 +182,11 @@ fun KeyboardScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp),
             ) {
-                val keysSection: @Composable (Boolean) -> Unit = { first ->
+                val keysSection: @Composable (Boolean) -> Unit = { topOfColumn ->
                     KeysSection(
-                        first = first,
+                        first = topOfColumn,
                         map = map,
-                        keyboard = first,
+                        keyboard = labelling,
                         words = words,
                         capture = capture,
                         canWait = canUseKeys,
@@ -199,7 +200,7 @@ fun KeyboardScreen(
                     )
                 }
                 val testSection: @Composable () -> Unit = {
-                    TestSection(map, first, words, test, devices, canTest = canUseKeys, onToggle = toggleTest)
+                    TestSection(map, labelling, words, test, devices, canTest = canUseKeys, onToggle = toggleTest)
                 }
                 if (wideWindow) {
                     Row(verticalAlignment = Alignment.Top) {
