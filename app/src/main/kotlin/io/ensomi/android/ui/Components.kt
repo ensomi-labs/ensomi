@@ -7,11 +7,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SliderColors
@@ -28,11 +30,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.ensomi.android.R
 import io.ensomi.android.ui.theme.Brand
 
 /**
@@ -70,6 +77,41 @@ fun ActionButton(
             }
             Text(text, color = ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+/**
+ * A section's title in a chrome list (Settings, Settings › Keyboard): small, in the primary colour, a heading for
+ * TalkBack, with a divider above it unless it is the [first].
+ */
+@Composable
+fun SectionHeader(title: String, first: Boolean = false) {
+    Column {
+        if (!first) HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp)
+                .semantics { heading() },
+        )
+    }
+}
+
+/**
+ * Words with a warning symbol, in the error colour: a failure or a missing key, never shown by colour alone
+ * (docs/design.md, Visual language). A polite live region, so TalkBack reads it when it appears or changes.
+ */
+@Composable
+fun WarningLine(text: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyMedium) {
+    val color = MaterialTheme.colorScheme.error
+    Row(
+        modifier = modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_warning), contentDescription = null, tint = color, modifier = Modifier.size(20.dp))
+        Text(text, style = style, color = color)
     }
 }
 

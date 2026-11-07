@@ -4,6 +4,17 @@
     <!-- The chart model download and optional public short-link lookup. Microphone audio stays on the device. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Settings › Keyboard links to Android's Bluetooth and physical keyboard settings, and leaves a link out when no
+         activity handles it (docs/keyboard.md): seeing whether one does needs these under package visibility. -->
+    <queries>
+        <intent>
+            <action android:name="android.settings.BLUETOOTH_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.HARD_KEYBOARD_SETTINGS" />
+        </intent>
+    </queries>
+
     <application
         android:name=".EnsomiApplication"
         android:allowBackup="false"

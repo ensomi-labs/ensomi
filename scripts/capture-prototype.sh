@@ -3,21 +3,22 @@
 # every scenario of app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt in light and dark mode,
 # the game at each lean and in both orientations, a few screens at 200 % font size and with the phone in landscape,
 # UI hierarchy dumps, the render thread's frame log and a Perfetto FrameTimeline trace at each lean, a recording of the
-# playfield preview (landscape, the default lean), the caps' key labels with a keyboard connected, and a real game on
-# the app's own stores.
+# playfield preview (landscape, the default lean), the caps' key labels with a keyboard connected, Settings › Keyboard
+# and the latency slots in Settings in each of their states, and a real game on the app's own stores.
 #
 #   scripts/capture-prototype.sh OUT_DIR [GROUP...]
 #   REAL_SONG="Song title" scripts/capture-prototype.sh OUT_DIR real
 #
-# GROUP is any of screens, game, lean, keyboard, font, landscape, dumps, pacing, recording, real; all of them when none
-# is given.
+# GROUP is any of screens, game, lean, keyboard, keyboard-settings, latency-settings, font, landscape, dumps, pacing,
+# recording, real; all of them when none is given. keyboard-settings and latency-settings shoot their scenarios in light
+# and dark mode, at 200 % font size and in landscape, and dump their UI hierarchy.
 # The real group plays REAL_SONG, a song in the library with a chart, by the autoplay (a debug launch extra), with the
 # settings the app has; it is skipped when REAL_SONG is not set.
 set -euo pipefail
 
 OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
 shift
-GROUPS_WANTED=${*:-screens game lean keyboard font landscape dumps pacing recording real}
+GROUPS_WANTED=${*:-screens game lean keyboard keyboard-settings latency-settings font landscape dumps pacing recording real}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 PKG=io.ensomi.android
@@ -154,6 +155,54 @@ for name in play-keyboard play-portrait-keyboard; do
 done
 launch play-paused-keyboard; sleep 15; shot keyboard-play-paused-keyboard
 fi
+
+# Settings › Keyboard (docs/keyboard.md) and the latency slots (docs/latency.md): every state, light and dark, the
+# Keyboard screen scrolled to its key test too; then at 200 % font size and in landscape; then the UI hierarchies.
+KEYBOARD_SETTINGS=(
+  settings-keyboard settings-keyboard-connected settings-keyboard-lane-empty
+  keyboard keyboard-connected keyboard-two keyboard-waiting keyboard-refused keyboard-swapped keyboard-lane-empty
+  keyboard-lanes-empty keyboard-lane-empty-none keyboard-pause-empty keyboard-testing keyboard-limit
+)
+LATENCY_SETTINGS=(
+  settings-latency settings-latency-plain settings-latency-shared settings-latency-long settings-latency-name
+  settings-latency-name-empty
+)
+settings_states() { # group name, then the scenarios
+  local group=$1 mode name prefix
+  shift
+  for mode in light dark; do
+    if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
+    sleep 2
+    for name in "$@"; do
+      launch "$name"; sleep 3; shot "$group-$mode-$name"
+      case "$name" in keyboard*|settings-latency|settings-latency-long) swipe_up; shot "$group-$mode-$name-2" ;; esac
+    done
+  done
+  adb shell cmd uimode night no
+  for prefix in font200 landscape; do
+    if [ "$prefix" = font200 ]; then adb shell settings put system font_scale 2.0; else rotate 1; fi
+    sleep 2
+    for name in "$@"; do
+      launch "$name"; sleep 3; shot "$group-$prefix-$name"
+      case "$name" in
+        keyboard*|settings-latency*)
+          for page in 2 3; do
+            # The phone on its side is 1080 px tall: swipe within it, in the middle of the centred column.
+            if [ "$prefix" = landscape ]; then adb shell input swipe 1212 900 1212 200 500; sleep 1.5; else swipe_up; fi
+            shot "$group-$prefix-$name-$page"
+          done ;;
+      esac
+    done
+    if [ "$prefix" = font200 ]; then adb shell settings put system font_scale 1.0; else rotate 0; fi
+    sleep 2
+  done
+  for name in "$@"; do
+    launch "$name"; sleep 3
+    adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/$group-window-$name.xml" >/dev/null || echo "no dump for $name"
+  done
+}
+if wanted keyboard-settings; then settings_states keyboard-settings "${KEYBOARD_SETTINGS[@]}"; fi
+if wanted latency-settings; then settings_states latency-settings "${LATENCY_SETTINGS[@]}"; fi
 
 if wanted lean; then
 # The lanes at no lean, the default and the most, in landscape (the phones' default) and portrait; then the settings'

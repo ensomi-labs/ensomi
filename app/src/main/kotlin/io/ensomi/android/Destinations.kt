@@ -26,6 +26,10 @@ data class Results(val songId: String?, val result: PlayResult) : NavKey
 @Serializable
 data object Settings : NavKey
 
+/** Settings › Keyboard: the key map and its test (docs/keyboard.md). */
+@Serializable
+data object KeyboardSettings : NavKey
+
 @Serializable
 data object Calibration : NavKey
 

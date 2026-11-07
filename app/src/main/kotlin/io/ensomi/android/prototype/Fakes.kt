@@ -3,6 +3,7 @@ package io.ensomi.android.prototype
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.net.Uri
+import android.view.KeyEvent
 import io.ensomi.android.chart.ChartCapabilities
 import io.ensomi.android.chart.ChartMaker
 import io.ensomi.android.chart.ChartRequest
@@ -13,6 +14,7 @@ import io.ensomi.android.chart.SectionKind
 import io.ensomi.android.chart.songId
 import io.ensomi.android.keyboard.KeyLabels
 import io.ensomi.android.keyboard.Keyboard
+import io.ensomi.android.keyboard.KeyboardRoster
 import io.ensomi.android.keyboard.Keyboards
 import io.ensomi.android.library.AddResult
 import io.ensomi.android.library.Song
@@ -35,10 +37,14 @@ import io.ensomi.android.settings.PlaySettings
 import io.ensomi.android.settings.PlaySettingsStore
 import java.io.File
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 /*
  * The fakes behind the prototype's screenshot scenarios. The app's own stores replace every one of them on a normal
@@ -158,33 +164,68 @@ class FakePlayOutputs(private val route: OutputRoute) : PlayOutputs {
 }
 
 /**
- * For the prototype's scenarios: fixed keyboards, none by default. Only their own made-up devices play; keys injected by
- * `adb shell input` come from the virtual keyboard, which plays in any game. The app's are [io.ensomi.android.keyboard.ConnectedKeyboards].
+ * A made-up keyboard for the prototype's scenarios: [layout] is the key code each place on it produces, as
+ * `InputDevice.getKeyCodeForKeyLocation` gives it, and its caps are labelled from the key table.
  */
-class FakeKeyboards(connected: List<Keyboard>) : Keyboards {
-    override val keyboards: StateFlow<List<Keyboard>> = MutableStateFlow(connected).asStateFlow()
+data class FakeKeyboard(val deviceId: Int, val name: String, val productId: Int, val layout: (Int) -> Int) {
+    /** This keyboard as the input system would describe it with [map]. */
+    fun describe(map: KeyMap): Keyboard {
+        val keys = map.resolve(layout)
+        val labels = KeyLabels.of(
+            keys,
+            { code -> KeyTable.keys.firstOrNull { it.keyCode == code }?.label?.singleOrNull() ?: KeyLabels.NONE },
+            space = "Space",
+            escape = "Esc",
+        )
+        return Keyboard(
+            deviceId = deviceId,
+            name = name,
+            vendorId = 0x046d,
+            productId = productId,
+            external = true,
+            keys = keys,
+            labels = labels,
+            map = map,
+        )
+    }
+}
 
-    override fun keys(deviceId: Int) = keyboards.value.firstOrNull { it.deviceId == deviceId }?.keys
+/**
+ * For the prototype's scenarios: fixed keyboards, none by default, resolved again whenever the key map of [settings]
+ * changes, as the app's are. Only their own made-up devices play; keys injected by `adb shell input` come from the
+ * virtual keyboard, which plays in any game. The app's are [io.ensomi.android.keyboard.ConnectedKeyboards].
+ */
+class FakeKeyboards(connected: List<FakeKeyboard>, settings: StateFlow<PlaySettings>) : Keyboards {
+    private val roster = KeyboardRoster { deviceId, map -> connected.firstOrNull { it.deviceId == deviceId }?.describe(map) }
+
+    override val keyboards: StateFlow<List<Keyboard>> = roster.keyboards
+
+    init {
+        roster.mapChanged(settings.value.keys)
+        roster.started(connected.map { it.deviceId })
+        // The scenario's graph lives as long as the process, as the app's stores do.
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch { settings.collect { roster.mapChanged(it.keys) } }
+    }
+
+    override fun keys(deviceId: Int) = roster.keys(deviceId)
 
     override fun refresh() = Unit
 
     companion object {
-        /** A US QWERTY Bluetooth keyboard with the default map, labelled from the key table. */
-        val SAMPLE: Keyboard = KeyMap.DEFAULT.resolve { it }.let { keys ->
-            Keyboard(
-                deviceId = 9_001,
-                name = "Sample keyboard",
-                vendorId = 0x046d,
-                productId = 0xb342,
-                external = true,
-                keys = keys,
-                labels = KeyLabels.of(
-                    keys,
-                    { code -> KeyTable.keys.firstOrNull { it.keyCode == code }?.label?.singleOrNull() ?: KeyLabels.NONE },
-                    space = "Space",
-                    escape = "Esc",
-                ),
-            )
+        /** A US QWERTY Bluetooth keyboard. */
+        val SAMPLE = FakeKeyboard(deviceId = 9_001, name = "K380", productId = 0xb342, layout = { it })
+
+        /**
+         * A German QWERTZ keyboard: the Z place gives Y and the Y place Z, and the slash place, right of the period, gives
+         * the minus key, as `getKeyCodeForKeyLocation` would. The rest as US QWERTY, which is enough for the default lanes.
+         */
+        val GERMAN = FakeKeyboard(deviceId = 9_002, name = "Tastatur", productId = 0xc31c) { place ->
+            when (place) {
+                KeyEvent.KEYCODE_Z -> KeyEvent.KEYCODE_Y
+                KeyEvent.KEYCODE_Y -> KeyEvent.KEYCODE_Z
+                KeyEvent.KEYCODE_SLASH -> KeyEvent.KEYCODE_MINUS
+                else -> place
+            }
         }
     }
 }

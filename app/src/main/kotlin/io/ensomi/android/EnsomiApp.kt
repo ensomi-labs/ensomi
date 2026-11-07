@@ -41,6 +41,7 @@ import io.ensomi.android.chart.MakeChartScreen
 import io.ensomi.android.chart.MakeChartViewModel
 import io.ensomi.android.diagnostics.DiagnosticsScreen
 import io.ensomi.android.diagnostics.DiagnosticsActivity
+import io.ensomi.android.keyboard.KeyboardScreen
 import io.ensomi.android.keyboard.LocalHardwareKeys
 import io.ensomi.android.library.LibraryScreen
 import io.ensomi.android.model.Notice
@@ -116,7 +117,8 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     // Escape that no screen took is Back, except on the Library (keyboard.md, O2).
     val hardwareKeys = LocalHardwareKeys.current
     SideEffect { hardwareKeys?.escapeGoesBack = destination != null && destination !is Library }
-    val idleScreen = destination is Library || destination is MakeChart || destination is Settings
+    val idleScreen = destination is Library || destination is MakeChart || destination is Settings ||
+        destination is KeyboardSettings
     LifecycleStartEffect(graph.charts, idleScreen) {
         graph.charts.background(idleScreen)
         onStopOrDispose { graph.charts.background(false) }
@@ -130,6 +132,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
     val model by graph.model.state.collectAsStateWithLifecycle()
     val settings by graph.settings.settings.collectAsStateWithLifecycle()
     val route by graph.settings.route.collectAsStateWithLifecycle()
+    val keyboards by graph.keyboards.keyboards.collectAsStateWithLifecycle()
 
     // A share that reached the recognition session, or a session that survived the process, opens its screen.
     val recognition = scenario.real
@@ -243,8 +246,11 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         settings = settings,
                         model = model,
                         versionName = versionName(context),
+                        route = route,
+                        keyboards = keyboards,
                         onChange = graph.settings::update,
                         onBack = { backStack.removeLastOrNull() },
+                        onKeyboard = { backStack.add(KeyboardSettings) },
                         onCalibrate = { backStack.add(Calibration) },
                         onPreview = { backStack.add(Play(null, loop = true)) },
                         onDiagnostics = { context.startActivity(DiagnosticsActivity.intent(context)) },
@@ -255,7 +261,19 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                         onRemoveModel = graph.model::remove,
                         onInstallModelFromFolder = graph.model::installFromFolder,
                         onNotices = { backStack.add(Notices) },
-                        firstItem = scenario.settingsItem,
+                        firstSection = scenario.settingsSection,
+                        initialNaming = scenario.naming,
+                    )
+                }
+                entry<KeyboardSettings> {
+                    KeyboardScreen(
+                        map = settings.keys,
+                        currentMap = { graph.settings.settings.value.keys },
+                        onMap = { keys -> graph.settings.update { it.copy(keys = keys) } },
+                        keyboards = graph.keyboards,
+                        onBack = { backStack.removeLastOrNull() },
+                        initialCapture = scenario.keyCapture,
+                        initialTest = scenario.keyTest,
                     )
                 }
                 entry<Calibration> {

@@ -97,9 +97,20 @@ keys' labels. Scenarios on fakes take keys only from `adb shell input keyevent` 
 app's stores, such as `play-stored`, take every keyboard's: a `hid` keyboard (`adb shell hid -`) on `ensomi-36-16k`,
 whose `hw.keyboard` is off, so that `adb emu event send` keys reach nothing there.
 
+Settings › Keyboard opens in each state of keyboard.md's table: `keyboard` (no keyboard), `keyboard-connected`,
+`keyboard-two` (a German layout connected first, whose labels the screen follows), `keyboard-waiting`,
+`keyboard-refused`, `keyboard-swapped`, `keyboard-lane-empty`, `keyboard-lanes-empty`, `keyboard-lane-empty-none` (and
+no keyboard), `keyboard-pause-empty`, `keyboard-testing` and `keyboard-limit`; its row in Settings in
+`settings-keyboard`, `settings-keyboard-connected` and `settings-keyboard-lane-empty`. `keyboard-stored` and
+`settings-stored-keyboard` show the same over the app's own stores. The latency slots in Settings › Sound and timing
+(docs/latency.md): `settings-latency` (named and unnamed slots), `settings-latency-plain`, `settings-latency-shared` (both
+methods on one slot, values at the ends of the range), `settings-latency-long` (names of 24 characters),
+`settings-latency-name` and `settings-latency-name-empty` (the name dialog), and `settings-stored-sound` over the stores.
+
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
-screen, the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
+screen, Settings › Keyboard and the latency slots in every state (its `keyboard-settings` and `latency-settings`
+groups), the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
 plays a real game of that song (it needs a stored chart) by the autoplay to its results, on the one booted emulator or
 device.
 
