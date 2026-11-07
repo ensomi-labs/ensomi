@@ -12,8 +12,9 @@ import kotlin.math.roundToInt
 
 /**
  * The sound step's arithmetic. A tap's error is its song time minus the nearest click's; a tap is judged at its song
- * time plus the audio offset, so the offset that puts the taps on the clicks is minus the median error of the last
- * [TAPS] taps, whatever the offset was while they were made.
+ * time less the audio latency and touch's input latency (latency.md, Formulas), so the audio latency that puts the taps
+ * on the clicks, with touch's input latency as it is, is the median error of the last [TAPS] taps less that input
+ * latency, whatever the audio latency was while they were made.
  */
 object CalibrationTaps {
     const val TAPS = 16
@@ -40,10 +41,10 @@ object CalibrationTaps {
         return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2
     }
 
-    /** The audio offset the last [TAPS] taps suggest, or null until there are that many. */
-    fun suggestionMs(errorsMs: List<Double>): Int? {
+    /** The audio latency the last [TAPS] taps suggest with touch at [touchLatencyMs], or null until there are that many. */
+    fun suggestionMs(errorsMs: List<Double>, touchLatencyMs: Int): Int? {
         if (errorsMs.size < TAPS) return null
-        return (-median(recent(errorsMs))).roundToInt().coerceIn(PlaySettings.OFFSETS)
+        return (median(recent(errorsMs)) - touchLatencyMs).roundToInt().coerceIn(Latency.RANGE)
     }
 }
 

@@ -66,7 +66,6 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(
     settings: PlaySettings,
-    route: OutputRoute,
     model: ModelState,
     versionName: String,
     onChange: ((PlaySettings) -> PlaySettings) -> Unit,
@@ -183,18 +182,16 @@ fun SettingsScreen(
                     ) { value -> onChange { it.copy(musicVolume = (value * 20).roundToInt() / 20f) } }
                 }
                 item {
+                    // The active slot's value; latency.md's step L2 brings the slots, the input rows and names.
+                    val active = settings.audioLatency.active
                     OffsetSetting(
-                        title = stringResource(R.string.settings_audio_offset, route.name),
-                        supporting = stringResource(R.string.settings_audio_offset_help),
-                        value = settings.audioOffsetMs,
-                    ) { value -> onChange { it.copy(audioOffsetMs = value) } }
-                }
-                item {
-                    OffsetSetting(
-                        title = stringResource(R.string.settings_visual_offset),
-                        supporting = stringResource(R.string.settings_visual_offset_help),
-                        value = settings.visualOffsetMs,
-                    ) { value -> onChange { it.copy(visualOffsetMs = value) } }
+                        title = stringResource(
+                            R.string.settings_audio_latency,
+                            latencySlotLabel(active, settings.audioLatency.slots[active]),
+                        ),
+                        supporting = stringResource(R.string.settings_audio_latency_help),
+                        value = settings.audioLatencyMs,
+                    ) { value -> onChange { it.withAudioLatencyMs(value) } }
                 }
                 item {
                     LinkRow(
@@ -393,7 +390,18 @@ private fun SliderSetting(
     }
 }
 
-/** An offset in whole milliseconds, nudged a millisecond at a time; the stepper sits under the text, so the title
+/**
+ * A latency slot as the screens name it: its number, with its name after it when it has one ("1 · WH-1000XM4"). Names
+ * are free text, for the screen only.
+ */
+@Composable
+fun latencySlotLabel(index: Int, slot: LatencySlot): String = if (slot.name.isEmpty()) {
+    stringResource(R.string.latency_slot, index)
+} else {
+    stringResource(R.string.latency_slot_named, index, slot.name)
+}
+
+/** A latency in whole milliseconds, nudged a millisecond at a time; the stepper sits under the text, so the title
  * keeps the width at large font sizes. */
 @Composable
 private fun OffsetSetting(title: String, supporting: String, value: Int, onChange: (Int) -> Unit) {
@@ -403,7 +411,7 @@ private fun OffsetSetting(title: String, supporting: String, value: Int, onChang
         Text(title, style = MaterialTheme.typography.bodyLarge)
         Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onChange((value - 1).coerceIn(PlaySettings.OFFSETS)) }) {
+            IconButton(onClick = { onChange((value - 1).coerceIn(Latency.RANGE)) }) {
                 Icon(painterResource(R.drawable.ic_remove), contentDescription = "$decrease $title")
             }
             Text(
@@ -412,7 +420,7 @@ private fun OffsetSetting(title: String, supporting: String, value: Int, onChang
                 modifier = Modifier.widthIn(min = 72.dp),
                 textAlign = TextAlign.Center,
             )
-            IconButton(onClick = { onChange((value + 1).coerceIn(PlaySettings.OFFSETS)) }) {
+            IconButton(onClick = { onChange((value + 1).coerceIn(Latency.RANGE)) }) {
                 Icon(painterResource(R.drawable.ic_add), contentDescription = "$increase $title")
             }
         }

@@ -1,6 +1,7 @@
 package io.ensomi.android.play
 
 import android.util.Log
+import io.ensomi.android.settings.PlaySettings
 import io.ensomi.runtime.GameplayFeedback
 import io.ensomi.runtime.GameplaySession
 import io.ensomi.runtime.InputEvent
@@ -14,14 +15,20 @@ import io.ensomi.runtime.Ruleset
 import io.ensomi.runtime.Score
 import io.ensomi.runtime.VisibleObject
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Where a lane input came from: a finger, a key on a keyboard, or the autoplay's script. */
-enum class InputSource { TOUCH, KEYBOARD, AUTOPLAY }
+enum class InputSource {
+    TOUCH, KEYBOARD, AUTOPLAY;
+
+    /** A way the player presses, with an input latency slot of its own (latency.md); the autoplay is none. */
+    val isMethod: Boolean get() = this != AUTOPLAY
+}
 
 /**
- * A lane press or release from a touch, a key or the autoplay, stamped on the `System.nanoTime()` clock. [source] goes
- * into the logs.
+ * A lane press or release from a touch, a key or the autoplay, stamped on the `System.nanoTime()` clock. [source]
+ * chooses the input latency it is judged with and goes into the logs.
  */
 data class LaneInput(
     val lane: Int,
@@ -36,8 +43,81 @@ data class LaneInput(
     val atPause: Boolean = false,
 )
 
-/** The offsets and scroll time a game keeps from start to end. */
-data class PlayTiming(val audioOffsetMs: Double, val visualOffsetMs: Double, val scrollTimeMs: Double)
+/**
+ * The latencies and scroll time a game keeps from start to end (latency.md, Formulas): its audio latency A and each
+ * source's input latency I, in milliseconds, positive for later. The autoplay's script has no input latency.
+ *
+ * ```
+ * gameplayMs = songMs(now) − A
+ * renderMs   = songMs(expectedPresentation) − A
+ * inputMs    = songMs(eventTime) − A − I[source]
+ * ```
+ *
+ * With every I at 0 these are the formulas of the audio offset, `audioOffset = −A`, without a visual offset. The slots
+ * the values came from are for the game's log; null where no slot gave the value.
+ */
+data class PlayTiming(
+    val audioLatencyMs: Double,
+    val touchLatencyMs: Double,
+    val keyboardLatencyMs: Double,
+    val scrollTimeMs: Double,
+    val audioSlot: Int? = null,
+    val touchSlot: Int? = null,
+    val keyboardSlot: Int? = null,
+) {
+    fun inputLatencyMs(source: InputSource): Double = when (source) {
+        InputSource.TOUCH -> touchLatencyMs
+        InputSource.KEYBOARD -> keyboardLatencyMs
+        InputSource.AUTOPLAY -> 0.0
+    }
+
+    /** The chart time judged at song time [songMs]. */
+    fun gameplayMs(songMs: Double): Double = songMs - audioLatencyMs
+
+    /** The chart time drawn at the line for the song time [presentSongMs] of a frame's expected presentation. */
+    fun renderMs(presentSongMs: Double): Double = presentSongMs - audioLatencyMs
+
+    /** The chart time of an input from [source] whose event was heard at song time [eventSongMs]. */
+    fun inputMs(eventSongMs: Double, source: InputSource): Double =
+        eventSongMs - audioLatencyMs - inputLatencyMs(source)
+
+    /** For the game's log: "audio slot 1 +142 ms; touch slot 0 +8 ms; keyboard slot 1 +30 ms". Slots are numbers. */
+    fun describe(): String = listOf(
+        "audio" to (audioSlot to audioLatencyMs),
+        "touch" to (touchSlot to touchLatencyMs),
+        "keyboard" to (keyboardSlot to keyboardLatencyMs),
+    ).joinToString("; ") { (what, value) ->
+        val (slot, ms) = value
+        val formatted = PlaySettings.formatOffset(ms.roundToInt())
+        if (slot != null) "$what slot $slot $formatted" else "$what $formatted (no slot)"
+    }
+
+    companion object {
+        /** A game of the player's song: the active audio slot, and each method's input slot. */
+        fun game(settings: PlaySettings): PlayTiming = PlayTiming(
+            audioLatencyMs = settings.audioLatencyMs.toDouble(),
+            touchLatencyMs = settings.inputLatency.touchMs.toDouble(),
+            keyboardLatencyMs = settings.inputLatency.keyboardMs.toDouble(),
+            scrollTimeMs = settings.scrollTimeMs,
+            audioSlot = settings.audioLatency.active,
+            touchSlot = settings.inputLatency.touch,
+            keyboardSlot = settings.inputLatency.keyboard,
+        )
+
+        /**
+         * Listen & Play: no output plays, so its own trim of the join takes the audio slot's place, with the audio
+         * offset's sign (`A = −trim`); the input slots apply, since they belong to the method.
+         */
+        fun ambient(settings: PlaySettings, trimMs: Double): PlayTiming =
+            game(settings).copy(audioLatencyMs = -trimMs, audioSlot = null)
+
+        /** The sample game on a clock without sound: no audio slot; touches and keys keep their input slots. */
+        fun sample(settings: PlaySettings): PlayTiming = game(settings).copy(audioLatencyMs = 0.0, audioSlot = null)
+
+        /** The settings' preview, without sound and pressed by the autoplay: no slot applies. */
+        fun preview(scrollTimeMs: Double): PlayTiming = PlayTiming(0.0, 0.0, 0.0, scrollTimeMs)
+    }
+}
 
 /** What the HUD over the playfield shows; it changes only when a value does, not every frame. */
 data class PlayHud(
@@ -70,8 +150,9 @@ class PlayFrame(
 /**
  * One game on the render thread: the runtime's session judges, its feedback eases lane lights and the judgement word,
  * and this class only moves inputs and time between them. The order each frame follows the Swift app's timing
- * contract: deliver the inputs stamped up to the frame's gameplay time in time order, advance the session to that time
- * less the input allowance, then read what to draw at the time the frame will be shown.
+ * contract, with the input clock of latency.md: deliver the inputs stamped up to the input clock in time order
+ * ([InputQueue]), advance the session to the input clock less the input allowance, then read what to draw at the time
+ * the frame will be shown.
  *
  * Created and used on the render thread, and closed off the main thread once the playfield is gone; [enqueue] may be
  * called from any thread.
@@ -80,14 +161,11 @@ class PlayController(
     private val chart: PlayChart,
     private val judge: Judge,
     val clock: PlayClock,
-    private val timing: PlayTiming,
-    /**
-     * The audio offset of the output the game plays on, asked once when the clock first runs (the output's route is
-     * known by then); null keeps [timing]'s.
-     */
-    private val resolveAudioOffset: (() -> Double)? = null,
+    timing: PlayTiming,
     /** Debug builds: each frame's times, for the clock check. */
     private val clockLog: ClockLog? = null,
+    /** Debug builds: every input the session is given, for the latency check. */
+    private val inputLog: InputLog? = null,
     /** Runs after the controller has closed its session: releases the game's sound. */
     private val onClose: () -> Unit = {},
     /** Judges input and advances the session; off for the calibration's picture step, which only draws. */
@@ -105,7 +183,7 @@ class PlayController(
     private val hud: MutableStateFlow<PlayHud>,
     private val nextSequence: () -> Long,
 ) : AutoCloseable {
-    private val inputs = InputQueue(clock, taken = ::taken, deliver = ::deliver)
+    private val inputs = InputQueue(clock, taken = ::taken, deliver = ::deliver, becameLive = ::becameLive)
     private val visibleWindow = VisibleWindow()
     private var visible = emptyList<VisibleObject>()
     private val laneAsking = LaneAsking()
@@ -121,14 +199,20 @@ class PlayController(
     private var wasPaused = false
 
     private val runtimeChart = chart.toRuntime()
-    private var audioOffsetMs = timing.audioOffsetMs
-    private var pendingOffset = resolveAudioOffset
     private var closed = false
     private var session = GameplaySession(runtimeChart, Ruleset(judge))
     private var feedback = GameplayFeedback()
-    /** The calibration's picture step moves this while the notes fall; play keeps the game's value. */
+
+    /** The game's latencies, read once a frame. */
     @Volatile
-    var visualOffsetMs: Double = timing.visualOffsetMs
+    private var latencies = timing
+
+    /** The calibration moves this while the notes fall; a game keeps its value from start to end. */
+    var audioLatencyMs: Double
+        get() = latencies.audioLatencyMs
+        set(value) {
+            latencies = latencies.copy(audioLatencyMs = value)
+        }
 
     /** The settings' playfield preview moves this while it runs; play keeps the game's value. */
     @Volatile
@@ -142,8 +226,23 @@ class PlayController(
     private val hitOffsets = ArrayList<Double>()
     private val pressesBySource = IntArray(InputSource.entries.size)
 
+    /** Hits timed, the sum of their errors and late inputs, by the source of the input whose call decided them. */
+    private val hitsBySource = IntArray(InputSource.entries.size)
+    private val hitErrorBySource = DoubleArray(InputSource.entries.size)
+    private val lateBySource = IntArray(InputSource.entries.size)
+
+    /** The session's clock as the runtime keeps it, the largest watermark or input time given: for late inputs. */
+    private var sessionClockMs = Double.NEGATIVE_INFINITY
+
+    /** The time of the frame being run, for the input log. */
+    private var frameNanos = 0L
+
     /** The lanes released at the pause's time since the last frame that was not paused, one bit each. */
     private var resumeReleased = 0
+
+    init {
+        Log.i(TAG, "Latency for this game: ${timing.describe()}")
+    }
 
     fun start(nanoTime: Long) {
         if (ownsClock) clock.start(nanoTime, fromMs = -leadInMs)
@@ -161,23 +260,21 @@ class PlayController(
     fun frame(nowNanos: Long, presentNanos: Long): PlayFrame? {
         clock.update(nowNanos)
         val songNow = clock.songTimeMs(nowNanos) ?: return null
-        pendingOffset?.let { resolve ->
-            pendingOffset = null
-            audioOffsetMs = resolve()
-            Log.i(TAG, "Audio offset for this game: $audioOffsetMs ms")
-        }
-        val gameplayMs = songNow + audioOffsetMs
+        val timing = latencies
+        val gameplayMs = timing.gameplayMs(songNow)
         val paused = clock.isPaused
+        frameNanos = nowNanos
         if (judging) {
             // A paused frame hands on what was queued before the pause, at the pause's time at the latest, so that the
             // session holds the lanes the app holds, and advances nothing: the session's clock stays where it was.
-            if (!paused) runScript(gameplayMs)
-            val delivered = inputs.frame(gameplayMs, audioOffsetMs, paused)
+            val delivered = inputs.frame(gameplayMs, timing, paused) { untilMs -> runScript(untilMs, timing) }
             if (paused && !wasPaused) logLanes("Paused", gameplayMs, "delivered $delivered inputs queued before it")
             if (!paused) {
                 if (wasPaused) logLanes("Resumed", gameplayMs, "released at the pause's time [${lanes(resumeReleased)}]")
                 resumeReleased = 0
-                record(session.advance(gameplayMs - INPUT_ALLOWANCE_MS), gameplayMs)
+                val watermarkMs = inputs.inputClockMs - INPUT_ALLOWANCE_MS
+                sessionClockMs = maxOf(sessionClockMs, watermarkMs)
+                record(session.advance(watermarkMs), gameplayMs, source = null)
             }
         }
         wasPaused = paused
@@ -189,7 +286,7 @@ class PlayController(
         publishHud(score, songNow)
 
         val presentSong = clock.songTimeMs(presentNanos) ?: songNow
-        val renderMs = presentSong + audioOffsetMs + visualOffsetMs
+        val renderMs = timing.renderMs(presentSong)
         clockLog?.record(nowNanos, songNow, renderMs)
         val scrollMs = scrollTimeMs
         readFeedback(presentNanos / 1e6, gameplayMs)
@@ -232,10 +329,14 @@ class PlayController(
         feedbackChanged = false
     }
 
-    private fun runScript(gameplayMs: Double) {
-        while (scriptIndex < script.size && script[scriptIndex].songMs <= gameplayMs) {
+    /**
+     * The autoplay's presses and releases due by [untilMs], each stamped at its own chart time: it has no input
+     * latency, so its event is when the song is at that chart time plus the audio latency.
+     */
+    private fun runScript(untilMs: Double, timing: PlayTiming) {
+        while (scriptIndex < script.size && script[scriptIndex].songMs <= untilMs) {
             val input = script[scriptIndex++]
-            val eventNanos = clock.nanoTimeAt(input.songMs - audioOffsetMs)
+            val eventNanos = clock.nanoTimeAt(input.songMs + timing.audioLatencyMs)
             inputs.add(LaneInput(input.lane, input.press, eventNanos, nextSequence(), InputSource.AUTOPLAY))
         }
     }
@@ -245,15 +346,42 @@ class PlayController(
         val phase = if (input.press) Phase.PRESS else Phase.RELEASE
         feedback.recordInput(input.lane.toUInt(), phase, input.sequence.toULong(), input.eventNanos / 1e6)
         laneAsking.touched(input.lane)
+        inputLog?.taken(input.sequence, frameNanos)
     }
 
     /** An input due at [chartMs], to the session. */
     private fun deliver(chartMs: Double, input: LaneInput) {
         if (input.press) pressesBySource[input.source.ordinal]++
         if (input.atPause) resumeReleased = resumeReleased or (1 shl input.lane)
+        // The runtime's rule: an input stamped before the session's clock is late, and handled at the clock.
+        val late = chartMs < sessionClockMs
+        if (late) lateBySource[input.source.ordinal]++
+        sessionClockMs = maxOf(sessionClockMs, chartMs)
+        inputLog?.delivered(
+            input, clock.eventSongTimeMs(input.eventNanos), chartMs, frameNanos, inputs.inputClockMs, late,
+        )
         val phase = if (input.press) Phase.PRESS else Phase.RELEASE
-        record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs)
+        record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs, input.source)
         visibleWindow.invalidate()
+    }
+
+    /** A method's first press in this game: it is live from then on, and the input clock may hold for it. */
+    private fun becameLive(source: InputSource, chartMs: Double, holdMs: Double) {
+        Log.i(
+            TAG,
+            String.format(
+                Locale.ROOT,
+                "%s is live from its first press at chart time %.1f ms, input latency %s; %s",
+                source.name.lowercase().replaceFirstChar { it.uppercase() },
+                chartMs,
+                PlaySettings.formatOffset(latencies.inputLatencyMs(source).roundToInt()),
+                if (holdMs > 0) {
+                    String.format(Locale.ROOT, "the input clock holds %.1f ms", holdMs)
+                } else {
+                    "the input clock does not hold"
+                },
+            ),
+        )
     }
 
     /**
@@ -282,14 +410,22 @@ class PlayController(
     private fun lanes(bits: Int): String =
         (0 until PlayfieldGeometry.LANES).filter { bits and (1 shl it) != 0 }.joinToString { "${it + 1}" }
 
-    private fun record(events: List<JudgementEvent>, chartMs: Double) {
+    /** Events a session call at [chartMs] decided; [source] is that of the input it took, null for an advance. */
+    private fun record(events: List<JudgementEvent>, chartMs: Double, source: InputSource?) {
         if (events.isEmpty()) return
         anyJudgement = true
         scoreChanged = true
         feedbackChanged = true
         visibleWindow.invalidate()
         feedback.recordJudgementEvents(events, chartMs)
-        events.forEach { event -> event.offsetMs?.let { hitOffsets += it } }
+        events.forEach { event ->
+            val offset = event.offsetMs ?: return@forEach
+            hitOffsets += offset
+            if (source != null) {
+                hitsBySource[source.ordinal]++
+                hitErrorBySource[source.ordinal] += offset
+            }
+        }
     }
 
     /** The game ends when every object is decided and the song has played to its end, as in the Swift app. */
@@ -298,14 +434,7 @@ class PlayController(
         if (!over && score === publishedScore) return
         publishedScore = score
         val finished = if (over) score else null
-        if (finished != null && hud.value.finished == null) {
-            Log.i(
-                TAG,
-                "Game over: accuracy ${score.accuracy}, max combo ${score.maxCombo}, ${hitOffsets.size} hits timed, " +
-                    "late inputs ${session.lateInputs()}, presses " +
-                    InputSource.entries.joinToString { "${it.name.lowercase()} ${pressesBySource[it.ordinal]}" },
-            )
-        }
+        if (finished != null && hud.value.finished == null) Log.i(TAG, gameOver(score))
         val next = PlayHud(
             accuracy = score.accuracy,
             combo = score.combo.toInt(),
@@ -313,6 +442,32 @@ class PlayController(
             hitOffsetsMs = if (finished != null) hitOffsets.toList() else emptyList(),
         )
         if (next != hud.value) hud.value = next
+    }
+
+    /**
+     * The game's log at game over: the score, the presses by source and the methods that pressed, the hits timed by the
+     * source of the input that decided them, with their average error, and the late inputs by source (latency.md,
+     * Diagnostics). The runtime's own late inputs stay the total.
+     */
+    private fun gameOver(score: Score): String {
+        fun bySource(each: (InputSource, String) -> String) =
+            InputSource.entries.joinToString { each(it, it.name.lowercase()) }
+        val methods = InputSource.entries.filter { it.isMethod && pressesBySource[it.ordinal] > 0 }
+        val hits = bySource { source, name ->
+            val count = hitsBySource[source.ordinal]
+            if (count == 0) {
+                "$name 0"
+            } else {
+                val mean = hitErrorBySource[source.ordinal] / count
+                String.format(Locale.ROOT, "%s %d at %+.1f ms on average", name, count, mean)
+            }
+        }
+        val presses = bySource { source, name -> "$name ${pressesBySource[source.ordinal]}" }
+        return "Game over: accuracy ${score.accuracy}, max combo ${score.maxCombo}, ${hitOffsets.size} hits timed, " +
+            "late inputs ${session.lateInputs()}, presses $presses; " +
+            "methods that pressed: ${methods.joinToString { it.name.lowercase() }.ifEmpty { "none" }}; " +
+            "hits timed by source: $hits; " +
+            "late inputs by source: ${bySource { source, name -> "$name ${lateBySource[source.ordinal]}" }}"
     }
 
     private fun restart(nowNanos: Long) {
@@ -327,6 +482,10 @@ class PlayController(
         publishedScore = null
         hitOffsets.clear()
         pressesBySource.fill(0)
+        hitsBySource.fill(0)
+        hitErrorBySource.fill(0.0)
+        lateBySource.fill(0)
+        sessionClockMs = Double.NEGATIVE_INFINITY
         resumeReleased = 0
         inputs.clear()
         visibleWindow.invalidate()
@@ -342,6 +501,7 @@ class PlayController(
         if (closed) return
         closed = true
         clockLog?.let { Log.i(TAG, "Clock: ${it.summary()}") }
+        inputLog?.let { Log.i(TAG, "Inputs: ${it.summary()}") }
         session.close()
         feedback.close()
         if (ownsClock) clock.close()
@@ -367,6 +527,85 @@ class PlayController(
         private val DARK = LaneBrightness(receptor = 0.0, lane = 0.0)
         private const val TAG = "EnsomiPlay"
     }
+}
+
+/**
+ * Debug builds: every input the session was given, for the latency check (latency.md, Checks): its event's song time
+ * and its chart time, whose difference is −A − I for its source (save releases at a resume and inputs held to a
+ * pause's time or to their lane's last), the frames that took it and handed it on, the input clock then, and whether it
+ * was late by the runtime's rule. [csv] goes to `input-log.csv` when the game closes, and [summary] to the log.
+ */
+class InputLog {
+    private val takenAt = HashMap<Long, Long>()
+    private val rows = StringBuilder(
+        "sequence,source,lane,press,atPause,eventNanos,songMs,chartMs,takenNanos,deliveredNanos,inputClockMs,late\n",
+    )
+
+    private class Tally {
+        var count = 0
+        var waited = 0
+        var mostWaitMs = 0.0
+        var late = 0
+        var shifts = 0
+        var leastShiftMs = Double.POSITIVE_INFINITY
+        var mostShiftMs = Double.NEGATIVE_INFINITY
+    }
+
+    private val tallies = InputSource.entries.associateWith { Tally() }
+
+    @Synchronized
+    fun taken(sequence: Long, frameNanos: Long) {
+        takenAt[sequence] = frameNanos
+    }
+
+    @Synchronized
+    fun delivered(
+        input: LaneInput,
+        songMs: Double?,
+        chartMs: Double,
+        frameNanos: Long,
+        inputClockMs: Double,
+        late: Boolean,
+    ) {
+        val takenNanos = takenAt.remove(input.sequence) ?: frameNanos
+        rows.append(input.sequence).append(',').append(input.source.name.lowercase()).append(',').append(input.lane)
+            .append(',').append(if (input.press) 1 else 0).append(',').append(if (input.atPause) 1 else 0)
+            .append(',').append(input.eventNanos).append(',').append(songMs ?: Double.NaN).append(',').append(chartMs)
+            .append(',').append(takenNanos).append(',').append(frameNanos).append(',').append(inputClockMs)
+            .append(',').append(if (late) 1 else 0).append('\n')
+        val tally = tallies.getValue(input.source)
+        tally.count++
+        if (frameNanos != takenNanos) {
+            tally.waited++
+            tally.mostWaitMs = maxOf(tally.mostWaitMs, (frameNanos - takenNanos) / 1e6)
+        }
+        if (late) tally.late++
+        if (songMs != null && !input.atPause) {
+            tally.shifts++
+            tally.leastShiftMs = minOf(tally.leastShiftMs, chartMs - songMs)
+            tally.mostShiftMs = maxOf(tally.mostShiftMs, chartMs - songMs)
+        }
+    }
+
+    /** By source: the inputs, chart time less song time at least and at most, those that waited a frame, the late. */
+    @Synchronized
+    fun summary(): String = tallies.entries.joinToString("; ") { (source, t) ->
+        val name = source.name.lowercase()
+        if (t.count == 0) return@joinToString "$name none"
+        val shift = if (t.shifts == 0) {
+            "none"
+        } else {
+            String.format(Locale.ROOT, "%+.1f to %+.1f ms", t.leastShiftMs, t.mostShiftMs)
+        }
+        String.format(
+            Locale.ROOT,
+            "%s %d, chart less song time %s, waited %d (most %.1f ms), late %d",
+            name, t.count, shift, t.waited, t.mostWaitMs, t.late,
+        )
+    }
+
+    @Synchronized
+    fun csv(): String = rows.toString()
 }
 
 /**

@@ -96,12 +96,12 @@ class PlayfieldView @JvmOverloads constructor(
             updateGeometry(width, height)
         }
 
-    /** Overrides the game's visual offset while the playfield runs: the calibration's slider. */
+    /** Overrides the game's audio latency while the playfield runs: the calibration's slider. */
     @Volatile
-    var visualOffsetMs: Double? = null
+    var audioLatencyMs: Double? = null
         set(value) {
             field = value
-            if (value != null) controller?.visualOffsetMs = value
+            if (value != null) controller?.audioLatencyMs = value
         }
 
     /** Overrides the game's scroll time while the playfield runs: the settings' preview follows the speed slider. */
@@ -335,7 +335,7 @@ class PlayfieldView @JvmOverloads constructor(
                 ready.countDown()
                 return
             }
-            visualOffsetMs?.let { playController.visualOffsetMs = it }
+            audioLatencyMs?.let { playController.audioLatencyMs = it }
             scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
             // After the game is made, so that the threads it starts do not inherit this.

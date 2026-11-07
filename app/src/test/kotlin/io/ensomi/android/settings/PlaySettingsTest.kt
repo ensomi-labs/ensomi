@@ -36,14 +36,14 @@ class PlaySettingsTest {
         val restored = settings.withLaneWidth(PlayOrientation.LANDSCAPE, null)
         assertEquals(null, restored.landscapeWidth)
         assertEquals(0.90f, restored.portraitWidth)
-        val stored = StoredSettings().with(settings, "speaker").forOutput("speaker")
+        val stored = StoredSettings().with(settings).toPlaySettings()
         assertEquals(settings, stored)
     }
 
     @Test
     fun anOldFileKeepsAllItsSettingsAndUsesTheWindowWidthDefault() {
         val file = """{"scrollSpeed":31.5,"landscapeLean":22,"portraitLean":10,"musicVolume":0.35}"""
-        val read = StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), file).forOutput("speaker")
+        val read = StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), file).toPlaySettings()
         assertEquals(31.5, read.scrollSpeed, 0.0)
         assertEquals(22, read.landscapeLean)
         assertEquals(10, read.portraitLean)
@@ -54,10 +54,10 @@ class PlaySettingsTest {
 
     @Test
     fun widthFromAnotherFileIsBoundedAndInvalidValuesUseTheDefault() {
-        val read = StoredSettings(landscapeWidth = -1f, portraitWidth = 4f).forOutput("speaker")
+        val read = StoredSettings(landscapeWidth = -1f, portraitWidth = 4f).toPlaySettings()
         assertEquals(0f, read.landscapeWidth)
         assertEquals(1f, read.portraitWidth)
-        assertEquals(null, StoredSettings(landscapeWidth = Float.NaN).forOutput("speaker").landscapeWidth)
+        assertEquals(null, StoredSettings(landscapeWidth = Float.NaN).toPlaySettings().landscapeWidth)
     }
 
     @Test

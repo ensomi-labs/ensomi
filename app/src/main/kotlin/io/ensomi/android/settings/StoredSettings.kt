@@ -1,65 +1,93 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package io.ensomi.android.settings
 
 import androidx.datastore.core.CorruptionException
+import androidx.datastore.core.DataMigration
 import androidx.datastore.core.Serializer
 import java.io.InputStream
 import java.io.OutputStream
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * The settings as they are kept on the device: [PlaySettings] with the audio offset of every output that has one,
- * by [OutputRoutes.key]. An output without one plays at 0 ms. A file from before the key map has no [keys] and reads
- * the default map.
+ * The settings as they are kept on the device: [PlaySettings] with the latency slots (latency.md, Storage and
+ * migration). A file from before the key map has no [keys] and reads the default map. A file from before the slots has
+ * no [audioLatency]; [migrated] fills the slots from its audio offsets and visual offset, once, and those two are read
+ * for that only and left out of every later write.
  */
 @Serializable
 data class StoredSettings(
     val scrollSpeed: Double = PlaySettings.DEFAULT_SCROLL_SPEED,
     val judge: JudgeDifficulty = JudgeDifficulty.C,
     val musicVolume: Float = PlaySettings().musicVolume,
-    val audioOffsets: Map<String, Int> = emptyMap(),
-    val visualOffsetMs: Int = 0,
     val orientation: PlayOrientation = PlayOrientation.LANDSCAPE,
     val landscapeLean: Int = PlaySettings.DEFAULT_LANDSCAPE_LEAN,
     val portraitLean: Int = PlaySettings.DEFAULT_PORTRAIT_LEAN,
     val landscapeWidth: Float? = null,
     val portraitWidth: Float? = null,
     val keys: StoredKeys = StoredKeys(),
+    /** Null only in a file from before the slots, until [migrated]. */
+    val audioLatency: StoredAudioLatency? = null,
+    val inputLatency: StoredInputLatency = StoredInputLatency(),
+    /** 0.1.x: the audio offset of every output that had one, by [OutputRoutes.key], in the order first set. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val audioOffsets: Map<String, Int>? = null,
+    /** 0.1.x: the one visual offset. */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val visualOffsetMs: Int? = null,
 ) {
-    /** The settings play reads on the output keyed [outputKey], each value within its range. */
-    fun forOutput(outputKey: String): PlaySettings = PlaySettings(
+    /** The settings play reads, each value within its range. */
+    fun toPlaySettings(): PlaySettings = PlaySettings(
         scrollSpeed = scrollSpeed.coerceIn(PlaySettings.SCROLL_SPEEDS),
         judge = judge,
         musicVolume = musicVolume.coerceIn(0f, 1f),
-        audioOffsetMs = (audioOffsets[outputKey] ?: 0).coerceIn(PlaySettings.OFFSETS),
-        visualOffsetMs = visualOffsetMs.coerceIn(PlaySettings.OFFSETS),
         orientation = orientation,
         landscapeLean = landscapeLean.coerceIn(PlaySettings.LEANS),
         portraitLean = portraitLean.coerceIn(PlaySettings.LEANS),
         landscapeWidth = landscapeWidth?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
         portraitWidth = portraitWidth?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
         keys = keys.toMap(),
+        audioLatency = (audioLatency ?: StoredAudioLatency()).toLatency(),
+        inputLatency = inputLatency.toLatency(),
     )
 
-    /** These settings changed to [settings], whose audio offset is the one of the output keyed [outputKey]. */
-    fun with(settings: PlaySettings, outputKey: String): StoredSettings = copy(
+    /** These settings changed to [settings]. */
+    fun with(settings: PlaySettings): StoredSettings = copy(
         scrollSpeed = settings.scrollSpeed,
         judge = settings.judge,
         musicVolume = settings.musicVolume,
-        audioOffsets = if ((audioOffsets[outputKey] ?: 0) == settings.audioOffsetMs) {
-            audioOffsets
-        } else {
-            audioOffsets + (outputKey to settings.audioOffsetMs)
-        },
-        visualOffsetMs = settings.visualOffsetMs,
         orientation = settings.orientation,
         landscapeLean = settings.landscapeLean,
         portraitLean = settings.portraitLean,
         landscapeWidth = settings.landscapeWidth,
         portraitWidth = settings.portraitWidth,
         keys = StoredKeys.of(settings.keys),
+        audioLatency = StoredAudioLatency.of(settings.audioLatency),
+        inputLatency = StoredInputLatency.of(settings.inputLatency),
+        audioOffsets = null,
+        visualOffsetMs = null,
     )
+
+    /** Whether this is a file from before the slots, which [migrated] moves to them. */
+    val needsLatencySlots: Boolean get() = audioLatency == null
+
+    /**
+     * A file from before the slots with its offsets moved into them ([LatencyMigration]), the output keyed [currentKey]
+     * being the one Android would play on now and [nameOf] naming an output key as the screens do; the old fields are
+     * gone, so the next write leaves them out. A file that has slots is returned as it is.
+     */
+    fun migrated(currentKey: String?, nameOf: (String) -> String): StoredSettings {
+        if (!needsLatencySlots) return this
+        val moved = LatencyMigration.of(audioOffsets.orEmpty(), visualOffsetMs ?: 0, currentKey, nameOf)
+        return copy(
+            audioLatency = StoredAudioLatency.of(moved.audio),
+            inputLatency = StoredInputLatency.of(moved.input),
+            audioOffsets = null,
+            visualOffsetMs = null,
+        )
+    }
 
     companion object {
         /** Unknown keys are skipped and missing ones take their defaults, so an older or newer file still reads. */
@@ -69,6 +97,92 @@ data class StoredSettings(
             coerceInputValues = true
         }
     }
+}
+
+/** A latency slot as the settings file keeps it: `{"name": "", "ms": 0}`. */
+@Serializable
+data class StoredLatencySlot(val name: String = "", val ms: Int = 0) {
+    fun toSlot() = LatencySlot(Latency.name(name), Latency.ms(ms))
+
+    companion object {
+        fun of(slot: LatencySlot) = StoredLatencySlot(slot.name, slot.ms)
+
+        /** Three slots, whatever [slots] holds: filled with empty ones or cut. */
+        fun three(slots: List<StoredLatencySlot>): List<LatencySlot> =
+            List(Latency.SLOTS) { i -> slots.getOrNull(i)?.toSlot() ?: LatencySlot() }
+    }
+}
+
+/**
+ * The audio latency slots as the settings file keeps them:
+ * `{"active": 0, "slots": [{"name": "", "ms": 0}, {"name": "", "ms": 0}, {"name": "", "ms": 0}]}` by default. An index
+ * outside 0..2 reads slot 0.
+ */
+@Serializable
+data class StoredAudioLatency(
+    val active: Int = 0,
+    val slots: List<StoredLatencySlot> = List(Latency.SLOTS) { StoredLatencySlot() },
+) {
+    fun toLatency() = AudioLatency(StoredLatencySlot.three(slots), active.takeIf { it in Latency.INDICES } ?: 0)
+
+    companion object {
+        fun of(latency: AudioLatency) = StoredAudioLatency(latency.active, latency.slots.map(StoredLatencySlot::of))
+    }
+}
+
+/**
+ * The input latency slots and each method's slot as the settings file keeps them:
+ * `{"slots": [...], "touch": 0, "keyboard": 1}` by default. An index outside 0..2 reads that method's default.
+ */
+@Serializable
+data class StoredInputLatency(
+    val slots: List<StoredLatencySlot> = List(Latency.SLOTS) { StoredLatencySlot() },
+    val touch: Int = InputLatency().touch,
+    val keyboard: Int = InputLatency().keyboard,
+) {
+    fun toLatency(): InputLatency {
+        val defaults = InputLatency()
+        return InputLatency(
+            StoredLatencySlot.three(slots),
+            touch = touch.takeIf { it in Latency.INDICES } ?: defaults.touch,
+            keyboard = keyboard.takeIf { it in Latency.INDICES } ?: defaults.keyboard,
+        )
+    }
+
+    companion object {
+        fun of(latency: InputLatency) =
+            StoredInputLatency(latency.slots.map(StoredLatencySlot::of), latency.touch, latency.keyboard)
+    }
+}
+
+/**
+ * The move to latency slots, run by DataStore the first time it reads a file without them, which it writes back before
+ * anything else reads it: [currentKey] is the output Android would play on then, [nameOf] names an output key as the
+ * screens do. [log] hears what moved, by slot number; names are never logged.
+ */
+class LatencySlotsMigration(
+    private val currentKey: () -> String?,
+    private val nameOf: (String) -> String,
+    private val log: (String) -> Unit = {},
+) : DataMigration<StoredSettings> {
+    override suspend fun shouldMigrate(currentData: StoredSettings): Boolean = currentData.needsLatencySlots
+
+    override suspend fun migrate(currentData: StoredSettings): StoredSettings {
+        val offsets = currentData.audioOffsets.orEmpty()
+        val moved = currentData.migrated(currentKey(), nameOf)
+        val audio = moved.toPlaySettings().audioLatency
+        log(
+            "Settings moved to latency slots: ${minOf(offsets.size, Latency.SLOTS)} outputs carried, " +
+                "${maxOf(0, offsets.size - Latency.SLOTS)} dropped, " +
+                "visual offset ${currentData.visualOffsetMs ?: 0} ms " +
+                "to touch's slot 0; audio slots " +
+                audio.slots.mapIndexed { i, slot -> "$i ${PlaySettings.formatOffset(slot.ms)}" }.joinToString() +
+                ", slot ${audio.active} active",
+        )
+        return moved
+    }
+
+    override suspend fun cleanUp() = Unit
 }
 
 /**

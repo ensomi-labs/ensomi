@@ -161,16 +161,21 @@ class KeyMapTest {
             """"visualOffsetMs":9,"orientation":"PORTRAIT","landscapeLean":22,"portraitLean":10,""" +
             """"landscapeWidth":0.98,"portraitWidth":null}"""
         val stored = runBlocking { StoredSettingsSerializer.readFrom(file.byteInputStream()) }
+            .migrated(currentKey = "speaker/Pixel 9", nameOf = { "Phone speaker" })
         assertEquals(StoredKeys(), stored.keys)
-        val read = stored.forOutput("speaker/Pixel 9")
+        val read = stored.toPlaySettings()
         assertEquals(KeyMap.DEFAULT, read.keys)
-        assertEquals(PlaySettings(31.5, JudgeDifficulty.A, 0.35f, -7, 9, PlayOrientation.PORTRAIT, 22, 10, 0.98f, null), read)
-        // Written again, the file keeps every field it had and gains the map.
+        assertEquals(
+            PlaySettings(31.5, JudgeDifficulty.A, 0.35f, PlayOrientation.PORTRAIT, 22, 10, 0.98f, null),
+            read.copy(audioLatency = AudioLatency(), inputLatency = InputLatency()),
+        )
+        // Written again, the file keeps every field it had but the offsets, which the slots took, and gains the map.
         val written = ByteArrayOutputStream().also { runBlocking { StoredSettingsSerializer.writeTo(stored, it) } }.toString()
-        for (field in listOf(""""audioOffsets":{"speaker/Pixel 9":-7}""", """"visualOffsetMs":9""", """"landscapeLean":22""")) {
+        for (field in listOf(""""scrollSpeed":31.5""", """"landscapeLean":22""", """"landscapeWidth":0.98""")) {
             assertTrue(field, field in written)
         }
         assertTrue(written, """"keys":{"lanes":["Z","X","PERIOD","SLASH"],"pause":"ESCAPE"}""" in written)
+        assertFalse(written, "audioOffsets" in written || "visualOffsetMs" in written)
     }
 
     @Test
@@ -185,7 +190,7 @@ class KeyMapTest {
         )
         for (keys in maps) {
             val read = StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), """{"judge":"B","keys":$keys}""")
-            assertEquals(keys, KeyMap.DEFAULT, read.forOutput("k").keys)
+            assertEquals(keys, KeyMap.DEFAULT, read.toPlaySettings().keys)
             assertEquals(JudgeDifficulty.B, read.judge)
         }
     }
@@ -193,10 +198,10 @@ class KeyMapTest {
     @Test
     fun anEmptySlotReadsBackEmptyAndARoundTripKeepsTheOrder() {
         val map = KeyMap(listOf(key("A"), null, key("DPAD_LEFT"), key("SPACE")), null)
-        val stored = StoredSettings().with(PlaySettings(keys = map), "k")
+        val stored = StoredSettings().with(PlaySettings(keys = map))
         val text = StoredSettings.JSON.encodeToString(StoredSettings.serializer(), stored)
         assertTrue(text, """"keys":{"lanes":["A",null,"DPAD_LEFT","SPACE"],"pause":null}""" in text)
-        val read = StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), text).forOutput("k")
+        val read = StoredSettings.JSON.decodeFromString(StoredSettings.serializer(), text).toPlaySettings()
         assertEquals(map, read.keys)
         assertEquals(listOf(KeySlot.LANE_2), read.keys.emptyLanes)
     }

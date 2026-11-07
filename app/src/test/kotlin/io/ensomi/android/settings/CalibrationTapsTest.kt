@@ -29,20 +29,32 @@ class CalibrationTapsTest {
 
     @Test
     fun noSuggestionUntilSixteenTaps() {
-        assertNull(CalibrationTaps.suggestionMs(List(15) { 20.0 }))
-        assertEquals(-20, CalibrationTaps.suggestionMs(List(16) { 20.0 }))
+        assertNull(CalibrationTaps.suggestionMs(List(15) { 20.0 }, touchLatencyMs = 0))
+        // Taps 20 ms late on the song's time call for 20 ms of audio latency: positive is later.
+        assertEquals(20, CalibrationTaps.suggestionMs(List(16) { 20.0 }, touchLatencyMs = 0))
+    }
+
+    /** A tap is judged at its song time less A and touch's I, so the audio latency that centres the taps leaves I as it is. */
+    @Test
+    fun theSuggestionKeepsTouchsInputLatency() {
+        val taps = List(16) { 20.0 }
+        assertEquals(12, CalibrationTaps.suggestionMs(taps, touchLatencyMs = 8))
+        assertEquals(28, CalibrationTaps.suggestionMs(taps, touchLatencyMs = -8))
+        val suggestion = CalibrationTaps.suggestionMs(taps, touchLatencyMs = 8)!!
+        assertEquals("Judged with both, the taps are on the clicks", 0.0, 20.0 - suggestion - 8, 1e-9)
+        assertEquals(Latency.RANGE.last, CalibrationTaps.suggestionMs(List(16) { 240.0 }, touchLatencyMs = -100))
     }
 
     @Test
     fun onlyTheLastSixteenCount() {
         val errors = List(10) { 100.0 } + List(16) { -12.0 }
-        assertEquals(12, CalibrationTaps.suggestionMs(errors))
+        assertEquals(-12, CalibrationTaps.suggestionMs(errors, touchLatencyMs = 0))
     }
 
     @Test
     fun anOddTapMovesTheMedianLittle() {
         val errors = List(15) { 30.0 } + 240.0
-        assertEquals(-30, CalibrationTaps.suggestionMs(errors))
+        assertEquals(30, CalibrationTaps.suggestionMs(errors, touchLatencyMs = 0))
     }
 
     /** Taps stamped at known times on the play clock, as the pad stamps them, give the expected suggestion. */
@@ -56,7 +68,7 @@ class CalibrationTapsTest {
             CalibrationTaps.errorMs(clock.songTimeMs(eventNanos)!!)!!
         }
         errors.zip(lateMs).forEach { (error, late) -> assertEquals(late, error, 1e-3) }
-        assertEquals(-30, CalibrationTaps.suggestionMs(errors))
+        assertEquals(30, CalibrationTaps.suggestionMs(errors, touchLatencyMs = 0))
     }
 
     @Test

@@ -22,7 +22,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * The settings kept with Jetpack DataStore in `settings.json` under the app's files, the audio offset per output.
+ * The settings kept with Jetpack DataStore in `settings.json` under the app's files. [route] is the output play would use
+ * now, which the screens name; it chooses no setting.
  *
  * The screens read and change the settings in memory at once, so a slider moves the preview without waiting for the
  * disk; the newest value is written behind them, skipping values a newer one has replaced. A change made before the
@@ -37,7 +38,7 @@ class DataStorePlaySettingsStore(
     private var stored = StoredSettings()
     private var loaded = false
     private val early = mutableListOf<(StoredSettings) -> StoredSettings>()
-    private val state = MutableStateFlow(stored.forOutput(route.value.key))
+    private val state = MutableStateFlow(stored.toPlaySettings())
     private val toWrite = MutableStateFlow<StoredSettings?>(null)
 
     override val settings: StateFlow<PlaySettings> = state.asStateFlow()
@@ -55,7 +56,7 @@ class DataStorePlaySettingsStore(
                 loaded = true
                 if (early.isNotEmpty()) toWrite.value = stored
                 early.clear()
-                state.value = stored.forOutput(route.value.key)
+                state.value = stored.toPlaySettings()
             }
             // A StateFlow hands a slow collector only its newest value.
             toWrite.filterNotNull().collect { value ->
@@ -66,32 +67,38 @@ class DataStorePlaySettingsStore(
                 }
             }
         }
-        // Another output has another audio offset.
-        scope.launch { route.collect { output -> synchronized(lock) { state.value = stored.forOutput(output.key) } } }
     }
 
-    override fun forRoute(route: OutputRoute): PlaySettings = synchronized(lock) { stored.forOutput(route.key) }
-
     override fun update(change: (PlaySettings) -> PlaySettings) {
-        val key = route.value.key
-        val apply = { value: StoredSettings -> value.with(change(value.forOutput(key)), key) }
+        val apply = { value: StoredSettings -> value.with(change(value.toPlaySettings())) }
         synchronized(lock) {
             stored = apply(stored)
             if (loaded) toWrite.value = stored else early += apply
-            state.value = stored.forOutput(route.value.key)
+            state.value = stored.toPlaySettings()
         }
     }
 
     companion object {
         private const val TAG = "EnsomiSettings"
 
-        /** The one DataStore of the settings file; DataStore allows one per file in a process. */
-        fun dataStore(context: Context, scope: CoroutineScope): DataStore<StoredSettings> = DataStoreFactory.create(
-            serializer = StoredSettingsSerializer,
-            corruptionHandler = ReplaceFileCorruptionHandler { StoredSettings() },
-            scope = scope,
-            produceFile = { File(context.filesDir, "settings.json") },
-        )
+        /**
+         * The one DataStore of the settings file; DataStore allows one per file in a process. A file from before the
+         * latency slots is moved to them on its first read, with [outputs] naming the outputs and the one in use.
+         */
+        fun dataStore(context: Context, scope: CoroutineScope, outputs: SystemOutputRoute): DataStore<StoredSettings> =
+            DataStoreFactory.create(
+                serializer = StoredSettingsSerializer,
+                corruptionHandler = ReplaceFileCorruptionHandler { StoredSettings() },
+                migrations = listOf(
+                    LatencySlotsMigration(
+                        currentKey = { outputs.route.value.key },
+                        nameOf = outputs::nameOf,
+                        log = { Log.i(TAG, it) },
+                    ),
+                ),
+                scope = scope,
+                produceFile = { File(context.filesDir, "settings.json") },
+            )
     }
 }
 
@@ -115,6 +122,10 @@ class SystemOutputRoute(context: Context) : PlayOutputs {
     override fun playingOn(device: AudioDeviceInfo?) {
         if (device != null) state.value = routeOf(device)
     }
+
+    /** The name the screens give the output keyed [key] ([OutputRoutes.key]): what a migrated audio slot is named. */
+    fun nameOf(key: String): String =
+        OutputRoutes.device(key)?.let(::name) ?: appContext.getString(R.string.output_other)
 
     init {
         audioManager.registerAudioDeviceCallback(

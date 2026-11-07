@@ -85,12 +85,12 @@ import kotlinx.coroutines.isActive
 enum class CalibrationStep { SOUND, PICTURE }
 
 /**
- * Offset calibration in two steps, in the game's dark presentation, over one click track ([ClickTracks]) that plays
- * through the play output from the moment the screen opens until it closes. Sound: a click every 500 ms, the player
- * taps the pad on it, and the median of the last 16 taps suggests the audio offset for the output the clicks play on.
- * Picture: the clicks go on while the play renderer draws a note onto the line at each click, on the clicks' own
- * clock, and the player moves the visual offset until they cross it on the click, without tapping, so touch latency
- * stays out of the visual offset.
+ * Timing calibration in two steps, in the game's dark presentation, over one click track ([ClickTracks]) that plays
+ * through the play output from the moment the screen opens until it closes. Both steps set the active audio latency
+ * slot, until latency.md's step L3 makes this one screen. Sound: a click every 500 ms, the player taps the pad on it,
+ * and the median of the last 16 taps suggests the audio latency, with touch's input latency as it is; Use writes it.
+ * Picture: the clicks go on while the play renderer draws a note onto the line at each click, on the clicks' own clock,
+ * at the audio latency, and the player moves it until they cross the line on the click, without tapping.
  *
  * The clicks pause when the app leaves the foreground or another app takes audio focus, and go on when it comes back;
  * a tap on the pad while they are paused starts them again. A change of output starts the taps over.
@@ -102,7 +102,7 @@ fun CalibrationScreen(
     route: OutputRoute,
     initialStep: CalibrationStep,
     clicks: ClickTracks,
-    /** The device the clicks play on: the output whose audio offset is calibrated. */
+    /** The device the clicks play on, which the screen names. */
     onPlayingOn: (AudioDeviceInfo?) -> Unit,
     onChange: ((PlaySettings) -> PlaySettings) -> Unit,
     onBack: () -> Unit,
@@ -201,7 +201,8 @@ fun CalibrationScreen(
                 String.format(
                     Locale.ROOT,
                     "Tap: event %d ns, song %.2f ms, error %+.2f ms, taps %d, suggestion %s",
-                    eventNanos, songMs, error, errors.size, CalibrationTaps.suggestionMs(errors)?.toString() ?: "none",
+                    eventNanos, songMs, error, errors.size,
+                    CalibrationTaps.suggestionMs(errors, settings.inputLatency.touchMs)?.toString() ?: "none",
                 ),
             )
         }
@@ -274,13 +275,16 @@ private fun SoundStep(
     onChange: ((PlaySettings) -> PlaySettings) -> Unit,
 ) {
     val view = LocalView.current
-    val suggestion = CalibrationTaps.suggestionMs(errorsMs)
-    // What the game would judge the taps at with the offset in use now: errors near zero once it is right.
-    val shownErrors = CalibrationTaps.recent(errorsMs).map { it + settings.audioOffsetMs }
+    val touchMs = settings.inputLatency.touchMs
+    val suggestion = CalibrationTaps.suggestionMs(errorsMs, touchMs)
+    // What the game would judge the taps at with the latencies in use now: errors near zero once they are right.
+    val shownErrors = CalibrationTaps.recent(errorsMs).map { it - settings.audioLatencyMs - touchMs }
+    val active = settings.audioLatency.active
+    val slot = latencySlotLabel(active, settings.audioLatency.slots[active])
     val info: @Composable () -> Unit = {
         Text(stringResource(R.string.calibration_sound_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
         Text(
-            stringResource(R.string.calibration_for_output, route.name, PlaySettings.formatOffset(settings.audioOffsetMs)),
+            stringResource(R.string.calibration_for_output, route.name, slot, PlaySettings.formatOffset(settings.audioLatencyMs)),
             style = MaterialTheme.typography.bodySmall,
             color = Brand.MutedText,
         )
@@ -349,11 +353,11 @@ private fun SoundStep(
                 },
                 onClick = {
                     val chosen = suggestion ?: return@ActionButton
-                    onChange { it.copy(audioOffsetMs = chosen) }
+                    onChange { it.withAudioLatencyMs(chosen) }
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                 },
                 icon = R.drawable.ic_check_circle,
-                enabled = suggestion != null && settings.audioOffsetMs != suggestion,
+                enabled = suggestion != null && settings.audioLatencyMs != suggestion,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -422,8 +426,8 @@ private fun PictureStep(
     onDone: () -> Unit,
 ) {
     val reduceMotion = remember { !ValueAnimator.areAnimatorsEnabled() }
-    // The play renderer, drawing a note on every click on the clicks' own clock; nothing is judged. Beside the
-    // controls when the window is wider than tall, so the field keeps its height in landscape.
+    // The play renderer, drawing a note on every click on the clicks' own clock at the audio latency; nothing is
+    // judged. Beside the controls when the window is wider than tall, so the field keeps its height in landscape.
     val playfield: @Composable (Modifier) -> Unit = { modifier ->
         Box(modifier.border(BorderStroke(1.dp, Brand.PanelBorder), RoundedCornerShape(20.dp))) {
             if (player != null) {
@@ -440,7 +444,7 @@ private fun PictureStep(
                                         clock = player.clock,
                                         // The clicks' clock runs for both steps: the playfield neither starts nor closes it.
                                         ownsClock = false,
-                                        timing = PlayTiming(0.0, settings.visualOffsetMs.toDouble(), settings.scrollTimeMs),
+                                        timing = PlayTiming.game(settings),
                                         judging = false,
                                         leadInMs = 0.0,
                                         hud = hud,
@@ -451,7 +455,7 @@ private fun PictureStep(
                         },
                         update = {
                             it.reduceMotion = reduceMotion
-                            it.visualOffsetMs = settings.visualOffsetMs.toDouble()
+                            it.audioLatencyMs = settings.audioLatencyMs.toDouble()
                             // The player's lean, so notes cross the line as they will in play.
                             it.landscapeFarScale = PlaySettings.farScale(settings.landscapeLean)
                             it.portraitFarScale = PlaySettings.farScale(settings.portraitLean)
@@ -464,22 +468,24 @@ private fun PictureStep(
         }
     }
     val controls: @Composable () -> Unit = {
-        val visual = stringResource(R.string.settings_visual_offset)
+        val active = settings.audioLatency.active
+        val audio = stringResource(R.string.calibration_audio_latency, latencySlotLabel(active, settings.audioLatency.slots[active]))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(visual, style = MaterialTheme.typography.bodyLarge, color = Brand.Text, modifier = Modifier.weight(1f))
+            Text(audio, style = MaterialTheme.typography.bodyLarge, color = Brand.Text, modifier = Modifier.weight(1f))
             Text(
-                PlaySettings.formatOffset(settings.visualOffsetMs),
+                PlaySettings.formatOffset(settings.audioLatencyMs),
                 style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                 color = Brand.Text,
             )
         }
+        // The slider reaches ±150 ms, as latency.md's calibration screen has it; Settings' steppers reach ±300.
         Slider(
-            value = settings.visualOffsetMs.toFloat(),
-            onValueChange = { value -> onChange { it.copy(visualOffsetMs = value.roundToInt()) } },
-            valueRange = -100f..100f,
+            value = settings.audioLatencyMs.toFloat().coerceIn(PICTURE_RANGE),
+            onValueChange = { value -> onChange { it.withAudioLatencyMs(value.roundToInt()) } },
+            valueRange = PICTURE_RANGE,
             modifier = Modifier.semantics {
-                contentDescription = visual
-                stateDescription = PlaySettings.formatOffset(settings.visualOffsetMs)
+                contentDescription = audio
+                stateDescription = PlaySettings.formatOffset(settings.audioLatencyMs)
             },
         )
         ActionButton(
@@ -505,6 +511,9 @@ private fun PictureStep(
         }
     }
 }
+
+/** The picture step's slider, in milliseconds of audio latency. */
+private val PICTURE_RANGE = -150f..150f
 
 /** How often the screen reads the clicks' output while nothing else does. */
 private const val CLOCK_POLL_MS = 10L

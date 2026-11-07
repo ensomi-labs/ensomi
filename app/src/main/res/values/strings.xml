@@ -197,7 +197,7 @@
     <string name="play_preview_title">Playfield preview</string>
     <string name="play_sample_detail">Sample chart · no sound</string>
     <string name="play_detail">%1$s stars · Judge %2$s</string>
-    <string name="play_output_moved">Sound moved to %1$s. Its audio offset applies from the next game.</string>
+    <string name="play_output_moved">Sound moved to %1$s. This game keeps its audio latency.</string>
     <string name="play_loading">Loading the song…</string>
     <string name="play_back">Back</string>
     <string name="play_failed_missing">The song’s file could not be found. Find it again in the library.</string>
@@ -217,9 +217,9 @@
     <string name="results_early">Early</string>
     <string name="results_late">Late</string>
     <string name="results_histogram_description">Hits by how early or late they were</string>
-    <string name="results_offset_suggestion">Suggested audio offset for %1$s: %3$s (now %2$s).</string>
-    <string name="results_offset_apply">Use suggested offset</string>
-    <string name="results_offset_used">%1$s now plays with an audio offset of %2$s.</string>
+    <string name="results_offset_suggestion">Suggested audio latency for slot %1$s: %3$s (now %2$s).</string>
+    <string name="results_offset_apply">Use suggested latency</string>
+    <string name="results_offset_used">Audio latency slot %1$s is now %2$s.</string>
     <string name="results_sample_note">This game used the sample chart. A chart of your song will show its own results here.</string>
     <string name="results_play_again">Play again</string>
     <string name="results_done">Back to song</string>
@@ -249,14 +249,15 @@
     <string name="settings_sound_timing">Sound and timing</string>
     <string name="settings_music_volume">Music volume</string>
     <string name="settings_music_volume_help">The song’s level in play, up to its own level.</string>
-    <string name="settings_audio_offset">Audio offset for %1$s</string>
-    <string name="settings_audio_offset_help">Moves judging and the notes together. Use it when hits feel early or late. Kept for each output.</string>
-    <string name="settings_visual_offset">Visual offset</string>
-    <string name="settings_visual_offset_help">Moves only the notes on screen. Use it when notes look early or late while the sound feels right. The same for every output.</string>
+    <string name="settings_audio_latency">Audio latency, slot %1$s</string>
+    <string name="settings_audio_latency_help">Moves the notes and the judging together. Raise it if notes cross the line before you hear them, as on Bluetooth headphones.</string>
+    <!-- A latency slot by its number, and by its number and the name the player gave it. -->
+    <string name="latency_slot">%1$d</string>
+    <string name="latency_slot_named">%1$d · %2$s</string>
     <string name="settings_offset_decrease">Decrease</string>
     <string name="settings_offset_increase">Increase</string>
     <string name="settings_calibrate">Calibrate timing</string>
-    <string name="settings_calibrate_help">Tap to clicks for the audio offset, then line notes up for the visual offset.</string>
+    <string name="settings_calibrate_help">Tap to clicks, or line notes up with them, to set the audio latency.</string>
     <string name="settings_chart_model">Chart model</string>
     <string name="settings_model_licence">Model licence: %1$s</string>
     <string name="settings_model_card">The model card on Hugging Face says what each part covers.</string>
@@ -289,8 +290,9 @@
     <string name="calibration_sound">Sound</string>
     <string name="calibration_picture">Picture</string>
     <string name="calibration_sound_help">A click plays every half second. Tap the pad on each click; closing your eyes helps. Ensomi takes the middle of your last 16 taps.</string>
-    <string name="calibration_for_output">For %1$s. Its audio offset is now %2$s.</string>
-    <string name="calibration_suggested">Suggested audio offset</string>
+    <string name="calibration_for_output">The clicks play on %1$s. Audio latency slot %2$s is %3$s.</string>
+    <string name="calibration_suggested">Suggested audio latency</string>
+    <string name="calibration_audio_latency">Audio latency, slot %1$s</string>
     <string name="calibration_taps">Taps: %1$d/%2$d</string>
     <string name="calibration_strip_description">Your last taps, from early on the left to late on the right</string>
     <string name="calibration_tap_here">Tap on the click</string>

@@ -79,7 +79,8 @@ fun PlayfieldPreview(settings: PlaySettings, modifier: Modifier = Modifier) {
                                     chart = SampleCharts.PREVIEW,
                                     judge = settings.judge.toRuntime(),
                                     clock = FakePlayClock(),
-                                    timing = PlayTiming(0.0, settings.visualOffsetMs.toDouble(), settings.scrollTimeMs),
+                                    // No sound and no touches: no latency slot applies.
+                                    timing = PlayTiming.preview(settings.scrollTimeMs),
                                     script = Autoplay.inputs(SampleCharts.PREVIEW),
                                     loop = true,
                                     leadInMs = PREVIEW_LEAD_IN_MS,

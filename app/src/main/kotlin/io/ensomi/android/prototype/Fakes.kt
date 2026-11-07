@@ -140,8 +140,6 @@ class FakePlaySettingsStore(initial: PlaySettings, route: OutputRoute) : PlaySet
 
     override fun update(change: (PlaySettings) -> PlaySettings) = state.update(change)
 
-    override fun forRoute(route: OutputRoute): PlaySettings = state.value
-
     companion object {
         val SPEAKER = OutputRoute(key = "builtin-speaker", name = "Phone speaker")
     }

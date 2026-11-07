@@ -24,7 +24,6 @@ import io.ensomi.android.audio.AudioPlayClock
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.audio.GameAudio
 import io.ensomi.android.prototype.DebugTools
-import io.ensomi.android.settings.OutputRoute
 import io.ensomi.android.settings.PlayOutputs
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,15 +106,13 @@ import kotlinx.coroutines.delay
 private enum class PlayPhase { PLAYING, PAUSED, COUNTDOWN }
 
 /**
- * A game of the player's song: its chart and its sound, decoded for play, and the outputs the sound may play on, each
- * with an audio offset of its own.
+ * A game of the player's song: its chart and its sound, decoded for play, and the outputs the sound may play on, which
+ * the pause panel names when the sound moves. The game keeps the audio latency slot that was active when it started.
  */
 class SongGame(
     val chart: PlayChart,
     val audio: DecodedSong,
     val outputs: PlayOutputs,
-    /** The settings with an output's audio offset. */
-    val settingsFor: (OutputRoute) -> PlaySettings,
     /** Debug launches: the autoplay plays the game. */
     val autoplay: Boolean = false,
     /** Debug builds: every frame's times go to `clock-log.csv`, and the debug broadcasts are taken. */
@@ -130,7 +127,10 @@ class AmbientGame(
     val chart: PlayChart,
     val clock: PlayClock,
     val joinMs: Double,
-    /** In place of the audio offset, since no output plays: a tester's trim of how the join feels. */
+    /**
+     * In place of the audio latency slot, since no output plays: a tester's trim of how the join feels, with the sign
+     * the audio offset had, so the game's audio latency is minus it ([PlayTiming.ambient]).
+     */
     val offsetMs: Double,
     /** Debug: the autoplay plays the game. */
     val autoplay: Boolean = false,
@@ -254,32 +254,39 @@ fun PlayScreen(
             pause("the output changed")
         }
 
+        /** Debug builds: the game's clock and input logs, written when it closes. */
+        fun writeLogs(clockLog: ClockLog?, inputLog: InputLog?) {
+            clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } }
+            inputLog?.let { log -> runCatching { File(context.filesDir, INPUT_LOG).writeText(log.csv()) } }
+        }
+
+        // A game copies the latencies into its timing when it starts and keeps them to the end (latency.md).
         fun controller(hud: MutableStateFlow<PlayHud>, sequence: () -> Long): PlayController {
-            val timing = PlayTiming(
-                audioOffsetMs = settings.audioOffsetMs.toDouble(),
-                visualOffsetMs = settings.visualOffsetMs.toDouble(),
-                scrollTimeMs = settings.scrollTimeMs,
-            )
             if (ambient != null) {
                 val clockLog = if (debuggable) ClockLog() else null
+                val inputLog = if (debuggable) InputLog() else null
                 return PlayController(
                     chart = ambient.chart,
                     judge = settings.judge.toRuntime(),
                     clock = ambient.clock,
-                    timing = timing.copy(audioOffsetMs = ambient.offsetMs),
+                    timing = PlayTiming.ambient(settings, ambient.offsetMs),
                     clockLog = clockLog,
-                    onClose = { clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } } },
+                    inputLog = inputLog,
+                    onClose = { writeLogs(clockLog, inputLog) },
                     script = if (ambient.autoplay) Autoplay.inputs(ambient.chart) else emptyList(),
                     hud = hud,
                     nextSequence = sequence,
                 )
             }
             if (game == null) {
+                val inputLog = if (debuggable) InputLog() else null
                 return PlayController(
                     chart = SampleCharts.PREVIEW,
                     judge = settings.judge.toRuntime(),
                     clock = FakePlayClock(),
-                    timing = timing,
+                    timing = PlayTiming.sample(settings),
+                    inputLog = inputLog,
+                    onClose = { writeLogs(null, inputLog) },
                     script = Autoplay.inputs(SampleCharts.PREVIEW),
                     loop = loop,
                     hud = hud,
@@ -292,19 +299,18 @@ fun PlayScreen(
             running.audio = audio
             running.clock = clock
             val clockLog = if (game.debuggable) ClockLog() else null
+            val inputLog = if (game.debuggable) InputLog() else null
             return PlayController(
                 chart = game.chart,
                 judge = settings.judge.toRuntime(),
                 clock = clock,
-                timing = timing,
-                resolveAudioOffset = {
-                    game.settingsFor(game.outputs.routeOf(audio.routedDevice)).audioOffsetMs.toDouble()
-                },
+                timing = PlayTiming.game(settings),
                 clockLog = clockLog,
+                inputLog = inputLog,
                 onClose = {
                     audio.close()
                     Log.i(TAG, "Clock: ${clock.reads} timestamps read, ${clock.stepsBack} steps back held")
-                    clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } }
+                    writeLogs(clockLog, inputLog)
                 },
                 script = if (game.autoplay) Autoplay.inputs(game.chart) else emptyList(),
                 hud = hud,
@@ -856,6 +862,9 @@ private const val TAG = "EnsomiPlay"
 
 /** Debug builds: the last game's song and render time per frame, in the app's files. */
 private const val CLOCK_LOG = "clock-log.csv"
+
+/** Debug builds: every input the last game's session was given ([InputLog]). */
+private const val INPUT_LOG = "input-log.csv"
 
 /** Debug builds: the last playfield's vsync, presentation and work per frame (step 9's frame log). */
 private const val FRAME_LOG = "frame-log.csv"

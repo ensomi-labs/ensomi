@@ -221,7 +221,6 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     ResultsScreen(
                         result = key.result,
                         settings = settings,
-                        route = route,
                         onChange = graph.settings::update,
                         onPlayAgain = { backStack.replaceLast(Play(key.songId, loop = false)) },
                         onDone = { backStack.removeLastOrNull() },
@@ -230,7 +229,6 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 entry<Settings> {
                     SettingsScreen(
                         settings = settings,
-                        route = route,
                         model = model,
                         versionName = versionName(context),
                         onChange = graph.settings::update,
@@ -320,7 +318,6 @@ private fun SongPlay(
                     chart = current.chart,
                     audio = current.audio,
                     outputs = graph.outputs,
-                    settingsFor = graph.settings::forRoute,
                     autoplay = graph.debug.autoplay,
                     debuggable = graph.debug.debuggable,
                 ),

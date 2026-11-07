@@ -25,7 +25,7 @@ import kotlinx.coroutines.SupervisorJob
 class AppStores private constructor(context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val route = SystemOutputRoute(context)
-    val settings = DataStorePlaySettingsStore(DataStorePlaySettingsStore.dataStore(context, scope), route.route, scope)
+    val settings = DataStorePlaySettingsStore(DataStorePlaySettingsStore.dataStore(context, scope, route), route.route, scope)
     private val documents = DocumentSongLibrary(context, scope)
     val model = DownloadingChartModelStore(context, scope, InstallEvents { event, phase, detail ->
         Journal.record(event, phase, detail, durable = true)
