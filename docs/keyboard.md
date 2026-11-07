@@ -117,8 +117,8 @@ modals and leaving full screen, and a visible focused state on custom interactiv
 ### Connecting and disconnecting
 
 A keyboard connecting or disconnecting changes the labels and nothing else (D4). The song never restarts for it
-([Keyboards coming and going](#keyboards-coming-and-going)). Keys held as a keyboard goes are released by the canceled
-ups Android sends for them, through the normal press and release path, and the game goes on, by touch or with another
+([Keyboards coming and going](#keyboards-coming-and-going)). Keys held as a keyboard goes are released by the ups that
+come for them, the kernel's or Android's canceled ones, through the normal press and release path, and the game goes on, by touch or with another
 keyboard. There is no pause, no line on the pause panel and no pause cause for it.
 
 ### Settings › Keyboard
@@ -394,11 +394,14 @@ otherwise), and the resolved positions. It needs no permission; pairing is Andro
 method counts as live in a game only once it has pressed there, whatever is connected
 ([latency.md](latency.md#where-the-input-latency-is-applied)).
 
-**A disconnect** is the player's to deal with (D4): the game goes on. Android releases the device's held keys itself:
-removing a device resets its keyboard mapper, which sends an `ACTION_UP` with `FLAG_CANCELED` for every key still down
-(AOSP `InputReader::removeDeviceLocked`, `KeyboardInputMapper::cancelAllDownKeys`), and those ups release the lanes
-through the normal path. `onInputDeviceRemoved` also drops whatever holders that device still has, normally none, since
-the order of the two is not guaranteed. Focus leaving the window also brings canceled ups for held keys ("focus left
+**A disconnect** is the player's to deal with (D4): the game goes on. The device's held keys are released before the
+app hears of the removal. Linux itself sends an up for every key still down when an input device is unregistered
+(`input_disconnect_device` in `drivers/input/input.c`), an ordinary up with the kernel's timestamp; K2's `hid` keyboard on
+`ensomi-36-16k` showed exactly that ([K2 as built](#k2-as-built)). A key Android still holds after that gets an
+`ACTION_UP` with `FLAG_CANCELED` when the device's keyboard mapper is reset on removal (AOSP
+`InputReader::removeDeviceLocked`, `KeyboardInputMapper::cancelAllDownKeys`). Either up releases the lanes through the
+normal path. `onInputDeviceRemoved` also drops whatever holders that device still has, normally none, since the order
+of the two is not guaranteed. Focus leaving the window also brings canceled ups for held keys ("focus left
 window" in the dispatcher), and the game pauses on focus loss already.
 
 **Several keyboards** play together, each through its own resolved positions, since layouts are chosen per keyboard. The
@@ -497,7 +500,7 @@ light in frame; the frames from contact to light compare the whole paths, displa
 - **Bounce keys** drop fast repeats of one key; the app cannot detect it (What stands before the app).
 - **The layout changes** while the app is in the background: positions are resolved again on `ON_START`; the game was
   paused on leaving, so no held key changes meaning mid-press.
-- **A keyboard removed mid-song**: Android's canceled ups release its keys and the game goes on (D4).
+- **A keyboard removed mid-song**: the ups that come for its held keys release them and the game goes on (D4).
 - **A lane with no key** (O10): that lane plays by touch only, and its cap has no label.
 - **Split screen or another window** taking focus: keys go to the focused window, held keys get canceled ups, and the
   game pauses as now.
@@ -575,8 +578,8 @@ All of it is pure Kotlin on plain values, so no test builds an Android `KeyEvent
 | `adb shell input keyevent KEYCODE_Z` | A down followed at once by an up, from the virtual keyboard (id −1, scan code 0): taps, the map, the Pause key, Tab, Enter | Holds, chords, a real device |
 | `input keyevent --duration 800 KEYCODE_Z` | A held key: the down, one repeat with `FLAG_LONG_PRESS` at the long-press timeout, the up at 800 ms: repeat filtering, hold notes, a held Pause key that pauses once | Chords |
 | `input keycombination -t 300 KEYCODE_Z KEYCODE_X …` | Several downs at once: chords of presses | Holds: in AOSP its ups carry the downs' event time, so each release is stamped at its press |
-| `adb emu event send EV_KEY:KEY_Z:1`, later `EV_KEY:KEY_Z:0` | The AVD's own keyboard, with Linux key codes: holds and chords at any timing; several events per command | Connecting and disconnecting; timing set by the host (the stamps are the guest's) |
-| `adb shell hid -` (AOSP's uhid tool, in its base system image; `adb shell` runs with the `uhid` group for it) | A HID keyboard registered with `"bus": "bluetooth"`: registering connects it, reports press keys (Z X . / are HID usages 0x1D, 0x1B, 0x37, 0x38), a report holding the rollover error (0x01) is ignored by the kernel, end of input disconnects it. The listener, labels, canceled ups on removal with no pause, the rollover sentence | The radio, a real keyboard's matrix, sleep and reconnect, HyperOS |
+| `adb emu event send EV_KEY:KEY_Z:1`, later `EV_KEY:KEY_Z:0` | The AVD's own keyboard, with Linux key codes: holds and chords at any timing; several events per command | Connecting and disconnecting; timing set by the host (the stamps are the guest's); anything on an AVD with `hw.keyboard` off, such as `ensomi-36-16k`, where its keys reach nothing (K2) |
+| `adb shell hid -` (AOSP's uhid tool, in its base system image; `adb shell` runs with the `uhid` group for it) | A HID keyboard registered with `"bus": "bluetooth"`: registering connects it, reports press keys (Z X . / are HID usages 0x1D, 0x1B, 0x37, 0x38), a report holding the rollover error (0x01) is ignored by the kernel, end of input disconnects it. The listener, labels, the ups on removal with no pause, the rollover sentence | The radio, a real keyboard's matrix, sleep and reconnect, HyperOS |
 | `adb shell dumpsys window windows` during play, the calibration and the Keyboard screen's capture | `ALT_FOCUSABLE_IM` in the app window's flags then, and not on other screens | Whether a real input method composes (checklist 20) |
 | The emulator window with "Enable keyboard input" (`hw.keyboard`) | The reviewer plays with the Mac's keyboard | Astra's headless runs |
 
@@ -620,7 +623,7 @@ on `ensomi-36-16k` by touches held across a pause.
 | Step | Builds | Emulator check | Phone check | Needs |
 | --- | --- | --- | --- | --- |
 | K1 (done) | `LaneHolds` in place of `LaneTouchTracker`, touch unchanged; `LaneInput.source`; the key map (table, defaults, swap, Clear, completeness, storage) in `StoredSettings`; `KeyLanes` and `GameKeys` as pure logic | The JVM tests above; a game from `adb shell input tap` and the capture script as before; `settings.json` keeps every field and gains `keys` | — | D1 to D3, D5; O9, O10 |
-| K2 | Keyboard play: the manifest's `keyboard\|keyboardHidden\|navigation`; `HardwareKeys` in `MainActivity`; `ConnectedKeyboards` in `AppStores` with a fake for the scenarios; lane keys, the Pause key with its fresh-down rule and the taken keys in play; `FLAG_ALT_FOCUSABLE_IM` on the game's screens; labels on the caps; the key log and the game log's additions | `input keyevent` taps judged; `--duration` gives one press and one release, and a held Pause key pauses once; `emu event send` chords and holds judged; a `hid` keyboard registered mid-game: `am get-config` before and after, `MainActivity` created once (a debug log line), the song goes on; `hid` closed: canceled ups in the key log, no lane left lit, no pause; the window flag in `dumpsys window`; captures with labels in both orientations | 14, 16, 17, 20 | K1; latency.md L1; O6, O7 |
+| K2 (done) | Keyboard play: the manifest's `keyboard\|keyboardHidden\|navigation`; `HardwareKeys` in `MainActivity`; `ConnectedKeyboards` in `AppStores` with a fake for the scenarios; lane keys, the Pause key with its fresh-down rule and the taken keys in play; `FLAG_ALT_FOCUSABLE_IM` on the game's screens; labels on the caps; the key log and the game log's additions | `input keyevent` taps judged; `--duration` gives one press and one release, and a held Pause key pauses once; `emu event send` chords and holds judged; a `hid` keyboard registered mid-game: `am get-config` before and after, `MainActivity` created once (a debug log line), the song goes on; `hid` closed: canceled ups in the key log, no lane left lit, no pause; the window flag in `dumpsys window`; captures with labels in both orientations | 14, 16, 17, 20 | K1; latency.md L1; O6, O7 |
 | K3 | Settings › Keyboard: status, links, the five slots, capture with Clear, Cancel and moving on, swap, refusal, the empty lane's mark and notice, defaults, the key test and its limit sentence; the Settings row; scenarios with a fake keyboard | Capture by `input keyevent`, Escape included; kept after a force-stop; Clear on a lane shows the mark and the notice, and the Settings row says so; the test lit by `emu event send` holds (4 of 4) and by a `hid` keyboard that never reports a fourth key (the sentence); UI Automator dumps; TalkBack walk; 200 % font; landscape | 14, 15 | K2; O5, O9, O10 |
 | K4 | Keys around the game: the Pause key in the count-in and on the pause panel, lane keys taken on the panel and Results, Escape in and out of the game, first focus on Resume and Play again; a focus pass over every screen; optionally the game's keys in Android's keyboard shortcuts list (`Activity.onProvideKeyboardShortcuts`, API 24) | `input keyevent` sequences of Tab, arrows, Enter, Space and Escape from the Library to a game, its pause, its results and back, without a tap; a lane key (Space bound to a lane) sent as the panel and Results open presses nothing; screenshots of every focus state; UI Automator's `focused` | 21 | K2; O1 to O4 |
 | K5 | Calibration with keys: lane keys as presses on the calibration screen, judged with the keyboard's slot; the method in the calibration log | Key presses from `input keyevent` at logged event times give the runtime's errors when recomputed with the keyboard's slot, as latency.md's check does for taps | 18, 19 | K2; latency.md L3 |
@@ -675,7 +678,7 @@ and where it goes further than the row or differs:
   `LaneHolder.Key`, source `KEYBOARD`, so they take the keyboard's input latency slot through L1's formulas and the input
   clock. Until the playfield's game exists a lane key's down presses nothing. Two additions to `KeyLanes`: a lane key
   whose down it saw belongs to that lane until its up, even when its keyboard no longer resolves by then (the roster
-  can drop a keyboard before Android's canceled ups for it arrive); and a keyboard leaving the roster lets go of its
+  can drop a keyboard before the ups for its keys arrive); and a keyboard leaving the roster lets go of its
   keys at once through `LaneSender.releaseKeys`, so whichever comes first releases. The Pause key's `RESUME` does nothing
   behind the window-too-small notice, whose panel cannot be seen.
 - **The window and the input method.** `KeepInputMethodAway` on the play screen, Results and the calibration screen
@@ -695,6 +698,48 @@ and where it goes further than the row or differs:
   created and each configuration change taken in place, for the restart check. No log carries a device name.
 - **Scenarios** `play-keyboard`, `play-portrait-keyboard` and `play-paused-keyboard`, and the capture script's
   `keyboard` group.
+- **Lint** reports the override of `MainActivity.dispatchKeyEvent` as `RestrictedApi`, since androidx.core's
+  `ComponentActivity` marks its own override `@RestrictTo`; the framework method is public and the one this design
+  chose, so the finding is suppressed at the override with that reason, and the super call keeps androidx's dispatch.
+
+What K2 showed (Astra jobs `android-keyboard-k2-b1` and `-b2` of `claude/android-keyboard`, at `11d6b65` and `a3f113e`, on
+`ensomi-36-16k`). Round 1 passed 509 JVM tests and stopped at lint's `RestrictedApi` above; round 2 passed the full
+build with 509 JVM tests and lint's same 6 warnings as before the step, and ran the checks. The AVD reports `nokeys`
+(`hw.keyboard` off, left so) and has no keyboard of its own: `adb emu event send` keys answered OK and reached neither
+`getevent` nor the app, so chords and holds were played by a `hid` keyboard, which runs from `adb shell` on this image
+(bus Bluetooth, the boot keyboard descriptor; Android listed it as an external alphabetic keyboard).
+
+- **Taps.** 40 `input keyevent` taps on the four lanes from the virtual keyboard: 80 key events, all sent, no repeats,
+  every keyboard input's chart time less its song time 0.0 ms, and the game to Results. Three were late: each key
+  reached the playfield 40 to 101 ms after its event, emulator injection being slow, and the sample game's autoplay,
+  which delivers as soon as its time comes, had meanwhile handed on an input a few milliseconds later in chart time.
+  Every late input of the step was of this kind.
+- **Holds and the Pause key.** `--duration 800` on X: one down sent, one repeat with `FLAG_LONG_PRESS` (`input`'s own,
+  so the dispatcher adds no repeats of its own to injected keys) taken, the up sent 805 ms later: one press and one
+  release. Escape held 1.5 s paused once, its down, repeat and up all taken, and nothing resumed until a later tap. On
+  the panel Z did nothing; Escape resumed with the count-in, and Escape in the count-in went back to the panel.
+- **Chords and holds** by the `hid` keyboard, at the keyboard's slot 0 and +30 ms: ten presses and ten releases each,
+  chords of two and four keys, holds of 1.5 s with Android's repeats (43 and 44) all taken, chart time less song time
+  0.0 and −30.0 ms, "most lane keys held together 4 of 4". Two and four late, as above (keys taken 54 to 90 ms after
+  their events). At +30 ms the keyboard's first input held the input clock not at all: the emulator's frames were 50 to
+  86 ms apart then, so the clock had passed the 30 ms by the next frame, as the formula says.
+- **Mid-game connect and disconnect.** `am get-config` went `nokeys`, `qwerty`, `nokeys`; one "MainActivity created" in
+  the run, each change taken in place; one "Latency for this game" line, the game to Results with no pause but the Pause
+  key's. Labels appeared while the keyboard was there and went with it. Z let go during a pause was released at the
+  resume at the pause's time. X held as the keyboard closed was released by the kernel's own up, stamped 11 ms before
+  Android removed the device, with flags `FLAG_FROM_SYSTEM` and not `FLAG_CANCELED`, so no canceled up came; the lane
+  was released and dark. The device's name appeared only in the system's own log lines, never the app's.
+- **The window flag** `ALT_FOCUSABLE_IM` was on the game's window, on Results' and on the calibration's, and not on the
+  Library's or Settings'. **Results** stayed put on Z and went back on Escape; Escape did nothing on the Library and went
+  back from Settings.
+- **Captures.** `play-keyboard` and `play-portrait-keyboard` drew Z X . / upright on the caps in both orientations, a
+  lit cap's label lighter, and in a recording a brightly lit cap's label in the ground's ink; the scenarios without a
+  keyboard drew none.
+- **The migration fix.** With only a Bluetooth pair's −120 ms and a visual offset of +9 ms, on the speaker: the old
+  build made the pair's slot (+111 ms) slot 0 and active; the new build gave the pair slot 0 and the speaker slot 1 at
+  −9 ms, active, as a game then took ("Latency for this game: audio slot 1 −9 ms"), and moved nothing at the next start.
+- Not from keys: every game logs a pause on `ON_PAUSE` as it gives way to Results, the play screen's lifecycle ending
+  after the game is over. It changes nothing.
 
 When the steps are done, design.md takes the screens and the keys table, gameplay.md the input path and edge cases,
 plan.md the steps and what they showed, phone-checks.md the rows, and design.md's "Not carried over in this round"
@@ -787,9 +832,11 @@ keyboard page's usages.
 - The labels Android's own AZERTY and Dvorak layouts give the period and slash positions; the examples above follow the
   layouts' usual arrangement, not Android's layout files.
 - Whether a sleeping keyboard loses the key that wakes it, which depends on the keyboard.
-- Whether `hid` runs from `adb shell` on `ensomi-36-16k` (AOSP grants the group; SELinux on the image is untested),
-  and whether that AVD reports a keyboard of its own.
-- Whether Android's dispatcher adds its own repeats to keys injected by `adb shell input`.
+- Whether a real Bluetooth keyboard's held keys, when it disconnects, come up as the kernel's ordinary ups (as the
+  emulator's `hid` keyboard's did) or as Android's canceled ups; the app releases the lanes either way.
+- An input clock held at a method's first input on a frame rate that keeps frames closer than the latency difference:
+  `ensomi-36-16k`'s frames were 50 to 86 ms apart then, so K2's +30 ms keyboard joined with no hold (`InputQueueTest`
+  covers the hold).
 - With a release for a lane it does not hold, the runtime's behaviour is read from its source at `d090374` (Edge
   cases), not run. Lanes and a hold held across a pause were run on the emulator, in the sample game only
   ([Build plan](#build-plan)).

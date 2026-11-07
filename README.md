@@ -94,7 +94,8 @@ active audio latency slot), `play-stored` (the sample game, no sound, played wit
 Games take keys from a hardware keyboard (docs/keyboard.md): Z X . / play the lanes and Escape pauses by default.
 `play-keyboard`, `play-portrait-keyboard` and `play-paused-keyboard` connect a sample keyboard, so the caps carry the
 keys' labels. Scenarios on fakes take keys only from `adb shell input keyevent` (the virtual keyboard); those over the
-app's stores, such as `play-stored`, take every keyboard's, `adb emu event send` and a `hid` keyboard among them.
+app's stores, such as `play-stored`, take every keyboard's: a `hid` keyboard (`adb shell hid -`) on `ensomi-36-16k`,
+whose `hw.keyboard` is off, so that `adb emu event send` keys reach nothing there.
 
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
