@@ -1,13 +1,14 @@
 # Ensomi for Android: latency slots and one calibration screen (accepted)
 
-This design is not built. It was written against `dev/android` at `8a09ddf`, the shipped `android-v0.1.3`, from the
-owner's decisions of 2026-11-07, and accepted by the owner the same day, every open question decided as recommended,
-with one amendment to which methods count as live ([Open questions, decided](#open-questions-decided-owner-2026-11-07)).
-It replaces decision 6 of the keyboard proposal ([keyboard.md](keyboard.md#timing)) and changes timing for touch play
-as well as for keys. Once it is built, its screens fold into [design.md](design.md), its timing into
-[gameplay.md](gameplay.md), its steps into [plan.md](plan.md) and its checks into [phone-checks.md](phone-checks.md);
-[What changes once built](#what-changes-once-built) lists the passages. Until then those documents describe the app as
-it is.
+Step L1 of this design is built on `claude/android-keyboard` ([L1 as built](#l1-as-built)); L2 to L5 are not. It was
+written against `dev/android` at `8a09ddf`, the shipped `android-v0.1.3`, from the owner's decisions of 2026-11-07, and
+accepted by the owner the same day, every open question decided as recommended, with one amendment to which methods
+count as live ([Open questions, decided](#open-questions-decided-owner-2026-11-07)). It replaces decision 6 of the
+keyboard proposal ([keyboard.md](keyboard.md#timing)) and changes timing for touch play as well as for keys. Once it is
+built, its screens fold into [design.md](design.md), its timing into [gameplay.md](gameplay.md), its steps into
+[plan.md](plan.md) and its checks into [phone-checks.md](phone-checks.md); [What changes once
+built](#what-changes-once-built) lists the passages. Until L5 those documents describe the app before L1, and this one
+the timing of builds from L1 on.
 
 Claims about today's app are read from its code at `8a09ddf`; claims about the runtime from ensomi-runtime at
 `d090374`, the commit the 0.1.3 build links (README, plan.md "0.1.3 integration"). Nothing here was run on a device.
@@ -436,6 +437,72 @@ or a permission.
 | L3 | The calibration screen: the field judging on the click track, both values, the slot and method choices, the readings, nothing to confirm; the pad, the suggestion and the steps removed; the calibration log | The calibration check; TalkBack walk; landscape | 4 | L1, L2; O3 |
 | L4 | Results and pause: the suggestion removed, the slots line, the per-method averages; the pause panel's line | Captures; a game by `input tap` to its results | 5 | L1; O4, O6 |
 | L5 | design.md, gameplay.md, plan.md and phone-checks.md updated as [What changes once built](#what-changes-once-built) lists | — | — | L1–L4 |
+
+### L1 as built
+
+Built as the row above says, from the model, the formulas, the storage and the migration of this document. What it
+adds, where it differs, and how it bridges the screens L2 to L4 will make:
+
+- **The model.** `settings/Latency.kt`: `AudioLatency` (three slots, the active one) and `InputLatency` (three slots,
+  touch's and the keyboard's), kept in `StoredSettings` as `audioLatency` and `inputLatency` in the shape of [Storage
+  and migration](#storage-and-migration), and carried by `PlaySettings`. `PlayTiming` carries A and each source's I and
+  holds the formulas (`gameplayMs`, `renderMs`, `inputMs`); a game takes the active audio slot and the methods' slots
+  (`PlayTiming.game`), the sample game no audio slot (`sample`), Listen & Play its trim as `A = −trim` (`ambient`), the
+  Settings preview none (`preview`). `resolveAudioOffset`, the per-output lookup (`forOutput`, `forRoute`) and the
+  visual offset are gone; the output route remains only for the names the screens show.
+- **The migration** is `LatencyMigration`, a pure function, run once by DataStore as a `DataMigration` the first time
+  it reads a file without `audioLatency`, which it writes back at once. It follows [Storage and
+  migration](#storage-and-migration) exactly, including the active slot: when the output in use at that start has no
+  stored offset, slot 0 is active, which holds the first stored output's latency, so that output's game moves by the
+  difference until the player chooses a slot (for example a file with only a Bluetooth pair's −120 ms, started on the
+  speaker, plays the speaker at +120 ms). Nothing chooses a slot for the player, as decided, and L2's slot choice in
+  Settings is the remedy; a migration that gave such an output a free slot of its own and made it active would avoid it.
+  The move is logged under `EnsomiSettings` by slot number.
+- **The input clock** is `InputQueue`'s, as [Formulas](#formulas) and the owner's amendment say: live from a method's
+  first press, `0` before any, never moving back; the controller advances the session to it less 100 ms. The autoplay is
+  no method: it never makes the clock hold, and its script runs to the later of the gameplay time and the input clock,
+  so it is never late against a method with a negative latency. Two findings, kept as decided rather than changed:
+  - The clock orders inputs by chart time when each is taken by the first frame after it. It does not stretch the
+    allowance across methods: with the two latencies Δ apart, an input of the method with the larger latency handled
+    h ms after it happened is late when an input of the other method made between Δ − h and Δ before it was handed on
+    first (touch at 0 ms, keys at +30 ms: a key handled 25 ms late, made 10 ms after a touch). [Why the input
+    clock](#where-the-input-latency-is-applied) says "as long as each is handled within the allowance"; that holds for
+    one live method, or for methods on one value. The key log's handling delay (keyboard.md, K2) shows how often h
+    comes near Δ.
+  - "0 before any" with "never moving back" makes the first method's first press hold the clock too, by its own latency
+    when that is positive. A second method with a smaller latency that first presses within that hold has its inputs
+    handed on at once, and the first method's presses in the rest of the hold can then be late. Letting the clock move
+    back at a method's first press would remove both holds' lates for the methods already live, since the session's own
+    clock never moves back anyway; the decided formula keeps the hold.
+  `InputQueueTest` checks that an input is late only while the clock holds, and only then.
+- **Order in a lane.** A lane's press and its release can come from different sources (a finger presses, a key held in
+  the same lane releases last), and the larger latency of the release's source would stamp it before its press. Each
+  touch or key input is stamped no earlier than the last one of its lane, so the session gets them in the order sent
+  and holds the lanes `LaneHolds` holds.
+- **The pause step** stays as built: the releases sent at the resume (`LaneInput.atPause`) keep the pause's chart time
+  and take no input latency, and nothing taken after a pause is stamped before it, latency included. One fix: an input
+  queued before a pause and taken by a paused frame was stamped at the pause's time, not its own. A paused clock
+  answered its held time for any instant, so its own time could not be read then; `PlayClock.eventSongTimeMs` now maps
+  an instant before the pause as it did before it, up to the time held (the game's audio clock, the sample's clock and
+  Listen & Play's), and the paused frame stamps it at its own chart time with its method's latency, the pause's time at
+  the latest. With a negative input latency the session can have heard of a time past the gameplay time the pause froze
+  at, so the pause's time is the later of that and the input clock; with no latency below 0 it is the gameplay time.
+- **The game log** (`EnsomiPlay`): "Latency for this game: audio slot 1 +142 ms; touch slot 0 +8 ms; keyboard slot 1
+  +30 ms" as a game starts ("(no slot)" where none applies); each method's first press with the input clock's hold; at
+  game over the methods that pressed, the hits timed and late inputs by source, with the hits' average error. Debug
+  builds also write `input-log.csv`, every input with its song and chart times, the frames that took and handed it on
+  and the input clock, summarised under `EnsomiPlay` when the game closes, for this design's emulator checks.
+- **Bridging, until L2 to L4.** Settings › Sound and timing has one row, "Audio latency, slot 1 · WH-1000XM4", that
+  edits the active slot's value with the steppers; the visual offset row is gone (L2 brings the slot choice, the input
+  rows and names). The calibration keeps its two steps (L3 replaces them): the sound step's suggestion is the median
+  tap error less touch's input latency, and Use writes it to the active audio slot; the picture step draws at the
+  audio latency and its slider, −150 to +150 ms, moves the active slot's value live. Both steps set the same value, the
+  later one standing. Results' suggestion is offered for the active slot, the runtime's suggested offset change taken
+  with the latency's sign (L4 removes it). The pause panel's output line says "Sound moved to Pixel Buds. This game
+  keeps its audio latency." (L4 names the slot). The input slots have no screen until L2; they keep their stored or
+  migrated values.
+- **Scenarios** over the app's own stores, for the checks: `play-stored`, `settings-stored`, `calibration-stored` and
+  `calibration-picture-stored` (README).
 
 ## Open questions, decided (owner, 2026-11-07)
 
