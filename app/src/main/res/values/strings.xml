@@ -197,7 +197,10 @@
     <string name="play_preview_title">Playfield preview</string>
     <string name="play_sample_detail">Sample chart · no sound</string>
     <string name="play_detail">%1$s stars · Judge %2$s</string>
-    <string name="play_output_moved">Sound moved to %1$s. Its audio offset applies from the next game.</string>
+    <string name="play_output_moved">Sound moved to %1$s. This game keeps its audio latency.</string>
+    <!-- A key cap's label for these keys while a keyboard is connected (docs/keyboard.md); other keys show their character. -->
+    <string name="key_space">Space</string>
+    <string name="key_escape">Esc</string>
     <string name="play_loading">Loading the song…</string>
     <string name="play_back">Back</string>
     <string name="play_failed_missing">The song’s file could not be found. Find it again in the library.</string>
@@ -217,9 +220,9 @@
     <string name="results_early">Early</string>
     <string name="results_late">Late</string>
     <string name="results_histogram_description">Hits by how early or late they were</string>
-    <string name="results_offset_suggestion">Suggested audio offset for %1$s: %3$s (now %2$s).</string>
-    <string name="results_offset_apply">Use suggested offset</string>
-    <string name="results_offset_used">%1$s now plays with an audio offset of %2$s.</string>
+    <string name="results_offset_suggestion">Suggested audio latency for slot %1$s: %3$s (now %2$s).</string>
+    <string name="results_offset_apply">Use suggested latency</string>
+    <string name="results_offset_used">Audio latency slot %1$s is now %2$s.</string>
     <string name="results_sample_note">This game used the sample chart. A chart of your song will show its own results here.</string>
     <string name="results_play_again">Play again</string>
     <string name="results_done">Back to song</string>
@@ -246,17 +249,130 @@
     <string name="settings_width_help">Width of the four lanes at the line, as a share of the screen. Each orientation keeps its own width. Touches beside the field still reach the nearest lane.</string>
     <string name="settings_width_default">Use default width</string>
     <string name="settings_playfield_preview_description">Playfield preview: %1$s, lane lean %2$s, lane width %3$d%%</string>
+    <!-- Settings › Keyboard (docs/keyboard.md): the row, and the screen it opens. -->
+    <string name="settings_keyboard">Keyboard</string>
+    <string name="settings_keyboard_lanes">Lanes: %1$s</string>
+    <string name="settings_keyboard_pause">Pause: %1$s</string>
+    <string name="settings_keyboard_connected">Connected: %1$s</string>
+    <string name="settings_keyboard_none_connected">No keyboard connected</string>
+    <!-- An empty lane among the row's keys, and an empty Pause. -->
+    <string name="settings_keyboard_no_lane_key">—</string>
+    <string name="settings_keyboard_no_pause_key">none</string>
+    <string name="summary_separator">" · "</string>
+    <string name="list_comma">", "</string>
+    <string name="list_and">%1$s and %2$s</string>
+    <string name="keyboard_title">Keyboard</string>
+    <string name="keyboard_pair">Pair a Bluetooth keyboard in Android’s settings, then come back.</string>
+    <string name="keyboard_bluetooth_settings">Bluetooth settings</string>
+    <string name="keyboard_connected">Connected</string>
+    <string name="keyboard_layout_help">Labels follow the layout chosen for this keyboard in Android’s settings.</string>
+    <string name="keyboard_layout">Keyboard layout</string>
+    <string name="keyboard_keys">Keys</string>
+    <string name="keyboard_lane">Lane %1$d</string>
+    <string name="keyboard_pause">Pause</string>
+    <string name="keyboard_press_a_key">Press a key</string>
+    <string name="keyboard_hint">Press a lane or Pause, then the key you want it to take.</string>
+    <string name="keyboard_hint_no_keyboard">Connect a keyboard to change the keys.</string>
+    <string name="keyboard_prompt_lane">Press the key for lane %1$d.</string>
+    <string name="keyboard_prompt_pause">Press the key for Pause.</string>
+    <string name="keyboard_refused">Enter, Tab, Backspace and keys such as Shift, volume or Home can’t be used here.</string>
+    <!-- What a swap moved. %1$s is the key just pressed, then the slots' lanes and the other key, as each string says. -->
+    <string name="keyboard_swap_lanes">%1$s now plays lane %2$s, and %3$s lane %4$s.</string>
+    <string name="keyboard_swap_lane_pause">%1$s now plays lane %2$s, and %3$s pauses.</string>
+    <string name="keyboard_swap_pause_lane">%1$s now pauses, and %2$s plays lane %3$s.</string>
+    <string name="keyboard_swap_lane_empty_lane">%1$s now plays lane %2$s, and lane %3$s has no key.</string>
+    <string name="keyboard_swap_pause_empty_lane">%1$s now pauses, and lane %2$s has no key.</string>
+    <string name="keyboard_swap_lane_empty_pause">%1$s now plays lane %2$s, and Pause has no key.</string>
+    <string name="keyboard_clear">Clear</string>
+    <string name="keyboard_cancel">Cancel</string>
+    <string name="keyboard_defaults">Use default keys</string>
+    <string name="keyboard_lane_empty">Lane %1$s has no key.</string>
+    <string name="keyboard_lanes_empty">Lanes %1$s have no key.</string>
+    <string name="keyboard_lane_empty_how">Press Lane %1$s, then the key you want.</string>
+    <!-- TalkBack: a slot's button, "Lane 2 key, X", "Pause key, Escape", "Lane 3 key, none". -->
+    <string name="keyboard_slot_description">%1$s key, %2$s</string>
+    <string name="keyboard_slot_none">none</string>
+    <string name="keyboard_slot_waiting">Waiting for a key</string>
+    <!-- TalkBack: an empty lane's state. -->
+    <string name="keyboard_slot_empty">Lane %1$s has no key</string>
+    <!-- TalkBack: keys whose labels are symbols, named in words wherever the screens name a key. -->
+    <string name="key_name_grave">backtick</string>
+    <string name="key_name_minus">minus</string>
+    <string name="key_name_equals">equals</string>
+    <string name="key_name_left_bracket">left bracket</string>
+    <string name="key_name_right_bracket">right bracket</string>
+    <string name="key_name_backslash">backslash</string>
+    <string name="key_name_semicolon">semicolon</string>
+    <string name="key_name_apostrophe">apostrophe</string>
+    <string name="key_name_comma">comma</string>
+    <string name="key_name_period">period</string>
+    <string name="key_name_slash">slash</string>
+    <string name="key_name_up">up arrow</string>
+    <string name="key_name_down">down arrow</string>
+    <string name="key_name_left">left arrow</string>
+    <string name="key_name_right">right arrow</string>
+    <string name="keyboard_test">Key test</string>
+    <string name="keyboard_test_idle">Shows which lane keys the app sees held, from any keyboard, as the game would.</string>
+    <string name="keyboard_test_running">Hold the four lane keys together. Each lane lights while its key is held. Back stops.</string>
+    <string name="keyboard_test_start">Test keys</string>
+    <string name="keyboard_test_stop">Stop test</string>
+    <string name="keyboard_test_again">Test keys again</string>
+    <string name="keyboard_test_also_held">Also held: %1$s</string>
+    <string name="keyboard_test_most">Most lane keys held together: %1$s of 4</string>
+    <string name="keyboard_test_limit">This keyboard reported at most %1$s lane keys at once. Chords need all four: try other keys, or another keyboard.</string>
+    <string name="keyboard_test_ghost">A lane that lights without its key held means the keyboard reported a key that was not pressed.</string>
+    <string name="keyboard_test_bounce">If quick presses of one key go missing, check Android’s physical keyboard accessibility settings.</string>
+    <!-- TalkBack: one tile of the key test. -->
+    <string name="keyboard_tile_held">Lane %1$d, held</string>
+    <string name="keyboard_tile_not_held">Lane %1$d, not held</string>
+    <!-- Keys named in words: Escape in a sentence, and keys outside the key table that the key test lists as held. -->
+    <string name="key_escape_name">Escape</string>
+    <string name="key_shift">Shift</string>
+    <string name="key_ctrl">Ctrl</string>
+    <string name="key_alt">Alt</string>
+    <string name="key_meta">Meta</string>
+    <string name="key_caps_lock">Caps Lock</string>
+    <string name="key_tab">Tab</string>
+    <string name="key_enter">Enter</string>
+    <string name="key_backspace">Backspace</string>
+    <string name="key_delete">Delete</string>
+    <string name="key_fn">Fn</string>
     <string name="settings_sound_timing">Sound and timing</string>
     <string name="settings_music_volume">Music volume</string>
     <string name="settings_music_volume_help">The song’s level in play, up to its own level.</string>
-    <string name="settings_audio_offset">Audio offset for %1$s</string>
-    <string name="settings_audio_offset_help">Moves judging and the notes together. Use it when hits feel early or late. Kept for each output.</string>
-    <string name="settings_visual_offset">Visual offset</string>
-    <string name="settings_visual_offset_help">Moves only the notes on screen. Use it when notes look early or late while the sound feels right. The same for every output.</string>
+    <!-- The latency slots (docs/latency.md, Settings › Sound and timing). -->
+    <string name="settings_audio_latency">Audio latency</string>
+    <string name="settings_audio_latency_help">Moves the notes and the judging together. Keep a slot for each speaker or pair of headphones you play on, and choose it here before you play.</string>
+    <!-- The output Android would play on now: a hint, it chooses nothing. -->
+    <string name="settings_sound_now">Sound now: %1$s</string>
+    <!-- TalkBack: one of the three audio slots in the segmented row. -->
+    <string name="settings_audio_slot">Audio latency slot %1$s</string>
+    <string name="settings_input_latency">Input latency</string>
+    <string name="settings_input_latency_help">Moves when your presses count. Raise it if your hits are late, lower it if they are early. Every keyboard uses the Keyboard row’s slot.</string>
+    <string name="settings_input_touch">Touch</string>
+    <string name="settings_input_keyboard">Keyboard</string>
+    <!-- The label of a method's slot menu: "Touch uses slot", whose value is the slot ("0", "1 · K380"). -->
+    <string name="settings_input_uses">%1$s uses slot</string>
+    <!-- TalkBack: the value a stepper changes, "Audio latency, slot 1" or "Touch, input slot 0". -->
+    <string name="settings_audio_latency_value">Audio latency, slot %1$s</string>
+    <string name="settings_input_latency_value">%1$s, input slot %2$s</string>
+    <!-- A latency slot by its number, and by its number and the name the player gave it. -->
+    <string name="latency_slot">%1$d</string>
+    <string name="latency_slot_named">%1$d · %2$s</string>
     <string name="settings_offset_decrease">Decrease</string>
     <string name="settings_offset_increase">Increase</string>
+    <!-- Naming a latency slot: a dialog, names optional. -->
+    <string name="latency_name_audio">Name audio slot %1$d</string>
+    <string name="latency_name_input">Name input slot %1$d</string>
+    <string name="latency_name_field">Name</string>
+    <string name="latency_name_placeholder">No name</string>
+    <!-- Characters typed of the most a name keeps: "8/24". -->
+    <string name="latency_name_count">%1$d/%2$d</string>
+    <string name="latency_name_clear">Clear name</string>
+    <string name="latency_name_cancel">Cancel</string>
+    <string name="latency_name_save">Save</string>
     <string name="settings_calibrate">Calibrate timing</string>
-    <string name="settings_calibrate_help">Tap to clicks for the audio offset, then line notes up for the visual offset.</string>
+    <string name="settings_calibrate_help">Line falling notes up with clicks, and press with them, to set audio and input latency.</string>
     <string name="settings_chart_model">Chart model</string>
     <string name="settings_model_licence">Model licence: %1$s</string>
     <string name="settings_model_card">The model card on Hugging Face says what each part covers.</string>
@@ -284,29 +400,39 @@
     <string name="settings_diagnostics_help">What this phone is, and whether the runtime loads.</string>
     <string name="settings_version">Version</string>
 
-    <!-- Calibration -->
+    <!-- Calibration: one screen (docs/latency.md, Timing calibration). -->
     <string name="calibration_title">Timing calibration</string>
-    <string name="calibration_sound">Sound</string>
-    <string name="calibration_picture">Picture</string>
-    <string name="calibration_sound_help">A click plays every half second. Tap the pad on each click; closing your eyes helps. Ensomi takes the middle of your last 16 taps.</string>
-    <string name="calibration_for_output">For %1$s. Its audio offset is now %2$s.</string>
-    <string name="calibration_suggested">Suggested audio offset</string>
-    <string name="calibration_taps">Taps: %1$d/%2$d</string>
-    <string name="calibration_strip_description">Your last taps, from early on the left to late on the right</string>
-    <string name="calibration_tap_here">Tap on the click</string>
-    <string name="calibration_start_over">Start over</string>
-    <string name="calibration_apply">Use %1$s</string>
-    <string name="calibration_picture_help">The clicks go on, and a note falls onto the line with each one. Move the slider until the notes cross the line on the click. No tapping.</string>
-    <string name="calibration_done">Done</string>
-    <string name="calibration_no_suggestion">—</string>
-    <string name="calibration_no_suggestion_spoken">none yet: tap on 16 clicks</string>
-    <string name="calibration_apply_none">Use the suggestion</string>
-    <string name="calibration_paused">Paused. Tap to go on.</string>
-    <string name="calibration_pad_description">Tap pad. %1$s</string>
-    <string name="calibration_strip_empty">No taps yet</string>
-    <string name="calibration_strip_on">The middle of your last taps is on the click</string>
-    <string name="calibration_strip_late">The middle of your last taps is %1$d ms late</string>
-    <string name="calibration_strip_early">The middle of your last taps is %1$d ms early</string>
+    <string name="calibration_help">A note falls onto the line with each click. Move Audio latency until they meet. Press with the clicks to see where your presses land, and move Input latency until they gather at the middle. Do either, both, in any order. Changes are kept as you make them.</string>
+    <!-- TalkBack: the field is one element; a double tap on it is not timed, so it is no press. -->
+    <string name="calibration_field_description">Calibration field: a note falls onto the line with each click.</string>
+    <string name="calibration_paused">Paused. Tap the field or press a key to go on.</string>
+    <string name="calibration_audio_help">Moves the notes and the judging together.</string>
+    <string name="calibration_input_help">Moves only when your presses count. Raise it if your hits are late, lower it if they are early.</string>
+    <string name="calibration_clear">Clear hits</string>
+    <!-- The readings line, for the method chosen: "Last 16 touch hits: 6 ms early on average." -->
+    <string name="calibration_no_touch_hits">No touch hits yet. Tap the field with the clicks.</string>
+    <string name="calibration_no_key_hits">No key hits yet. Press a lane key with the clicks.</string>
+    <plurals name="calibration_last_touch">
+        <item quantity="one">Last touch hit</item>
+        <item quantity="other">Last %d touch hits</item>
+    </plurals>
+    <plurals name="calibration_last_key">
+        <item quantity="one">Last key hit</item>
+        <item quantity="other">Last %d key hits</item>
+    </plurals>
+    <!-- "Last 16 touch hits" and where they are: "6 ms early on average". -->
+    <string name="calibration_reading">%1$s: %2$s.</string>
+    <string name="calibration_early_average">%1$d ms early on average</string>
+    <string name="calibration_late_average">%1$d ms late on average</string>
+    <string name="calibration_on_time_average">on time on average</string>
+    <string name="calibration_early">%1$d ms early</string>
+    <string name="calibration_late">%1$d ms late</string>
+    <string name="calibration_on_time">on time</string>
+    <!-- TalkBack: the strip of hits, and how far they spread: "From 12 ms early to 20 ms late". -->
+    <string name="calibration_strip_touch">Your last touch hits, from early on the left to late on the right</string>
+    <string name="calibration_strip_key">Your last key hits, from early on the left to late on the right</string>
+    <string name="calibration_strip_range">From %1$s to %2$s</string>
+    <string name="calibration_strip_empty">No hits yet</string>
     <string name="library_prepared">Prepared</string>
     <!-- Install stages -->
     <string name="model_verifying">Checking model files… %1$d of %2$d</string>

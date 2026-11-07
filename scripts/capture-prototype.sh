@@ -3,19 +3,23 @@
 # every scenario of app/src/main/kotlin/io/ensomi/android/prototype/Prototype.kt in light and dark mode,
 # the game at each lean and in both orientations, a few screens at 200 % font size and with the phone in landscape,
 # UI hierarchy dumps, the render thread's frame log and a Perfetto FrameTimeline trace at each lean, a recording of the
-# playfield preview (landscape, the default lean), and a real game on the app's own stores.
+# playfield preview (landscape, the default lean), the caps' key labels with a keyboard connected, Settings › Keyboard
+# and the latency slots in Settings in each of their states, the calibration screen in each of its states, and a real
+# game on the app's own stores.
 #
 #   scripts/capture-prototype.sh OUT_DIR [GROUP...]
 #   REAL_SONG="Song title" scripts/capture-prototype.sh OUT_DIR real
 #
-# GROUP is any of screens, game, lean, font, landscape, dumps, pacing, recording, real; all of them when none is given.
+# GROUP is any of screens, game, lean, keyboard, keyboard-settings, latency-settings, calibration, font, landscape, dumps,
+# pacing, recording, real; all of them when none is given. keyboard-settings, latency-settings and calibration shoot
+# their scenarios in light and dark mode, at 200 % font size and in landscape, and dump their UI hierarchy.
 # The real group plays REAL_SONG, a song in the library with a chart, by the autoplay (a debug launch extra), with the
 # settings the app has; it is skipped when REAL_SONG is not set.
 set -euo pipefail
 
 OUT=${1:?usage: scripts/capture-prototype.sh OUT_DIR [GROUP...]}
 shift
-GROUPS_WANTED=${*:-screens game lean font landscape dumps pacing recording real}
+GROUPS_WANTED=${*:-screens game lean keyboard keyboard-settings latency-settings calibration font landscape dumps pacing recording real}
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 PKG=io.ensomi.android
@@ -39,7 +43,7 @@ SCENARIOS=(
   make-chart-making:3 make-chart-made:3 make-chart-stopped:3 make-chart-failed:3
   results:3 settings:3 settings-playfield:4 settings-playfield-portrait:4 settings-downloading:3
   settings-update-pending:3 notices:3 notice-text:4
-  calibration-sound:3 calibration-picture:5 diagnostics:6
+  calibration:4 calibration-hits:4 diagnostics:6
 )
 
 # A freshly booted emulator under load can show "System UI isn't responding" over every screen. Keep error
@@ -98,7 +102,7 @@ for mode in light dark; do
     sleep "${entry##*:}"
     shot "$mode-$name"
     case "$name" in
-      make-chart-sections|make-chart-made|calibration-sound)
+      make-chart-sections|make-chart-made|calibration-hits)
         swipe_up; shot "$mode-$name-scrolled" ;;
       results)
         swipe_up_landscape; shot "$mode-$name-scrolled" ;;
@@ -143,6 +147,106 @@ done
 adb shell cmd uimode night no
 fi
 
+if wanted keyboard; then
+# A keyboard connected (a fake one): each cap carries its key's label, in landscape and portrait, while the autoplay
+# lights the caps, and behind the pause panel. Several shots, so some catch a cap lit past the label's ink switch.
+for name in play-keyboard play-portrait-keyboard; do
+  launch "$name"
+  for moment in 1 2 3; do sleep 2; shot "keyboard-$name-$moment"; done
+done
+launch play-paused-keyboard; sleep 15; shot keyboard-play-paused-keyboard
+fi
+
+# Settings › Keyboard (docs/keyboard.md) and the latency slots (docs/latency.md): every state, light and dark, the
+# Keyboard screen scrolled to its key test too; then at 200 % font size and in landscape; then the UI hierarchies.
+KEYBOARD_SETTINGS=(
+  settings-keyboard settings-keyboard-connected settings-keyboard-lane-empty
+  keyboard keyboard-connected keyboard-two keyboard-waiting keyboard-refused keyboard-swapped keyboard-lane-empty
+  keyboard-lanes-empty keyboard-lane-empty-none keyboard-pause-empty keyboard-testing keyboard-limit
+)
+LATENCY_SETTINGS=(
+  settings-latency settings-latency-plain settings-latency-shared settings-latency-long settings-latency-name
+  settings-latency-name-empty
+)
+settings_states() { # group name, then the scenarios
+  local group=$1 mode name prefix
+  shift
+  for mode in light dark; do
+    if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
+    sleep 2
+    for name in "$@"; do
+      launch "$name"; sleep 3; shot "$group-$mode-$name"
+      case "$name" in keyboard*|settings-latency|settings-latency-long) swipe_up; shot "$group-$mode-$name-2" ;; esac
+    done
+  done
+  adb shell cmd uimode night no
+  for prefix in font200 landscape; do
+    if [ "$prefix" = font200 ]; then adb shell settings put system font_scale 2.0; else rotate 1; fi
+    sleep 2
+    for name in "$@"; do
+      launch "$name"; sleep 3; shot "$group-$prefix-$name"
+      case "$name" in
+        keyboard*|settings-latency*)
+          for page in 2 3; do
+            # The phone on its side is 1080 px tall: swipe within it, in the middle of the centred column.
+            if [ "$prefix" = landscape ]; then adb shell input swipe 1212 900 1212 200 500; sleep 1.5; else swipe_up; fi
+            shot "$group-$prefix-$name-$page"
+          done ;;
+      esac
+    done
+    if [ "$prefix" = font200 ]; then adb shell settings put system font_scale 1.0; else rotate 0; fi
+    sleep 2
+  done
+  for name in "$@"; do
+    launch "$name"; sleep 3
+    adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/$group-window-$name.xml" >/dev/null || echo "no dump for $name"
+  done
+}
+if wanted keyboard-settings; then settings_states keyboard-settings "${KEYBOARD_SETTINGS[@]}"; fi
+if wanted latency-settings; then settings_states latency-settings "${LATENCY_SETTINGS[@]}"; fi
+
+# The calibration screen (docs/latency.md, Timing calibration) in each state: light and dark (the screen is always the
+# game's dark plum; the system bars are checked), its controls scrolled; at 200 % font size and in landscape, scrolled
+# twice; then the UI hierarchies. Its controls scroll under the field: in portrait from the lower half of the screen, and
+# in landscape in the right-hand column, so no swipe starts on the field, where a touch is a press.
+CALIBRATION_STATES=(
+  calibration calibration-hits calibration-keyboard calibration-long calibration-shared calibration-paused calibration-name
+)
+calibration_scroll() { # prefix
+  if [ "$1" = landscape ]; then adb shell input swipe 1800 950 1800 300 500; else swipe_up; fi
+  sleep 1.5
+}
+calibration_states() {
+  local mode name prefix page
+  for mode in light dark; do
+    if [ "$mode" = dark ]; then adb shell cmd uimode night yes; else adb shell cmd uimode night no; fi
+    sleep 2
+    for name in "${CALIBRATION_STATES[@]}"; do
+      launch "$name"; sleep 4; shot "calibration-$mode-$name"
+      case "$name" in calibration-name) ;; *) calibration_scroll portrait; shot "calibration-$mode-$name-2" ;; esac
+    done
+  done
+  adb shell cmd uimode night no
+  for prefix in font200 landscape; do
+    if [ "$prefix" = font200 ]; then adb shell settings put system font_scale 2.0; else rotate 1; fi
+    sleep 2
+    for name in "${CALIBRATION_STATES[@]}"; do
+      launch "$name"; sleep 4; shot "calibration-$prefix-$name"
+      case "$name" in
+        calibration-name) ;;
+        *) for page in 2 3; do calibration_scroll "$prefix"; shot "calibration-$prefix-$name-$page"; done ;;
+      esac
+    done
+    if [ "$prefix" = font200 ]; then adb shell settings put system font_scale 1.0; else rotate 0; fi
+    sleep 2
+  done
+  for name in "${CALIBRATION_STATES[@]}"; do
+    launch "$name"; sleep 4
+    adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/calibration-window-$name.xml" >/dev/null || echo "no dump for $name"
+  done
+}
+if wanted calibration; then calibration_states; fi
+
 if wanted lean; then
 # The lanes at no lean, the default and the most, in landscape (the phones' default) and portrait; then the settings'
 # live preview at no lean and the most, in both modes. Each game is shot once notes are falling.
@@ -175,7 +279,7 @@ if wanted landscape; then
 # The phone turned to landscape: the chrome follows it. (Play turns it to landscape by itself.)
 rotate 1
 sleep 2
-for name in library make-chart-made settings settings-playfield calibration-sound calibration-picture; do
+for name in library make-chart-made settings settings-playfield calibration-hits; do
   launch "$name"; sleep 3; shot "landscape-$name"
 done
 rotate 0
@@ -185,7 +289,7 @@ fi
 if wanted dumps; then
 # What TalkBack reads: the UI hierarchy of every kind of screen.
 for name in first-run library make-chart make-chart-made make-chart-failed play-paused results settings notices \
-  notice-text calibration-sound calibration-picture diagnostics; do
+  notice-text calibration calibration-hits diagnostics; do
   launch "$name"
   if [ "$name" = play-paused ]; then sleep 15; else sleep 3; fi
   adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb pull /sdcard/window.xml "$OUT/window-$name.xml" >/dev/null || echo "no dump for $name"

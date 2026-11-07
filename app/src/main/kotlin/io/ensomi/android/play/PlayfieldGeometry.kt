@@ -202,37 +202,3 @@ data class PlayfieldGeometry(
         const val MIN_FAR_SCALE = 0.2f
     }
 }
-
-/**
- * Which lanes are pressed, from the pointers on the surface. A pointer belongs to the lane it went down in until it
- * lifts; sliding into another lane does not move it. A lane is pressed while any pointer holds it, so the press goes
- * out with the first pointer and the release with the last.
- */
-class LaneTouchTracker(private val lanes: Int = PlayfieldGeometry.LANES) {
-    private val laneByPointer = HashMap<Int, Int>()
-    private val pointersInLane = IntArray(lanes)
-
-    /** A pointer went down in [lane]. True when that lane was not pressed before: a press to send. */
-    fun down(pointerId: Int, lane: Int): Boolean {
-        if (lane !in 0 until lanes || laneByPointer.containsKey(pointerId)) return false
-        laneByPointer[pointerId] = lane
-        return pointersInLane[lane]++ == 0
-    }
-
-    /** A pointer lifted. The lane it released, when no other pointer still holds it: a release to send. */
-    fun up(pointerId: Int): Int? {
-        val lane = laneByPointer.remove(pointerId) ?: return null
-        pointersInLane[lane]--
-        return if (pointersInLane[lane] == 0) lane else null
-    }
-
-    /** The system took the gesture: every pressed lane is released. */
-    fun cancel(): List<Int> {
-        val pressed = (0 until lanes).filter { pointersInLane[it] > 0 }
-        laneByPointer.clear()
-        pointersInLane.fill(0)
-        return pressed
-    }
-
-    fun isPressed(lane: Int): Boolean = pointersInLane.getOrElse(lane) { 0 } > 0
-}

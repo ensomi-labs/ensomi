@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.ensomi.android.keyboard.Keyboards
 import io.ensomi.android.play.GameOrientation
 import io.ensomi.android.play.PlayScreen
 import io.ensomi.android.settings.PlaySettings
@@ -28,7 +29,13 @@ object RecognitionEntry {
 
     /** The session's screen, or its game once it has joined the music. */
     @Composable
-    fun Content(settings: PlaySettings, modelReady: Boolean, waitingForLibrary: Boolean = false, onBack: () -> Unit) {
+    fun Content(
+        settings: PlaySettings,
+        keyboards: Keyboards,
+        modelReady: Boolean,
+        waitingForLibrary: Boolean = false,
+        onBack: () -> Unit,
+    ) {
         val context = LocalContext.current
         val controller = remember(context) { RecognitionController.get(context) }
         val game by controller.game.collectAsStateWithLifecycle()
@@ -48,6 +55,7 @@ object RecognitionEntry {
                 loop = false,
                 onFinished = controller::gameFinished,
                 onQuit = controller::gameQuit,
+                keyboards = keyboards,
                 ambient = current,
             )
         }

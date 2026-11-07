@@ -19,6 +19,14 @@ interface PlayClock : AutoCloseable {
      */
     fun songTimeMs(nanoTime: Long): Double?
 
+    /**
+     * The song time heard at [nanoTime], for an input made then: [songTimeMs] while the clock runs. While it is paused, a
+     * time before the pause maps as it did before it, never past the time held, so an input made just before a pause and
+     * taken by a paused frame keeps its own time; from the pause on it is the time held. A clock that cannot say gives
+     * the time held.
+     */
+    fun eventSongTimeMs(nanoTime: Long): Double? = songTimeMs(nanoTime)
+
     /** The nanoTime at which [songTimeMs] reaches [songMs] if the clock runs on, for scripted input. */
     fun nanoTimeAt(songMs: Double): Long
 
@@ -52,6 +60,14 @@ class FakePlayClock : PlayClock {
     override fun songTimeMs(nanoTime: Long): Double? {
         if (!started) return null
         return pausedAtMs ?: ((nanoTime - originNanos) / 1e6)
+    }
+
+    @Synchronized
+    override fun eventSongTimeMs(nanoTime: Long): Double? {
+        if (!started) return null
+        // The origin moves only at the resume, so a time before the pause still maps on it.
+        val running = (nanoTime - originNanos) / 1e6
+        return pausedAtMs?.let { minOf(running, it) } ?: running
     }
 
     @Synchronized

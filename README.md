@@ -6,13 +6,13 @@ written in Kotlin with Jetpack Compose. Chart generation and gameplay come from 
 code or history with the Swift app, which is the reference for what it does.
 
 The app is an early play demo. It does drop-in play on the app's own stores: the settings, kept
-with Jetpack DataStore (the audio offset per output); the song library, from the system's document picker; decoding
+with Jetpack DataStore (latency slots for the sound and for each input method); the song library, from the system's document picker; decoding
 songs to PCM; the chart model, downloaded from Hugging Face at a pinned tag or installed from the package's files in a
 folder the player picks, either way only the pinned package and checked file by file; charts made on
 the device by the runtime from the player's songs, the last one per song kept; play: the chart on the song's own sound,
 timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with
 the lanes leaning back by default (the orientation and the lean are settings with a live preview); and the timing
-calibration, on a click track through the same output and clock. Diagnostics, under Settings or the launcher icon’s long-press shortcut,
+calibration, one screen where the game's renderer judges presses on a click track through the same output and clock. Diagnostics, under Settings or the launcher icon’s long-press shortcut,
 shares device facts, recovered process exits and a bounded event journal. Loading the runtime is an optional self-test. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
 
@@ -87,9 +87,35 @@ adb shell am start -n io.ensomi.android/.MainActivity --es prototype make-chart-
 
 MainActivity is `singleTask`: debug launch extras are read only when a new instance is created. Force-stop the app before launching with those extras.
 
+A few scenarios use the app's own stores instead of fakes: `results-stored` (the sample results, whose Use writes the
+active audio latency slot), `play-stored` (the sample game, no sound, played with the stored input latency slots),
+`settings-stored` and `calibration-stored` (the stored latency slots on those screens).
+
+Games take keys from a hardware keyboard (docs/keyboard.md): Z X . / play the lanes and Escape pauses by default.
+`play-keyboard`, `play-portrait-keyboard` and `play-paused-keyboard` connect a sample keyboard, so the caps carry the
+keys' labels. Scenarios on fakes take keys only from `adb shell input keyevent` (the virtual keyboard); those over the
+app's stores, such as `play-stored`, take every keyboard's: a `hid` keyboard (`adb shell hid -`) on `ensomi-36-16k`,
+whose `hw.keyboard` is off, so that `adb emu event send` keys reach nothing there.
+
+Settings › Keyboard opens in each state of keyboard.md's table: `keyboard` (no keyboard), `keyboard-connected`,
+`keyboard-two` (a German layout connected first, whose labels the screen follows), `keyboard-waiting`,
+`keyboard-refused`, `keyboard-swapped`, `keyboard-lane-empty`, `keyboard-lanes-empty`, `keyboard-lane-empty-none` (and
+no keyboard), `keyboard-pause-empty`, `keyboard-testing` and `keyboard-limit`; its row in Settings in
+`settings-keyboard`, `settings-keyboard-connected` and `settings-keyboard-lane-empty`. `keyboard-stored` and
+`settings-stored-keyboard` show the same over the app's own stores. The latency slots in Settings › Sound and timing
+(docs/latency.md): `settings-latency` (named and unnamed slots), `settings-latency-plain`, `settings-latency-shared` (both
+methods on one slot, values at the ends of the range), `settings-latency-long` (names of 24 characters),
+`settings-latency-name` and `settings-latency-name-empty` (the name dialog), and `settings-stored-sound` over the stores.
+The calibration (docs/latency.md, Timing calibration): `calibration` (no hits yet), `calibration-hits` (touch and key
+hits on named slots, Touch chosen), `calibration-keyboard` (a sample keyboard connected, so Keyboard is chosen and the
+caps carry its keys), `calibration-long` (names of 24 characters), `calibration-shared` (both methods on one slot, values
+past the sliders), `calibration-paused` and `calibration-name` (an audio slot's name dialog). Taps on the field and
+`adb shell input keyevent` lane keys press on them too, on a click track without sound.
+
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
-screen, the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
+screen, Settings › Keyboard, the latency slots and the calibration in every state (its `keyboard-settings`,
+`latency-settings` and `calibration` groups), the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
 plays a real game of that song (it needs a stored chart) by the autoplay to its results, on the one booted emulator or
 device.
 
@@ -137,17 +163,33 @@ The model's files are in the app's
 `ensomi-install.json` recording the tag, the manifest's SHA-256 and the source; an install from files copies into
 `no_backup/models/.files-ensomi-r2` first and keeps the staging when it stops. The settings are in
 `files/settings.json`, the library in `files/library.json`, and each song's last chart in `files/charts/<song id>/`
-(`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
+(`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`). The settings keep the latency slots
+(`audioLatency`, `inputLatency`, docs/latency.md); the first start of this build moves a 0.1.x file's `audioOffsets` and
+`visualOffsetMs` into them and logs the move under `EnsomiSettings` by slot number, and later writes leave the old
+fields out.
 
 Making charts logs under `EnsomiCharts` (each song's audio stages and each chart, with their times and the peak
-resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, the score), their sound
-under `EnsomiAudio` (the track's buffer, its route and its underruns), and the playfield's render thread under
-`EnsomiPlayfield`: the frame rate it asked for and got, then every two seconds the frames drawn, the vsyncs missed,
-the frames finished after their deadline, and the time in the runtime and in drawing (average, most, and the whole
-frame's work at the median and the 99th percentile). The calibration logs under `EnsomiCalibration`: the output the
-clicks play on, every five seconds when click 0 was heard on the `System.nanoTime()` clock, and each tap's event time,
-song time, error and the suggestion. A debuggable build takes these extras on a
-normal launch, for checks on an emulator:
+resident memory), games under `EnsomiPlay` (the latency for the game, "Latency for this game: audio slot 1 +142 ms; touch slot 0 +8 ms;
+keyboard slot 1 +30 ms", with "(no slot)" for a value no slot gave; each input method's first input and how far the
+input clock held for it; why each pause happened; at the first frame of each pause and after it the inputs delivered
+then or the lanes released at the pause's time, the lanes the session holds and the holds held in them, numbered 1 to
+4, and the late inputs so far; at game over the score, the presses by source, the methods that pressed, the hits timed
+by source with their average error, and the late inputs by source, then the keys: the most lane keys held together,
+the keyboards seen by their index in the game, vendor and product id, whether injected keys came, and the map by key
+names), their sound under
+`EnsomiAudio` (the track's buffer, its route and its underruns), and the playfield under `EnsomiPlayfield`: at each
+resume the lanes it released at the pause's time and those still held, and from its render thread the frame rate it
+asked for and got, then every two seconds the frames drawn, the vsyncs missed, the frames finished after their
+deadline, and the time in the runtime and in drawing (average, most, and the whole frame's work at the median and the
+99th percentile). Debug and checks builds log keyboards under `EnsomiKeys`, by vendor and product id and never by name:
+each connected or removed, those connected at each start, each `MainActivity` created and each configuration change it
+took in place (a keyboard's comes as `keyboard`, `keyboardHidden` and `navigation`). The calibration logs under `EnsomiCalibration`: the output the clicks play on;
+when click 0 was heard on the `System.nanoTime()` clock, whenever that moves and every five seconds; each press with its
+method, the input and audio slots and values it was judged with, its event time, song and chart time, its error from
+the nearest click on the song's clock and the runtime's error and tier (or no hit, and why a press is no reading); each
+change of a value or a slot (by number, never a name); the method whose slot is edited; pauses, Clear hits and a new
+output starting the readings over.
+A debuggable build takes these extras on a normal launch, for checks on an emulator:
 
 ```sh
 adb shell am start -n io.ensomi.android/.MainActivity --ef stars 7         # stars outside the slider: the runtime refuses
@@ -166,8 +208,19 @@ A debuggable build (and the checks build) also writes each game's frame times to
 `files/frame-log.csv` (`vsyncNanos,presentNanos,runtimeNanos,drawNanos,deadlineNanos,doneNanos,startNanos,recordNanos,postNanos,renderUs,notes,syncResult,drained`:
 the frame's deadline from `FrameData`, when its drawing was posted, when its work began, the time recording the canvas
 and handing it to HWUI, the song time drawn in microseconds, the objects in the frame, HWUI's answer for it, and 1 when
-the vsync before it drew nothing to drain the buffer queue), and each touch but moves to `files/touch-log.csv`
-(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it). The same builds take the launch extras above; the `pacing-flat`,
+the vsync before it drew nothing to drain the buffer queue), each touch but moves to `files/touch-log.csv`
+(`action,eventNanos,handledNanos,pointers`: the `MotionEvent` action, its own time, when the playfield handled it), each
+key event the playfield saw to `files/key-log.csv`
+(`action,eventNanos,handledNanos,keyCode,scanCode,repeat,flags,keyboard,lane,sent`: the `KeyEvent` action, its own
+time, when the playfield handled it, the device by its index in the game, −1 for injected keys, the lane its slot
+plays, −1 for none and −2 for the Pause key, and 1 when a press or release went to the game; summarised under
+`EnsomiPlayfield` with the handling delay and the most lane keys held together), and
+every input the game's session was given to `files/input-log.csv`
+(`sequence,source,lane,press,atPause,eventNanos,songMs,chartMs,takenNanos,deliveredNanos,inputClockMs,late`: its
+event's song time and its chart time, whose difference is minus the audio latency and its source's input latency, the
+frames that took it and handed it on, the input clock then, and 1 when it was late), summarised by source under
+`EnsomiPlay` as the game closes ("Inputs: touch 113, chart less song time −30.0 to −30.0 ms, waited 0 (most 0.0 ms),
+late 0; …"). The same builds take the launch extras above; the `pacing-flat`,
 `pacing`, `pacing-lean-max` and `pacing-portrait` scenarios play the sample game without end at each lean, for the
 frame pacing check.
 

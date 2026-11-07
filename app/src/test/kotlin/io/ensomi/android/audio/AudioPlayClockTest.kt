@@ -154,6 +154,33 @@ class AudioPlayClockTest {
         assertEquals(5_020.0, clock.songTimeMs(20_048 * ms)!!, 1e-9)
     }
 
+    /**
+     * An input made before a pause and taken by a paused frame keeps its own song time: while paused, a time before the
+     * pause maps on the line the clock kept to, never past the time held; from the pause on it is the time held.
+     */
+    @Test
+    fun whilePausedAnEventBeforeThePauseMapsAsItDidThen() {
+        val output = ScriptedOutput()
+        val clock = AudioPlayClock(output, rate, leadInFrames = 0)
+        assertNull(clock.eventSongTimeMs(0))
+        clock.start(0, 0.0)
+        output.next = OutputTimestamp(frames(5_000.0), 5_000 * ms)
+        clock.update(5_000 * ms)
+        assertEquals("While it runs it is the song time", 5_004.0, clock.eventSongTimeMs(5_004 * ms)!!, 1e-9)
+        assertEquals(5_016.0, clock.songTimeMs(5_016 * ms)!!, 1e-9)
+        clock.pause(5_010 * ms)
+        assertEquals(5_007.0, clock.eventSongTimeMs(5_007 * ms)!!, 1e-9)
+        assertEquals("Held from the pause on", 5_016.0, clock.eventSongTimeMs(5_010 * ms)!!, 1e-9)
+        assertEquals(5_016.0, clock.eventSongTimeMs(9_000 * ms)!!, 1e-9)
+        assertEquals("The time asked for is not moved", 5_016.0, clock.songTimeMs(9_000 * ms)!!, 1e-9)
+        // Resumed, and paused again before a timestamp came: it held one time throughout.
+        output.next = OutputTimestamp(frames(5_012.0), 5_013 * ms)
+        clock.resume(20_000 * ms)
+        clock.pause(20_005 * ms)
+        assertEquals(5_016.0, clock.eventSongTimeMs(20_001 * ms)!!, 1e-9)
+        assertEquals(5_016.0, clock.eventSongTimeMs(5_007 * ms)!!, 1e-9)
+    }
+
     @Test
     fun readsEvery10MsWhileItWarmsUpThenOnceASecond() {
         val output = ScriptedOutput()

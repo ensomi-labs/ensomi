@@ -23,8 +23,10 @@ import androidx.compose.ui.text.style.TextAlign
 import io.ensomi.android.audio.AudioPlayClock
 import io.ensomi.android.audio.DecodedSong
 import io.ensomi.android.audio.GameAudio
+import io.ensomi.android.keyboard.HardwareKeyHandler
+import io.ensomi.android.keyboard.KeepInputMethodAway
+import io.ensomi.android.keyboard.Keyboards
 import io.ensomi.android.prototype.DebugTools
-import io.ensomi.android.settings.OutputRoute
 import io.ensomi.android.settings.PlayOutputs
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,15 +109,13 @@ import kotlinx.coroutines.delay
 private enum class PlayPhase { PLAYING, PAUSED, COUNTDOWN }
 
 /**
- * A game of the player's song: its chart and its sound, decoded for play, and the outputs the sound may play on, each
- * with an audio offset of its own.
+ * A game of the player's song: its chart and its sound, decoded for play, and the outputs the sound may play on, which
+ * the pause panel names when the sound moves. The game keeps the audio latency slot that was active when it started.
  */
 class SongGame(
     val chart: PlayChart,
     val audio: DecodedSong,
     val outputs: PlayOutputs,
-    /** The settings with an output's audio offset. */
-    val settingsFor: (OutputRoute) -> PlaySettings,
     /** Debug launches: the autoplay plays the game. */
     val autoplay: Boolean = false,
     /** Debug builds: every frame's times go to `clock-log.csv`, and the debug broadcasts are taken. */
@@ -130,7 +130,10 @@ class AmbientGame(
     val chart: PlayChart,
     val clock: PlayClock,
     val joinMs: Double,
-    /** In place of the audio offset, since no output plays: a tester's trim of how the join feels. */
+    /**
+     * In place of the audio latency slot, since no output plays: a tester's trim of how the join feels, with the sign
+     * the audio offset had, so the game's audio latency is minus it ([PlayTiming.ambient]).
+     */
     val offsetMs: Double,
     /** Debug: the autoplay plays the game. */
     val autoplay: Boolean = false,
@@ -157,6 +160,12 @@ private class RunningGame {
  * With a [game], the player's chart plays on its own sound and the audio clock ([AudioPlayClock]); without one, the
  * chart is [SampleCharts.PREVIEW] on a [FakePlayClock] with the autoplay pressing the lanes and no sound (the
  * settings' preview and the prototype's scenarios). Touches on the playfield are judged in both.
+ *
+ * Keys play too (keyboard.md): the screen takes the activity's key events while the game runs and hands them to the
+ * playfield, whose [GameKeys] says what each does in each phase: lane keys play their lanes, the Pause key pauses,
+ * resumes and goes back from the count-in to the panel, and the keys that would move focus onto the HUD are taken. The
+ * window is no input method target meanwhile. While [keyboards] has a keyboard connected, the caps carry its labels; a
+ * keyboard coming or going changes nothing else.
  */
 @Composable
 fun PlayScreen(
@@ -166,6 +175,7 @@ fun PlayScreen(
     loop: Boolean,
     onFinished: (PlayResult) -> Unit,
     onQuit: () -> Unit,
+    keyboards: Keyboards,
     game: SongGame? = null,
     /** A game along with the music in the room, in place of [game]; the recognition session's join. */
     ambient: AmbientGame? = null,
@@ -175,6 +185,7 @@ fun PlayScreen(
 ) {
     GameTheme {
         Immersive()
+        KeepInputMethodAway()
         val context = LocalContext.current
         val density = LocalDensity.current
         val cutoutTop = WindowInsets.displayCutout.getTop(density).toFloat()
@@ -187,6 +198,9 @@ fun PlayScreen(
         // Where the sound moved during this game, for the pause panel.
         var movedTo by remember { mutableStateOf<String?>(null) }
         val running = remember(restarts) { RunningGame() }
+        val connected by keyboards.keyboards.collectAsStateWithLifecycle()
+        // The first keyboard connected labels the caps (keyboard.md, Several keyboards).
+        val capLabels = connected.firstOrNull()?.laneLabels
 
         fun pause(cause: String) {
             if (phase == PlayPhase.PAUSED) return
@@ -254,32 +268,39 @@ fun PlayScreen(
             pause("the output changed")
         }
 
+        /** Debug builds: the game's clock and input logs, written when it closes. */
+        fun writeLogs(clockLog: ClockLog?, inputLog: InputLog?) {
+            clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } }
+            inputLog?.let { log -> runCatching { File(context.filesDir, INPUT_LOG).writeText(log.csv()) } }
+        }
+
+        // A game copies the latencies into its timing when it starts and keeps them to the end (latency.md).
         fun controller(hud: MutableStateFlow<PlayHud>, sequence: () -> Long): PlayController {
-            val timing = PlayTiming(
-                audioOffsetMs = settings.audioOffsetMs.toDouble(),
-                visualOffsetMs = settings.visualOffsetMs.toDouble(),
-                scrollTimeMs = settings.scrollTimeMs,
-            )
             if (ambient != null) {
                 val clockLog = if (debuggable) ClockLog() else null
+                val inputLog = if (debuggable) InputLog() else null
                 return PlayController(
                     chart = ambient.chart,
                     judge = settings.judge.toRuntime(),
                     clock = ambient.clock,
-                    timing = timing.copy(audioOffsetMs = ambient.offsetMs),
+                    timing = PlayTiming.ambient(settings, ambient.offsetMs),
                     clockLog = clockLog,
-                    onClose = { clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } } },
+                    inputLog = inputLog,
+                    onClose = { writeLogs(clockLog, inputLog) },
                     script = if (ambient.autoplay) Autoplay.inputs(ambient.chart) else emptyList(),
                     hud = hud,
                     nextSequence = sequence,
                 )
             }
             if (game == null) {
+                val inputLog = if (debuggable) InputLog() else null
                 return PlayController(
                     chart = SampleCharts.PREVIEW,
                     judge = settings.judge.toRuntime(),
                     clock = FakePlayClock(),
-                    timing = timing,
+                    timing = PlayTiming.sample(settings),
+                    inputLog = inputLog,
+                    onClose = { writeLogs(null, inputLog) },
                     script = Autoplay.inputs(SampleCharts.PREVIEW),
                     loop = loop,
                     hud = hud,
@@ -292,19 +313,18 @@ fun PlayScreen(
             running.audio = audio
             running.clock = clock
             val clockLog = if (game.debuggable) ClockLog() else null
+            val inputLog = if (game.debuggable) InputLog() else null
             return PlayController(
                 chart = game.chart,
                 judge = settings.judge.toRuntime(),
                 clock = clock,
-                timing = timing,
-                resolveAudioOffset = {
-                    game.settingsFor(game.outputs.routeOf(audio.routedDevice)).audioOffsetMs.toDouble()
-                },
+                timing = PlayTiming.game(settings),
                 clockLog = clockLog,
+                inputLog = inputLog,
                 onClose = {
                     audio.close()
                     Log.i(TAG, "Clock: ${clock.reads} timestamps read, ${clock.stepsBack} steps back held")
-                    clockLog?.let { log -> runCatching { File(context.filesDir, CLOCK_LOG).writeText(log.csv()) } }
+                    writeLogs(clockLog, inputLog)
                 },
                 script = if (game.autoplay) Autoplay.inputs(game.chart) else emptyList(),
                 hud = hud,
@@ -327,7 +347,10 @@ fun PlayScreen(
                             if (debuggable) {
                                 frameLogFile = File(viewContext.filesDir, FRAME_LOG)
                                 touchLogFile = File(viewContext.filesDir, TOUCH_LOG)
+                                keyLogFile = File(viewContext.filesDir, KEY_LOG)
                             }
+                            // The map as the game starts; Settings cannot be opened during a game.
+                            useKeys(settings.keys, keyboards::keys)
                             // Held at the start of the lead-in until the window has focus (above). The music in the
                             // room has no lead-in and does not wait: an ambient game's clock runs from its first frame.
                             if (ambient == null) this.pause()
@@ -343,6 +366,8 @@ fun PlayScreen(
                         it.portraitWidth = settings.portraitWidth
                         it.reduceMotion = reduceMotion
                         it.excludeBackGesture = phase == PlayPhase.PLAYING && !tooSmall
+                        it.capLabels = capLabels
+                        it.keyboardsChanged(connected)
                         // A view made while the game is paused (after a configuration change) starts paused.
                         if (phase != PlayPhase.PLAYING) it.pause()
                     },
@@ -352,7 +377,36 @@ fun PlayScreen(
             val hud = if (currentView != null) currentView.hud.collectAsStateWithLifecycle().value else PlayHud()
             LaunchedEffect(hud.finished) {
                 val score = hud.finished ?: return@LaunchedEffect
+                currentView?.let { Log.i(TAG, it.keysSummary()) }
                 onFinished(PlayResult.of(title, detail, score, hud.hitOffsetsMs, sample = game == null))
+            }
+
+            // Keys until the game is over; Results take them after it.
+            HardwareKeyHandler(enabled = hud.finished == null) { event ->
+                val playfield = view ?: return@HardwareKeyHandler false
+                val state = when (phase) {
+                    PlayPhase.PLAYING -> GameKeys.State.PLAYING
+                    PlayPhase.PAUSED -> GameKeys.State.PAUSED
+                    PlayPhase.COUNTDOWN -> GameKeys.State.COUNT_IN
+                }
+                when (playfield.keyInput(event, state)) {
+                    GameKeys.Action.PASS_ON -> false
+                    GameKeys.Action.TAKE -> true
+                    GameKeys.Action.PAUSE -> {
+                        pause("the Pause key")
+                        true
+                    }
+                    GameKeys.Action.RESUME -> {
+                        // Behind the too-small notice the panel cannot be seen, nor its Resume pressed.
+                        if (!tooSmall) phase = PlayPhase.COUNTDOWN
+                        true
+                    }
+                    GameKeys.Action.BACK_TO_PANEL -> {
+                        Log.i(TAG, "Back to the pause panel: the Pause key in the count-in")
+                        phase = PlayPhase.PAUSED
+                        true
+                    }
+                }
             }
 
             PlayHudRow(
@@ -857,11 +911,17 @@ private const val TAG = "EnsomiPlay"
 /** Debug builds: the last game's song and render time per frame, in the app's files. */
 private const val CLOCK_LOG = "clock-log.csv"
 
+/** Debug builds: every input the last game's session was given ([InputLog]). */
+private const val INPUT_LOG = "input-log.csv"
+
 /** Debug builds: the last playfield's vsync, presentation and work per frame (step 9's frame log). */
 private const val FRAME_LOG = "frame-log.csv"
 
 /** Debug builds: each lane press and release of the last game, when it happened and when it was handled. */
 private const val TOUCH_LOG = "touch-log.csv"
+
+/** Debug and checks builds: every key event the last playfield saw ([KeyLog]). */
+private const val KEY_LOG = "key-log.csv"
 
 /** Smaller than this, the playfield would be squashed: the screen says so instead (design.md, short windows). */
 private val MIN_PLAY_HEIGHT = 280.dp

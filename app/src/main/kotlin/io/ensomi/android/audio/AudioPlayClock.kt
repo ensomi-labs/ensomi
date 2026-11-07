@@ -60,6 +60,9 @@ class AudioPlayClock(
     /** The time shown while paused or waiting: null after a start, until the first frame is heard. */
     private var heldMs: Double? = null
 
+    /** When the clock paused while running, for [eventSongTimeMs]; null while it runs, or after a pause while waiting. */
+    private var pausedAtNanos: Long? = null
+
     private var line: Line? = null
 
     /** A step back being held: no less than [holdMs], and up to it the line before ([holdFrom]; null for none). */
@@ -143,6 +146,20 @@ class AudioPlayClock(
         return valueAt(nanoTime)
     }
 
+    /**
+     * While paused, a time before the pause on the line the clock kept to then, up to the time held; a pause while it was
+     * still waiting held one time throughout, and that is the answer.
+     */
+    @Synchronized
+    override fun eventSongTimeMs(nanoTime: Long): Double? {
+        if (!paused) return songTimeMs(nanoTime)
+        val held = heldMs
+        val at = pausedAtNanos ?: return held
+        if (nanoTime >= at) return held
+        val value = valueAt(nanoTime) ?: return held
+        return if (held == null) value else min(value, held)
+    }
+
     @Synchronized
     override fun nanoTimeAt(songMs: Double): Long {
         val current = line ?: return waitFromNanos
@@ -154,6 +171,7 @@ class AudioPlayClock(
         if (!started || paused) return
         // The furthest time shown, so that nothing drawn moves back.
         if (!waiting) heldMs = valueAt(max(nanoTime, latestQueryNanos))
+        pausedAtNanos = if (waiting) null else nanoTime
         paused = true
         waiting = false
         output.pause()
@@ -163,6 +181,7 @@ class AudioPlayClock(
     override fun resume(nanoTime: Long) {
         if (!paused) return
         paused = false
+        pausedAtNanos = null
         // A paused output reports the frame it stopped at; the first timestamp to take is one past it.
         val stoppedAt = output.timestamp()?.let { extend(it.framePosition) } ?: lastFrame
         waitFor(nanoTime, stoppedAt)

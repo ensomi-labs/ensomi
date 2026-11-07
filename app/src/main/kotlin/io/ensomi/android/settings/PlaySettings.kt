@@ -13,16 +13,14 @@ enum class JudgeDifficulty { A, B, C, D, E }
 enum class PlayOrientation { LANDSCAPE, PORTRAIT }
 
 /**
- * The settings play reads. Offsets are in milliseconds: the audio offset belongs to the output device play uses, the
- * visual offset to the display.
+ * The settings play reads. A game takes the active audio latency slot's value and each input method's slot value when it
+ * starts (latency.md); the output device chooses nothing.
  */
 data class PlaySettings(
     val scrollSpeed: Double = DEFAULT_SCROLL_SPEED,
     val judge: JudgeDifficulty = JudgeDifficulty.C,
     /** A fraction of the song's own level, so it only scales down. */
     val musicVolume: Float = 0.8f,
-    val audioOffsetMs: Int = 0,
-    val visualOffsetMs: Int = 0,
     val orientation: PlayOrientation = PlayOrientation.LANDSCAPE,
     /**
      * How far the lanes are tilted back, in degrees, 0 for flat: one value for each orientation, since landscape
@@ -33,7 +31,19 @@ data class PlaySettings(
     /** Share of the window's width at the line; null follows the window's default. Kept per orientation. */
     val landscapeWidth: Float? = null,
     val portraitWidth: Float? = null,
+    /** The key map, valid as read; a game reads it when it starts (keyboard.md). */
+    val keys: KeyMap = KeyMap.DEFAULT,
+    /** The audio latency slots and the one chosen by hand. */
+    val audioLatency: AudioLatency = AudioLatency(),
+    /** The input latency slots and the one each input method uses. */
+    val inputLatency: InputLatency = InputLatency(),
 ) {
+    /** The active audio slot's value: the audio latency a game starts with. */
+    val audioLatencyMs: Int get() = audioLatency.activeMs
+
+    /** The active audio slot set to [ms]. */
+    fun withAudioLatencyMs(ms: Int): PlaySettings = copy(audioLatency = audioLatency.withActiveMs(ms))
+
     /** How long a note takes to fall from the top of the playfield to the line. */
     val scrollTimeMs: Double get() = scrollTimeMs(scrollSpeed)
 
@@ -63,7 +73,6 @@ data class PlaySettings(
     companion object {
         const val DEFAULT_SCROLL_SPEED = 25.0
         val SCROLL_SPEEDS = 1.0..40.0
-        val OFFSETS = -300..300
 
         /** The convention's common lean: Malody players mostly set 40. */
         const val DEFAULT_LANDSCAPE_LEAN = 40
@@ -106,25 +115,21 @@ data class PlaySettings(
 }
 
 /**
- * The output the audio offset is kept for: the routed `AudioDeviceInfo`, keyed by its type and product name
- * ([OutputRoutes.key]), with the name the screens show for it.
+ * An output device: the routed `AudioDeviceInfo`, keyed by its type and product name ([OutputRoutes.key]), with the name
+ * the screens show for it. It chooses no setting; the screens name it as a hint.
  */
 data class OutputRoute(val key: String, val name: String)
 
 interface PlaySettingsStore {
     val settings: StateFlow<PlaySettings>
 
-    /** The output play would use now. [settings] carries its audio offset. */
+    /** The output play would use now, for the screens to name. */
     val route: StateFlow<OutputRoute>
 
-    /** Changes the settings; a change of the audio offset is kept for [route]. */
     fun update(change: (PlaySettings) -> PlaySettings)
-
-    /** The settings with [route]'s audio offset. */
-    fun forRoute(route: OutputRoute): PlaySettings
 }
 
-/** The device a game's sound plays on, as an output with an audio offset of its own. */
+/** The device a game's sound plays on, for the name the pause panel and the calibration show. */
 interface PlayOutputs {
     /** The output [device] is; null for the one Android would pick now. */
     fun routeOf(device: AudioDeviceInfo?): OutputRoute

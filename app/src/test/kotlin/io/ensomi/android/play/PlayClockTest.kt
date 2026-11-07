@@ -34,4 +34,16 @@ class PlayClockTest {
         assertFalse(clock.isPaused)
         assertEquals(600.0, clock.songTimeMs(10_100 * ms)!!, 1e-9)
     }
+
+    @Test
+    fun whilePausedAnEventBeforeThePauseKeepsItsTime() {
+        val clock = FakePlayClock()
+        assertNull(clock.eventSongTimeMs(0))
+        clock.start(nanoTime = 0, fromMs = 0.0)
+        clock.pause(500 * ms)
+        assertEquals(480.0, clock.eventSongTimeMs(480 * ms)!!, 1e-9)
+        assertEquals(500.0, clock.eventSongTimeMs(9_000 * ms)!!, 1e-9)
+        clock.resume(10_000 * ms)
+        assertEquals("Running, it is the song time", 600.0, clock.eventSongTimeMs(10_100 * ms)!!, 1e-9)
+    }
 }

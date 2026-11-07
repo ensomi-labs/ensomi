@@ -7,6 +7,7 @@ import io.ensomi.android.diagnostics.ProcessStage
 import io.ensomi.android.model.InstallEvents
 import io.ensomi.android.chart.ChartStore
 import io.ensomi.android.chart.RuntimeChartMaker
+import io.ensomi.android.keyboard.ConnectedKeyboards
 import io.ensomi.android.library.ChartedSongLibrary
 import io.ensomi.android.library.DocumentSongLibrary
 import io.ensomi.android.model.DownloadingChartModelStore
@@ -16,16 +17,17 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.map
 
 /**
  * The app's stores, one of each for the process: the settings (DataStore), the song library, the chart model, the
- * charts made and the sound of the song last played. They work on [scope], off the main thread, and outlive any
- * activity.
+ * charts made, the sound of the song last played and the keyboards connected. They work on [scope], off the main
+ * thread, apart from the keyboards, which the input system reports on the main thread, and outlive any activity.
  */
 class AppStores private constructor(context: Context) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val route = SystemOutputRoute(context)
-    val settings = DataStorePlaySettingsStore(DataStorePlaySettingsStore.dataStore(context, scope), route.route, scope)
+    val settings = DataStorePlaySettingsStore(DataStorePlaySettingsStore.dataStore(context, scope, route), route.route, scope)
     private val documents = DocumentSongLibrary(context, scope)
     val model = DownloadingChartModelStore(context, scope, InstallEvents { event, phase, detail ->
         Journal.record(event, phase, detail, durable = true)
@@ -42,6 +44,7 @@ class AppStores private constructor(context: Context) {
     val charts = RuntimeChartMaker(context, scope, documents, model, chartStore, RuntimeChartMaker.lowMemory(context))
     val songs = ChartedSongLibrary(documents, chartStore.songIds, scope) { charts.forget(it) }
     val playAudio = PlayAudioCache()
+    val keyboards = ConnectedKeyboards(context, settings.settings.map { it.keys }, scope)
 
     companion object {
         @Volatile

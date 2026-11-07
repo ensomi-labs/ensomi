@@ -9,14 +9,26 @@ data class OutputDevice(val type: Int, val productName: String)
 enum class OutputKind { SPEAKER, WIRED, USB, BLUETOOTH, HEARING_AID, HDMI, OTHER }
 
 /**
- * The output the audio offset is kept for, and which one play would use now. Each device is keyed by its type and
- * product name, so a given pair of Bluetooth headphones keeps its own offset, apart from the speaker and from other
- * headphones. Until play has an `AudioTrack` to ask (plan step 6), the output is the media route Android picks by
- * default: Bluetooth, then wired or USB, then HDMI, then the speaker.
+ * Outputs, and which one play would use now. Each device is keyed by its type and product name, so a given pair of
+ * Bluetooth headphones is apart from the speaker and from other headphones; 0.1.x kept an audio offset under each key,
+ * which the latency slots took over (latency.md, Storage and migration). Until a game's `AudioTrack` says where it
+ * plays, the output is the media route Android picks by default: Bluetooth, then wired or USB, then HDMI, then the
+ * speaker.
  */
 object OutputRoutes {
-    /** The key an offset is kept under: the type's name and the product name, such as `bluetooth-a2dp/WH-1000XM4`. */
+    /** The type's name and the product name, such as `bluetooth-a2dp/WH-1000XM4`. */
     fun key(device: OutputDevice): String = "${typeName(device.type)}/${device.productName.trim()}"
+
+    /** The device [key] names, or null for a key not made by [key]. */
+    fun device(key: String): OutputDevice? {
+        val slash = key.indexOf('/')
+        if (slash < 0) return null
+        val name = key.substring(0, slash)
+        val type = TYPE_NAMES.entries.firstOrNull { it.value == name }?.key
+            ?: name.removePrefix("type-").takeIf { name.startsWith("type-") }?.toIntOrNull()
+            ?: return null
+        return OutputDevice(type, key.substring(slash + 1))
+    }
 
     fun kind(type: Int): OutputKind = when (type) {
         AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> OutputKind.SPEAKER
@@ -50,25 +62,26 @@ object OutputRoutes {
         OutputKind.OTHER -> null
     }
 
-    private fun typeName(type: Int): String = when (type) {
-        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
-        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired-headset"
-        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired-headphones"
-        AudioDeviceInfo.TYPE_LINE_ANALOG -> "line-analog"
-        AudioDeviceInfo.TYPE_LINE_DIGITAL -> "line-digital"
-        AudioDeviceInfo.TYPE_AUX_LINE -> "aux-line"
-        AudioDeviceInfo.TYPE_DOCK -> "dock"
-        AudioDeviceInfo.TYPE_USB_HEADSET -> "usb-headset"
-        AudioDeviceInfo.TYPE_USB_DEVICE -> "usb-device"
-        AudioDeviceInfo.TYPE_USB_ACCESSORY -> "usb-accessory"
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth-a2dp"
-        AudioDeviceInfo.TYPE_BLE_HEADSET -> "ble-headset"
-        AudioDeviceInfo.TYPE_BLE_SPEAKER -> "ble-speaker"
-        AudioDeviceInfo.TYPE_BLE_BROADCAST -> "ble-broadcast"
-        AudioDeviceInfo.TYPE_HEARING_AID -> "hearing-aid"
-        AudioDeviceInfo.TYPE_HDMI -> "hdmi"
-        AudioDeviceInfo.TYPE_HDMI_ARC -> "hdmi-arc"
-        AudioDeviceInfo.TYPE_HDMI_EARC -> "hdmi-earc"
-        else -> "type-$type"
-    }
+    private fun typeName(type: Int): String = TYPE_NAMES[type] ?: "type-$type"
+
+    private val TYPE_NAMES = mapOf(
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER to "speaker",
+        AudioDeviceInfo.TYPE_WIRED_HEADSET to "wired-headset",
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES to "wired-headphones",
+        AudioDeviceInfo.TYPE_LINE_ANALOG to "line-analog",
+        AudioDeviceInfo.TYPE_LINE_DIGITAL to "line-digital",
+        AudioDeviceInfo.TYPE_AUX_LINE to "aux-line",
+        AudioDeviceInfo.TYPE_DOCK to "dock",
+        AudioDeviceInfo.TYPE_USB_HEADSET to "usb-headset",
+        AudioDeviceInfo.TYPE_USB_DEVICE to "usb-device",
+        AudioDeviceInfo.TYPE_USB_ACCESSORY to "usb-accessory",
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP to "bluetooth-a2dp",
+        AudioDeviceInfo.TYPE_BLE_HEADSET to "ble-headset",
+        AudioDeviceInfo.TYPE_BLE_SPEAKER to "ble-speaker",
+        AudioDeviceInfo.TYPE_BLE_BROADCAST to "ble-broadcast",
+        AudioDeviceInfo.TYPE_HEARING_AID to "hearing-aid",
+        AudioDeviceInfo.TYPE_HDMI to "hdmi",
+        AudioDeviceInfo.TYPE_HDMI_ARC to "hdmi-arc",
+        AudioDeviceInfo.TYPE_HDMI_EARC to "hdmi-earc",
+    )
 }

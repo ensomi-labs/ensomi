@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import android.view.HapticFeedbackConstants
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,8 +52,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.ensomi.android.R
-import io.ensomi.android.settings.OutputRoute
+import io.ensomi.android.keyboard.HardwareKeyHandler
+import io.ensomi.android.keyboard.KeepInputMethodAway
+import io.ensomi.android.keyboard.Keyboards
+import io.ensomi.android.settings.Latency
 import io.ensomi.android.settings.PlaySettings
+import io.ensomi.android.settings.latencySlotLabel
 import io.ensomi.android.ui.ActionButton
 import io.ensomi.android.ui.DarkSystemBars
 import io.ensomi.android.ui.theme.Brand
@@ -62,19 +67,30 @@ import kotlin.math.abs
 
 /**
  * The end of a game, in the game's dark presentation: accuracy, the judgement counts in words and colour, the longest
- * combo, how early or late the hits were, and the runtime's suggested audio offset change.
+ * combo, how early or late the hits were, and the runtime's suggested change, offered for the active audio latency slot
+ * until latency.md's step L4 removes it.
+ *
+ * Lane keys do nothing here, their downs, repeats and ups all taken, so a key pressed as the results appear never
+ * presses Play again (keyboard.md, O4); nor does a Pause key other than Escape. Enter, Space when no lane has it, and
+ * Escape, which is Back unless a lane has it, go on as on any screen. The window is no input method target, as in play.
  */
 @Composable
 fun ResultsScreen(
     result: PlayResult,
     settings: PlaySettings,
-    route: OutputRoute,
+    keyboards: Keyboards,
     onChange: ((PlaySettings) -> PlaySettings) -> Unit,
     onPlayAgain: () -> Unit,
     onDone: () -> Unit,
 ) {
     GameTheme {
         DarkSystemBars()
+        KeepInputMethodAway()
+        // Nothing plays here: lane keys only find their lanes, and a release goes nowhere.
+        val keys = remember(settings.keys, keyboards) {
+            GameKeys(KeyLanes(settings.keys, keyboards::keys, LaneSender({ 0L }) {}))
+        }
+        HardwareKeyHandler { event -> keys.handle(KeyInput.of(event), GameKeys.State.RESULTS) == GameKeys.Action.TAKE }
         Box(Modifier.fillMaxSize().background(Brand.Plum), contentAlignment = Alignment.TopCenter) {
             // Wider than tall (the game's landscape, which the results keep): the score on the left, the timing on the
             // right, each scrolling on its own if it must, and the actions held at the bottom right, on the first screen.
@@ -151,12 +167,15 @@ fun ResultsScreen(
                     val adjustment = result.suggestedAdjustmentMs
                     if (adjustment != null && abs(adjustment) >= MIN_SUGGESTION_MS) {
                         Panel {
-                            // The game was played at the offset the output had when the results opened.
-                            val playedAt = rememberSaveable(route.key) { settings.audioOffsetMs }
-                            val proposed = (playedAt + adjustment).coerceIn(PlaySettings.OFFSETS)
-                            if (settings.audioOffsetMs == proposed) {
+                            // The game was played at the active slot's value when the results opened. The runtime
+                            // suggests a change of the audio offset, whose sign the latency has the other way round.
+                            val active = settings.audioLatency.active
+                            val slot = latencySlotLabel(active, settings.audioLatency.slots[active])
+                            val playedAt = rememberSaveable(active) { settings.audioLatencyMs }
+                            val proposed = (playedAt - adjustment).coerceIn(Latency.RANGE)
+                            if (settings.audioLatencyMs == proposed) {
                                 Text(
-                                    stringResource(R.string.results_offset_used, route.name, PlaySettings.formatOffset(proposed)),
+                                    stringResource(R.string.results_offset_used, slot, PlaySettings.formatOffset(proposed)),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = Brand.Text,
                                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
@@ -165,8 +184,8 @@ fun ResultsScreen(
                                 Text(
                                     stringResource(
                                         R.string.results_offset_suggestion,
-                                        route.name,
-                                        PlaySettings.formatOffset(settings.audioOffsetMs),
+                                        slot,
+                                        PlaySettings.formatOffset(settings.audioLatencyMs),
                                         PlaySettings.formatOffset(proposed),
                                     ),
                                     style = MaterialTheme.typography.bodyMedium,
@@ -175,7 +194,7 @@ fun ResultsScreen(
                                 val view = LocalView.current
                                 TextButton(
                                     onClick = {
-                                        onChange { it.copy(audioOffsetMs = proposed) }
+                                        onChange { it.withAudioLatencyMs(proposed) }
                                         view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                                     },
                                 ) {
