@@ -1,11 +1,13 @@
-# Ensomi for Android: latency slots and one calibration screen (proposed)
+# Ensomi for Android: latency slots and one calibration screen (accepted)
 
-This is a proposed design. It is not built. It was written against `dev/android` at `8a09ddf`, the shipped
-`android-v0.1.3`, from the owner's decisions of 2026-11-07. It replaces decision 6 of the keyboard proposal
-([keyboard.md](keyboard.md#timing)) and changes timing for touch play as well as for keys. Once it is accepted and
-built, its screens fold into [design.md](design.md), its timing into [gameplay.md](gameplay.md), its steps into
-[plan.md](plan.md) and its checks into [phone-checks.md](phone-checks.md); [What changes once
-built](#what-changes-once-built) lists the passages. Until then those documents describe the app as it is.
+This design is not built. It was written against `dev/android` at `8a09ddf`, the shipped `android-v0.1.3`, from the
+owner's decisions of 2026-11-07, and accepted by the owner the same day, every open question decided as recommended,
+with one amendment to which methods count as live ([Open questions, decided](#open-questions-decided-owner-2026-11-07)).
+It replaces decision 6 of the keyboard proposal ([keyboard.md](keyboard.md#timing)) and changes timing for touch play
+as well as for keys. Once it is built, its screens fold into [design.md](design.md), its timing into
+[gameplay.md](gameplay.md), its steps into [plan.md](plan.md) and its checks into [phone-checks.md](phone-checks.md);
+[What changes once built](#what-changes-once-built) lists the passages. Until then those documents describe the app as
+it is.
 
 Claims about today's app are read from its code at `8a09ddf`; claims about the runtime from ensomi-runtime at
 `d090374`, the commit the 0.1.3 build links (README, plan.md "0.1.3 integration"). Nothing here was run on a device.
@@ -18,9 +20,8 @@ In our words:
   never asked for. Slot 0 is active by default, and the player chooses the active slot by hand. The output device
   chooses nothing: the audio offset kept per output goes.
 - **Input latency slots.** Three, numbered 0 to 2, 0 ms by default, names optional. Each input method, touch and
-  keyboard, uses one slot; both methods are live in the same game, and every keyboard shares the keyboard's slot. By
-  default touch uses slot 0 and the keyboard slot 1: this is the main thread's reading of the owner's answers and is
-  to be confirmed ([O1](#open)).
+  keyboard, uses one slot; both methods play in the same game, and every keyboard shares the keyboard's slot. By
+  default touch uses slot 0 and the keyboard slot 1 ([O1](#open-questions-decided-owner-2026-11-07)).
 - **What an input latency holds.** The device's delay and the player's own habit, such as always pressing early. It
   applies to the event times of its method's presses and releases.
 - **No visual offset.** The audio slot lines the picture up with the sound; the input slot lines the hits up.
@@ -38,8 +39,9 @@ In our words:
 
 1. **The picture meets the sound with one value per output.** A note crosses the line as its sound is heard once the
    slot the player keeps for that output is set. No second value is needed for the picture.
-2. **Each way of pressing is judged on time.** Touch and keys each have their own input latency and are both live in
-   one game, with no input judged late because the other method's latency differs.
+2. **Each way of pressing is judged on time.** Touch and keys each have their own input latency and both play in one
+   game, with no input judged late because the other method's latency differs, save the first presses of a method that
+   joins a game with a larger latency ([Live methods](#where-the-input-latency-is-applied)).
 3. **The player is in charge.** Nothing chooses a slot or applies a value. Calibration asks for no order, shows what
    each change does as it is made and keeps every change.
 4. **A game keeps its latencies from start to end,** as it keeps its offsets now: the session never moves back in time.
@@ -133,7 +135,7 @@ With A the game's audio latency and I[m] the input latency of method m:
 gameplayMs = songMs(now) − A
 renderMs   = songMs(expectedPresentation) − A
 inputMs    = songMs(eventTime) − A − I[method]
-inputClock = gameplayMs − max(I[m] over the live methods), never moving back
+inputClock = gameplayMs − max(I[m] over the live methods, 0 before any), never moving back
 each frame: deliver the queued inputs with inputMs ≤ inputClock, in inputMs order (then sequence),
             then advance(inputClock − 100)
 ```
@@ -167,15 +169,19 @@ be judged late. Holding every input until the gameplay time less the largest liv
 delivers them in chart-time order, as long as each is handled within the allowance; advancing to the input clock less
 100 ms keeps the allowance as it is.
 
-**The cost.** While the live methods' latencies differ, the hits of the method with the smaller latency are decided,
-and their flares and words shown, later by the difference. Lane lights do not wait: they follow `recordInput` on UI
-time. Misses show up to 100 ms plus the largest latency after they fall due, instead of 100 ms. With both methods on
-one slot nothing waits.
+**The cost.** Only a game in which both methods have pressed pays it. While their latencies differ, the hits of the
+method with the smaller latency are decided, and their flares and words shown, later by the difference. Lane lights do
+not wait: they follow `recordInput` on UI time. Misses show up to 100 ms plus the largest live latency after they fall
+due, instead of 100 ms. A player using only keys, or only touch, never waits, and with both methods on one slot nothing
+waits.
 
-**Live methods.** Touch always; the keyboard while one is connected ([keyboard.md, Who is
-connected](keyboard.md#keyboards-coming-and-going)). A keyboard that connects mid-game with a larger latency makes the
-input clock hold for the difference, since it never moves back; a key press in that moment can be late, and is
-counted.
+**Live methods** (the owner's amendment, 2026-11-07). A method counts as live only once it has pressed in this game,
+touch included; a keyboard being connected does not make it live ([keyboard.md, Who is
+connected](keyboard.md#keyboards-coming-and-going)). Before the first press of a game the input clock is the gameplay
+time. A player using only keys, or only touch, has one live method, so each input is delivered as soon as its own
+latency allows and nothing waits for the other method. When a second method first presses with a larger latency, the
+input clock holds for the difference, since it never moves back; that press, and any of that method made within the
+difference of it, can be late, and is counted. A second method with a smaller latency changes nothing.
 
 **Ranges.** Both kinds go from −300 to +300 ms in 1 ms steps, today's offset range.
 
@@ -327,8 +333,9 @@ judging as before. A 0.1.x build that reads a new file ignores the new objects a
 ## Diagnostics
 
 - **`EnsomiPlay`** at the start of a game: "Latency for this game: audio slot 1 +142 ms; touch slot 0 +8 ms; keyboard
-  slot 1 +30 ms; live: touch, keyboard", in place of "Audio offset for this game". At game over: hits timed per method,
-  with their averages. Slots are numbers; names are never logged.
+  slot 1 +30 ms", in place of "Audio offset for this game"; each method's first press, when it becomes live, with the
+  input clock's hold if it made one. At game over: the methods that pressed, and hits timed per method, with their
+  averages. Slots are numbers; names are never logged.
 - **`EnsomiCalibration`**: each press (its event time, method, slot and the runtime's error), each change of a value
   (kind, slot, old and new), and the time of click 0, as now, so a check can recompute the errors.
 - The touch, key, clock and frame logs keep raw times and need nothing new. Latency adds no journal event and no
@@ -376,8 +383,10 @@ new form.
   output, the fourth dropped, the old fields not written again; a round trip keeps everything.
 - `PlayTimingTest`, on the controller's arithmetic as plain functions: today's formulas at I = 0 and A = −audioOffset;
   two methods 30 ms apart with inputs interleaved and handled within the allowance give no late input and chart-time
-  order; the input clock holds, and never goes back, when the keyboard becomes live mid-game; the watermark is the input
-  clock less 100 ms; an input across a pause keeps its song time.
+  order; a method is live only from its first press, touch included, so a game by one method alone never waits for
+  the other's latency; the input clock holds, and never goes back, when the keyboard first presses mid-game with a
+  larger latency, and that press is counted late when an earlier touch passed it; the watermark is the input clock less
+  100 ms; an input across a pause keeps its song time.
 - `CalibrationReadingsTest`: the last 16 hits per method; rebasing after a change of A or of I; the average.
 - `PlayResultTest`: averages per method; no suggestion.
 - `CalibrationTapsTest` keeps `errorMs` and `median` and drops `suggestionMs`.
@@ -425,31 +434,34 @@ or a permission.
 | L4 | Results and pause: the suggestion removed, the slots line, the per-method averages; the pause panel's line | Captures; a game by `input tap` to its results | 5 | L1; O4, O6 |
 | L5 | design.md, gameplay.md, plan.md and phone-checks.md updated as [What changes once built](#what-changes-once-built) lists | — | — | L1–L4 |
 
-## Open
+## Open questions, decided (owner, 2026-11-07)
 
-1. **O1. The default methods' slots.** (a) Touch on input slot 0, the keyboard on input slot 1, as the main thread
-   read the owner's answers. (b) Both on slot 0 until the player separates them. **Recommendation: (a), to be
-   confirmed:** keys and touch differ by their own delay, and separate slots keep a keyboard's value from moving touch.
+The owner took every recommendation below, and amended which methods count as live for the input clock ([Live
+methods](#where-the-input-latency-is-applied)). Each item keeps its options for the record.
+
+1. **O1. The default methods' slots.** (a) Touch on input slot 0, the keyboard on input slot 1. (b) Both on slot 0
+   until the player separates them. **Decided: (a).** Keys and touch differ by their own delay, and separate slots keep
+   a keyboard's value from moving touch.
 2. **O2. The sign.** (a) Latency: positive is later, for the sound and for presses. (b) Today's audio offset sign, and
-   an input offset added to chart time. **Recommendation: (a).** The owner calls them latency slots, the common cases
+   an input offset added to chart time. **Decided: (a).** The owner calls them latency slots, the common cases
    (Bluetooth sound, any input) come out positive, and "late hits, raise it" reads plainly. Testers' values change sign
    on the update, which the migration does for them.
 3. **O3. Which input slot the calibration edits.** (a) An explicit choice, Touch or Keyboard, with that method's slot;
    the readings count that method's presses, and every press is judged with its own method's slot. (b) The method that
-   pressed last. **Recommendation: (a).** With every change kept at once, a stray tap while setting the keyboard's
+   pressed last. **Decided: (a).** With every change kept at once, a stray tap while setting the keyboard's
    value must not switch the slot under the slider.
 4. **O4. The pause panel after a change of output.** (a) A line naming the slot the game keeps. (b) The line and a slot
-   choice on the panel, used from Restart and the next game. **Recommendation: (a).** Settings stays out of a game, and
+   choice on the panel, used from Restart and the next game. **Decided: (a).** Settings stays out of a game, and
    the panel stays small; the hint in Settings and the calibration names the output when the player chooses.
 5. **O5. Testers' offsets.** (a) Carried over as [Storage and migration](#storage-and-migration) says, so touch play on
-   each carried output is as it was. (b) Every slot starts at 0, and testers calibrate again. **Recommendation: (a).**
+   each carried output is as it was. (b) Every slot starts at 0, and testers calibrate again. **Decided: (a).**
    It costs one pure function and its test, and it keeps a tester's game the same across the update.
 6. **O6. What Results add.** (a) The slots line, and the averages per method when both methods hit notes. (b) Only
-   today's overall average. **Recommendation: (a).** The input slots are per method, so the per-method average is the
+   today's overall average. **Decided: (a).** The input slots are per method, so the per-method average is the
    number a player would move; the slots line says which slot that is.
 
-Settled here rather than asked, each for the reason given above: the input clock and which methods count as live; the
-ranges; the calibration chart with a note on each click and every press counting for its lane; the readings as the
+Settled here rather than asked, each for the reason given above: the input clock (which methods count as live is the
+owner's amendment, [Live methods](#where-the-input-latency-is-applied)); the ranges; the calibration chart with a note on each click and every press counting for its lane; the readings as the
 average of the last 16; the audio slot chosen in calibration being the active slot; Listen & Play keeping its trim.
 
 ## Sources

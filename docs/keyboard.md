@@ -1,11 +1,13 @@
-# Ensomi for Android: hardware keyboard play (proposed)
+# Ensomi for Android: hardware keyboard play (accepted)
 
-This is a proposed design for issue [#29](https://github.com/ensomi-labs/ensomi/issues/29), Bluetooth keyboard input. It
-is not built. It was written against `dev/android` at `8a09ddf`, the shipped `android-v0.1.3`, and revised after the
-owner's decisions of 2026-11-07 ([Decided](#decided-owner-2026-11-07)). Once it is accepted and built, its screens fold
-into [design.md](design.md), its input path into [gameplay.md](gameplay.md), its steps into [plan.md](plan.md) and its
-checklist rows into [phone-checks.md](phone-checks.md). Until then those documents describe the app as it is. Timing
-for keys, and for touch beside them, is a proposal of its own, [latency.md](latency.md): input latency slots per input
+This is the design for issue [#29](https://github.com/ensomi-labs/ensomi/issues/29), Bluetooth keyboard input. It was
+written against `dev/android` at `8a09ddf`, the shipped `android-v0.1.3`, revised after the owner's decisions of
+2026-11-07 ([Decided](#decided-owner-2026-11-07)) and accepted by the owner the same day, every open question decided as
+recommended, with two amendments ([Open questions, decided](#open-questions-decided-owner-2026-11-07)). It is built step
+by step ([Build plan](#build-plan)). Once it is built, its screens fold into [design.md](design.md), its input path into
+[gameplay.md](gameplay.md), its steps into [plan.md](plan.md) and its checklist rows into
+[phone-checks.md](phone-checks.md). Until then those documents describe the app as it is. Timing for keys, and for touch
+beside them, is a design of its own, [latency.md](latency.md), accepted the same day: input latency slots per input
 method, audio latency slots chosen by hand and one calibration screen.
 
 **In scope:** play with a hardware keyboard (in practice a Bluetooth keyboard on a phone or tablet), the key map and its
@@ -95,8 +97,8 @@ resumes, and its up never reaches the activity as Back on the panel that its own
 reach the focused Resume or Play again. Compose's clickable presses on a down of Enter, numeric Enter, the D-pad centre
 or Space and clicks on the matching up, and only when it saw that down itself (`Clickable.kt`, Compose Foundation
 1.12.1), so a key already held when the panel appeared does nothing, while a fresh Space would resume or start again.
-With O4's recommendation, the play screen and Results take every lane key's down, repeats and up while the panel, the
-count-in or Results show; Enter and the Pause key act there, lane keys do not.
+By O4, the play screen and Results take every lane key's down, repeats and up while the panel, the count-in or Results
+show; Enter and the Pause key act there, lane keys do not.
 
 **Space** is a key like any other in the map (O3): it may play a lane or pause, and when the map does not hold it, it
 does nothing in the game. A pause on a mis-pressed key loses the passage, so no key pauses unless the map says so.
@@ -139,9 +141,9 @@ The screen is chrome: Material 3, a top app bar with Up, one column centred at 6
    - **Clear** empties the slot.
    - A key already in another slot swaps the two (D3), and the line says so: "X now plays lane 1, and Z lane 2.";
      "Escape now plays lane 4, and / pauses."
-   - A bind that swapped nothing moves the wait to the next slot, lane 1 to 4 and then Pause, after which the wait ends,
-     as osu!lazer's ruleset key rows move on after a bind; four presses set four lanes. A swap ends the wait, so the
-     player sees what moved.
+   - A bind that swapped nothing moves the wait to the next lane, lane 1 to 4, as osu!lazer's ruleset key rows move on
+     after a bind; four presses set four lanes. The wait never moves on to Pause: it ends after lane 4, and after a bind
+     of Pause. A swap ends the wait, so the player sees what moved.
    - A key that cannot be bound leaves the wait open and says why, with a warning symbol: "Enter, Tab, Backspace and
      keys such as Shift, volume or Home can't be used here."
    - Without a keyboard the buttons show the map with US QWERTY labels and cannot wait for a key.
@@ -340,8 +342,9 @@ device and key code); the type leaves room for another kind of input, and none i
 holder holds it (D2); the press goes to the runtime with the first holder and the release with the last, as the tracker
 does for fingers now. It keeps the tracker's rules: a holder belongs to the lane it pressed until it lets go, and a
 second press of a held lane sends nothing. It adds releasing by kind of holder: all pointers on `ACTION_CANCEL` (keys
-stay held), all keys of one device when it goes. What it does at a pause is O7. It stays on the main thread, where both
-touches and keys arrive.
+stay held), all keys of one device when it goes. At a pause it keeps its holders (O7): a lane whose holders all let go
+during the pause is released at the resume, at the pause's song time. It stays on the main thread, where both touches
+and keys arrive.
 
 `LaneInput` gains a `source` (touch, keyboard, the autoplay's script). It chooses the input latency the controller
 applies ([latency.md](latency.md#where-the-input-latency-is-applied)) and goes into the logs. Each source has its own
@@ -385,8 +388,9 @@ targets 36 with testers on Android 16.
 an `AppGraph` interface (so the screenshot scenarios can fake a keyboard), registers an
 `InputManager.InputDeviceListener` on the main looper and keeps a `StateFlow` of keyboards: id, name, vendor and product
 id, whether external (`isExternal()`, API 29, true for USB and Bluetooth devices unless their configuration says
-otherwise), and the resolved positions. It needs no permission; pairing is Android's. The controller reads it to know
-whether the keyboard counts as a live method ([latency.md](latency.md#where-the-input-latency-is-applied)).
+otherwise), and the resolved positions. It needs no permission; pairing is Android's. Timing does not read it: an input
+method counts as live in a game only once it has pressed there, whatever is connected
+([latency.md](latency.md#where-the-input-latency-is-applied)).
 
 **A disconnect** is the player's to deal with (D4): the game goes on. Android releases the device's held keys itself:
 removing a device resets its keyboard mapper, which sends an `ACTION_UP` with `FLAG_CANCELED` for every key still down
@@ -455,17 +459,21 @@ light in frame; the frames from contact to light compare the whole paths, displa
 
 - **A key held as the game starts** (pressed before the playfield existed): its down was never seen, so its up releases
   nothing and is ignored.
-- **Keys held at a pause** (O7). Today pausing clears the app's holders without telling the session:
-  `PlayfieldView.pause` calls `tracker.cancel()` and enqueues nothing, inputs are dropped while the clock is paused, and
-  a paused frame clears the queue. Read from the runtime at `d090374` (`crates/gameplay/src/session.rs`, `feedback.rs`),
-  not run: the session keeps that lane pressed and a hold in it held; the feedback keeps the lane lit at its hold
+- **Keys held at a pause** (O7, decided (c)). Holders survive the pause, for touch and keys alike: the app tells the
+  session nothing until the resume, then releases the lanes whose holders all let go meanwhile, at the pause's song
+  time, since the clock was frozen; a finger or key still held at the resume holds its lane, and its hold, through the
+  count-in and on. Presses during the pause are dropped as now. Keys make a held lane at a pause common, since a player
+  often holds a lane key while reaching for the Pause key; the keyboard path follows whatever touch does. Until the
+  pause step is built ([Build plan](#build-plan)), pausing clears the app's holders without telling the session:
+  `PlayfieldView.pause` forgets them and enqueues nothing, inputs are dropped while the clock is paused, and a paused
+  frame clears the queue. Read from the runtime at `d090374` (`crates/gameplay/src/session.rs`, `feedback.rs`), not
+  run: the session keeps that lane pressed and a hold in it held; the feedback keeps the lane lit at its hold
   brightness, since its last transition is a press; a later press of the lane is an ordinary press for the session,
   which has no rule against a second press and tries the lane's next waiting note; the release after it ends the old
   hold, judged at that release; with no release the hold misses when its tail window closes, 1.5 × 200 ms after its end,
   or at the next note of the lane if that comes first. A release for a lane that holds no hold changes nothing but the
-  session's pressed flag: no event, and no count unless it is stamped before the session's clock, as for any late input.
-  Keys make a held lane at a pause common, since a player often holds a lane key while reaching for the Pause key; the
-  keyboard path follows whatever touch does.
+  session's pressed flag: no event, and no count unless it is stamped before the session's clock, as for any late
+  input.
 - **The Pause key held down**: its repeats and its up are taken, so it pauses once and never resumes by itself.
 - **A lane key pressed as the pause panel or Results appear**: taken, so it presses nothing (O4).
 - **Keys during the count-in** are dropped, as touches are, and a key held through it plays only when pressed again.
@@ -520,7 +528,8 @@ All of it is pure Kotlin on plain values, so no test builds an Android `KeyEvent
 - `LaneHoldsTest` (from `PlayfieldGeometryTest`'s tracker cases): a finger and a key on one lane give one press and one
   release; two keyboards on one key; a second press of a held lane sends nothing; `ACTION_CANCEL` releases pointers and
   leaves keys; a device's release leaves the others; an unknown holder's release is ignored; holders at a pause as O7
-  decides.
+  (c) has it, with the pause step: kept, and the lanes let go during it released at the resume, at the pause's song
+  time.
 - `KeyLanesTest`: repeats ignored; a canceled up releases; fallback, soft-keyboard and virtual-hard-key events never
   play; non-alphabetic devices pass through; a fake AZERTY layout maps the Z position to `KEYCODE_W`; the virtual
   keyboard maps every position to itself.
@@ -528,8 +537,9 @@ All of it is pure Kotlin on plain values, so no test builds an Android `KeyEvent
   taken, so a held key never toggles twice; lane keys taken on the panel, in the count-in and on Results; Escape and
   Space as O2 and O3 decide, in and out of the map; navigation keys taken in the game.
 - `KeyMapTest` (in place of the earlier `LaneKeysTest`): Z X . / and Escape by default; a bind to a key in another
-  slot swaps, with Pause too; a swap with an empty slot empties the other; Clear; the next slot waits after a bind that
-  swapped nothing; Escape binds to any slot; Enter, Tab, Backspace, modifiers, volume, function, keypad and editing keys
+  slot swaps, with Pause too; a swap with an empty slot empties the other; Clear; the next lane waits after a bind that
+  swapped nothing, lane 1 to 4, and the wait ends after lane 4 and after Pause, never moving on to Pause; a swap ends
+  the wait; Escape binds to any slot; Enter, Tab, Backspace, modifiers, volume, function, keypad and editing keys
   are refused; the completeness rule (four lanes) and the empty lanes it names; `settings.json` without `keys`, with an
   unknown name, a name in two slots or three lanes reads the default; an empty slot reads back empty; a round trip keeps
   the order.
@@ -580,9 +590,10 @@ A second keyboard, where one is at hand, goes in the notes of 17.
 Steps in the manner of [plan.md](plan.md); a step is done when `assembleDebug`, `testDebugUnitTest` and `lint` pass, its
 emulator check passes and the screenshots of the screens it touches were looked at. K3 to K6 can go in any order after
 K2. No step adds a library, a pin or a permission. latency.md's steps L1 to L5 run beside these; L1 shares K1's
-`LaneInput.source`. If O7 chooses (b) or (c), that change to pausing is a small step of its own between K1 and K2,
-since it changes touch play too: `LaneHolds` at a pause and the controller's releases at the pause or the resume, with
-`LaneHoldsTest`'s pause cases and a hold held across a pause by `emu event send` on the emulator.
+`LaneInput.source`. O7 (c) changes pausing, for touch play too, so it is a small step of its own between K1 and K2, the
+pause step: `LaneHolds` keeps its holders at a pause and notes the lanes let go during it, and the controller releases
+those at the resume, at the pause's song time, with `LaneHoldsTest`'s pause cases and a hold held across a pause by
+`emu event send` on the emulator.
 
 | Step | Builds | Emulator check | Phone check | Needs |
 | --- | --- | --- | --- | --- |
@@ -719,34 +730,39 @@ keyboard page's usages.
 - **D7. Timing.** [latency.md](latency.md)'s model, in place of the first version's decision 6: every keyboard shares
   one input latency slot, apart from touch's, and the audio latency slot is chosen by hand.
 
-### Open
+### Open questions, decided (owner, 2026-11-07)
+
+The owner took every recommendation below, with two amendments. **Moving on after a bind** stops at the lanes: a bind
+that swapped nothing moves the wait to the next lane, lane 1 to 4, never on to Pause, and the wait ends after lane 4
+([Settings › Keyboard](#settings--keyboard), item 2). **Live methods** for the input clock: an input method counts as
+live only once it has pressed in the game, touch included ([latency.md, Live
+methods](latency.md#where-the-input-latency-is-applied)). Each item keeps its options for the record.
 
 1. **O1. The Pause key on the pause panel and in the count-in.** (a) On the panel it resumes with the count-in; in the
    count-in it returns to the panel; each on a fresh down only, as the keys table requires anyway. (b) It does nothing
-   there; Resume is by Enter or touch. **Recommendation: (a).** One key toggles pause, as in most PC rhythm games, and
-   with Escape as the Pause key tier 2's "Esc closes modals" reads the same way. Back keeps leaving.
+   there; Resume is by Enter or touch. **Decided: (a).** One key toggles pause, as in most PC rhythm games, and with
+   Escape as the Pause key tier 2's "Esc closes modals" reads the same way. Back keeps leaving.
 2. **O2. Escape when the map does not hold it.** (a) Outside the game, Escape is Back on every screen but the Library,
    Results included; in the game (playing, count-in, paused) it is taken and does nothing, so only the map's keys act
    there. (b) Escape is Back everywhere, the game included: it pauses in play, as Back does, and leaves the game from
    the panel. (c) Escape is never Back, Android's default for a full-screen activity; Meta + Escape remains the system's
-   Back. **Recommendation: (a).** With the default map nothing changes, since Escape is the Pause key. With Pause on
-   another key, an Escape pressed from habit cannot leave a game from its panel. Back itself, from the keyboard's Back
-   key, Meta + Escape or the gesture, keeps its meaning everywhere.
+   Back. **Decided: (a).** With the default map nothing changes, since Escape is the Pause key. With Pause on another
+   key, an Escape pressed from habit cannot leave a game from its panel. Back itself, from the keyboard's Back key,
+   Meta + Escape or the gesture, keeps its meaning everywhere.
 3. **O3. Space.** (a) An ordinary key for any slot, a lane or Pause; when the map does not hold it, it does nothing in
    the game, and outside the game it activates the focused control as Compose does. (b) Space pauses when the map does
-   not hold it, as tier 2 suggests for media playback. **Recommendation: (a).** The map decides what keys do in the
-   game, and a pause on a mis-press costs the passage.
+   not hold it, as tier 2 suggests for media playback. **Decided: (a).** The map decides what keys do in the game, and
+   a pause on a mis-press costs the passage.
 4. **O4. Lane keys and the buttons on the pause panel and Results.** (a) Lane keys never act there: the play screen and
    Results take every lane key's down, repeats and up while the panel, the count-in or Results show; Enter, Space when
    the map does not hold it, and the Pause key act. (b) A short guard: for 500 ms after the panel or Results appear,
    every key but Back is taken. (c) No first focus after a key: Resume and Play again take focus only after Tab or an
-   arrow. **Recommendation: (a).** It closes the gap for every lane key at any moment rather than within a guessed
-   500 ms, keeps Enter's first focus, and costs nothing, since lane keys mean nothing else there.
+   arrow. **Decided: (a).** It closes the gap for every lane key at any moment rather than within a guessed 500 ms,
+   keeps Enter's first focus, and costs nothing, since lane keys mean nothing else there.
 5. **O5. Where the map lives** (the first version's decision 7). (a) The Keyboard screen of its own from one Settings
-   row. (b) The five slots inline in Settings, with the test in a dialog. **Recommendation: (a), which D5 settles in our
-   reading:** one place for five slots, the capture, the empty lane's notice and the test. It stays listed only in case
-   the owner wants the slots inline.
-6. **O6. Labels on the caps.** (a) While a keyboard is connected. (b) Always. (c) A setting. **Recommendation: (a).**
+   row. (b) The five slots inline in Settings, with the test in a dialog. **Decided: (a),** as D5 already implied: one
+   place for five slots, the capture, the empty lane's notice and the test.
+6. **O6. Labels on the caps.** (a) While a keyboard is connected. (b) Always. (c) A setting. **Decided: (a).**
 7. **O7. Lanes held at a pause, for touch and keys alike.** What the runtime does with today's behaviour is in
    [Edge cases](#edge-cases), read from its source at `d090374`. (a) As now: the app forgets its holders and the session
    is not told, so the lane stays lit through the pause and after it, the session keeps a held hold, a press and release
@@ -756,24 +772,23 @@ keyboard page's usages.
    judged at the pause. (c) Holders survive the pause: the app keeps them and tells the session nothing until the
    resume, when it releases the lanes whose holders let go meanwhile, at the pause's song time, since the clock was
    frozen; a key still held at the resume holds its lane, and its hold, through the count-in and on. Presses during the
-   pause are dropped as now. **Recommendation: (c),** with (b) as the simpler fallback. Both end the lit lane of (a) and
-   its accidental rescue of a hold; (c) also keeps a hold for a player who pauses with the other hand and keeps holding,
+   pause are dropped as now. **Decided: (c).** (b) was the simpler fallback. Both end the lit lane of (a) and its
+   accidental rescue of a hold; (c) also keeps a hold for a player who pauses with the other hand and keeps holding,
    which keys make common, at the cost of a list of released lanes in `LaneHolds`. It changes touch play too, and is a
-   small step of its own before K2.
+   small step of its own between K1 and K2, the pause step ([Build plan](#build-plan)).
 8. **O8. Keyboards in Diagnostics.** (a) Vendor and product ids, whether external, and keyboard type in the journal and
-   the summary, never names. (b) Nothing outside the debug logs. **Recommendation: (a)**: it tells a bad keyboard from
-   a bad build without personal data.
+   the summary, never names. (b) Nothing outside the debug logs. **Decided: (a)**: it tells a bad keyboard from a bad
+   build without personal data.
 9. **O9. Which keys a slot may take.** (a) One table for all five slots: the letters, the main block's digits and
    punctuation, Space, the four arrows and Escape. Escape binds like any key while a slot waits, so Back, Cancel or a
    touch elsewhere cancels the wait, not Escape as the Swift guidelines have it; a lane may take Escape, and Pause then
    takes that lane's key by the swap. (b) Escape for Pause only: a lane refuses Escape with the reason, and Escape
-   cancels a lane's wait. **Recommendation: (a).** One map, one rule; and after the player moves Pause elsewhere, Escape
-   can be bound back to it without Use default keys.
+   cancels a lane's wait. **Decided: (a).** One map, one rule; and after the player moves Pause elsewhere, Escape can
+   be bound back to it without Use default keys.
 10. **O10. Empty lanes and leaving with one.** A lane empties by Clear (osu!lazer's "Clear binding") or by a swap with
     an empty slot. (a) As osu!lazer: leaving is never blocked and the map is kept as edited; a game plays an empty lane
     by touch only; the red mark and the notice stay on the Keyboard screen and the Settings row until the lane has a
     key. (b) The last complete map plays until the edited one is complete again; the screen keeps the incomplete one.
-    (c) Leaving the screen is blocked until every lane has a key. **Recommendation: (a).** osu!lazer stores what the
-    player set, blocks nothing and plays an action without a key as unpressable; with touch live, an empty lane still
-    plays. (b) would make the screen and the game disagree, and (c) would hold the player on a screen that Back should
-    leave.
+    (c) Leaving the screen is blocked until every lane has a key. **Decided: (a).** osu!lazer stores what the player
+    set, blocks nothing and plays an action without a key as unpressable; with touch live, an empty lane still plays.
+    (b) would make the screen and the game disagree, and (c) would hold the player on a screen that Back should leave.
