@@ -37,7 +37,7 @@ Ensomi never operates another app. It uses no Accessibility service, reads no ot
     background.
   - `prototype/`: the screenshot scenarios (`Prototype.kt`), opened by a launch extra in debuggable builds, and the
     fakes behind them (`Fakes.kt`); a normal launch uses the app's stores. The feature packages hold no samples,
-    apart from the sample charts the playfield preview and the calibration's picture step play (`SampleCharts`).
+    apart from the sample charts the playfield preview and the calibration's field play (`SampleCharts`).
   - `keyboard/`: hardware keyboards (`docs/keyboard.md`). `HardwareKeys` routes the activity's key events to the
     screens that take them, newest first, through a `CompositionLocal`, and keeps the game's screens' window from being
     an input method target; `ConnectedKeyboards` keeps the keyboards and each one's resolved key map. The key map is

@@ -12,7 +12,7 @@ folder the player picks, either way only the pinned package and checked file by 
 the device by the runtime from the player's songs, the last one per song kept; play: the chart on the song's own sound,
 timed by the `AudioTrack`'s timestamps, on a `SurfaceView` render thread with the runtime judging, in landscape with
 the lanes leaning back by default (the orientation and the lean are settings with a live preview); and the timing
-calibration, on a click track through the same output and clock. Diagnostics, under Settings or the launcher icon’s long-press shortcut,
+calibration, one screen where the game's renderer judges presses on a click track through the same output and clock. Diagnostics, under Settings or the launcher icon’s long-press shortcut,
 shares device facts, recovered process exits and a bounded event journal. Loading the runtime is an optional self-test. The design is in [docs/design.md](docs/design.md) and
 [docs/gameplay.md](docs/gameplay.md), the order of work in [docs/plan.md](docs/plan.md).
 
@@ -89,7 +89,7 @@ MainActivity is `singleTask`: debug launch extras are read only when a new insta
 
 A few scenarios use the app's own stores instead of fakes: `results-stored` (the sample results, whose Use writes the
 active audio latency slot), `play-stored` (the sample game, no sound, played with the stored input latency slots),
-`settings-stored`, `calibration-stored` and `calibration-picture-stored` (the stored latency slots on those screens).
+`settings-stored` and `calibration-stored` (the stored latency slots on those screens).
 
 Games take keys from a hardware keyboard (docs/keyboard.md): Z X . / play the lanes and Escape pauses by default.
 `play-keyboard`, `play-portrait-keyboard` and `play-paused-keyboard` connect a sample keyboard, so the caps carry the
@@ -106,11 +106,16 @@ no keyboard), `keyboard-pause-empty`, `keyboard-testing` and `keyboard-limit`; i
 (docs/latency.md): `settings-latency` (named and unnamed slots), `settings-latency-plain`, `settings-latency-shared` (both
 methods on one slot, values at the ends of the range), `settings-latency-long` (names of 24 characters),
 `settings-latency-name` and `settings-latency-name-empty` (the name dialog), and `settings-stored-sound` over the stores.
+The calibration (docs/latency.md, Timing calibration): `calibration` (no hits yet), `calibration-hits` (touch and key
+hits on named slots, Touch chosen), `calibration-keyboard` (a sample keyboard connected, so Keyboard is chosen and the
+caps carry its keys), `calibration-long` (names of 24 characters), `calibration-shared` (both methods on one slot, values
+past the sliders), `calibration-paused` and `calibration-name` (an audio slot's name dialog). Taps on the field and
+`adb shell input keyevent` lane keys press on them too, on a click track without sound.
 
 `scripts/capture-prototype.sh OUT_DIR` captures all of them in light and dark mode, the game at each lean in both
 orientations, some screens at 200 % font size and with the phone in landscape, the UI hierarchy of every kind of
-screen, Settings › Keyboard and the latency slots in every state (its `keyboard-settings` and `latency-settings`
-groups), the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
+screen, Settings › Keyboard, the latency slots and the calibration in every state (its `keyboard-settings`,
+`latency-settings` and `calibration` groups), the frame pacing at each lean (below), records the playfield preview and, with `REAL_SONG="<title>"` set,
 plays a real game of that song (it needs a stored chart) by the autoplay to its results, on the one booted emulator or
 device.
 
@@ -178,8 +183,12 @@ asked for and got, then every two seconds the frames drawn, the vsyncs missed, t
 deadline, and the time in the runtime and in drawing (average, most, and the whole frame's work at the median and the
 99th percentile). Debug and checks builds log keyboards under `EnsomiKeys`, by vendor and product id and never by name:
 each connected or removed, those connected at each start, each `MainActivity` created and each configuration change it
-took in place (a keyboard's comes as `keyboard`, `keyboardHidden` and `navigation`). The calibration logs under `EnsomiCalibration`: the output the clicks play on, every five seconds
-when click 0 was heard on the `System.nanoTime()` clock, and each tap's event time, song time, error and the suggestion.
+took in place (a keyboard's comes as `keyboard`, `keyboardHidden` and `navigation`). The calibration logs under `EnsomiCalibration`: the output the clicks play on;
+when click 0 was heard on the `System.nanoTime()` clock, whenever that moves and every five seconds; each press with its
+method, the input and audio slots and values it was judged with, its event time, song and chart time, its error from
+the nearest click on the song's clock and the runtime's error and tier (or no hit, and why a press is no reading); each
+change of a value or a slot (by number, never a name); the method whose slot is edited; pauses, Clear hits and a new
+output starting the readings over.
 A debuggable build takes these extras on a normal launch, for checks on an emulator:
 
 ```sh
