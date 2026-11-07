@@ -33,6 +33,8 @@ data class PlaySettings(
     /** Share of the window's width at the line; null follows the window's default. Kept per orientation. */
     val landscapeWidth: Float? = null,
     val portraitWidth: Float? = null,
+    /** The key map, valid as read; a game reads it when it starts (keyboard.md). */
+    val keys: KeyMap = KeyMap.DEFAULT,
 ) {
     /** How long a note takes to fall from the top of the playfield to the line. */
     val scrollTimeMs: Double get() = scrollTimeMs(scrollSpeed)

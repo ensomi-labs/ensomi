@@ -10,7 +10,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * The settings as they are kept on the device: [PlaySettings] with the audio offset of every output that has one,
- * by [OutputRoutes.key]. An output without one plays at 0 ms.
+ * by [OutputRoutes.key]. An output without one plays at 0 ms. A file from before the key map has no [keys] and reads
+ * the default map.
  */
 @Serializable
 data class StoredSettings(
@@ -24,6 +25,7 @@ data class StoredSettings(
     val portraitLean: Int = PlaySettings.DEFAULT_PORTRAIT_LEAN,
     val landscapeWidth: Float? = null,
     val portraitWidth: Float? = null,
+    val keys: StoredKeys = StoredKeys(),
 ) {
     /** The settings play reads on the output keyed [outputKey], each value within its range. */
     fun forOutput(outputKey: String): PlaySettings = PlaySettings(
@@ -37,6 +39,7 @@ data class StoredSettings(
         portraitLean = portraitLean.coerceIn(PlaySettings.LEANS),
         landscapeWidth = landscapeWidth?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
         portraitWidth = portraitWidth?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
+        keys = keys.toMap(),
     )
 
     /** These settings changed to [settings], whose audio offset is the one of the output keyed [outputKey]. */
@@ -55,6 +58,7 @@ data class StoredSettings(
         portraitLean = settings.portraitLean,
         landscapeWidth = settings.landscapeWidth,
         portraitWidth = settings.portraitWidth,
+        keys = StoredKeys.of(settings.keys),
     )
 
     companion object {
@@ -64,6 +68,30 @@ data class StoredSettings(
             encodeDefaults = true
             coerceInputValues = true
         }
+    }
+}
+
+/**
+ * The key map as the settings file keeps it (keyboard.md, Storage): each slot's key by its name in [KeyTable], null for
+ * a slot without one, `{"lanes": ["Z", "X", "PERIOD", "SLASH"], "pause": "ESCAPE"}` by default. A map that names a key
+ * not in the table, names one key in two slots or has other than four lanes reads as the default map; an empty slot
+ * stays empty.
+ */
+@Serializable
+data class StoredKeys(
+    val lanes: List<String?> = KeyMap.DEFAULT.lanes.map { it?.name },
+    val pause: String? = KeyMap.DEFAULT.pause?.name,
+) {
+    fun toMap(): KeyMap {
+        if (lanes.size != KeySlot.LANES.size) return KeyMap.DEFAULT
+        val keys = (lanes + pause).map { name -> name?.let { KeyTable.named(it) ?: return KeyMap.DEFAULT } }
+        val bound = keys.filterNotNull()
+        if (bound.size != bound.toSet().size) return KeyMap.DEFAULT
+        return KeyMap(keys.subList(0, KeySlot.LANES.size).toList(), keys[KeySlot.PAUSE.ordinal])
+    }
+
+    companion object {
+        fun of(map: KeyMap) = StoredKeys(map.lanes.map { it?.name }, map.pause?.name)
     }
 }
 
