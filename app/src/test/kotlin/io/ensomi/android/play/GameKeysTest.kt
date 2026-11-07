@@ -122,6 +122,15 @@ class GameKeysTest {
     }
 
     @Test
+    fun beforeTheGameExistsLaneKeysPressNothingAndThePauseKeyStillActs() {
+        val game = keys()
+        assertEquals(Action.TAKE, game.handle(down(KeyEvent.KEYCODE_Z), State.PLAYING, canPress = false))
+        assertEquals(Action.TAKE, game.handle(up(KeyEvent.KEYCODE_Z), State.PLAYING, canPress = false))
+        assertTrue(sent.isEmpty())
+        assertEquals(Action.PAUSE, game.handle(down(KeyEvent.KEYCODE_ESCAPE), State.PLAYING, canPress = false))
+    }
+
+    @Test
     fun inTheCountInLaneKeysDoNothing() {
         val game = keys()
         assertEquals(Action.TAKE to Action.TAKE, game.tap(KeyEvent.KEYCODE_PERIOD, State.COUNT_IN))

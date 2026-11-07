@@ -37,7 +37,11 @@ class GameKeys(private val lanes: KeyLanes) {
     /** The Pause key whose down acted, until its up. */
     private var spent: LaneHolder.Key? = null
 
-    fun handle(key: KeyInput, state: State): Action {
+    /**
+     * What [key] does in [state]. A lane key's down presses its lane only while playing and [canPress], which the
+     * playfield clears until its game exists.
+     */
+    fun handle(key: KeyInput, state: State, canPress: Boolean = true): Action {
         spent?.let { pause ->
             if (pause.deviceId == key.deviceId && pause.keyCode == key.keyCode) {
                 if (key.action == KeyEvent.ACTION_UP) spent = null
@@ -49,7 +53,7 @@ class GameKeys(private val lanes: KeyLanes) {
         return when {
             slot == KeySlot.PAUSE -> pauseKey(key, state)
             lane != null -> {
-                lanes.play(key, lane, pressing = state == State.PLAYING)
+                lanes.play(key, lane, pressing = state == State.PLAYING && canPress)
                 Action.TAKE
             }
             !lanes.isKeyboard(key.deviceId) -> Action.PASS_ON

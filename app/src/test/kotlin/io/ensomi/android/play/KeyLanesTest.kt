@@ -180,6 +180,60 @@ class KeyLanesTest {
         assertEquals(listOf(LaneInput(2, press = false, 200_000_000, 6, InputSource.KEYBOARD)), sent.drop(2))
     }
 
+    @Test
+    fun theMostLaneKeysHeldTogetherCountsLanesWhateverPressed() {
+        val keys = lanes()
+        assertEquals(0, keys.mostLaneKeysHeld)
+        keys.input(down(KeyEvent.KEYCODE_Z))
+        keys.input(down(KeyEvent.KEYCODE_X))
+        keys.input(down(KeyEvent.KEYCODE_X, repeat = 1))
+        assertEquals("A repeat is the same key", 2, keys.mostLaneKeysHeld)
+        keys.input(up(KeyEvent.KEYCODE_Z))
+        keys.input(down(KeyEvent.KEYCODE_W, FRENCH))
+        keys.input(down(KeyEvent.KEYCODE_Z))
+        assertEquals("Two keyboards on lane 1 are one lane", 2, keys.mostLaneKeysHeld)
+        // On the pause panel a down presses nothing, but the keyboard reported the key held.
+        assertFalse(keys.play(down(KeyEvent.KEYCODE_PERIOD), 2, pressing = false))
+        keys.play(down(KeyEvent.KEYCODE_SLASH), 3, pressing = false)
+        assertEquals(4, keys.mostLaneKeysHeld)
+        for (code in listOf(KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_PERIOD, KeyEvent.KEYCODE_SLASH)) keys.input(up(code))
+        keys.input(down(KeyEvent.KEYCODE_Z))
+        assertEquals("The most so far", 4, keys.mostLaneKeysHeld)
+    }
+
+    @Test
+    fun aKeyboardGoingReleasesItsKeysAndItsCanceledUpsFindNothingHeld() {
+        val keys = lanes()
+        keys.input(down(KeyEvent.KEYCODE_Z, US, timeMs = 100))
+        keys.input(down(KeyEvent.KEYCODE_X, FRENCH, timeMs = 110))
+        sender.press(LaneHolder.Pointer(0), 2, 120_000_000)
+        keys.keyboardGone(US, eventNanos = 500_000_000)
+        assertEquals(LaneInput(0, press = false, 500_000_000, 4, InputSource.KEYBOARD), sent.last())
+        assertFalse(
+            "Android's canceled up after the removal releases nothing again",
+            keys.input(up(KeyEvent.KEYCODE_Z, US, flags = KeyEvent.FLAG_CANCELED, timeMs = 510)),
+        )
+        assertEquals(4, sent.size)
+        keys.input(down(KeyEvent.KEYCODE_PERIOD, FRENCH))
+        keys.input(down(KeyEvent.KEYCODE_SLASH, FRENCH))
+        assertEquals("The key gone counts no more: X . / are three lanes", 3, keys.mostLaneKeysHeld)
+        assertTrue("The other keyboard's key holds on", keys.input(up(KeyEvent.KEYCODE_X, FRENCH)))
+        assertEquals("The finger and the slash key hold on", listOf(2, 3), sender.heldLanes())
+    }
+
+    @Test
+    fun anUpReleasesTheLaneItsDownPressedWhenItsKeyboardNoLongerResolves() {
+        val connected = mutableMapOf(US to KeyMap.DEFAULT.resolve { it })
+        val keys = KeyLanes(KeyMap.DEFAULT, { connected[it] }, sender)
+        assertTrue(keys.input(down(KeyEvent.KEYCODE_SLASH)))
+        // The keyboard is gone from the list before its canceled up comes.
+        connected.remove(US)
+        assertEquals(KeySlot.LANE_4, keys.slotOf(up(KeyEvent.KEYCODE_SLASH, flags = KeyEvent.FLAG_CANCELED)))
+        assertTrue(keys.input(up(KeyEvent.KEYCODE_SLASH, flags = KeyEvent.FLAG_CANCELED, timeMs = 300)))
+        assertEquals(listOf(3 to true, 3 to false), sent.map { it.lane to it.press })
+        assertNull("Its next down plays nothing", keys.slotOf(down(KeyEvent.KEYCODE_SLASH)))
+    }
+
     private companion object {
         const val FRENCH = 3
         const val US = 4

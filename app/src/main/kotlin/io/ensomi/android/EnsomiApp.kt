@@ -222,6 +222,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                             loop = key.loop,
                             onFinished = { result -> backStack.replaceLast(Results(key.songId, result)) },
                             onQuit = { backStack.removeLastOrNull() },
+                            keyboards = graph.keyboards,
                             autoPauseAfterMs = scenario.pauseAfterMs,
                             holdCountdown = scenario.holdCountdown,
                         )
@@ -231,6 +232,7 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     ResultsScreen(
                         result = key.result,
                         settings = settings,
+                        keyboards = graph.keyboards,
                         onChange = graph.settings::update,
                         onPlayAgain = { backStack.replaceLast(Play(key.songId, loop = false)) },
                         onDone = { backStack.removeLastOrNull() },
@@ -285,7 +287,13 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                 }
                 entry<Diagnostics> { DiagnosticsScreen(onBack = { backStack.removeLastOrNull() }) }
                 entry<RecognitionSession> {
-                    RecognitionEntry.Content(settings = settings, waitingForLibrary = quietFor != RecognitionSession, modelReady = model.ready, onBack = { backStack.removeLastOrNull() })
+                    RecognitionEntry.Content(
+                        settings = settings,
+                        keyboards = graph.keyboards,
+                        waitingForLibrary = quietFor != RecognitionSession,
+                        modelReady = model.ready,
+                        onBack = { backStack.removeLastOrNull() },
+                    )
                 }
             },
         )
@@ -324,6 +332,7 @@ private fun SongPlay(
                 loop = false,
                 onFinished = { result -> backStack.replaceLast(Results(song.id, result.copy(detail = resultDetail))) },
                 onQuit = { backStack.removeLastOrNull() },
+                keyboards = graph.keyboards,
                 game = SongGame(
                     chart = current.chart,
                     audio = current.audio,

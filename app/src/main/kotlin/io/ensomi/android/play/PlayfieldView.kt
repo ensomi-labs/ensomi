@@ -14,11 +14,17 @@ import android.os.Trace
 import android.util.AttributeSet
 import android.util.Log
 import android.view.Choreographer
+import android.view.KeyCharacterMap
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import io.ensomi.android.R
+import io.ensomi.android.keyboard.Keyboard
+import io.ensomi.android.settings.KeyMap
+import io.ensomi.android.settings.KeySlot
+import io.ensomi.android.settings.ResolvedKeys
 import java.io.File
 import java.util.Arrays
 import java.util.Locale
@@ -31,7 +37,9 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * The playfield: a `SurfaceView` drawn by its own render thread, which `Choreographer.postVsyncCallback` paces once
  * per display refresh. Touches arrive here on the main thread, are stamped with their event time and lane, and go to
- * the render thread's queue; the render thread judges and draws.
+ * the render thread's queue; the render thread judges and draws. So do keys, which the play screen hands on from the
+ * activity ([keyInput]): touch through the lanes at the line, keys through [KeyLanes] and [GameKeys], both through one
+ * [LaneSender] (keyboard.md, Lanes from several sources).
  *
  * [controllerFactory] runs on the render thread when the surface is first created. The controller, and the game with
  * it, outlives the surface: when the app goes to the background the surface goes and the render thread with it, and
@@ -126,13 +134,45 @@ class PlayfieldView @JvmOverloads constructor(
     var touchLogFile: File? = null
     private val touchLog = TouchLog()
 
+    /** Debug and checks builds: where every key event the playfield saw goes, as CSV, when it closes ([KeyLog]). */
+    var keyLogFile: File? = null
+    private val keyLog = KeyLog()
+
+    /**
+     * The lanes' key labels on the caps, lane 1 to 4 (null for a lane without a key), while a keyboard is connected;
+     * null while none is (keyboard.md, O6). The render thread reads it each frame.
+     */
+    @Volatile
+    var capLabels: List<String?>? = null
+
     private val mutableHud = MutableStateFlow(PlayHud())
     val hud: StateFlow<PlayHud> = mutableHud.asStateFlow()
 
     private val sequence = AtomicLong()
 
+    /** Whether a key event's handling sent a press or release, for the key log. */
+    private var keySent = false
+
     /** Every press and release of the playfield's lanes goes through here, numbered from [sequence], to the game. */
-    private val lanes = LaneSender({ sequence.incrementAndGet() }) { input -> controller?.enqueue(input) }
+    private val lanes = LaneSender({ sequence.incrementAndGet() }) { input ->
+        keySent = true
+        controller?.enqueue(input)
+    }
+
+    /** The game's keys: its map, read as it starts, and the connected keyboards' ([useKeys]). */
+    private var keyLanes: KeyLanes? = null
+    private var gameKeys: GameKeys? = null
+    private var keyNames = ""
+
+    /** Each device whose keys or connection this game saw, by its index in the logs: 0, 1, … (−1 for injected keys). */
+    private val deviceIndex = HashMap<Int, Int>()
+    private val keyboardsSeen = LinkedHashMap<Int, Keyboard>()
+
+    /** The keyboards connected now, as this game last heard. */
+    private val present = HashSet<Int>()
+
+    /** Whether keys `adb shell input` injected came. */
+    private var injected = false
 
     private val renderer = PlayfieldRenderer(playfieldWords(context))
 
@@ -179,6 +219,72 @@ class PlayfieldView @JvmOverloads constructor(
 
     /** Lanes as the logs number them, 1 to 4. */
     private fun numbered(lanes: List<Int>): String = lanes.joinToString(prefix = "[", postfix = "]") { "${it + 1}" }
+
+    /**
+     * The game takes keys from now on, with [map], the key map as the game starts, and [keyboards], each connected
+     * keyboard's map by device id, read per key without asking the system.
+     */
+    fun useKeys(map: KeyMap, keyboards: (deviceId: Int) -> ResolvedKeys?) {
+        val keys = KeyLanes(map, keyboards, lanes)
+        keyLanes = keys
+        gameKeys = GameKeys(keys)
+        keyNames = KeySlot.entries.joinToString(" ") { slot -> "${slot.name.lowercase()} ${map[slot]?.name ?: "none"}" }
+    }
+
+    /**
+     * A key event from the activity, on the main thread, as the play screen in [state] hands it on: what it does
+     * ([GameKeys]). A lane key's press or release, if any, has gone to the game. Its time is the event's own,
+     * `getEventTime()` in milliseconds (keyboard.md, To the render thread).
+     */
+    fun keyInput(event: KeyEvent, state: GameKeys.State): GameKeys.Action {
+        val keys = gameKeys ?: return GameKeys.Action.PASS_ON
+        val key = KeyInput.of(event)
+        if (key.deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD) injected = true
+        val slot = keyLanes?.slotOf(key)
+        keySent = false
+        val action = keys.handle(key, state, canPress = controller != null)
+        if (keyLogFile != null) {
+            keyLog.record(
+                key, System.nanoTime(), event.scanCode, indexOf(key.deviceId),
+                lane = slot?.lane ?: if (slot == KeySlot.PAUSE) KeyLog.PAUSE else KeyLog.NO_LANE,
+                sent = keySent,
+            )
+        }
+        return action
+    }
+
+    /**
+     * The keyboards connected now, [connected], each time they change: those gone let go of their lanes, at once
+     * (Android's canceled ups for them may come before or after), and the game goes on (keyboard.md, D4).
+     */
+    fun keyboardsChanged(connected: List<Keyboard>) {
+        val now = System.nanoTime()
+        val ids = connected.map { it.deviceId }.toSet()
+        for (gone in present.filter { it !in ids }) {
+            present -= gone
+            keyLanes?.keyboardGone(gone, now)
+        }
+        for (keyboard in connected) {
+            indexOf(keyboard.deviceId)
+            keyboardsSeen[keyboard.deviceId] = keyboard
+            present += keyboard.deviceId
+        }
+    }
+
+    private fun indexOf(deviceId: Int): Int =
+        if (deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD) -1 else deviceIndex.getOrPut(deviceId) { deviceIndex.size }
+
+    /**
+     * For the game's log at game over (keyboard.md, Diagnostics): the most lane keys held together, the keyboards seen
+     * by their index, vendor and product id (never their names), whether injected keys came, and the map by key names.
+     */
+    fun keysSummary(): String {
+        val keyboards = keyboardsSeen.values.joinToString { keyboard ->
+            "${indexOf(keyboard.deviceId)} ${keyboard.ids}${if (keyboard.external) " external" else " built in"}"
+        }.ifEmpty { "none" }
+        return "Keys: most lane keys held together ${keyLanes?.mostLaneKeysHeld ?: 0} of 4; keyboards seen: $keyboards; " +
+            "injected keys: ${if (injected) "yes" else "no"}; map: $keyNames"
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -239,6 +345,8 @@ class PlayfieldView @JvmOverloads constructor(
         controller = null
         val logFile = frameLogFile
         val touchFile = touchLogFile
+        val keyFile = keyLogFile
+        val mostHeld = keyLanes?.mostLaneKeysHeld ?: 0
         Thread({
             closing.close()
             if (logFile != null) {
@@ -248,6 +356,10 @@ class PlayfieldView @JvmOverloads constructor(
             if (touchFile != null) {
                 Log.i(TAG, "Touches: ${touchLog.summary()}")
                 runCatching { touchFile.writeText(touchLog.csv()) }
+            }
+            if (keyFile != null) {
+                Log.i(TAG, "Keys: ${keyLog.summary()} most_lane_keys_held=$mostHeld")
+                runCatching { keyFile.writeText(keyLog.csv()) }
             }
         }, "EnsomiPlayfieldClose").start()
     }
@@ -686,6 +798,72 @@ class TouchLog {
             append(data[i]).append(',').append(data[i + 1]).append(',').append(data[i + 2]).append(',').append(data[i + 3]).append('\n')
             i += 4
         }
+    }
+}
+
+/**
+ * Debug and checks builds: every key event a playfield saw, kept across surfaces and written as CSV when it closes
+ * (keyboard.md, Diagnostics): `action,eventNanos,handledNanos,keyCode,scanCode,repeat,flags,keyboard,lane,sent`, the
+ * `KeyEvent` action, its own time and when the playfield handled it, its key and scan code, repeat count and flags, the
+ * device by its index in the game (−1 for injected keys), the lane its slot plays ([NO_LANE] outside the lanes,
+ * [PAUSE] for the Pause key) and 1 when a press or release went to the queue. Devices are numbered, never named.
+ * [summary] gives the handling delay, as the touch log does.
+ */
+class KeyLog {
+    private var data = LongArray(COLUMNS * 1_024)
+    private var size = 0
+
+    @Synchronized
+    fun record(key: KeyInput, handledNanos: Long, scanCode: Int, keyboard: Int, lane: Int, sent: Boolean) {
+        if (size + COLUMNS > data.size) data = data.copyOf(data.size * 2)
+        data[size] = key.action.toLong()
+        data[size + 1] = key.eventTimeMs * 1_000_000
+        data[size + 2] = handledNanos
+        data[size + 3] = key.keyCode.toLong()
+        data[size + 4] = scanCode.toLong()
+        data[size + 5] = key.repeatCount.toLong()
+        data[size + 6] = key.flags.toLong()
+        data[size + 7] = keyboard.toLong()
+        data[size + 8] = lane.toLong()
+        data[size + 9] = if (sent) 1 else 0
+        size += COLUMNS
+    }
+
+    /** Key events, and the delay from each event to its handling at the median, the 99th percentile and the most. */
+    @Synchronized
+    fun summary(): String {
+        val events = size / COLUMNS
+        if (events == 0) return "events=0"
+        val delays = LongArray(events) { data[it * COLUMNS + 2] - data[it * COLUMNS + 1] }.also { it.sort() }
+        var sent = 0
+        for (i in 0 until events) if (data[i * COLUMNS + 9] == 1L) sent++
+        return String.format(
+            Locale.ROOT,
+            "events=%d sent=%d handling_p50=%.2fms handling_p99=%.2fms handling_max=%.2fms",
+            events, sent, delays[(events - 1) / 2] / 1e6, delays[((events - 1) * 99) / 100] / 1e6, delays[events - 1] / 1e6,
+        )
+    }
+
+    @Synchronized
+    fun csv(): String = buildString {
+        append("action,eventNanos,handledNanos,keyCode,scanCode,repeat,flags,keyboard,lane,sent\n")
+        var i = 0
+        while (i < size) {
+            for (column in 0 until COLUMNS) {
+                if (column > 0) append(',')
+                append(data[i + column])
+            }
+            append('\n')
+            i += COLUMNS
+        }
+    }
+
+    companion object {
+        private const val COLUMNS = 10
+
+        /** The lane column of a key outside the lanes, and of the Pause key. */
+        const val NO_LANE = -1
+        const val PAUSE = -2
     }
 }
 

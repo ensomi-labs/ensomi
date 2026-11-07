@@ -69,6 +69,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.ensomi.android.R
+import io.ensomi.android.keyboard.KeepInputMethodAway
 import io.ensomi.android.play.PlayController
 import io.ensomi.android.play.PlayTiming
 import io.ensomi.android.play.PlayfieldView
@@ -113,6 +114,8 @@ fun CalibrationScreen(
 ) {
     GameTheme {
         DarkSystemBars()
+        // The game's screens keep the input method away from keys (keyboard.md, D6).
+        KeepInputMethodAway()
         val context = LocalContext.current
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         val playingOn by rememberUpdatedState(onPlayingOn)
