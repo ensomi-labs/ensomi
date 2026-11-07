@@ -170,6 +170,12 @@ class PlayController(
     private val onClose: () -> Unit = {},
     /** Draws song progress; the calibration's field, on a click track without end, has none. */
     private val progress: Boolean = true,
+    /**
+     * The calibration's field: a note left alone passes without its Miss, its word or its lane's tint, when no method
+     * has pressed for this long before it is decided, so that lining the notes up by sight and sound alone is not shown
+     * as failing. The session judges it all the same. Null in a game, where every miss shows.
+     */
+    private val quietMissesAfterMs: Double? = null,
     /** The preview's autoplay; empty in play. */
     private val script: List<ScriptedInput> = emptyList(),
     /** Starts again at the end instead of finishing: the preview from Settings and the calibration. */
@@ -234,6 +240,9 @@ class PlayController(
     private val hitsBySource = IntArray(InputSource.entries.size)
     private val hitErrorBySource = DoubleArray(InputSource.entries.size)
     private val lateBySource = IntArray(InputSource.entries.size)
+
+    /** The chart time of the latest press of a method, for [quietMissesAfterMs]. */
+    private var lastPressMs = Double.NEGATIVE_INFINITY
 
     /** The session's clock as the runtime keeps it, the largest watermark or input time given: for late inputs. */
     private var sessionClockMs = Double.NEGATIVE_INFINITY
@@ -364,6 +373,7 @@ class PlayController(
             input, clock.eventSongTimeMs(input.eventNanos), chartMs, frameNanos, inputs.inputClockMs, late,
         )
         val phase = if (input.press) Phase.PRESS else Phase.RELEASE
+        if (input.press && input.source.isMethod) lastPressMs = chartMs
         val events = session.input(InputEvent(input.lane.toUInt(), phase, chartMs))
         record(events, chartMs, input.source)
         visibleWindow.invalidate()
@@ -434,11 +444,14 @@ class PlayController(
     /** Events a session call at [chartMs] decided; [source] is that of the input it took, null for an advance. */
     private fun record(events: List<JudgementEvent>, chartMs: Double, source: InputSource?) {
         if (events.isEmpty()) return
-        anyJudgement = true
         scoreChanged = true
-        feedbackChanged = true
         visibleWindow.invalidate()
-        feedback.recordJudgementEvents(events, chartMs)
+        val quiet = source == null && quietMissesAfterMs?.let { chartMs - lastPressMs > it } == true
+        if (!quiet) {
+            anyJudgement = true
+            feedbackChanged = true
+            feedback.recordJudgementEvents(events, chartMs)
+        }
         events.forEach { event ->
             val offset = event.offsetMs ?: return@forEach
             hitOffsets += offset
@@ -507,6 +520,7 @@ class PlayController(
         hitErrorBySource.fill(0.0)
         lateBySource.fill(0)
         sessionClockMs = Double.NEGATIVE_INFINITY
+        lastPressMs = Double.NEGATIVE_INFINITY
         resumeReleased = 0
         inputs.clear()
         visibleWindow.invalidate()

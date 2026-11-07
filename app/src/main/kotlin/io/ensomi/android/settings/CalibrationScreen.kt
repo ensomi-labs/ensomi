@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -355,9 +356,11 @@ private class LoggedSettings(var settings: PlaySettings)
 
 /**
  * The play renderer on the clicks' own clock, judging: a note in the calibration's lane on every click, with the
- * player's lean and lane width, the game's flares, judgement word and lane lights. A finger anywhere on it, or any lane
- * key ([PlayfieldView.calibrationKeyInput]), presses that lane, so each press reaches [onPress] through the same sender,
- * queue and input latency slots as in play. While [paused], it says so over its frozen picture, and a tap goes on.
+ * player's lean and lane width, the game's flares, judgement word, combo and lane lights, and no song progress. A finger
+ * anywhere on it, or any lane key ([PlayfieldView.calibrationKeyInput]), presses that lane, so each press reaches
+ * [onPress] through the same sender, queue and input latency slots as in play. A note left alone while nothing is
+ * pressed passes without a Miss ([QUIET_MISSES_AFTER_MS]). While [paused], it says so over its frozen picture, and a tap
+ * goes on.
  */
 @Composable
 private fun CalibrationField(
@@ -397,6 +400,7 @@ private fun CalibrationField(
                                     ownsClock = false,
                                     timing = PlayTiming.game(settings),
                                     progress = false,
+                                    quietMissesAfterMs = QUIET_MISSES_AFTER_MS,
                                     leadInMs = 0.0,
                                     hud = hud,
                                     nextSequence = sequence,
@@ -462,17 +466,29 @@ private fun Readings(
     val shown = readings.shown(method, latencyMs)
     val average = readings.averageMs(method, latencyMs)
     val line = readingLine(method, shown.size, average)
+    val text: @Composable (Modifier) -> Unit = { textModifier ->
+        Text(
+            line,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Brand.Text,
+            modifier = textModifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+    val clear: @Composable () -> Unit = {
+        TextButton(onClick = onClear, enabled = readings.hits.isNotEmpty()) {
+            Text(stringResource(R.string.calibration_clear))
+        }
+    }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         HitStrip(shown, average, method)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                line,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Brand.Text,
-                modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
-            )
-            TextButton(onClick = onClear, enabled = readings.hits.isNotEmpty()) {
-                Text(stringResource(R.string.calibration_clear))
+        // At large text sizes the line takes the width and Clear hits goes under it, at its end.
+        if (LocalDensity.current.fontScale > LARGE_TEXT_SCALE) {
+            text(Modifier.fillMaxWidth().padding(top = 4.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) { clear() }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                text(Modifier.weight(1f))
+                clear()
             }
         }
     }
@@ -562,9 +578,9 @@ private fun HitStrip(errorsMs: List<Double>, averageMs: Double?, method: InputSo
 }
 
 /**
- * The help, then the two values, each on a panel: Audio latency with its slots, its value with steps and a slider, Name
+ * The two values, each on a panel, then the help: Audio latency with its slots, its value with steps and a slider, Name
  * and the output the clicks play on; Input latency with the method chosen, the slot that method uses, its value with
- * steps and a slider, and Name. Every change goes straight to the settings store.
+ * steps and a slider, and Name. Each panel says what its value moves. Every change goes straight to the settings store.
  */
 @Composable
 private fun Controls(
@@ -577,7 +593,6 @@ private fun Controls(
     modifier: Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.calibration_help), style = MaterialTheme.typography.bodyMedium, color = Brand.MutedText)
         Panel {
             val active = settings.audioLatency.active
             val what = stringResource(R.string.settings_audio_latency_value, latencySlotLabel(active, settings.audioLatency.slots[active]))
@@ -619,6 +634,14 @@ private fun Controls(
                 onSlot = { chosen -> onChange { CalibrationEdits.inputSlot(it, method, chosen) } },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = PANEL_TEXT_INSET).padding(top = 4.dp),
             )
+            // Both methods on one slot: what moves here moves the other method's presses too.
+            if (settings.inputLatency.touch == settings.inputLatency.keyboard) {
+                PanelNote(
+                    stringResource(
+                        if (method == InputSource.KEYBOARD) R.string.calibration_shared_with_touch else R.string.calibration_shared_with_keyboard,
+                    ),
+                )
+            }
             LatencyStepper(
                 value = CalibrationEdits.inputMs(settings, method),
                 what = what,
@@ -637,6 +660,13 @@ private fun Controls(
             )
             PanelNote(stringResource(R.string.calibration_input_help))
         }
+        // What the screen is for, in full, after the values it is about.
+        Text(
+            stringResource(R.string.calibration_help),
+            style = MaterialTheme.typography.bodyMedium,
+            color = Brand.MutedText,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
     }
 }
 
@@ -709,6 +739,15 @@ private val STRIP_HEIGHT = 32.dp
 
 /** The strip's reach each way, in milliseconds. */
 private const val STRIP_MS = 100.0
+
+/**
+ * A note left alone shows no Miss when nothing was pressed for this long before it: three clicks. Watching the notes
+ * by sight and sound alone is not failing; once the player presses, the field shows every judgement as play does.
+ */
+private const val QUIET_MISSES_AFTER_MS = 1_500.0
+
+/** Font scales above this are large text, where the readings' line takes the whole width. */
+private const val LARGE_TEXT_SCALE = 1.3f
 
 /** The plum laid over the field's frozen picture while the clicks are paused. */
 private const val PAUSED_SCRIM = 0.72f

@@ -406,8 +406,11 @@
     <!-- TalkBack: the field is one element; a double tap on it is not timed, so it is no press. -->
     <string name="calibration_field_description">Calibration field: a note falls onto the line with each click.</string>
     <string name="calibration_paused">Paused. Tap the field or press a key to go on.</string>
-    <string name="calibration_audio_help">Moves the notes and the judging together.</string>
-    <string name="calibration_input_help">Moves only when your presses count. Raise it if your hits are late, lower it if they are early.</string>
+    <string name="calibration_audio_help">Line each note up with its click. It moves the notes and the judging together.</string>
+    <string name="calibration_input_help">Gather your hits at the middle: raise it if they are late, lower it if they are early. It moves only your presses.</string>
+    <!-- Both methods on one input slot: a change to it is a change to the other method's too. -->
+    <string name="calibration_shared_with_keyboard">The keyboard uses this slot too, so it changes with it.</string>
+    <string name="calibration_shared_with_touch">Touch uses this slot too, so it changes with it.</string>
     <string name="calibration_clear">Clear hits</string>
     <!-- The readings line, for the method chosen: "Last 16 touch hits: 6 ms early on average." -->
     <string name="calibration_no_touch_hits">No touch hits yet. Tap the field with the clicks.</string>
@@ -422,11 +425,11 @@
     </plurals>
     <!-- "Last 16 touch hits" and where they are: "6 ms early on average". -->
     <string name="calibration_reading">%1$s: %2$s.</string>
-    <string name="calibration_early_average">%1$d ms early on average</string>
-    <string name="calibration_late_average">%1$d ms late on average</string>
+    <string name="calibration_early_average">%1$d&#160;ms early on average</string>
+    <string name="calibration_late_average">%1$d&#160;ms late on average</string>
     <string name="calibration_on_time_average">on time on average</string>
-    <string name="calibration_early">%1$d ms early</string>
-    <string name="calibration_late">%1$d ms late</string>
+    <string name="calibration_early">%1$d&#160;ms early</string>
+    <string name="calibration_late">%1$d&#160;ms late</string>
     <string name="calibration_on_time">on time</string>
     <!-- TalkBack: the strip of hits, and how far they spread: "From 12 ms early to 20 ms late". -->
     <string name="calibration_strip_touch">Your last touch hits, from early on the left to late on the right</string>
