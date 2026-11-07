@@ -1,5 +1,6 @@
 package io.ensomi.android
 
+import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.os.Bundle
@@ -57,7 +58,15 @@ class MainActivity : ComponentActivity() {
         if (debugTools) Log.i(KEYS_TAG, "Configuration changed in place: ${keyboardConfiguration(newConfig)}")
     }
 
-    /** A screen that takes keys sees them first, the newest first; what none takes goes to the views as before. */
+    /**
+     * A screen that takes keys sees them first, the newest first; what none takes goes to the views as before.
+     *
+     * `Activity.dispatchKeyEvent` is the framework's public hook "to intercept all key events before they are
+     * dispatched to the window" (keyboard.md, Where key events arrive). androidx.core's `ComponentActivity` overrides it
+     * with `@RestrictTo`, to keep its own key dispatcher to the library, and lint reports any subclass's override and
+     * super call as `RestrictedApi`. The super call keeps that dispatcher's behaviour for every key no screen takes.
+     */
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = hardwareKeys.dispatch(event) || super.dispatchKeyEvent(event)
 
     /**
