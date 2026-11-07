@@ -421,7 +421,8 @@ heads) for the output used, when it is at least 3 ms.
 
 ## What the emulator can and cannot show
 
-The arm64 AVD `ensomi-36` runs the app natively on the Mac, at 1080 × 2424 (923 × 411 dp in landscape). Headless with
+The arm64 AVD `ensomi-36-16k` runs the app natively on the Mac, at 1080 × 2424 (923 × 411 dp in landscape); the figures
+here were measured on `ensomi-36`, its 4 KB twin, since removed. Headless with
 its default renderer it draws with SwiftShader on the CPU, at 5 to 14 frames per second; started with `-gpu host` it
 draws on the Mac's GPU, and the flat portrait playfield then held 59.5 to 60 frames per second, with 0.8 to 2.9 ms
 of drawing and 1.0 to 1.5 ms of runtime calls per frame on average. The captures use the host GPU. Its recordings show
