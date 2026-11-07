@@ -365,13 +365,13 @@ class PlayController(
         visibleWindow.invalidate()
     }
 
-    /** A method's first press in this game: it is live from then on, and the input clock may hold for it. */
+    /** A method's first input in this game, its press or a release that shows it pressed: it is live from then on. */
     private fun becameLive(source: InputSource, chartMs: Double, holdMs: Double) {
         Log.i(
             TAG,
             String.format(
                 Locale.ROOT,
-                "%s is live from its first press at chart time %.1f ms, input latency %s; %s",
+                "%s is live from its first input at chart time %.1f ms, input latency %s; %s",
                 source.name.lowercase().replaceFirstChar { it.uppercase() },
                 chartMs,
                 PlaySettings.formatOffset(latencies.inputLatencyMs(source).roundToInt()),

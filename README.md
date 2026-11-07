@@ -148,7 +148,7 @@ fields out.
 
 Making charts logs under `EnsomiCharts` (each song's audio stages and each chart, with their times and the peak
 resident memory), games under `EnsomiPlay` (the latency for the game, "Latency for this game: audio slot 1 +142 ms; touch slot 0 +8 ms;
-keyboard slot 1 +30 ms", with "(no slot)" for a value no slot gave; each input method's first press and how far the
+keyboard slot 1 +30 ms", with "(no slot)" for a value no slot gave; each input method's first input and how far the
 input clock held for it; why each pause happened; at the first frame of each pause and after it the inputs delivered
 then or the lanes released at the pause's time, the lanes the session holds and the holds held in them, numbered 1 to
 4, and the late inputs so far; at game over the score, the presses by source, the methods that pressed, the hits timed

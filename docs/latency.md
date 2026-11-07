@@ -459,9 +459,13 @@ adds, where it differs, and how it bridges the screens L2 to L4 will make:
   Settings is the remedy; a migration that gave such an output a free slot of its own and made it active would avoid it.
   The move is logged under `EnsomiSettings` by slot number.
 - **The input clock** is `InputQueue`'s, as [Formulas](#formulas) and the owner's amendment say: live from a method's
-  first press, `0` before any, never moving back; the controller advances the session to it less 100 ms. The autoplay is
-  no method: it never makes the clock hold, and its script runs to the later of the gameplay time and the input clock,
-  so it is never late against a method with a negative latency. Two findings, kept as decided rather than changed:
+  first press, `0` before any, never moving back; the controller advances the session to it less 100 ms. A method's
+  first press shows as its first input of any kind: a key held in a lane a finger already holds sends no press
+  (`LaneHolds`), and if the finger lets go first, the key's release is the keyboard's first input, at the keyboard's
+  latency, so it makes the keyboard live too (build round 1's random test found a key's release late with the keyboard
+  not counted). The autoplay is no method: it never makes the clock hold, and its script runs to the later of the
+  gameplay time and the input clock, so it is never late against a method with a negative latency. Two findings, kept
+  as decided rather than changed:
   - The clock orders inputs by chart time when each is taken by the first frame after it. It does not stretch the
     allowance across methods: with the two latencies Δ apart, an input of the method with the larger latency handled
     h ms after it happened is late when an input of the other method made between Δ − h and Δ before it was handed on

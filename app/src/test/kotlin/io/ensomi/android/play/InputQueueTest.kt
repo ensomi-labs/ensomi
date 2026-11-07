@@ -169,10 +169,16 @@ class InputQueueTest {
         val latencies = timing(touchMs = 0.0, keyboardMs = 30.0)
         val pressed = BooleanArray(4)
         val order = ArrayList<Pair<Double, Boolean>>()
-        val queue = InputQueue(clock, taken = {}, deliver = { at, input ->
-            pressed[input.lane] = input.press
-            order += at to input.press
-        })
+        val joined = ArrayList<InputSource>()
+        val queue = InputQueue(
+            clock,
+            taken = {},
+            deliver = { at, input ->
+                pressed[input.lane] = input.press
+                order += at to input.press
+            },
+            becameLive = { source, _, _ -> joined += source },
+        )
         val sender = LaneSender({ ++sequence }, queue::add)
         sender.press(LaneHolder.Pointer(0), 0, 100 * ms)
         sender.press(LaneHolder.Key(3, 54), 0, 105 * ms)
@@ -182,6 +188,7 @@ class InputQueueTest {
         queue.frame(latencies.gameplayMs(clock.songTimeMs(300 * ms)!!), latencies, paused = false)
         assertEquals(listOf(100.0 to true, 100.0 to false), order)
         assertTrue("The session holds what the app holds: nothing", pressed.none { it })
+        assertEquals("The key's release shows it pressed", listOf(InputSource.TOUCH, InputSource.KEYBOARD), joined)
     }
 
     @Test
@@ -331,15 +338,19 @@ class InputQueueTest {
         val session = Session()
         val queue = InputQueue(clock, taken = {}, deliver = session::input)
         private var sequence = 0L
-        val sender = LaneSender({ ++sequence }, queue::add)
+
+        /** Each method's first input, press or release, by its event time in milliseconds, in the order they came. */
+        val firstInput = LinkedHashMap<InputSource, Double>()
+
+        val sender = LaneSender({ ++sequence }) { input ->
+            firstInput.putIfAbsent(input.source, input.eventNanos / 1e6)
+            queue.add(input)
+        }
         private var now = 0L
         private var lastEvent = 0L
         private var paused = false
         private var pausedFrame = false
         private var atPause = emptyList<Int>()
-
-        /** Each method's first press, by its event time in milliseconds, in the order they came. */
-        val firstPress = LinkedHashMap<InputSource, Long>()
 
         fun frame() {
             val gameplayMs = latencies.gameplayMs(clock.songTimeMs(now * MS)!!)
@@ -362,9 +373,7 @@ class InputQueueTest {
                     false -> LaneHolder.Key(3, 50 + random.nextInt(4))
                 }
                 when (random.nextInt(16)) {
-                    in 0..5 -> if (sender.press(holder, random.nextInt(4), lastEvent * MS)) {
-                        firstPress.putIfAbsent(holder.source, lastEvent)
-                    }
+                    in 0..5 -> sender.press(holder, random.nextInt(4), lastEvent * MS)
                     in 6..9 -> sender.release(holder, lastEvent * MS)
                     10 -> sender.releasePointers(lastEvent * MS)
                     11 -> if (!paused) {
@@ -394,15 +403,15 @@ class InputQueueTest {
         }
 
         /**
-         * The time the input clock held at for the first presses up to [eventMs], in event milliseconds less latency,
-         * the audio latency left out as it moves everything alike: at a method's first press the clock is the press's
+         * The time the input clock held at for the first inputs up to [eventMs], in event milliseconds less latency,
+         * the audio latency left out as it moves everything alike: at a method's first input the clock is that input's
          * time less the largest latency of the methods live before it (0 before any), and it never moves back, so it
          * holds there until the time less the largest live latency passes it.
          */
         fun heldAtMs(eventMs: Double): Double {
             var most: Double? = null
             var held = Double.NEGATIVE_INFINITY
-            for ((source, atMs) in firstPress) {
+            for ((source, atMs) in firstInput) {
                 if (atMs > eventMs) break
                 held = maxOf(held, atMs - (most ?: 0.0))
                 most = maxOf(most ?: Double.NEGATIVE_INFINITY, latencies.inputLatencyMs(source))
@@ -436,11 +445,12 @@ class InputQueueTest {
     /**
      * Touch and keys at different input latencies, each input taken by the first frame after it. Each lane's inputs reach
      * the session in the order sent, it holds what the app holds after every paused frame and once nothing waits, and
-     * an input is late only while the input clock holds for a method's first press, never moving back (latency.md, Live
-     * methods): when its own time, less its method's latency, is before the time the clock held at.
+     * an input is late only while the input clock holds for a method's first input, never moving back (latency.md, Live
+     * methods): when its own time, less its method's latency, is before the time the clock held at. A method's first
+     * input may be a release: a key held in a lane a finger pressed, and let go after it, sends no press.
      */
     @Test
-    fun withTwoLatenciesAnInputIsLateOnlyWhileTheInputClockHoldsForAFirstPress() {
+    fun withTwoLatenciesAnInputIsLateOnlyWhileTheInputClockHoldsForAMethodsFirstInput() {
         val random = Random(23)
         var lateSeen = 0
         repeat(300) {

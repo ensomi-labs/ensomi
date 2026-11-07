@@ -13,7 +13,9 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * ```
  *
  * and hands on those stamped at or before the input clock, in chart-time order (then sequence). A method, touch or
- * keyboard, is live once it has pressed in this game; the autoplay is no method and has no input latency. With one live
+ * keyboard, is live once it has pressed in this game, which its first input of any kind shows: a key held in a lane a
+ * finger pressed sends no press, and only a release if the finger lets go first. The autoplay is no method and has no
+ * input latency. With one live
  * method the input clock is the gameplay time less that method's latency, so its inputs are handed on in the frame that
  * takes them and nothing waits. When a second method first presses with a larger latency, the clock holds instead of
  * moving back, and that press, or one of its method's made within the difference of it, can be late. The controller
@@ -34,7 +36,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  *
  * [add] may be called from any thread, the rest only on the render thread. [taken] sees each input as a frame takes
  * it, for the lane lights; [deliver] gets each due one with its chart time, for the session; [becameLive] hears of each
- * method's first press in the game, with its chart time and how far the input clock is held then (0 for not at all).
+ * method's first input in the game, with its chart time and how far the input clock is held then (0 for not at all).
  */
 class InputQueue(
     private val clock: PlayClock,
@@ -50,7 +52,7 @@ class InputQueue(
     private val live = BooleanArray(InputSource.entries.size)
     private val joined = ArrayList<Pair<InputSource, Double>>()
 
-    /** The chart time inputs are handed on up to; it never moves back. The session advances to it less the allowance. */
+    /** The chart time inputs are handed on up to; it never moves back. The session goes to it less the allowance. */
     var inputClockMs = Double.NEGATIVE_INFINITY
         private set
 
@@ -99,7 +101,7 @@ class InputQueue(
             val chartMs = stamp(input, timing) ?: continue
             if (input.source.isMethod) {
                 if (input.lane in laneMs.indices) laneMs[input.lane] = chartMs
-                if (input.press && !live[input.source.ordinal]) {
+                if (!live[input.source.ordinal]) {
                     live[input.source.ordinal] = true
                     joined += input.source to chartMs
                 }
