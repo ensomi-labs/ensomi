@@ -31,7 +31,7 @@ class KeyRouter<E> {
      * one while an event is handed round changes the next event's order, not this one's.
      */
     fun dispatch(event: E): Boolean {
-        val now = entries.toTypedArray()
+        val now = entries.toList()
         for (i in now.indices.reversed()) if (now[i].handler(event)) return true
         return false
     }
