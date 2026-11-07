@@ -580,11 +580,12 @@ All of it is pure Kotlin on plain values, so no test builds an Android `KeyEvent
 | `adb shell dumpsys window windows` during play, the calibration and the Keyboard screen's capture | `ALT_FOCUSABLE_IM` in the app window's flags then, and not on other screens | Whether a real input method composes (checklist 20) |
 | The emulator window with "Enable keyboard input" (`hw.keyboard`) | The reviewer plays with the Mac's keyboard | Astra's headless runs |
 
-**The restart check needs a keyboard-less AVD.** `adb shell am get-config` prints the configuration's qualifiers,
-`nokeys` or `qwerty` among them. If `ensomi-36` reports `qwerty` before any HID keyboard registers (an AVD with
-`hw.keyboard` on has a keyboard of its own), registering another changes nothing and proves nothing; the check then runs
-on an AVD with `hw.keyboard = no`, which must first show `nokeys`. Whether `hid` runs from `adb shell` on these images,
-and which keyboard the AVD reports, is the first thing step K2's emulator run records.
+**The restart check needs an AVD that reports no keyboard of its own.** `adb shell am get-config` prints the
+configuration's qualifiers, `nokeys` or `qwerty` among them. An AVD with `hw.keyboard` on has a keyboard of its own, and
+then registering another changes nothing and proves nothing. So step K2's emulator run, on `ensomi-36-16k`, the only AVD,
+first records whether `ensomi-36-16k` reports `nokeys` (`adb shell am get-config`); if it reports `qwerty`, the check
+cannot prove the restart is gone, and the owner decides whether its `hw.keyboard` may change. The run also records
+whether `hid` runs from `adb shell` on that image.
 
 ### On a phone or tablet
 
@@ -741,8 +742,8 @@ keyboard page's usages.
 - The labels Android's own AZERTY and Dvorak layouts give the period and slash positions; the examples above follow the
   layouts' usual arrangement, not Android's layout files.
 - Whether a sleeping keyboard loses the key that wakes it, which depends on the keyboard.
-- Whether `hid` runs from `adb shell` on `ensomi-36` (AOSP grants the group; SELinux on the image is untested), and
-  whether that AVD reports a keyboard of its own.
+- Whether `hid` runs from `adb shell` on `ensomi-36-16k` (AOSP grants the group; SELinux on the image is untested),
+  and whether that AVD reports a keyboard of its own.
 - Whether Android's dispatcher adds its own repeats to keys injected by `adb shell input`.
 - With a release for a lane it does not hold, the runtime's behaviour is read from its source at `d090374` (Edge
   cases), not run. Lanes and a hold held across a pause were run on the emulator, in the sample game only
