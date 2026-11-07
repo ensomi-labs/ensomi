@@ -324,15 +324,23 @@ copies them into its `PlayTiming` when it starts.
 **Migration** (O5, option a), once, when a file has no `audioLatency`:
 
 - **Touch's slot 0** takes the old visual offset V; slots 1 and 2 stay at 0.
-- **The audio slots** take the outputs that have a stored offset, in the order the file lists them (the order their
-  offsets were first set), up to three: slot k gets `−(A_o + V)` for its output o and is named as the screens name that
-  output now ("Phone speaker", "WH-1000XM4"). With no stored output and V not 0, slot 0 gets −V, the latency of an
-  output without an offset. Outputs past the third are dropped; the release notes say so.
-- **The active slot** is the slot of the output Android would play on at that first start, or 0.
+- **The output in use,** the one Android would play on at that first start, always takes an audio slot and is the
+  active one, whether it has a stored offset or not and wherever the file lists it.
+- **The other outputs that have a stored offset** fill the remaining slots in the order the file lists them (the order
+  their offsets were first set), up to three slots in all. The slots keep the file's order, with the output in use after
+  the stored ones when it has none. Outputs that find no slot are dropped; the release notes say so.
+- **Each slot** gets `−(A_o + V)` for its output o, `A_o` being 0 for the output in use without a stored offset, and is
+  named as the screens name that output now ("Phone speaker", "WH-1000XM4").
+- **With no output in use known,** the slots take the first three stored outputs and slot 0 is active; with no stored
+  output and V not 0, slot 0 then gets −V, the latency of an output without an offset. A file with no stored offset and
+  no visual offset has nothing to carry and reads the defaults, unnamed; DataStore runs the migration on a first start
+  too, which is such a file.
 - `audioOffsets` and `visualOffsetMs` are read for this only and left out of the next write.
 
 By the identity above, touch play on each carried output, with its slot chosen, has the same picture and the same
-judging as before. A 0.1.x build that reads a new file ignores the new objects and plays at 0 ms.
+judging as before, and the output in use needs no choice at all: a tester with only a Bluetooth pair at −120 ms who
+updates on the speaker gets the pair's slot at +120 ms and the speaker's at 0 ms, active. A 0.1.x build that reads a
+new file ignores the new objects and plays at 0 ms.
 
 ## Diagnostics
 
@@ -384,7 +392,9 @@ new form.
   active, touch on 0, keyboard on 1); names optional, trimmed and capped; values clamped; a file without the objects
   reads the defaults; the migration of a 0.1.3 file with offsets for the speaker, wired headphones, a Bluetooth pair and
   a fourth output and a visual offset gives slots whose picture and touch judging equal the old ones on each carried
-  output, the fourth dropped, the old fields not written again; a round trip keeps everything.
+  output, the fourth dropped, the old fields not written again; the output in use with no stored offset, and as the
+  fourth stored output, takes a slot and is active, playing as before; with no output in use known, the first three
+  are carried and slot 0 is active; a round trip keeps everything.
 - `PlayTimingTest`, on the controller's arithmetic as plain functions: today's formulas at I = 0 and A = −audioOffset;
   two methods 30 ms apart with inputs interleaved and handled within the allowance give no late input and chart-time
   order; a method is live only from its first press, touch included, so a game by one method alone never waits for
@@ -452,12 +462,12 @@ adds, where it differs, and how it bridges the screens L2 to L4 will make:
   visual offset are gone; the output route remains only for the names the screens show.
 - **The migration** is `LatencyMigration`, a pure function, run once by DataStore as a `DataMigration` the first time
   it reads a file without `audioLatency`, which it writes back at once. It follows [Storage and
-  migration](#storage-and-migration) exactly, including the active slot: when the output in use at that start has no
-  stored offset, slot 0 is active, which holds the first stored output's latency, so that output's game moves by the
-  difference until the player chooses a slot (for example a file with only a Bluetooth pair's −120 ms, started on the
-  speaker, plays the speaker at +120 ms). Nothing chooses a slot for the player, as decided, and L2's slot choice in
-  Settings is the remedy; a migration that gave such an output a free slot of its own and made it active would avoid it.
-  The move is logged under `EnsomiSettings` by slot number.
+  migration](#storage-and-migration) exactly. As first built, it made slot 0 active when the output in use had no stored
+  offset, or had one past the third, and slot 0 then held another output's latency: a file with only a Bluetooth pair's
+  −120 ms, started on the speaker, played the speaker at +120 ms. Since K2 the output in use always takes a slot of its
+  own, as that section now says, so its game is as it was with no choice made; after the move nothing chooses a slot,
+  as decided. The move is logged under `EnsomiSettings` by slot number, with
+  whether the output in use had a stored offset.
 - **The input clock** is `InputQueue`'s, as [Formulas](#formulas) and the owner's amendment say: live from a method's
   first press, `0` before any, never moving back; the controller advances the session to it less 100 ms. A method's
   first press shows as its first input of any kind: a key held in a lane a finger already holds sends no press

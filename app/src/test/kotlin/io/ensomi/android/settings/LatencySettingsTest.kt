@@ -188,39 +188,79 @@ class LatencySettingsTest {
         assertEquals(listOf(LatencySlot("", 9), LatencySlot(), LatencySlot()), settings.inputLatency.slots)
         assertEquals(0, settings.inputLatency.touch)
         assertEquals(1, settings.inputLatency.keyboard)
-        old.values.forEachIndexed { slot, audioOffsetMs ->
-            val timing = PlayTiming.game(settings.copy(audioLatency = settings.audioLatency.copy(active = slot)))
-            val songMs = 12_345.0
-            assertEquals("Picture, slot $slot", (audioOffsetMs + visualMs).toDouble(), timing.renderMs(songMs) - songMs, 1e-9)
-            assertEquals("Touch, slot $slot", audioOffsetMs.toDouble(), timing.inputMs(songMs, InputSource.TOUCH) - songMs, 1e-9)
+        old.values.forEachIndexed { slot, audioOffsetMs -> assertPlaysAsBefore(settings, slot, audioOffsetMs, visualMs) }
+    }
+
+    /**
+     * The bad case of the first rule: a tester with only a Bluetooth pair at −120 ms, updating on the speaker, played the
+     * speaker at +120 ms. The output in use takes a slot of its own at −V and is active, so it plays as before, and the
+     * pair keeps its slot.
+     */
+    @Test
+    fun theOutputInUseWithNoStoredOffsetTakesASlotOfItsOwnAndIsActive() {
+        for (visualMs in listOf(0, 9)) {
+            val settings = migrate(file013(""""$budsKey":-120""", visualMs), current = speakerKey)
+            assertEquals(listOf("WH-1000XM4", "Phone speaker", ""), settings.audioLatency.slots.map { it.name })
+            assertEquals(listOf(120 - visualMs, -visualMs, 0), settings.audioLatency.slots.map { it.ms })
+            assertEquals("The output in use is active", 1, settings.audioLatency.active)
+            assertEquals(visualMs, settings.inputLatency.touchMs)
+            assertPlaysAsBefore(settings, 1, audioOffsetMs = 0, visualMs = visualMs)
+            assertPlaysAsBefore(settings, 0, audioOffsetMs = -120, visualMs = visualMs)
         }
+        // With three stored outputs, the output in use takes the third slot and the third stored output is dropped.
+        val settings = migrate(file013(""""$speakerKey":-7,"$wiredKey":-30,"$budsKey":-120""", 0), current = usbKey)
+        assertEquals(listOf("Phone speaker", "Wired headphones", "Desk DAC"), settings.audioLatency.slots.map { it.name })
+        assertEquals(listOf(7, 30, 0), settings.audioLatency.slots.map { it.ms })
+        assertEquals(2, settings.audioLatency.active)
     }
 
     @Test
-    fun outputsPastTheThirdAreDropped() {
+    fun outputsPastTheThirdAreDroppedButNeverTheOutputInUse() {
+        val file = file013(""""$speakerKey":-7,"$wiredKey":-30,"$budsKey":-120,"$usbKey":-15""", 9)
+        val first = migrate(file, current = speakerKey)
+        assertEquals(listOf("Phone speaker", "Wired headphones", "WH-1000XM4"), first.audioLatency.slots.map { it.name })
+        assertEquals(listOf(-2, 21, 111), first.audioLatency.slots.map { it.ms })
+        assertEquals(0, first.audioLatency.active)
+        // The output in use as the fourth stored output takes the third slot, in the file's order, and is active.
+        val fourth = migrate(file, current = usbKey)
+        assertEquals(listOf("Phone speaker", "Wired headphones", "Desk DAC"), fourth.audioLatency.slots.map { it.name })
+        assertEquals(listOf(-2, 21, 6), fourth.audioLatency.slots.map { it.ms })
+        assertEquals(2, fourth.audioLatency.active)
+        assertPlaysAsBefore(fourth, 2, audioOffsetMs = -15, visualMs = 9)
+    }
+
+    @Test
+    fun withNoOutputKnownTheFirstThreeAreCarriedAndSlotZeroIsActive() {
         val file = file013(""""$speakerKey":-7,"$wiredKey":-30,"$budsKey":-120,"$usbKey":-15""", 0)
-        val settings = migrate(file, current = usbKey)
+        val settings = migrate(file, current = null)
         assertEquals(listOf("Phone speaker", "Wired headphones", "WH-1000XM4"), settings.audioLatency.slots.map { it.name })
         assertEquals(listOf(7, 30, 120), settings.audioLatency.slots.map { it.ms })
-        assertEquals("A dropped output has no slot to be active", 0, settings.audioLatency.active)
+        assertEquals(0, settings.audioLatency.active)
+        val visualOnly = migrate(file013("", 9), current = null)
+        assertEquals(listOf(LatencySlot("", -9), LatencySlot(), LatencySlot()), visualOnly.audioLatency.slots)
+        assertEquals(0, visualOnly.audioLatency.active)
     }
 
     @Test
-    fun aVisualOffsetWithNoStoredOutputGoesToAudioSlotZeroAndTouch() {
+    fun aVisualOffsetWithNoStoredOutputGoesToTheOutputInUseAndTouch() {
         val settings = migrate(file013("", 9))
-        assertEquals(listOf(LatencySlot("", -9), LatencySlot(), LatencySlot()), settings.audioLatency.slots)
+        assertEquals(listOf(LatencySlot("Phone speaker", -9), LatencySlot(), LatencySlot()), settings.audioLatency.slots)
+        assertEquals(0, settings.audioLatency.active)
         assertEquals(9, settings.inputLatency.touchMs)
         val timing = PlayTiming.game(settings)
         assertEquals("The picture as before, at the visual offset", 9.0, timing.renderMs(0.0), 1e-9)
         assertEquals("Touch as before, at no audio offset", 0.0, timing.inputMs(0.0, InputSource.TOUCH), 1e-9)
     }
 
+    /** Nothing to carry, a first start among them: no slot is named after the output in use. */
     @Test
     fun noOffsetsGiveTheDefaults() {
-        for (file in listOf(file013("", 0), """{"scrollSpeed":31.5}""")) {
-            val settings = migrate(file)
-            assertEquals(file, AudioLatency(), settings.audioLatency)
-            assertEquals(file, InputLatency(), settings.inputLatency)
+        for (file in listOf(file013("", 0), """{"scrollSpeed":31.5}""", "{}")) {
+            for (current in listOf(speakerKey, budsKey, null)) {
+                val settings = migrate(file, current)
+                assertEquals(file, AudioLatency(), settings.audioLatency)
+                assertEquals(file, InputLatency(), settings.inputLatency)
+            }
         }
     }
 
@@ -229,7 +269,9 @@ class LatencySettingsTest {
         val file = file013(""""$speakerKey":-7,"$budsKey":-120""", 0)
         assertEquals(1, migrate(file, current = budsKey).audioLatency.active)
         assertEquals(0, migrate(file, current = speakerKey).audioLatency.active)
-        assertEquals(0, migrate(file, current = wiredKey).audioLatency.active)
+        val wiredInUse = migrate(file, current = wiredKey).audioLatency
+        assertEquals("An output in use without an offset takes the next slot", 2, wiredInUse.active)
+        assertEquals(LatencySlot("Wired headphones", 0), wiredInUse.slots[2])
         assertEquals(0, migrate(file, current = null).audioLatency.active)
     }
 
@@ -298,6 +340,7 @@ class LatencySettingsTest {
             waitFor { "audioLatency" in file.readText() }
             assertFalse(file.readText(), "audioOffsets" in file.readText())
             assertEquals(1, logged.size)
+            assertTrue(logged.single(), "slot 1 active; the output in use had a stored offset" in logged.single())
             assertFalse("Names are never logged", "WH-1000XM4" in logged.single() || "Phone speaker" in logged.single())
 
             store.update { it.withAudioLatencyMs(130).copy(landscapeLean = 30) }
@@ -315,6 +358,18 @@ class LatencySettingsTest {
             scope.cancel()
             directory.deleteRecursively()
         }
+    }
+
+    /**
+     * [settings] with [slot] active have the picture and the touch judging an output had with [audioOffsetMs] and
+     * [visualMs]: the picture's difference from the song time is `audioOffset + visualOffset` before and `−A` after,
+     * touch's is `audioOffset` before and `−A − I[touch]` after.
+     */
+    private fun assertPlaysAsBefore(settings: PlaySettings, slot: Int, audioOffsetMs: Int, visualMs: Int) {
+        val timing = PlayTiming.game(settings.copy(audioLatency = settings.audioLatency.copy(active = slot)))
+        val songMs = 12_345.0
+        assertEquals("Picture, slot $slot", (audioOffsetMs + visualMs).toDouble(), timing.renderMs(songMs) - songMs, 1e-9)
+        assertEquals("Touch, slot $slot", audioOffsetMs.toDouble(), timing.inputMs(songMs, InputSource.TOUCH) - songMs, 1e-9)
     }
 
     private fun waitFor(condition: () -> Boolean) {

@@ -78,16 +78,20 @@ data class StoredSettings(
      * being the one Android would play on now and [nameOf] naming an output key as the screens do; the old fields are
      * gone, so the next write leaves them out. A file that has slots is returned as it is.
      */
-    fun migrated(currentKey: String?, nameOf: (String) -> String): StoredSettings {
-        if (!needsLatencySlots) return this
-        val moved = LatencyMigration.of(audioOffsets.orEmpty(), visualOffsetMs ?: 0, currentKey, nameOf)
-        return copy(
-            audioLatency = StoredAudioLatency.of(moved.audio),
-            inputLatency = StoredInputLatency.of(moved.input),
-            audioOffsets = null,
-            visualOffsetMs = null,
-        )
-    }
+    fun migrated(currentKey: String?, nameOf: (String) -> String): StoredSettings =
+        if (needsLatencySlots) movedTo(latencyMove(currentKey, nameOf)) else this
+
+    /** [LatencyMigration] of this file's old fields. */
+    fun latencyMove(currentKey: String?, nameOf: (String) -> String): LatencyMigration.Result =
+        LatencyMigration.of(audioOffsets.orEmpty(), visualOffsetMs ?: 0, currentKey, nameOf)
+
+    /** This file with the slots of [move] in place of its old fields. */
+    fun movedTo(move: LatencyMigration.Result): StoredSettings = copy(
+        audioLatency = StoredAudioLatency.of(move.audio),
+        inputLatency = StoredInputLatency.of(move.input),
+        audioOffsets = null,
+        visualOffsetMs = null,
+    )
 
     companion object {
         /** Unknown keys are skipped and missing ones take their defaults, so an older or newer file still reads. */
@@ -169,15 +173,23 @@ class LatencySlotsMigration(
 
     override suspend fun migrate(currentData: StoredSettings): StoredSettings {
         val offsets = currentData.audioOffsets.orEmpty()
-        val moved = currentData.migrated(currentKey(), nameOf)
+        val key = currentKey()
+        val move = currentData.latencyMove(key, nameOf)
+        val moved = currentData.movedTo(move)
         val audio = moved.toPlaySettings().audioLatency
+        val note = when {
+            offsets.isEmpty() && (currentData.visualOffsetMs ?: 0) == 0 -> "nothing to carry"
+            key == null -> "the output in use not known"
+            key in offsets -> "the output in use had a stored offset"
+            else -> "the output in use had no stored offset"
+        }
         log(
-            "Settings moved to latency slots: ${minOf(offsets.size, Latency.SLOTS)} outputs carried, " +
-                "${maxOf(0, offsets.size - Latency.SLOTS)} dropped, " +
+            "Settings moved to latency slots: ${offsets.size - move.dropped} stored outputs carried, " +
+                "${move.dropped} dropped, " +
                 "visual offset ${currentData.visualOffsetMs ?: 0} ms " +
                 "to touch's slot 0; audio slots " +
                 audio.slots.mapIndexed { i, slot -> "$i ${PlaySettings.formatOffset(slot.ms)}" }.joinToString() +
-                ", slot ${audio.active} active",
+                ", slot ${audio.active} active; $note",
         )
         return moved
     }

@@ -80,34 +80,52 @@ object Latency {
  * `I[touch] = visualOffset`:
  *
  * - touch's slot 0 takes the visual offset V; input slots 1 and 2 stay at 0;
- * - the audio slots take the outputs that have a stored offset, in the order the file lists them (the order their
- *   offsets were first set), up to three: slot k gets `−(A_o + V)` and the name the screens give output o. Outputs past
- *   the third are dropped. With no stored output and V not 0, slot 0 gets −V, the latency of an output without an
- *   offset;
- * - the active slot is the slot of the output Android would play on now, or 0.
+ * - the output Android would play on now, the output in use, always takes a slot and is the active one, whether it has
+ *   a stored offset or not, and wherever the file lists it;
+ * - the other outputs that have a stored offset fill the remaining slots in the order the file lists them (the order
+ *   their offsets were first set), up to three slots in all. The slots keep the file's order, the output in use after
+ *   the stored ones when it has no offset. Outputs that find no slot are dropped;
+ * - slot k gets `−(A_o + V)` for its output o, with `A_o` 0 for the output in use without an offset, and the name the
+ *   screens give o.
+ *
+ * With no output in use known, the slots take the first three stored outputs and slot 0 is active; with no stored
+ * output and V not 0, slot 0 then gets −V, the latency of an output without an offset. A file with no stored offset and
+ * no visual offset, a first start among them, has nothing to carry and reads the defaults.
  *
  * Values are read within the old range, as the old build read them, and kept within [Latency.RANGE].
  */
 object LatencyMigration {
-    class Result(val audio: AudioLatency, val input: InputLatency)
+    /** The slots, and how many stored outputs found none. */
+    class Result(val audio: AudioLatency, val input: InputLatency, val dropped: Int)
 
     /**
      * [offsets] is the file's `audioOffsets` by output key, in the file's order; [visualMs] its `visualOffsetMs`;
-     * [currentKey] the key of the output Android would play on now; [nameOf] the name the screens give an output key.
+     * [currentKey] the key of the output Android would play on now, null when not known; [nameOf] the name the screens
+     * give an output key.
      */
     fun of(offsets: Map<String, Int>, visualMs: Int, currentKey: String?, nameOf: (String) -> String): Result {
         val visual = Latency.ms(visualMs)
-        val carried = offsets.entries.take(Latency.SLOTS)
+        val inUse = currentKey?.takeIf { offsets.isNotEmpty() || visual != 0 }
+        val outputs = carried(offsets.keys.toList(), inUse)
         val audio = Latency.DEFAULT_SLOTS.toMutableList()
-        if (carried.isEmpty()) {
+        if (outputs.isEmpty()) {
             if (visual != 0) audio[0] = LatencySlot(ms = Latency.ms(-visual))
         } else {
-            carried.forEachIndexed { k, (key, offsetMs) ->
-                audio[k] = LatencySlot(Latency.name(nameOf(key)), Latency.ms(-(Latency.ms(offsetMs) + visual)))
+            outputs.forEachIndexed { k, key ->
+                val offsetMs = Latency.ms(offsets[key] ?: 0)
+                audio[k] = LatencySlot(Latency.name(nameOf(key)), Latency.ms(-(offsetMs + visual)))
             }
         }
-        val active = carried.indexOfFirst { it.key == currentKey }.takeIf { it >= 0 } ?: 0
+        val active = outputs.indexOf(inUse).takeIf { it >= 0 } ?: 0
         val input = Latency.DEFAULT_SLOTS.toMutableList().also { it[0] = LatencySlot(ms = visual) }
-        return Result(AudioLatency(audio, active), InputLatency(input))
+        return Result(AudioLatency(audio, active), InputLatency(input), dropped = offsets.keys.count { it !in outputs })
+    }
+
+    /** The outputs that get a slot, in slot order: [stored] in the file's order, with [inUse] always among them. */
+    private fun carried(stored: List<String>, inUse: String?): List<String> {
+        if (inUse == null) return stored.take(Latency.SLOTS)
+        val others = stored.filter { it != inUse }.take(Latency.SLOTS - 1).toSet()
+        val kept = stored.filter { it == inUse || it in others }
+        return if (inUse in stored) kept else kept + inUse
     }
 }
