@@ -9,6 +9,7 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import io.ensomi.android.R
 import io.ensomi.android.prototype.DebugTools
+import io.ensomi.android.settings.BindableKey
 import io.ensomi.android.settings.KeyMap
 import io.ensomi.android.settings.KeySlot
 import io.ensomi.android.settings.KeyTable
@@ -26,7 +27,7 @@ import kotlinx.coroutines.launch
 /**
  * A keyboard the game reads keys from: a device with letter keys that is not virtual (keyboard.md, Who is connected).
  * [keys] is the key map on it, the key code each slot's key produces in the layout Android uses for this keyboard, and
- * [labels] each slot's label on its caps, by [KeySlot], null for an empty slot.
+ * [labels] each slot's label on its caps, by [KeySlot], null for an empty slot; both were resolved with [map].
  */
 data class Keyboard(
     val deviceId: Int,
@@ -38,9 +39,17 @@ data class Keyboard(
     val external: Boolean,
     val keys: ResolvedKeys,
     val labels: List<String?>,
+    val map: KeyMap = KeyMap.DEFAULT,
 ) {
     /** The four lanes' labels, lane 1 to 4. */
     val laneLabels: List<String?> get() = labels.subList(0, KeySlot.LANES.size)
+
+    /**
+     * [key]'s label on this keyboard, when [map] holds it: right whichever map the screen shows, since a swap keeps the
+     * map's keys. Null for a key [map] does not hold, such as one bound a moment ago, before this keyboard was resolved
+     * with the new map.
+     */
+    fun labelOf(key: BindableKey): String? = map.slotOf(key)?.let { labels[it.ordinal] }
 
     /** Vendor and product id in hexadecimal, as the logs name a keyboard: `046d:b342`. */
     val ids: String get() = String.format(Locale.ROOT, "%04x:%04x", vendorId, productId)
@@ -209,7 +218,7 @@ class ConnectedKeyboards(context: Context, maps: Flow<KeyMap>, scope: CoroutineS
             appContext.getString(R.string.key_space),
             appContext.getString(R.string.key_escape),
         )
-        return Keyboard(deviceId, device.name, device.vendorId, device.productId, device.isExternal, keys, labels)
+        return Keyboard(deviceId, device.name, device.vendorId, device.productId, device.isExternal, keys, labels, map)
     }
 
     private companion object {

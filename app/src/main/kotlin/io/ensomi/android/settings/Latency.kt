@@ -23,6 +23,12 @@ data class AudioLatency(val slots: List<LatencySlot> = Latency.DEFAULT_SLOTS, va
 
     /** The active slot set to [ms], within [Latency.RANGE]. */
     fun withActiveMs(ms: Int): AudioLatency = copy(slots = Latency.withMs(slots, active, ms))
+
+    /** Slot [slot] chosen by hand: the one the next game takes. */
+    fun withActive(slot: Int): AudioLatency = copy(active = slot)
+
+    /** Slot [slot] named [name], as [Latency.name] keeps it; empty for none. */
+    fun withName(slot: Int, name: String): AudioLatency = copy(slots = Latency.withName(slots, slot, name))
 }
 
 /**
@@ -45,6 +51,15 @@ data class InputLatency(
 
     /** Slot [slot] set to [ms], within [Latency.RANGE]. */
     fun withMs(slot: Int, ms: Int): InputLatency = copy(slots = Latency.withMs(slots, slot, ms))
+
+    /** Slot [slot] named [name], as [Latency.name] keeps it; empty for none. */
+    fun withName(slot: Int, name: String): InputLatency = copy(slots = Latency.withName(slots, slot, name))
+
+    /** Touch uses slot [slot]. */
+    fun withTouch(slot: Int): InputLatency = copy(touch = slot)
+
+    /** Every keyboard uses slot [slot]. */
+    fun withKeyboard(slot: Int): InputLatency = copy(keyboard = slot)
 }
 
 /** The rules both kinds of slot keep. */
@@ -68,6 +83,13 @@ object Latency {
     }
 
     fun ms(raw: Int): Int = raw.coerceIn(RANGE)
+
+    /** Whether [text] is short enough to be a name as typed: [NAME_LENGTH] characters at most, counted as people do. */
+    fun fitsName(text: String): Boolean = text.codePointCount(0, text.length) <= NAME_LENGTH
+
+    /** [slots] with slot [index] named [raw], trimmed and cut as [name] keeps it. */
+    fun withName(slots: List<LatencySlot>, index: Int, raw: String): List<LatencySlot> =
+        slots.mapIndexed { i, slot -> if (i == index) slot.copy(name = name(raw)) else slot }
 
     /** [slots] with slot [index] set to [value], within the range. */
     fun withMs(slots: List<LatencySlot>, index: Int, value: Int): List<LatencySlot> =
