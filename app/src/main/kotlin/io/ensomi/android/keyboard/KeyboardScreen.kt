@@ -318,7 +318,11 @@ private fun KeysSection(
         when {
             waiting != null && note == CaptureNote.Refused -> WarningLine(stringResource(R.string.keyboard_refused))
             waiting != null -> Message(prompt(waiting), MaterialTheme.colorScheme.onSurface)
-            note is CaptureNote.Swapped -> Message(KeyboardText.swapped(note, keyboard, words), MaterialTheme.colorScheme.onSurface)
+            note is CaptureNote.Swapped -> Message(
+                KeyboardText.swapped(note, keyboard, words),
+                MaterialTheme.colorScheme.onSurface,
+                description = KeyboardText.swapped(note, keyboard, words, forTalkBack = true),
+            )
             !canWait -> Message(stringResource(R.string.keyboard_hint_no_keyboard), MaterialTheme.colorScheme.onSurfaceVariant)
             lone == null -> Message(stringResource(R.string.keyboard_hint), MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -341,14 +345,17 @@ private fun prompt(slot: KeySlot): String = when (val lane = slot.lane) {
     else -> stringResource(R.string.keyboard_prompt_lane, lane + 1)
 }
 
-/** One line of what the screen says, a polite live region. */
+/** One line of what the screen says, a polite live region; [description] is what TalkBack says, when it differs. */
 @Composable
-private fun Message(text: String, color: Color) {
+private fun Message(text: String, color: Color, description: String? = null) {
     Text(
         text,
         style = MaterialTheme.typography.bodyMedium,
         color = color,
-        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        modifier = Modifier.semantics {
+            liveRegion = LiveRegionMode.Polite
+            if (description != null) contentDescription = description
+        },
     )
 }
 
@@ -392,7 +399,7 @@ private fun SlotGrid(
                 slot = which,
                 key = map[which],
                 label = KeyboardText.cap(map[which], keyboard, words),
-                spoken = map[which]?.let { key -> KeyboardText.spoken(key, keyboard, words) },
+                spoken = map[which]?.let { key -> KeyboardText.said(key, keyboard, words) },
                 waiting = waiting == which,
                 enabled = canWait,
                 onClick = { onSlot(which) },
@@ -459,7 +466,7 @@ private fun SlotButton(
     val description = stringResource(R.string.keyboard_slot_description, title, spoken ?: stringResource(R.string.keyboard_slot_none))
     val state = when {
         waiting -> stringResource(R.string.keyboard_slot_waiting)
-        emptyLane -> stringResource(R.string.keyboard_lane_empty, KeyboardText.number(slot))
+        emptyLane -> stringResource(R.string.keyboard_slot_empty, KeyboardText.number(slot))
         else -> null
     }
     Surface(
@@ -536,9 +543,14 @@ private fun TestSection(
         )
         if (test.testing && test.others.isNotEmpty()) {
             val names = test.others.map { devices.name(it, words) }.distinct()
+            val said = stringResource(
+                R.string.keyboard_test_also_held,
+                names.joinToString(words.listComma) { KeyboardText.say(it, words) },
+            )
             Text(
                 stringResource(R.string.keyboard_test_also_held, names.joinToString(words.listComma)),
                 style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.semantics { contentDescription = said },
             )
         }
         test.shownMostHeld?.let { most ->
@@ -669,6 +681,23 @@ fun keyboardWords(keyNames: Map<Int, String>): KeyboardWords = KeyboardWords(
     swapPauseAndEmptyLane = stringResource(R.string.keyboard_swap_pause_empty_lane),
     swapLaneAndEmptyPause = stringResource(R.string.keyboard_swap_lane_empty_pause),
     keyNames = keyNames,
+    symbolNames = mapOf(
+        "`" to stringResource(R.string.key_name_grave),
+        "-" to stringResource(R.string.key_name_minus),
+        "=" to stringResource(R.string.key_name_equals),
+        "[" to stringResource(R.string.key_name_left_bracket),
+        "]" to stringResource(R.string.key_name_right_bracket),
+        "\\" to stringResource(R.string.key_name_backslash),
+        ";" to stringResource(R.string.key_name_semicolon),
+        "'" to stringResource(R.string.key_name_apostrophe),
+        "," to stringResource(R.string.key_name_comma),
+        "." to stringResource(R.string.key_name_period),
+        "/" to stringResource(R.string.key_name_slash),
+        "↑" to stringResource(R.string.key_name_up),
+        "↓" to stringResource(R.string.key_name_down),
+        "←" to stringResource(R.string.key_name_left),
+        "→" to stringResource(R.string.key_name_right),
+    ),
 )
 
 /**

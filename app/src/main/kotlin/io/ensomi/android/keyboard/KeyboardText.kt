@@ -39,6 +39,11 @@ data class KeyboardWords(
     val swapLaneAndEmptyPause: String,
     /** Keys outside the key table named in words, by key code: Shift, Ctrl, Enter and the like. */
     val keyNames: Map<Int, String> = emptyMap(),
+    /**
+     * Labels TalkBack would not say, punctuation and arrows, in words, by label: "." is "period", "←" "left arrow". A
+     * lone "." after a comma is read as the end of a sentence, so "Lane 3 key, ." would lose its key.
+     */
+    val symbolNames: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -62,14 +67,28 @@ object KeyboardText {
     fun spoken(key: BindableKey, keyboard: Keyboard?, words: KeyboardWords): String =
         if (key.name == ESCAPE) words.escapeName else cap(key, keyboard, words)
 
+    /** [key] for TalkBack: as in a sentence, with punctuation and arrows in words ([KeyboardWords.symbolNames]). */
+    fun said(key: BindableKey, keyboard: Keyboard?, words: KeyboardWords): String = say(spoken(key, keyboard, words), words)
+
+    /** A label for TalkBack: punctuation and arrows in words, anything else as it is. */
+    fun say(label: String, words: KeyboardWords): String = words.symbolNames[label] ?: label
+
     /**
      * The Settings row's supporting text: "Lanes: Z X . / · Pause: Esc · Connected: K380", or "… · No keyboard
      * connected". An empty lane shows as "—" among the lanes, an empty Pause as "none"; [emptyLanes] says which lanes.
      */
-    fun row(map: KeyMap, keyboards: List<Keyboard>, words: KeyboardWords): String {
+    fun row(map: KeyMap, keyboards: List<Keyboard>, words: KeyboardWords): String = row(map, keyboards, words, forTalkBack = false)
+
+    /** The row as TalkBack reads it: the keys in words where their labels are symbols, "Lanes: Z, X, period, slash · …". */
+    fun saidRow(map: KeyMap, keyboards: List<Keyboard>, words: KeyboardWords): String =
+        row(map, keyboards, words, forTalkBack = true)
+
+    private fun row(map: KeyMap, keyboards: List<Keyboard>, words: KeyboardWords, forTalkBack: Boolean): String {
         val first = keyboards.firstOrNull()
-        val lanes = map.lanes.joinToString(" ") { key -> key?.let { cap(it, first, words) } ?: words.rowNoLaneKey }
-        val pause = map.pause?.let { cap(it, first, words) } ?: words.rowNoPauseKey
+        val label = { key: BindableKey -> if (forTalkBack) said(key, first, words) else cap(key, first, words) }
+        val gap = if (forTalkBack) words.listComma else " "
+        val lanes = map.lanes.joinToString(gap) { key -> key?.let(label) ?: words.rowNoLaneKey }
+        val pause = map.pause?.let(label) ?: words.rowNoPauseKey
         val connection = if (keyboards.isEmpty()) {
             words.rowNoKeyboard
         } else {
@@ -94,11 +113,13 @@ object KeyboardText {
 
     /**
      * What a swap moved: "X now plays lane 1, and Z lane 2.", "Escape now plays lane 4, and / pauses.", and with an empty
-     * slot, "/ now pauses, and lane 4 has no key."
+     * slot, "/ now pauses, and lane 4 has no key." [forTalkBack] names symbols in words: "Escape now plays lane 4, and
+     * slash pauses."
      */
-    fun swapped(note: CaptureNote.Swapped, keyboard: Keyboard?, words: KeyboardWords): String {
-        val key = spoken(note.key, keyboard, words)
-        val otherKey = note.otherKey?.let { spoken(it, keyboard, words) }
+    fun swapped(note: CaptureNote.Swapped, keyboard: Keyboard?, words: KeyboardWords, forTalkBack: Boolean = false): String {
+        val name = { key: BindableKey -> if (forTalkBack) said(key, keyboard, words) else spoken(key, keyboard, words) }
+        val key = name(note.key)
+        val otherKey = note.otherKey?.let(name)
         val lane = note.slot.lane?.let { (it + 1).toString() }
         val otherLane = note.other.lane?.let { (it + 1).toString() }
         return when {

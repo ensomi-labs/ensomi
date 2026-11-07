@@ -341,7 +341,8 @@ private fun KeyboardRow(map: KeyMap, keyboards: List<Keyboard>, onClick: () -> U
         headlineContent = { Text(stringResource(R.string.settings_keyboard)) },
         supportingContent = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(KeyboardText.row(map, keyboards, words))
+                val said = KeyboardText.saidRow(map, keyboards, words)
+                Text(KeyboardText.row(map, keyboards, words), modifier = Modifier.semantics { contentDescription = said })
                 KeyboardText.emptyLanes(map, words)?.let { WarningLine(it, style = MaterialTheme.typography.bodyMedium) }
             }
         },

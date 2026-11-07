@@ -33,6 +33,7 @@ class KeyboardTextTest {
         swapPauseAndEmptyLane = "%1\$s now pauses, and lane %2\$s has no key.",
         swapLaneAndEmptyPause = "%1\$s now plays lane %2\$s, and Pause has no key.",
         keyNames = mapOf(KeyEvent.KEYCODE_SHIFT_LEFT to "Shift", KeyEvent.KEYCODE_ENTER to "Enter"),
+        symbolNames = mapOf("." to "period", "/" to "slash", "-" to "minus", "←" to "left arrow"),
     )
 
     private fun key(name: String) = KeyTable.named(name)!!
@@ -130,6 +131,28 @@ class KeyboardTextTest {
         assertEquals("↑", KeyboardText.otherKey(KeyEvent.KEYCODE_DPAD_UP, KeyLabels.NONE, words))
         assertEquals("Esc", KeyboardText.otherKey(KeyEvent.KEYCODE_ESCAPE, KeyLabels.NONE, words))
         assertNull(KeyboardText.otherKey(KeyEvent.KEYCODE_MEDIA_PLAY, KeyLabels.NONE, words))
+    }
+
+    @Test
+    fun talkBackHearsSymbolsInWords() {
+        assertEquals("period", KeyboardText.said(key("PERIOD"), null, words))
+        assertEquals("Escape", KeyboardText.said(key("ESCAPE"), null, words))
+        assertEquals("Z", KeyboardText.said(key("Z"), null, words))
+        assertEquals("left arrow", KeyboardText.said(key("DPAD_LEFT"), null, words))
+        assertEquals("The German slash place gives minus", "minus", KeyboardText.said(key("SLASH"), keyboard("Tastatur", layout = qwertz), words))
+        assertEquals(
+            "Lanes: Z, X, period, slash · Pause: Escape · No keyboard connected",
+            KeyboardText.saidRow(KeyMap.DEFAULT, emptyList(), words),
+        )
+        assertEquals(
+            "Lanes: Z, X, —, slash · Pause: none · No keyboard connected",
+            KeyboardText.saidRow(KeyMap.DEFAULT.clear(KeySlot.LANE_3).clear(KeySlot.PAUSE), emptyList(), words),
+        )
+        val bind = KeyMap.DEFAULT.bind(KeySlot.LANE_4, key("ESCAPE"))
+        val note = CaptureNote.Swapped(KeySlot.LANE_4, key("ESCAPE"), bind.swapped!!, KeyMap.DEFAULT[KeySlot.LANE_4])
+        assertEquals("Escape now plays lane 4, and / pauses.", KeyboardText.swapped(note, null, words))
+        assertEquals("Escape now plays lane 4, and slash pauses.", KeyboardText.swapped(note, null, words, forTalkBack = true))
+        assertEquals("Shift", KeyboardText.say("Shift", words))
     }
 
     @Test
