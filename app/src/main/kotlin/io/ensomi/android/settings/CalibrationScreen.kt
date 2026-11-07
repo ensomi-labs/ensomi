@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -375,13 +377,25 @@ private fun SoundStep(
             }
         }
     } else {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            info()
-            pad(Modifier.fillMaxWidth().weight(1f))
-            actions()
+        // At large font sizes the readings would leave the pad no height: they take at most a share of it and scroll.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val infoMax = maxHeight * INFO_SHARE
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    Modifier.heightIn(max = infoMax).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    info()
+                }
+                pad(Modifier.fillMaxWidth().weight(1f))
+                actions()
+            }
         }
     }
 }
+
+/** The most of the sound step's height its readings take in portrait, so the pad keeps the rest. */
+private const val INFO_SHARE = 0.55f
 
 /** The last taps on a line from 100 ms early to 100 ms late, the newest brightest. */
 @Composable
