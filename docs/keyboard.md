@@ -461,24 +461,34 @@ light in frame; the frames from contact to light compare the whole paths, displa
 
 - **A key held as the game starts** (pressed before the playfield existed): its down was never seen, so its up releases
   nothing and is ignored.
-- **Keys held at a pause** (O7, decided (c)). Holders survive the pause, for touch and keys alike: the app tells the
-  session nothing until the resume, then releases the lanes whose holders all let go meanwhile, at the pause's song
-  time, since the clock was frozen; a finger or key still held at the resume holds its lane, and its hold, through the
-  count-in and on. Presses during the pause are dropped as now. Keys make a held lane at a pause common, since a player
-  often holds a lane key while reaching for the Pause key; the keyboard path follows whatever touch does. Until the
-  pause step is built ([Build plan](#build-plan)), pausing clears the app's holders without telling the session:
-  `PlayfieldView.pause` forgets them and enqueues nothing, inputs are dropped while the clock is paused, and a paused
-  frame clears the queue. Read from the runtime at `d090374` (`crates/gameplay/src/session.rs`, `feedback.rs`), not
-  run: the session keeps that lane pressed and a hold in it held; the feedback keeps the lane lit at its hold
-  brightness, since its last transition is a press; a later press of the lane is an ordinary press for the session,
-  which has no rule against a second press and tries the lane's next waiting note; the release after it ends the old
-  hold, judged at that release; with no release the hold misses when its tail window closes, 1.5 × 200 ms after its end,
-  or at the next note of the lane if that comes first. A release for a lane that holds no hold changes nothing but the
-  session's pressed flag: no event, and no count unless it is stamped before the session's clock, as for any late
-  input.
+- **Keys held at a pause** (O7, decided (c); built in the pause step, [Build plan](#build-plan)). Holders survive the
+  pause, for touch and keys alike: the app tells the session nothing until the resume, when play goes on after the
+  count-in, and then releases the lanes whose holders all let go meanwhile, at the pause's song time, since the clock
+  was frozen; a finger or key still held at the resume holds its lane, and its hold, through the count-in and on, and
+  nothing new is sent for it. Presses during the pause and the count-in are dropped. Ups during the pause, canceled or
+  not (focus leaving the window, the app leaving, a keyboard going), are kept for the resume. Keys make a held lane at
+  a pause common, since a player often holds a lane key while reaching for the Pause key; keys go through the same
+  `LaneSender` as touch, so they do whatever touch does. `LaneHolds.pause` keeps the holders and notes each lane let
+  go with the source of its last holder; `LaneSender.resume` sends those releases marked `LaneInput.atPause`, queued
+  before the clock runs again; `InputQueue` stamps them with the chart time its paused frames held at. Before the
+  step, pausing forgot the holders without telling the session, inputs were dropped while the clock was paused, and a
+  paused frame cleared the queue: a release queued but not yet delivered left its lane pressed in the session for good,
+  and a dropped press left the opposite. Now a paused frame delivers what was queued before the pause, at the pause's
+  time at the latest, so at every resume the session holds the app's lanes ([gameplay.md, Input](gameplay.md#input)).
+  Read from the runtime at `d090374` (`crates/gameplay/src/session.rs`, `feedback.rs`): `input` counts an input late
+  only when it is stamped strictly before the session's clock, which `advance` and each input move forward and never
+  back, and handles it at that clock; frames advance only to their time less 100 ms, and paused frames not at all, so a
+  release at the pause's chart time is never late. A release for a lane that holds no hold changes nothing but the
+  session's pressed flag: no event, and no count unless it is late. A second press of a held lane is an ordinary press,
+  which tries the lane's next waiting note and leaves a held hold held; `LaneHolds` sends none. With the behaviour
+  before the step, the session kept a forgotten lane pressed and a hold in it held, the feedback kept the lane lit at
+  its hold brightness, a later press and release of the lane ended the hold by that release, and with no release the
+  hold missed when its tail window closed, 1.5 × 200 ms after its end, or at the next note of the lane if that came
+  first.
 - **The Pause key held down**: its repeats and its up are taken, so it pauses once and never resumes by itself.
 - **A lane key pressed as the pause panel or Results appear**: taken, so it presses nothing (O4).
-- **Keys during the count-in** are dropped, as touches are, and a key held through it plays only when pressed again.
+- **Keys pressed during the count-in** are dropped, as touches are, and such a key held on plays only when pressed
+  again; a key held since before the pause keeps its lane (above).
 - **Rollover and ghosting.** A keyboard may not report every key held at once, or may report one that is not held. When
   a USB or Bluetooth keyboard reports a rollover error, Linux ignores that whole report, so the keys already held stay
   held and the new one is not seen (`hid-core.c`, "Ignore report if ErrorRollOver"). The app cannot tell a key not
@@ -530,11 +540,18 @@ All of it is pure Kotlin on plain values, so no test builds an Android `KeyEvent
 - `LaneHoldsTest` (from `PlayfieldGeometryTest`'s tracker cases): a finger and a key on one lane give one press and one
   release; two keyboards on one key; a second press of a held lane sends nothing; `ACTION_CANCEL` releases pointers and
   leaves keys; a device's release leaves the others; an unknown holder's release is ignored; holders at a pause as O7
-  (c) has it, with the pause step: kept, and the lanes let go during it released at the resume, at the pause's song
-  time.
+  (c) has it, with the pause step: kept at the pause; let go during it and released at the resume, marked for the
+  pause's time, from the source of the last holder; still held at the resume; pressed during the pause and dropped; a
+  cancel or a keyboard going during the pause; cleared for Restart, Quit and leaving; and for any sequence of these, a
+  session fed what is sent holds the app's lanes, and through a pause those held as it began.
+- `InputQueueTest` (the pause step): a paused frame hands on what was queued before the pause; a release at the resume
+  takes the chart time the paused frames held at, also when a paused frame takes it or none ran; nothing taken after a
+  pause is stamped before it; such a release comes before a press at the same time; and holders, the queue and a model
+  of the runtime's session together hold the same lanes after every frame, with no late input.
 - `KeyLanesTest`: repeats ignored; a canceled up releases; fallback, soft-keyboard and virtual-hard-key events never
   play; non-alphabetic devices pass through; a fake AZERTY layout maps the Z position to `KEYCODE_W`; the virtual
-  keyboard maps every position to itself.
+  keyboard maps every position to itself; keys held at a pause keep their lanes, and those let go, a canceled up
+  included, are released at the resume.
 - `GameKeysTest`: every row of the keys table in each state; the Pause key acts on a fresh down only, its repeats and up
   taken, so a held key never toggles twice; lane keys taken on the panel, in the count-in and on Results; Escape and
   Space as O2 and O3 decide, in and out of the map; navigation keys taken in the game.
@@ -593,9 +610,11 @@ Steps in the manner of [plan.md](plan.md); a step is done when `assembleDebug`, 
 emulator check passes and the screenshots of the screens it touches were looked at. K3 to K6 can go in any order after
 K2. No step adds a library, a pin or a permission. latency.md's steps L1 to L5 run beside these; L1 shares K1's
 `LaneInput.source`. O7 (c) changes pausing, for touch play too, so it is a small step of its own between K1 and K2, the
-pause step: `LaneHolds` keeps its holders at a pause and notes the lanes let go during it, and the controller releases
-those at the resume, at the pause's song time, with `LaneHoldsTest`'s pause cases and a hold held across a pause by
-`emu event send` on the emulator.
+pause step (done): `LaneHolds` keeps its holders at a pause and notes the lanes let go during it, `LaneSender` releases
+those at the resume, marked for the pause's time, and `InputQueue` stamps them with the chart time the paused frames
+held at; a paused frame hands on what was queued before the pause instead of dropping it, so that the session and the
+app agree on the lanes held. It is checked by `LaneHoldsTest`'s pause cases, `InputQueueTest` and `KeyLanesTest`, and
+on `ensomi-36-16k` by touches held across a pause.
 
 | Step | Builds | Emulator check | Phone check | Needs |
 | --- | --- | --- | --- | --- |

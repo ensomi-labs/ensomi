@@ -211,7 +211,7 @@ songMs(t) = (framePosition − leadInFrames) / sampleRate × 1000 + (t − nanoT
 
 **Pause and resume.** Pause stops the track and the clock holds the song time being heard. Resume, after the count-in,
 plays the track and the clock holds until the first timestamp after it, as the Swift clock waits for the first buffer
-after `play()`.
+after `play()`. Lanes held at the pause stay held through it ([Input](#input), Edge cases).
 
 **The picture follows the audio.** Each frame is drawn for the time it will be on screen, not when its code runs: the
 render time is the song time at the frame's expected presentation time, plus the audio and visual offsets (next
@@ -227,7 +227,8 @@ thread a `FrameData`, whose preferred `FrameTimeline` gives the expected present
 Then, in this order, as in the Swift app:
 
 1. Take the touches queued since the last frame, convert each event time to chart time through the clock, and deliver
-   those stamped at or before the frame's gameplay time to the session in time order.
+   those stamped at or before the frame's gameplay time to the session in time order (`InputQueue`). A paused frame
+   delivers all of them, stamped at the pause's time at the latest, and skips step 2.
 2. `advance` the session to the gameplay time less the 100 ms input allowance.
 3. Read what to draw at the render time: `visibleObjects` from 700 ms before it to the scroll time plus 250 ms after,
    lane brightness, the recent judgement batches, the judgement presentation, the score.
@@ -284,8 +285,20 @@ logs.
 - `ACTION_CANCEL` (the system took the gesture) releases every pressed lane at the cancel's time.
 - A pointer that lifts with `FLAG_CANCELED` (API 33; the system decided it was not deliberate, a palm for example)
   still releases its lane, the only way to keep press and release paired.
-- Pausing lets go of every lane the app holds (`LaneHolds`) without telling the session; inputs queued before the
-  pause are dropped, as in the Swift app.
+- **A pause keeps the lanes held** (keyboard.md O7 (c), the owner's decision). Every finger down at the pause keeps its
+  lane (`LaneHolds`) through the pause panel and the count-in, and the session is told nothing then. Presses during
+  the pause and the count-in are dropped. A lane whose fingers all lift meanwhile, by an up, an `ACTION_CANCEL` (Back
+  or the system taking the gesture), or the cancel that comes when the app leaves, is released when play goes on after
+  the count-in, stamped at the song time the game paused at, since the clock was frozen: a hold held at the pause is
+  judged as released there. Until then that lane stays lit as it was. A finger still down then keeps its lane, and its
+  hold, and nothing new is sent for it. Unlike the Swift app, which drops them, inputs queued before the pause still
+  reach the session: the first paused frame delivers them, stamped at the pause's time at the latest, and advances
+  nothing, so the session holds the lanes the app holds. A dropped release would have left its lane pressed in the
+  session for good, and a dropped press the other way round. The release at the resume takes the paused frames' own
+  chart time. Frames advance the session only to their time less the allowance, and nothing delivered is stamped after
+  the pause, so the session's clock has not passed that time and the release is never counted late; no input taken
+  after a pause is stamped before it either. The playfield logs the lanes it released and still holds at each resume
+  (`EnsomiPlayfield`), and the game the lanes the session holds and the holds held in them (`EnsomiPlay`).
 - **System gestures.** Back is an inward swipe from the left or right edge, home a swipe from the bottom
   ([gesture navigation](https://developer.android.com/develop/ui/views/touch-and-input/gestures/gesturenav)). Taps are
   not affected; a finger that slides at an edge could be. Play is immersive, which makes a bottom swipe first show the

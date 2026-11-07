@@ -155,7 +155,10 @@ other sign: a Bluetooth pair that needed −120 ms of offset needs +120 ms of au
 ### Where the input latency is applied
 
 **In the app, not the runtime.** `PlayController` subtracts I[m] in song time, after the clock has converted the event
-time, so a latency never moves an input across a pause or the clock's hold. `LaneInput` gains its `source`, which
+time, so a latency never moves an input across a pause or the clock's hold. Since the pause step
+([keyboard.md, Edge cases](keyboard.md#edge-cases)), a release sent at a resume for a lane let go during the pause
+(`LaneInput.atPause`) is stamped at the chart time the game paused at and takes no input latency, and no input taken
+after a pause may be stamped before that time (`InputQueue`), latency included. `LaneInput` gains its `source`, which
 the keyboard proposal adds for its own reasons ([keyboard.md, Lanes from several
 sources](keyboard.md#lanes-from-several-sources)); `PlayTiming` carries A and I for each source. The touch, key,
 clock and frame logs keep the raw times. The runtime takes chart times and needs no change. The autoplay's script has

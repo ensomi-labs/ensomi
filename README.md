@@ -140,9 +140,11 @@ The model's files are in the app's
 (`chart.osu`, the runtime's `receipt.json`, and the app's `chart.json`).
 
 Making charts logs under `EnsomiCharts` (each song's audio stages and each chart, with their times and the peak
-resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, the score), their sound
-under `EnsomiAudio` (the track's buffer, its route and its underruns), and the playfield's render thread under
-`EnsomiPlayfield`: the frame rate it asked for and got, then every two seconds the frames drawn, the vsyncs missed,
+resident memory), games under `EnsomiPlay` (why each pause happened, the audio offset used, at each resume the lanes
+released at the pause's time, the lanes the session holds and the holds held in them, numbered 1 to 4, and the late
+inputs so far, the score), their sound under `EnsomiAudio` (the track's buffer, its route and its underruns), and the
+playfield under `EnsomiPlayfield`: at each resume the lanes it released at the pause's time and those still held,
+and from its render thread the frame rate it asked for and got, then every two seconds the frames drawn, the vsyncs missed,
 the frames finished after their deadline, and the time in the runtime and in drawing (average, most, and the whole
 frame's work at the median and the 99th percentile). The calibration logs under `EnsomiCalibration`: the output the
 clicks play on, every five seconds when click 0 was heard on the `System.nanoTime()` clock, and each tap's event time,
