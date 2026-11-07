@@ -148,7 +148,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         drawGround(canvas, g)
         drawTray(canvas, frame, g, capLabels)
         onLanes(canvas, g) { drawLanes(canvas, frame, g) }
-        if (frame != null && frame.judging && !frame.paused) drawJudgement(canvas, frame, g)
+        if (frame != null && !frame.paused) drawJudgement(canvas, frame, g)
         onLanes(canvas, g) {
             if (frame != null) drawNotes(canvas, frame, g)
             drawFarFade(canvas, g)
@@ -158,7 +158,7 @@ class PlayfieldRenderer(private val words: PlayfieldWords) {
         canvas.drawRect(g.lineLeft, g.lineY - g.dp(1.5f), g.lineLeft + g.lineWidth, g.lineY + g.dp(1.5f), fill)
         if (frame != null) {
             onLanes(canvas, g) { drawHitFeedback(canvas, frame, g) }
-            if (frame.judging) drawProgress(canvas, frame, g)
+            if (frame.progress) drawProgress(canvas, frame, g)
         }
     }
 

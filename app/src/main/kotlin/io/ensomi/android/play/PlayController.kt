@@ -141,8 +141,8 @@ class PlayFrame(
     val presentation: JudgementPresentation?,
     val combo: Int,
     val anyJudgement: Boolean,
-    /** The calibration's picture step judges nothing, so it shows no judgement word, combo or song progress. */
-    val judging: Boolean,
+    /** Song progress is drawn; the calibration's field, whose clicks have no end, draws none. */
+    val progress: Boolean,
     /** Paused or not yet started: the panel or the count-in is in front, so the judgement word and combo are not drawn. */
     val paused: Boolean,
 )
@@ -168,20 +168,25 @@ class PlayController(
     private val inputLog: InputLog? = null,
     /** Runs after the controller has closed its session: releases the game's sound. */
     private val onClose: () -> Unit = {},
-    /** Judges input and advances the session; off for the calibration's picture step, which only draws. */
-    private val judging: Boolean = true,
+    /** Draws song progress; the calibration's field, on a click track without end, has none. */
+    private val progress: Boolean = true,
     /** The preview's autoplay; empty in play. */
     private val script: List<ScriptedInput> = emptyList(),
     /** Starts again at the end instead of finishing: the preview from Settings and the calibration. */
     private val loop: Boolean = false,
     private val leadInMs: Double = LEAD_IN_MS,
     /**
-     * Whether the game starts and closes [clock]. The calibration's clicks keep one clock for both its steps, so its
-     * playfield only reads it.
+     * Whether the game starts and closes [clock]. The calibration's clicks play from the moment its screen opens, so its
+     * playfield only reads their clock.
      */
     private val ownsClock: Boolean = true,
     private val hud: MutableStateFlow<PlayHud>,
     private val nextSequence: () -> Long,
+    /**
+     * The calibration's readings and log: each press of a method the session took, with what it decided. Called on the
+     * render thread.
+     */
+    private val onPress: ((JudgedPress) -> Unit)? = null,
 ) : AutoCloseable {
     private val inputs = InputQueue(clock, taken = ::taken, deliver = ::deliver, becameLive = ::becameLive)
     private val visibleWindow = VisibleWindow()
@@ -203,16 +208,15 @@ class PlayController(
     private var session = GameplaySession(runtimeChart, Ruleset(judge))
     private var feedback = GameplayFeedback()
 
-    /** The game's latencies, read once a frame. */
+    /**
+     * The game's latencies, read once a frame. A game keeps them from start to end; the calibration moves them while the
+     * notes fall, and the field takes a new value on its next frame.
+     */
     @Volatile
-    private var latencies = timing
+    var timing: PlayTiming = timing
 
-    /** The calibration moves this while the notes fall; a game keeps its value from start to end. */
-    var audioLatencyMs: Double
-        get() = latencies.audioLatencyMs
-        set(value) {
-            latencies = latencies.copy(audioLatencyMs = value)
-        }
+    /** The latencies of the frame being run, for what it hands on. */
+    private var frameTiming = timing
 
     /** The settings' playfield preview moves this while it runs; play keeps the game's value. */
     @Volatile
@@ -250,32 +254,31 @@ class PlayController(
 
     /**
      * Queues an input for the next frame. Every one reaches the session, a paused frame's too ([InputQueue]): what is
-     * dropped at a pause, [LaneSender] never sends. The calibration's picture step judges nothing and takes none.
+     * dropped at a pause, [LaneSender] never sends.
      */
     fun enqueue(input: LaneInput) {
-        if (judging) inputs.add(input)
+        inputs.add(input)
     }
 
     /** One frame at [nowNanos], drawn for [presentNanos], the frame's expected presentation time. */
     fun frame(nowNanos: Long, presentNanos: Long): PlayFrame? {
         clock.update(nowNanos)
         val songNow = clock.songTimeMs(nowNanos) ?: return null
-        val timing = latencies
+        val timing = this.timing
+        frameTiming = timing
         val gameplayMs = timing.gameplayMs(songNow)
         val paused = clock.isPaused
         frameNanos = nowNanos
-        if (judging) {
-            // A paused frame hands on what was queued before the pause, at the pause's time at the latest, so that the
-            // session holds the lanes the app holds, and advances nothing: the session's clock stays where it was.
-            val delivered = inputs.frame(gameplayMs, timing, paused) { untilMs -> runScript(untilMs, timing) }
-            if (paused && !wasPaused) logLanes("Paused", gameplayMs, "delivered $delivered inputs queued before it")
-            if (!paused) {
-                if (wasPaused) logLanes("Resumed", gameplayMs, "released at the pause's time [${lanes(resumeReleased)}]")
-                resumeReleased = 0
-                val watermarkMs = inputs.inputClockMs - INPUT_ALLOWANCE_MS
-                sessionClockMs = maxOf(sessionClockMs, watermarkMs)
-                record(session.advance(watermarkMs), gameplayMs, source = null)
-            }
+        // A paused frame hands on what was queued before the pause, at the pause's time at the latest, so that the
+        // session holds the lanes the app holds, and advances nothing: the session's clock stays where it was.
+        val delivered = inputs.frame(gameplayMs, timing, paused) { untilMs -> runScript(untilMs, timing) }
+        if (paused && !wasPaused) logLanes("Paused", gameplayMs, "delivered $delivered inputs queued before it")
+        if (!paused) {
+            if (wasPaused) logLanes("Resumed", gameplayMs, "released at the pause's time [${lanes(resumeReleased)}]")
+            resumeReleased = 0
+            val watermarkMs = inputs.inputClockMs - INPUT_ALLOWANCE_MS
+            sessionClockMs = maxOf(sessionClockMs, watermarkMs)
+            record(session.advance(watermarkMs), gameplayMs, source = null)
         }
         wasPaused = paused
         // The score changes only when events are decided; each call through the bindings costs time.
@@ -305,7 +308,7 @@ class PlayController(
             presentation = presentation,
             combo = score.combo.toInt(),
             anyJudgement = anyJudgement,
-            judging = judging,
+            progress = progress,
             paused = clock.isPaused,
         )
         if (loop && ownsClock && songNow > chart.durationMs + LOOP_GAP_MS) restart(nowNanos)
@@ -349,8 +352,8 @@ class PlayController(
         inputLog?.taken(input.sequence, frameNanos)
     }
 
-    /** An input due at [chartMs], to the session. */
-    private fun deliver(chartMs: Double, input: LaneInput) {
+    /** An input due at [chartMs], to the session; [stamp] is how its frame stamped it. */
+    private fun deliver(chartMs: Double, input: LaneInput, stamp: InputStamp) {
         if (input.press) pressesBySource[input.source.ordinal]++
         if (input.atPause) resumeReleased = resumeReleased or (1 shl input.lane)
         // The runtime's rule: an input stamped before the session's clock is late, and handled at the clock.
@@ -361,8 +364,26 @@ class PlayController(
             input, clock.eventSongTimeMs(input.eventNanos), chartMs, frameNanos, inputs.inputClockMs, late,
         )
         val phase = if (input.press) Phase.PRESS else Phase.RELEASE
-        record(session.input(InputEvent(input.lane.toUInt(), phase, chartMs)), chartMs, input.source)
+        val events = session.input(InputEvent(input.lane.toUInt(), phase, chartMs))
+        record(events, chartMs, input.source)
         visibleWindow.invalidate()
+        val listener = onPress ?: return
+        if (!input.press || !input.source.isMethod) return
+        // A tap is decided by its press: the hit, if any, is among the events this call returned.
+        val hit = events.firstOrNull { it.offsetMs != null }
+        listener(
+            JudgedPress(
+                source = input.source,
+                eventNanos = input.eventNanos,
+                songMs = stamp.songMs,
+                ownMs = stamp.ownMs,
+                chartMs = chartMs,
+                timing = frameTiming,
+                offsetMs = hit?.offsetMs,
+                tier = hit?.tier?.name?.lowercase(),
+                late = late,
+            ),
+        )
     }
 
     /** A method's first input in this game, its press or a release that shows it pressed: it is live from then on. */
@@ -374,7 +395,7 @@ class PlayController(
                 "%s is live from its first input at chart time %.1f ms, input latency %s; %s",
                 source.name.lowercase().replaceFirstChar { it.uppercase() },
                 chartMs,
-                PlaySettings.formatOffset(latencies.inputLatencyMs(source).roundToInt()),
+                PlaySettings.formatOffset(timing.inputLatencyMs(source).roundToInt()),
                 if (holdMs > 0) {
                     String.format(Locale.ROOT, "the input clock holds %.1f ms", holdMs)
                 } else {
@@ -527,6 +548,34 @@ class PlayController(
         private val DARK = LaneBrightness(receptor = 0.0, lane = 0.0)
         private const val TAG = "EnsomiPlay"
     }
+}
+
+/**
+ * A press of a method that the session took, for the calibration's readings and log (latency.md, Timing calibration):
+ * the song time of its event and the chart time that and the latencies gave it ([ownMs]), the chart time it was handed on
+ * at ([chartMs], which a pause or its lane's last input can hold later), the frame's latencies, and the runtime's error
+ * and tier of the hit it decided, press time less note time; both null when it hit nothing. [late] by the runtime's rule:
+ * handed on behind the session's clock, so judged at the clock.
+ */
+data class JudgedPress(
+    val source: InputSource,
+    val eventNanos: Long,
+    val songMs: Double?,
+    val ownMs: Double,
+    val chartMs: Double,
+    val timing: PlayTiming,
+    val offsetMs: Double?,
+    val tier: String?,
+    val late: Boolean,
+) {
+    /**
+     * Judged at its own time with the latencies it was stamped with: not late, and not held to a pause or its lane's
+     * last input. Only such a press's error says where it landed.
+     */
+    val exact: Boolean get() = !late && chartMs == ownMs
+
+    /** The audio latency and its method's input latency it was stamped with, A + I, from its own song and chart time. */
+    val stampedWithMs: Double? get() = songMs?.let { it - ownMs }
 }
 
 /**

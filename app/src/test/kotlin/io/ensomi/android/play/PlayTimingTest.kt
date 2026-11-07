@@ -86,7 +86,7 @@ class PlayTimingTest {
         val queue = InputQueue(
             clock,
             taken = {},
-            deliver = { chartMs, input ->
+            deliver = { chartMs, input, _ ->
                 if (chartMs < sessionMs) late += input
                 sessionMs = maxOf(sessionMs, chartMs)
                 delivered += chartMs to input

@@ -35,18 +35,22 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * latency can make it.
  *
  * [add] may be called from any thread, the rest only on the render thread. [taken] sees each input as a frame takes
- * it, for the lane lights; [deliver] gets each due one with its chart time, for the session; [becameLive] hears of each
- * method's first input in the game, with its chart time and how far the input clock is held then (0 for not at all).
+ * it, for the lane lights; [deliver] gets each due one with its chart time, for the session, and how its frame stamped
+ * it ([InputStamp]); [becameLive] hears of each method's first input in the game, with its chart time and how far the
+ * input clock is held then (0 for not at all).
  */
 class InputQueue(
     private val clock: PlayClock,
     private val taken: (LaneInput) -> Unit,
-    private val deliver: (chartMs: Double, input: LaneInput) -> Unit,
+    private val deliver: (chartMs: Double, input: LaneInput, stamp: InputStamp) -> Unit,
     private val becameLive: (source: InputSource, chartMs: Double, holdMs: Double) -> Unit = { _, _, _ -> },
     lanes: Int = PlayfieldGeometry.LANES,
 ) {
     private val queue = ConcurrentLinkedQueue<LaneInput>()
-    private val pending = ArrayList<Pair<Double, LaneInput>>()
+    private val pending = ArrayList<Pending>()
+
+    /** An input taken and waiting for the input clock: the chart time it is handed on at, and how it was stamped. */
+    private class Pending(val chartMs: Double, val input: LaneInput, val stamp: InputStamp)
 
     /** The methods that have pressed in this game, by [InputSource.ordinal], and those that first did this frame. */
     private val live = BooleanArray(InputSource.entries.size)
@@ -98,7 +102,8 @@ class InputQueue(
         while (true) {
             val input = queue.poll() ?: break
             // A clock with no time for it has nothing to judge it at.
-            val chartMs = stamp(input, timing) ?: continue
+            val stamped = stamp(input, timing) ?: continue
+            val chartMs = stamped.first
             if (input.source.isMethod) {
                 if (input.lane in laneMs.indices) laneMs[input.lane] = chartMs
                 if (!live[input.source.ordinal]) {
@@ -107,24 +112,24 @@ class InputQueue(
                 }
             }
             taken(input)
-            pending += chartMs to input
+            pending += Pending(chartMs, input, stamped.second)
         }
     }
 
-    private fun stamp(input: LaneInput, timing: PlayTiming): Double? {
+    /** The chart time [input] is handed on at, and how it was stamped. */
+    private fun stamp(input: LaneInput, timing: PlayTiming): Pair<Double, InputStamp>? {
         val inLane = laneMs.getOrNull(input.lane)?.takeIf { input.source.isMethod } ?: Double.NEGATIVE_INFINITY
         if (input.atPause) {
             // The time the game paused at, with no input latency: its clock was frozen when the lane was let go. With
             // no paused frame between the pause and the resume, the clock still holds that time at the resume.
-            val atMs = if (pausedSince) {
-                pauseMs
-            } else {
-                (clock.eventSongTimeMs(input.eventNanos) ?: return null) - timing.audioLatencyMs
-            }
-            return maxOf(atMs, floorMs, inLane).also { floorMs = maxOf(floorMs, it) }
+            val songMs = if (pausedSince) null else clock.eventSongTimeMs(input.eventNanos) ?: return null
+            val atMs = songMs?.let { it - timing.audioLatencyMs } ?: pauseMs
+            val chartMs = maxOf(atMs, floorMs, inLane).also { floorMs = maxOf(floorMs, it) }
+            return chartMs to InputStamp(songMs, atMs)
         }
-        val ownMs = timing.inputMs(clock.eventSongTimeMs(input.eventNanos) ?: return null, input.source)
-        return maxOf(ownMs, floorMs, inLane)
+        val songMs = clock.eventSongTimeMs(input.eventNanos) ?: return null
+        val ownMs = timing.inputMs(songMs, input.source)
+        return maxOf(ownMs, floorMs, inLane) to InputStamp(songMs, ownMs)
     }
 
     /** The input clock for this frame, from the methods live now; each that joined this frame hears of it. */
@@ -140,13 +145,13 @@ class InputQueue(
 
     private fun handOn(paused: Boolean): Int {
         if (pending.isEmpty()) return 0
-        pending.sortWith(compareBy({ it.first }, { it.second.sequence }))
+        pending.sortWith(compareBy({ it.chartMs }, { it.input.sequence }))
         // Nothing stamped at the pause's time waits, though a clock that runs again may read a hair before it.
         val dueBy = maxOf(inputClockMs, floorMs)
         var due = 0
-        while (due < pending.size && (paused || pending[due].first <= dueBy)) {
-            val (chartMs, input) = pending[due++]
-            deliver(if (paused) minOf(chartMs, pauseMs) else chartMs, input)
+        while (due < pending.size && (paused || pending[due].chartMs <= dueBy)) {
+            val next = pending[due++]
+            deliver(if (paused) minOf(next.chartMs, pauseMs) else next.chartMs, next.input, next.stamp)
         }
         pending.subList(0, due).clear()
         // What a paused frame handed on was at the pause's time at the latest, and so is every lane's last input.
@@ -167,3 +172,10 @@ class InputQueue(
         pausedSince = false
     }
 }
+
+/**
+ * How a frame stamped an input: [songMs], the song time of its event (null for a release at a resume stamped with the
+ * paused frames' time), and [ownMs], the chart time that and the latencies gave it, before a pause or its lane's last
+ * input held it later.
+ */
+class InputStamp(val songMs: Double?, val ownMs: Double)

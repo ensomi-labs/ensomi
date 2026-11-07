@@ -73,14 +73,17 @@ object SampleCharts {
         PlayChart("Sample chart", durationMs = t + 1_000, notes = notes.sortedWith(compareBy({ it.startMs }, { it.lane })))
     }
 
+    /** The lane of the calibration's notes, the second; every press on its field counts for it. */
+    const val CALIBRATION_LANE = 1
+
     /**
-     * The calibration's picture step: a note in lane 1 on every click of the click track, 500 ms apart from 1 s on,
+     * The calibration's field: a note in [CALIBRATION_LANE] on every click of the click track, 500 ms apart from 1 s on,
      * for half an hour of clicks (the track goes on as long as the screen is open).
      */
     val CALIBRATION: PlayChart = PlayChart(
         title = "Calibration",
         durationMs = 1_000 + CALIBRATION_CLICKS * 500 + 1_000,
-        notes = (0 until CALIBRATION_CLICKS).map { NoteSpec(lane = 1, startMs = 1_000 + it * 500) },
+        notes = (0 until CALIBRATION_CLICKS).map { NoteSpec(lane = CALIBRATION_LANE, startMs = 1_000 + it * 500) },
     )
 
     /** The first object of a lane that starts before the previous one of that lane has ended, or null. */

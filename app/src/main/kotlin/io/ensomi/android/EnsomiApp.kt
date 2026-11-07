@@ -281,12 +281,14 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
                     CalibrationScreen(
                         settings = settings,
                         route = route,
-                        initialStep = scenario.calibrationStep,
                         clicks = graph.clicks,
+                        keyboards = graph.keyboards,
                         onPlayingOn = graph.outputs::playingOn,
                         onChange = graph.settings::update,
                         onBack = { backStack.removeLastOrNull() },
-                        initialTapErrors = scenario.calibrationTaps,
+                        initialHits = scenario.calibrationHits,
+                        initialNaming = scenario.calibrationNaming,
+                        startPaused = scenario.calibrationPaused,
                     )
                 }
                 entry<Notices> {

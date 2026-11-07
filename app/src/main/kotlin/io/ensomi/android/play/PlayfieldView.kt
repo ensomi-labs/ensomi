@@ -104,12 +104,31 @@ class PlayfieldView @JvmOverloads constructor(
             updateGeometry(width, height)
         }
 
-    /** Overrides the game's audio latency while the playfield runs: the calibration's slider. */
+    /**
+     * Overrides the game's latencies while the playfield runs: the calibration's values, which its field takes on its
+     * next frame. A game keeps its own from start to end.
+     */
     @Volatile
-    var audioLatencyMs: Double? = null
+    var timing: PlayTiming? = null
         set(value) {
             field = value
-            if (value != null) controller?.audioLatencyMs = value
+            if (value != null) controller?.timing = value
+        }
+
+    /**
+     * Every press counts for this lane, wherever a finger lands and whichever lane key: the calibration's note lane
+     * (latency.md, Timing calibration). Null in a game, where a finger presses the lane under it and a key its own.
+     */
+    var pressLane: Int? = null
+
+    /**
+     * The calibration: a click on the field, TalkBack's double tap among them, is taken and does nothing, so it is never
+     * a press. A double tap is not timed, and Android would otherwise tap the field for it at the moment it came.
+     */
+    var takesUntimedClicks = false
+        set(value) {
+            field = value
+            isClickable = value
         }
 
     /** Overrides the game's scroll time while the playfield runs: the settings' preview follows the speed slider. */
@@ -162,6 +181,7 @@ class PlayfieldView @JvmOverloads constructor(
     /** The game's keys: its map, read as it starts, and the connected keyboards' ([useKeys]). */
     private var keyLanes: KeyLanes? = null
     private var gameKeys: GameKeys? = null
+    private var calibrationKeys: CalibrationKeys? = null
     private var keyNames = ""
 
     /** Each device whose keys or connection this game saw, by its index in the logs: 0, 1, … (−1 for injected keys). */
@@ -228,6 +248,7 @@ class PlayfieldView @JvmOverloads constructor(
         val keys = KeyLanes(map, keyboards, lanes)
         keyLanes = keys
         gameKeys = GameKeys(keys)
+        calibrationKeys = CalibrationKeys(keys)
         keyNames = KeySlot.entries.joinToString(" ") { slot -> "${slot.name.lowercase()} ${map[slot]?.name ?: "none"}" }
     }
 
@@ -238,11 +259,26 @@ class PlayfieldView @JvmOverloads constructor(
      */
     fun keyInput(event: KeyEvent, state: GameKeys.State): GameKeys.Action {
         val keys = gameKeys ?: return GameKeys.Action.PASS_ON
+        return logged(event) { key -> keys.handle(key, state, canPress = controller != null) }
+    }
+
+    /**
+     * A key event on the calibration screen, whose clicks are [paused] or not: what it does ([CalibrationKeys]). Every
+     * lane key presses [pressLane], with the keyboard's input latency, through the same sender and queue as play.
+     */
+    fun calibrationKeyInput(event: KeyEvent, paused: Boolean): CalibrationKeys.Action {
+        val keys = calibrationKeys ?: return CalibrationKeys.Action.PASS_ON
+        val lane = pressLane ?: return CalibrationKeys.Action.PASS_ON
+        return logged(event) { key -> keys.handle(key, lane, paused, canPress = controller != null) }
+    }
+
+    /** [handle]'s answer for [event], with the event in the key log. */
+    private inline fun <A> logged(event: KeyEvent, handle: (KeyInput) -> A): A {
         val key = KeyInput.of(event)
         if (key.deviceId == KeyCharacterMap.VIRTUAL_KEYBOARD) injected = true
         val slot = keyLanes?.slotOf(key)
         keySent = false
-        val action = keys.handle(key, state, canPress = controller != null)
+        val action = handle(key)
         if (keyLogFile != null) {
             keyLog.record(
                 key, System.nanoTime(), event.scanCode, indexOf(key.deviceId),
@@ -398,7 +434,7 @@ class PlayfieldView @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = event.actionIndex
-                lanes.press(LaneHolder.Pointer(event.getPointerId(index)), g.laneAt(event.getX(index)), nanos)
+                lanes.press(LaneHolder.Pointer(event.getPointerId(index)), pressLane ?: g.laneAt(event.getX(index)), nanos)
             }
             // A pointer the system cancelled (FLAG_CANCELED, a palm for example) still lifts its lane.
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
@@ -410,6 +446,12 @@ class PlayfieldView @JvmOverloads constructor(
 
     private fun eventNanos(event: MotionEvent): Long =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) event.eventTimeNanos else event.eventTime * 1_000_000
+
+    /** A click, which only [takesUntimedClicks] lets come, does nothing: it carries no time to judge. */
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
 
     /**
      * A thread with its own `Looper` and `Choreographer`, and the 8 MiB stack the runtime's worker uses, since the
@@ -447,7 +489,7 @@ class PlayfieldView @JvmOverloads constructor(
                 ready.countDown()
                 return
             }
-            audioLatencyMs?.let { playController.audioLatencyMs = it }
+            timing?.let { playController.timing = it }
             scrollTimeMs?.let { playController.scrollTimeMs = it }
             ready.countDown()
             // After the game is made, so that the threads it starts do not inherit this.

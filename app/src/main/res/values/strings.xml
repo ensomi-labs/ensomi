@@ -372,7 +372,7 @@
     <string name="latency_name_cancel">Cancel</string>
     <string name="latency_name_save">Save</string>
     <string name="settings_calibrate">Calibrate timing</string>
-    <string name="settings_calibrate_help">Tap to clicks, or line notes up with them, to set the audio latency.</string>
+    <string name="settings_calibrate_help">Line falling notes up with clicks, and press with them, to set audio and input latency.</string>
     <string name="settings_chart_model">Chart model</string>
     <string name="settings_model_licence">Model licence: %1$s</string>
     <string name="settings_model_card">The model card on Hugging Face says what each part covers.</string>
@@ -400,30 +400,39 @@
     <string name="settings_diagnostics_help">What this phone is, and whether the runtime loads.</string>
     <string name="settings_version">Version</string>
 
-    <!-- Calibration -->
+    <!-- Calibration: one screen (docs/latency.md, Timing calibration). -->
     <string name="calibration_title">Timing calibration</string>
-    <string name="calibration_sound">Sound</string>
-    <string name="calibration_picture">Picture</string>
-    <string name="calibration_sound_help">A click plays every half second. Tap the pad on each click; closing your eyes helps. Ensomi takes the middle of your last 16 taps.</string>
-    <string name="calibration_for_output">For %1$s. Audio latency slot %2$s is %3$s.</string>
-    <string name="calibration_suggested">Suggested audio latency</string>
-    <string name="calibration_audio_latency">Audio latency, slot %1$s</string>
-    <string name="calibration_taps">Taps: %1$d/%2$d</string>
-    <string name="calibration_strip_description">Your last taps, from early on the left to late on the right</string>
-    <string name="calibration_tap_here">Tap on the click</string>
-    <string name="calibration_start_over">Start over</string>
-    <string name="calibration_apply">Use %1$s</string>
-    <string name="calibration_picture_help">The clicks go on, and a note falls onto the line with each one. Move the slider until the notes cross the line on the click. No tapping.</string>
-    <string name="calibration_done">Done</string>
-    <string name="calibration_no_suggestion">—</string>
-    <string name="calibration_no_suggestion_spoken">none yet: tap on 16 clicks</string>
-    <string name="calibration_apply_none">Use the suggestion</string>
-    <string name="calibration_paused">Paused. Tap to go on.</string>
-    <string name="calibration_pad_description">Tap pad. %1$s</string>
-    <string name="calibration_strip_empty">No taps yet</string>
-    <string name="calibration_strip_on">The middle of your last taps is on the click</string>
-    <string name="calibration_strip_late">The middle of your last taps is %1$d ms late</string>
-    <string name="calibration_strip_early">The middle of your last taps is %1$d ms early</string>
+    <string name="calibration_help">A note falls onto the line with each click. Move Audio latency until they meet. Press with the clicks to see where your presses land, and move Input latency until they gather at the middle. Do either, both, in any order. Changes are kept as you make them.</string>
+    <!-- TalkBack: the field is one element; a double tap on it is not timed, so it is no press. -->
+    <string name="calibration_field_description">Calibration field: a note falls onto the line with each click.</string>
+    <string name="calibration_paused">Paused. Tap the field or press a key to go on.</string>
+    <string name="calibration_audio_help">Moves the notes and the judging together.</string>
+    <string name="calibration_input_help">Moves only when your presses count. Raise it if your hits are late, lower it if they are early.</string>
+    <string name="calibration_clear">Clear hits</string>
+    <!-- The readings line, for the method chosen: "Last 16 touch hits: 6 ms early on average." -->
+    <string name="calibration_no_touch_hits">No touch hits yet. Tap the field with the clicks.</string>
+    <string name="calibration_no_key_hits">No key hits yet. Press a lane key with the clicks.</string>
+    <plurals name="calibration_last_touch">
+        <item quantity="one">Last touch hit</item>
+        <item quantity="other">Last %d touch hits</item>
+    </plurals>
+    <plurals name="calibration_last_key">
+        <item quantity="one">Last key hit</item>
+        <item quantity="other">Last %d key hits</item>
+    </plurals>
+    <!-- "Last 16 touch hits" and where they are: "6 ms early on average". -->
+    <string name="calibration_reading">%1$s: %2$s.</string>
+    <string name="calibration_early_average">%1$d ms early on average</string>
+    <string name="calibration_late_average">%1$d ms late on average</string>
+    <string name="calibration_on_time_average">on time on average</string>
+    <string name="calibration_early">%1$d ms early</string>
+    <string name="calibration_late">%1$d ms late</string>
+    <string name="calibration_on_time">on time</string>
+    <!-- TalkBack: the strip of hits, and how far they spread: "From 12 ms early to 20 ms late". -->
+    <string name="calibration_strip_touch">Your last touch hits, from early on the left to late on the right</string>
+    <string name="calibration_strip_key">Your last key hits, from early on the left to late on the right</string>
+    <string name="calibration_strip_range">From %1$s to %2$s</string>
+    <string name="calibration_strip_empty">No hits yet</string>
     <string name="library_prepared">Prepared</string>
     <!-- Install stages -->
     <string name="model_verifying">Checking model files… %1$d of %2$d</string>

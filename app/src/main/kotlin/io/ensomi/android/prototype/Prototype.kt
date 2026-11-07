@@ -40,7 +40,7 @@ import io.ensomi.android.settings.PlayOrientation
 import io.ensomi.android.settings.SettingsSection
 import io.ensomi.android.settings.SlotNaming
 import io.ensomi.android.settings.AudioClickTracks
-import io.ensomi.android.settings.CalibrationStep
+import io.ensomi.android.settings.CalibrationHit
 import io.ensomi.android.settings.ClickTracks
 import io.ensomi.android.settings.PlayOutputs
 import io.ensomi.android.settings.PlaySettings
@@ -93,9 +93,10 @@ data class Scenario(
     val sectionsOpen: Boolean = false,
     val pauseAfterMs: Long? = null,
     val holdCountdown: Boolean = false,
-    val calibrationStep: CalibrationStep = CalibrationStep.SOUND,
-    /** Taps the calibration starts with, as errors in milliseconds. */
-    val calibrationTaps: List<Double> = emptyList(),
+    /** Hits the calibration starts with, its slot dialog open, and its clicks paused as it opens. */
+    val calibrationHits: List<CalibrationHit> = emptyList(),
+    val calibrationNaming: SlotNaming? = null,
+    val calibrationPaused: Boolean = false,
     val dynamicColor: Boolean = false,
     val settings: PlaySettings = PlaySettings(),
     /** Opens Settings scrolled to this section. */
@@ -169,6 +170,7 @@ data class Scenario(
         private val KEYBOARD = listOf(FakeKeyboards.SAMPLE)
         private val TWO_KEYBOARDS = listOf(FakeKeyboards.GERMAN, FakeKeyboards.SAMPLE)
         private val KEYS = listOf(Library, Settings, KeyboardSettings)
+        private val CALIBRATION = listOf(Library, Settings, Calibration)
 
         private fun key(name: String) = KeyTable.named(name)!!
 
@@ -318,12 +320,7 @@ data class Scenario(
             "settings-stored-keyboard" to Scenario(listOf(Library, Settings), settingsSection = SettingsSection.KEYBOARD, real = true),
             "settings-stored-sound" to Scenario(listOf(Library, Settings), settingsSection = SettingsSection.SOUND, real = true),
             "keyboard-stored" to Scenario(KEYS, real = true),
-            "calibration-stored" to Scenario(listOf(Library, Settings, Calibration), real = true),
-            "calibration-picture-stored" to Scenario(
-                listOf(Library, Settings, Calibration),
-                calibrationStep = CalibrationStep.PICTURE,
-                real = true,
-            ),
+            "calibration-stored" to Scenario(CALIBRATION, real = true),
             "settings" to Scenario(listOf(Library, Settings)),
             "settings-playfield" to Scenario(listOf(Library, Settings), settingsSection = SettingsSection.PLAYFIELD),
             "settings-playfield-flat" to Scenario(
@@ -424,8 +421,31 @@ data class Scenario(
             ),
             "notices" to Scenario(listOf(Library, Settings, Notices)),
             "notice-text" to Scenario(listOf(Library, Settings, Notices, NoticeText(ONNX_RUNTIME_NOTICES.last().path, asset = true))),
-            "calibration-sound" to Scenario(listOf(Library, Settings, Calibration), calibrationTaps = SAMPLE_TAP_ERRORS_MS),
-            "calibration-picture" to Scenario(listOf(Library, Settings, Calibration), calibrationStep = CalibrationStep.PICTURE),
+            // The calibration, one screen (latency.md, Timing calibration): no hits yet; touch and key hits on named
+            // slots, Touch chosen; a keyboard connected, so Keyboard is chosen and the caps carry its keys; the longest
+            // names; both methods on one slot with values past the sliders' reach; paused; a slot's name dialog. Taps and
+            // keys from `adb shell input` press on the scenarios too, on a click track without sound.
+            "calibration" to Scenario(CALIBRATION),
+            "calibration-hits" to Scenario(CALIBRATION, settings = NAMED_SLOTS, calibrationHits = sampleCalibrationHits(NAMED_SLOTS)),
+            "calibration-keyboard" to Scenario(
+                CALIBRATION,
+                settings = NAMED_SLOTS,
+                keyboards = KEYBOARD,
+                calibrationHits = sampleCalibrationHits(NAMED_SLOTS),
+            ),
+            "calibration-long" to Scenario(CALIBRATION, settings = LONG_NAMES, calibrationHits = sampleCalibrationHits(LONG_NAMES)),
+            "calibration-shared" to Scenario(CALIBRATION, settings = SHARED_SLOT),
+            "calibration-paused" to Scenario(
+                CALIBRATION,
+                settings = NAMED_SLOTS,
+                calibrationHits = sampleCalibrationHits(NAMED_SLOTS),
+                calibrationPaused = true,
+            ),
+            "calibration-name" to Scenario(
+                CALIBRATION,
+                settings = NAMED_SLOTS,
+                calibrationNaming = SlotNaming(LatencyKind.AUDIO, 1),
+            ),
             "diagnostics" to Scenario(listOf(Library, Settings, Diagnostics)),
         )
 

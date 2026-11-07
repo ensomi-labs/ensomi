@@ -25,8 +25,11 @@ import io.ensomi.android.model.ModelState
 import io.ensomi.android.model.Notice
 import io.ensomi.android.model.ONNX_RUNTIME_NOTICES
 import io.ensomi.android.play.FakePlayClock
+import io.ensomi.android.play.InputSource
 import io.ensomi.android.play.PlayClock
 import io.ensomi.android.play.PlayResult
+import io.ensomi.android.settings.CalibrationEdits
+import io.ensomi.android.settings.CalibrationHit
 import io.ensomi.android.settings.ClickPlayer
 import io.ensomi.android.settings.ClickTracks
 import io.ensomi.android.settings.KeyMap
@@ -254,5 +257,14 @@ object SilentClickTracks : ClickTracks {
     }
 }
 
-/** Sample taps for the calibration scenario: about 22 ms late, as a speaker's unreported latency might be. */
-val SAMPLE_TAP_ERRORS_MS = listOf(18.0, 25.0, 21.0, 30.0, 16.0, 22.0, 27.0, 19.0, 24.0, 20.0, 23.0, 26.0, 21.0, 23.0, 19.0, 24.0)
+/**
+ * Sample hits for the calibration scenarios, judged with [settings]' values so they show as made: 16 touch hits about
+ * 6 ms late and 9 key hits about 4 ms early.
+ */
+fun sampleCalibrationHits(settings: PlaySettings): List<CalibrationHit> {
+    val touch = listOf(4.0, 9.0, 2.0, 11.0, 6.0, 7.0, 3.0, 8.0, 5.0, 10.0, 6.0, 4.0, 9.0, 5.0, 7.0, 6.0)
+    val keys = listOf(-6.0, -2.0, -9.0, -3.0, -5.0, -1.0, -7.0, -4.0, -3.0)
+    fun hits(method: InputSource, errors: List<Double>) =
+        errors.map { CalibrationHit(method, it, CalibrationEdits.latencyMs(settings, method)) }
+    return hits(InputSource.TOUCH, touch) + hits(InputSource.KEYBOARD, keys)
+}

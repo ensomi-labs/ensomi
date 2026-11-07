@@ -13,7 +13,7 @@ class InputQueueTest {
     private val clock = FakePlayClock().apply { start(0, fromMs = 0.0) }
     private val taken = ArrayList<LaneInput>()
     private val delivered = ArrayList<Pair<Double, LaneInput>>()
-    private val queue = InputQueue(clock, taken = { taken += it }, deliver = { at, input -> delivered += at to input })
+    private val queue = InputQueue(clock, taken = { taken += it }, deliver = { at, input, _ -> delivered += at to input })
     private var sequence = 0L
 
     private fun timing(audioMs: Double = 0.0, touchMs: Double = 0.0, keyboardMs: Double = 0.0) =
@@ -81,7 +81,7 @@ class InputQueueTest {
         val output = Output()
         val audio = AudioPlayClock(output, rate, leadInFrames = 0)
         val delivered = ArrayList<Pair<Double, LaneInput>>()
-        val queue = InputQueue(audio, taken = {}, deliver = { at, input -> delivered += at to input })
+        val queue = InputQueue(audio, taken = {}, deliver = { at, input, _ -> delivered += at to input })
         val latencies = timing(touchMs = 8.0)
         audio.start(0, 0.0)
         output.next = OutputTimestamp(frames(5_000.0), 5_000 * ms)
@@ -173,7 +173,7 @@ class InputQueueTest {
         val queue = InputQueue(
             clock,
             taken = {},
-            deliver = { at, input ->
+            deliver = { at, input, _ ->
                 pressed[input.lane] = input.press
                 order += at to input.press
             },
@@ -235,7 +235,7 @@ class InputQueueTest {
             val output = Output()
             val audio = AudioPlayClock(output, rate, leadInFrames = 0)
             val delivered = ArrayList<Pair<Double, LaneInput>>()
-            val queue = InputQueue(audio, taken = {}, deliver = { at, input -> delivered += at to input })
+            val queue = InputQueue(audio, taken = {}, deliver = { at, input, _ -> delivered += at to input })
             fun frame(atMs: Long) {
                 audio.update(atMs * ms)
                 val song = audio.songTimeMs(atMs * ms)!!
@@ -272,7 +272,7 @@ class InputQueueTest {
         val output = Output()
         val audio = AudioPlayClock(output, rate, leadInFrames = 0)
         val delivered = ArrayList<Pair<Double, LaneInput>>()
-        val queue = InputQueue(audio, taken = {}, deliver = { at, input -> delivered += at to input })
+        val queue = InputQueue(audio, taken = {}, deliver = { at, input, _ -> delivered += at to input })
         audio.start(0, 0.0)
         output.next = OutputTimestamp(frames(5_000.0), 5_000 * ms)
         audio.update(5_000 * ms)
@@ -336,7 +336,7 @@ class InputQueueTest {
     ) {
         val clock = FakePlayClock()
         val session = Session()
-        val queue = InputQueue(clock, taken = {}, deliver = session::input)
+        val queue = InputQueue(clock, taken = {}, deliver = { at, input, _ -> session.input(at, input) })
         private var sequence = 0L
 
         /** Each method's first input, press or release, by its event time in milliseconds, in the order they came. */
