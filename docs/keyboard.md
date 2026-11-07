@@ -633,6 +633,22 @@ game played by `adb shell input tap` reached Results with its taps judged, as on
 `presses touch 113, keyboard 0, autoplay 168`, as many touch presses as the touch log's downs. The capture script's
 screens looked as before. The AVD had no songs or charts, so no real song was played by taps.
 
+What the pause step showed (Astra job `pause-b1` of `claude/android-keyboard` at `b5a2269`, and its follow-up, on
+`ensomi-36-16k` with 16 KB pages): the full build passed with 448 JVM tests, and lint found the same 6 warnings as before
+the step. The AVD's Library was empty, so the sample game was played (`--es prototype play`), whose autoplay plays as
+well. Touches were `adb shell input motionevent DOWN` and `UP`; Back paused; Resume was tapped, or, with a finger still
+down, reached by Tab and Enter. `adb emu event send` delivered no touch on that AVD: its console refuses
+`EV_SYN:SYN_REPORT:0`, and with a numeric code it answers OK and nothing arrives. A finger on lane 4 lifted during the
+pause: the session held the lane at the pause; at the resume the playfield released it at the pause's time, the
+session held nothing and the lane was dark. A finger held through the resume: the session held lane 4 at the pause and
+at the resume, and the lane stayed lit until the finger lifted. On the sample chart's hold in lane 1, taken by the
+finger before the autoplay could: held through the resume, the session held the hold on both sides of the pause and it
+went on to its tail; let go during the pause, it was judged a miss as play went on, greyed, and the lane was dark. None
+of these added a late input, and no touch was cancelled. A game without a pause reached Results as before, with one
+late input: a tap's up handled 22 ms after it happened, after an autoplay press stamped 18 ms later had reached the
+session (the autoplay delivers as soon as its time comes and does not wait out the allowance). No real song's game, on
+the audio clock, was paused: the AVD had none; `InputQueueTest` covers the audio clock's hold at the resume.
+
 When the steps are done, design.md takes the screens and the keys table, gameplay.md the input path and edge cases,
 plan.md the steps and what they showed, phone-checks.md the rows, and design.md's "Not carried over in this round"
 drops key bindings.
@@ -727,8 +743,13 @@ keyboard page's usages.
 - Whether `hid` runs from `adb shell` on `ensomi-36` (AOSP grants the group; SELinux on the image is untested), and
   whether that AVD reports a keyboard of its own.
 - Whether Android's dispatcher adds its own repeats to keys injected by `adb shell input`.
-- The runtime's behaviour with lanes held across a pause, and with a release for a lane it does not hold, is read from
-  its source at `d090374` (Edge cases), not run.
+- With a release for a lane it does not hold, the runtime's behaviour is read from its source at `d090374` (Edge
+  cases), not run. Lanes and a hold held across a pause were run on the emulator, in the sample game only
+  ([Build plan](#build-plan)).
+- A real song paused on the audio clock with a lane held: the pause step's AVD had no song, so only `InputQueueTest`
+  shows the release at the resume and the presses after it on `AudioPlayClock`.
+- Whether `adb emu event send` can touch the screen on `ensomi-36-16k`, which multi-touch on the emulator needs; in the
+  pause step it delivered nothing.
 - Whether Material 3's focus state is clearly visible on the brand's plum in the game presentation, and whether its
   sliders step with the arrow keys (K4's captures).
 
