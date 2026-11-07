@@ -14,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -457,9 +459,14 @@ private fun SlotButton(
         emptyLane -> scheme.error
         else -> scheme.onSurface
     }
+    // Focus, from Tab or as the wait moves on, is a thicker outline: a state layer alone is too faint on the plum.
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val outline = if (focused) 3.dp else 2.dp
     val border = when {
-        waiting -> BorderStroke(2.dp, scheme.primary)
-        emptyLane -> BorderStroke(2.dp, scheme.error)
+        waiting -> BorderStroke(outline, scheme.primary)
+        emptyLane -> BorderStroke(outline, scheme.error)
+        focused -> BorderStroke(outline, scheme.primary)
         enabled -> BorderStroke(1.dp, scheme.outline)
         else -> null
     }
@@ -476,6 +483,7 @@ private fun SlotButton(
         color = container,
         contentColor = content,
         border = border,
+        interactionSource = interaction,
         modifier = modifier.semantics {
             contentDescription = description
             if (state != null) stateDescription = state
