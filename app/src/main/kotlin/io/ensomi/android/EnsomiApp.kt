@@ -12,6 +12,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import io.ensomi.android.chart.MakeChartScreen
 import io.ensomi.android.chart.MakeChartViewModel
 import io.ensomi.android.diagnostics.DiagnosticsScreen
 import io.ensomi.android.diagnostics.DiagnosticsActivity
+import io.ensomi.android.keyboard.LocalHardwareKeys
 import io.ensomi.android.library.LibraryScreen
 import io.ensomi.android.model.Notice
 import io.ensomi.android.model.ready
@@ -105,7 +107,15 @@ fun EnsomiApp(scenario: Scenario, graph: AppGraph) {
         graph.songs.refresh()
         onStopOrDispose { }
     }
+    // A keyboard's layout can change while the app is in the background: its keys are resolved again.
+    LifecycleStartEffect(graph.keyboards) {
+        graph.keyboards.refresh()
+        onStopOrDispose { }
+    }
     val destination = backStack.lastOrNull()
+    // Escape that no screen took is Back, except on the Library (keyboard.md, O2).
+    val hardwareKeys = LocalHardwareKeys.current
+    SideEffect { hardwareKeys?.escapeGoesBack = destination != null && destination !is Library }
     val idleScreen = destination is Library || destination is MakeChart || destination is Settings
     LifecycleStartEffect(graph.charts, idleScreen) {
         graph.charts.background(idleScreen)

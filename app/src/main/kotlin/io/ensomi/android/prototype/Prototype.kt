@@ -18,6 +18,7 @@ import io.ensomi.android.chart.MakePhase
 import io.ensomi.android.chart.MakeState
 import io.ensomi.android.chart.SectionDraft
 import io.ensomi.android.chart.SectionKind
+import io.ensomi.android.keyboard.Keyboards
 import io.ensomi.android.library.SongLibrary
 import io.ensomi.android.model.ChartModelStore
 import io.ensomi.android.model.ModelState
@@ -45,6 +46,8 @@ class AppGraph(
     val outputs: PlayOutputs,
     /** The calibration's click track. */
     val clicks: ClickTracks,
+    /** The keyboards connected, whose keys play and label the caps. */
+    val keyboards: Keyboards,
     /** The sound of the song last played; null in the scenarios, whose games are the sample chart without sound. */
     val playAudio: PlayAudioCache? = null,
     val debug: DebugOptions = DebugOptions(),
@@ -86,6 +89,12 @@ data class Scenario(
     val settingsItem: Int = 0,
     /** One of the sample songs has lost its file. */
     val missingSong: Boolean = false,
+    /**
+     * A sample keyboard is connected ([FakeKeyboards.SAMPLE]), so the caps carry labels. Without it a scenario has no
+     * keyboard: its games take injected keys (`adb shell input`) only, while one over the app's stores takes every
+     * keyboard's.
+     */
+    val keyboard: Boolean = false,
     /** The app's own stores instead of samples: a normal launch. */
     val real: Boolean = false,
     val debug: DebugOptions = DebugOptions(),
@@ -100,6 +109,7 @@ data class Scenario(
             settings = app.settings,
             outputs = app.route,
             clicks = AudioClickTracks,
+            keyboards = app.keyboards,
             playAudio = app.playAudio,
             debug = debug,
         )
@@ -120,6 +130,7 @@ data class Scenario(
         settings = FakePlaySettingsStore(settings, FakePlaySettingsStore.SPEAKER),
         outputs = FakePlayOutputs(FakePlaySettingsStore.SPEAKER),
         clicks = SilentClickTracks,
+        keyboards = FakeKeyboards(if (keyboard) listOf(FakeKeyboards.SAMPLE) else emptyList()),
     )
 
     companion object {

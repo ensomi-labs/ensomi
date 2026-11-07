@@ -160,4 +160,11 @@ class ResolvedKeys(keyCodes: List<Int>) {
 
     /** The key code [slot]'s key produces here; null for an empty slot. */
     fun keyCode(slot: KeySlot): Int? = keyCodes[slot.ordinal].takeIf { it != KeyEvent.KEYCODE_UNKNOWN }
+
+    /** The same key codes in the same slots: a keyboard resolved again to the same keys is unchanged. */
+    override fun equals(other: Any?): Boolean = other is ResolvedKeys && keyCodes.contentEquals(other.keyCodes)
+
+    override fun hashCode(): Int = keyCodes.contentHashCode()
+
+    override fun toString(): String = "ResolvedKeys(${keyCodes.joinToString()})"
 }

@@ -11,6 +11,9 @@ import io.ensomi.android.chart.MadeChart
 import io.ensomi.android.chart.MakeState
 import io.ensomi.android.chart.SectionKind
 import io.ensomi.android.chart.songId
+import io.ensomi.android.keyboard.KeyLabels
+import io.ensomi.android.keyboard.Keyboard
+import io.ensomi.android.keyboard.Keyboards
 import io.ensomi.android.library.AddResult
 import io.ensomi.android.library.Song
 import io.ensomi.android.library.SongLibrary
@@ -24,6 +27,8 @@ import io.ensomi.android.play.PlayClock
 import io.ensomi.android.play.PlayResult
 import io.ensomi.android.settings.ClickPlayer
 import io.ensomi.android.settings.ClickTracks
+import io.ensomi.android.settings.KeyMap
+import io.ensomi.android.settings.KeyTable
 import io.ensomi.android.settings.OutputRoute
 import io.ensomi.android.settings.PlayOutputs
 import io.ensomi.android.settings.PlaySettings
@@ -150,6 +155,38 @@ class FakePlayOutputs(private val route: OutputRoute) : PlayOutputs {
     override fun routeOf(device: AudioDeviceInfo?): OutputRoute = route
 
     override fun playingOn(device: AudioDeviceInfo?) = Unit
+}
+
+/**
+ * For the prototype's scenarios: fixed keyboards, none by default. Only their own made-up devices play; keys injected by
+ * `adb shell input` come from the virtual keyboard, which plays in any game. The app's are [io.ensomi.android.keyboard.ConnectedKeyboards].
+ */
+class FakeKeyboards(connected: List<Keyboard>) : Keyboards {
+    override val keyboards: StateFlow<List<Keyboard>> = MutableStateFlow(connected).asStateFlow()
+
+    override fun keys(deviceId: Int) = keyboards.value.firstOrNull { it.deviceId == deviceId }?.keys
+
+    override fun refresh() = Unit
+
+    companion object {
+        /** A US QWERTY Bluetooth keyboard with the default map, labelled from the key table. */
+        val SAMPLE: Keyboard = KeyMap.DEFAULT.resolve { it }.let { keys ->
+            Keyboard(
+                deviceId = 9_001,
+                name = "Sample keyboard",
+                vendorId = 0x046d,
+                productId = 0xb342,
+                external = true,
+                keys = keys,
+                labels = KeyLabels.of(
+                    keys,
+                    { code -> KeyTable.keys.firstOrNull { it.keyCode == code }?.label?.singleOrNull() ?: KeyLabels.NONE },
+                    space = "Space",
+                    escape = "Esc",
+                ),
+            )
+        }
+    }
 }
 
 /** Fixed numbers for the results scenario of the prototype. */

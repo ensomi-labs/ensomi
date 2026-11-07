@@ -12,10 +12,12 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Ensomi">
+        <!-- A keyboard coming or going changes keyboard, keyboardHidden and navigation: declared, so that it never
+             recreates the activity and restarts a game (docs/keyboard.md, D4). Nothing is tied to the change. -->
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:exported="true">
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <intent-filter>

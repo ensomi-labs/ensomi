@@ -198,6 +198,9 @@
     <string name="play_sample_detail">Sample chart · no sound</string>
     <string name="play_detail">%1$s stars · Judge %2$s</string>
     <string name="play_output_moved">Sound moved to %1$s. This game keeps its audio latency.</string>
+    <!-- A key cap's label for these keys while a keyboard is connected (docs/keyboard.md); other keys show their character. -->
+    <string name="key_space">Space</string>
+    <string name="key_escape">Esc</string>
     <string name="play_loading">Loading the song…</string>
     <string name="play_back">Back</string>
     <string name="play_failed_missing">The song’s file could not be found. Find it again in the library.</string>
