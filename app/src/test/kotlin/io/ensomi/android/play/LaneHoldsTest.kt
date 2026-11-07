@@ -131,6 +131,7 @@ class LaneHoldsTest {
         repeat(200) {
             sent.clear()
             sequence = 0
+            val sender = LaneSender({ ++sequence }) { sent += it }
             val old = OldTouches()
             var time = 0L
             repeat(60) {
