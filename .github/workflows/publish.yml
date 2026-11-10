@@ -1,0 +1,59 @@
+name: Publish npm package
+
+# A tag vX.Y.Z releases X.Y.Z (RELEASING.md): the tests, then the package on npm through trusted publishing,
+# then a GitHub release for the tag.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ensomi
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          # publishConfig sets the registry; trusted publishing (OIDC) needs no token, and there is no
+          # lockfile to cache.
+          package-manager-cache: false
+
+      - run: npm test
+      - name: The tag is v + the version in package.json
+        run: |
+          version="$(jq -r .version package.json)"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version in package.json"; exit 1
+          fi
+      - run: npm pack --dry-run
+      - name: Publish with npm trusted publishing
+        run: npm publish --loglevel verbose
+
+  github-release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      # GH_TOKEN is the run's own token, which GitHub creates for the job; nothing is stored.
+      - name: Create the release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
