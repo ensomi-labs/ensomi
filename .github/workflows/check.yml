@@ -31,5 +31,4 @@ jobs:
           # The package has no dependencies and no lockfile: nothing to install and nothing to cache.
           package-manager-cache: false
 
-      - run: npm test
       - run: npm pack --dry-run

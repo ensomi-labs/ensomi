@@ -1,15 +1,7 @@
 {
   "name": "ensomi",
   "version": "0.0.1",
-  "description": "The developer kit for Ensomi models. This release reads and writes osu! timing points and writes them as a Standard MIDI File tempo map.",
-  "keywords": [
-    "ensomi",
-    "osu",
-    "beatmap",
-    "timing-points",
-    "midi",
-    "tempo-map"
-  ],
+  "description": "The developer kit for Ensomi models.",
   "homepage": "https://github.com/ensomi-labs/ensomi#readme",
   "bugs": {
     "url": "https://github.com/ensomi-labs/ensomi/issues"
@@ -19,27 +11,6 @@
     "url": "git+https://github.com/ensomi-labs/ensomi.git"
   },
   "license": "MIT",
-  "type": "module",
-  "sideEffects": false,
-  "exports": {
-    ".": {
-      "types": "./index.d.ts",
-      "default": "./src/index.js"
-    },
-    "./package.json": "./package.json"
-  },
-  "main": "./src/index.js",
-  "types": "./index.d.ts",
-  "files": [
-    "src",
-    "index.d.ts"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "scripts": {
-    "test": "node --test"
-  },
   "publishConfig": {
     "access": "public",
     "provenance": true,

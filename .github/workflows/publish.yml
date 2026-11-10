@@ -1,7 +1,6 @@
 name: Publish npm package
 
-# A tag vX.Y.Z releases X.Y.Z (RELEASING.md): the tests, then the package on npm through trusted publishing,
-# then a GitHub release for the tag.
+# A tag vX.Y.Z releases X.Y.Z: the package on npm through trusted publishing, then a GitHub release for the tag.
 on:
   push:
     tags:
@@ -33,7 +32,6 @@ jobs:
           # lockfile to cache.
           package-manager-cache: false
 
-      - run: npm test
       - name: The tag is v + the version in package.json
         run: |
           version="$(jq -r .version package.json)"
