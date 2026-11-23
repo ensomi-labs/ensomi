@@ -735,6 +735,7 @@ function splitSegmentInPlace(state, segmentId, newSegmentId, timeSec, source, ev
   }
   if (
     state.segments.some((s) => s.id === newSegmentId) ||
+    state.spans.some((sp) => sp.id === newSegmentId) ||
     state.entityRevisions.has(newSegmentId)
   ) {
     throw new EnsomiError("DUPLICATE_SEGMENT_ID", `Segment id "${newSegmentId}" already exists`);
@@ -770,10 +771,9 @@ function splitSegmentInPlace(state, segmentId, newSegmentId, timeSec, source, ev
     1,
   );
 
-  state.segments.splice(idx, 1, leftSeg, rightSeg);
-  state.entityRevisions.set(leftSeg.id, rev);
-  state.entityRevisions.set(rightSeg.id, rev);
-
+  const existingSpanIds = new Set(state.spans.map((s) => s.id));
+  /** @type {string[]} */
+  const touchedSpanIds = [];
   /** @type {import("../index.d.ts").Span[]} */
   const nextSpans = [];
   for (const sp of state.spans) {
@@ -792,7 +792,7 @@ function splitSegmentInPlace(state, segmentId, newSegmentId, timeSec, source, ev
         revision: sp.revision + 1,
       };
       nextSpans.push(reparented);
-      state.entityRevisions.set(reparented.id, rev);
+      touchedSpanIds.push(reparented.id);
     } else {
       const leftSpan = {
         ...sp,
@@ -800,6 +800,18 @@ function splitSegmentInPlace(state, segmentId, newSegmentId, timeSec, source, ev
         revision: sp.revision + 1,
       };
       const rightSpanId = `span_split_${event.seq}_${opTag}_${sp.id}`;
+      if (
+        rightSpanId === newSegmentId ||
+        existingSpanIds.has(rightSpanId) ||
+        state.entityRevisions.has(rightSpanId) ||
+        state.segments.some((s) => s.id === rightSpanId)
+      ) {
+        throw new EnsomiError(
+          "DUPLICATE_SEGMENT_ID",
+          `Split span id "${rightSpanId}" collides with existing id`,
+        );
+      }
+      existingSpanIds.add(rightSpanId);
       const rightSpan = normalizeSpan(
         {
           ...sp,
@@ -812,9 +824,15 @@ function splitSegmentInPlace(state, segmentId, newSegmentId, timeSec, source, ev
         1,
       );
       nextSpans.push(leftSpan, rightSpan);
-      state.entityRevisions.set(leftSpan.id, rev);
-      state.entityRevisions.set(rightSpan.id, rev);
+      touchedSpanIds.push(leftSpan.id, rightSpan.id);
     }
+  }
+
+  state.segments.splice(idx, 1, leftSeg, rightSeg);
+  state.entityRevisions.set(leftSeg.id, rev);
+  state.entityRevisions.set(rightSeg.id, rev);
+  for (const spanId of touchedSpanIds) {
+    state.entityRevisions.set(spanId, rev);
   }
   state.spans = nextSpans;
   sortSpansInPlace(state.spans);
@@ -2102,15 +2120,19 @@ function applyEditOpInPlace(state, op, event, opIndex) {
         ...state.entityRevisions.keys(),
       ]);
 
+      const opTag0 = `${opTag}_p0`;
+      const opTag1 = `${opTag}_p1`;
       const segAtT0 = state.segments.find((s) => s.t0 < range.t0 && range.t0 < s.t1);
       const id0 =
         op.newSegmentIds && op.newSegmentIds[0] !== undefined
           ? op.newSegmentIds[0]
           : `seg_prom_${event.seq}_${opTag}_0`;
       /** @type {Set<string>} */
-      const mintedSplit0SpanIds = new Set();
+      const split0MintedSpanIds = new Set();
       /** @type {import("../index.d.ts").Segment[]} */
       let simSegments = state.segments;
+      /** @type {import("../index.d.ts").Span[]} */
+      let simSpans = state.spans;
 
       if (segAtT0) {
         if (typeof id0 !== "string" || id0.length === 0) {
@@ -2149,22 +2171,48 @@ function applyEditOpInPlace(state, op, event, opIndex) {
           },
           1,
         );
+        /** @type {import("../index.d.ts").Span[]} */
+        const simNextSpans = [];
         for (const sp of state.spans) {
-          if (
-            sp.segmentId === segAtT0.id &&
-            sp.t1 > range.t0 + 1e-12 &&
-            sp.t0 < range.t0 - 1e-12
-          ) {
-            const mintedId = `span_split_${event.seq}_${opTag}_p0_${sp.id}`;
-            if (existingIds.has(mintedId) || mintedId === id0) {
+          if (sp.segmentId !== segAtT0.id) {
+            simNextSpans.push(sp);
+          } else if (sp.t1 <= range.t0 + 1e-12) {
+            simNextSpans.push(
+              sp.t1 === range.t0 ? sp : { ...sp, t1: Math.min(sp.t1, range.t0) },
+            );
+          } else if (sp.t0 >= range.t0 - 1e-12) {
+            simNextSpans.push({
+              ...sp,
+              segmentId: id0,
+              t0: Math.max(sp.t0, range.t0),
+              revision: sp.revision + 1,
+            });
+          } else {
+            const mintedId = `span_split_${event.seq}_${opTag0}_${sp.id}`;
+            if (existingIds.has(mintedId) || split0MintedSpanIds.has(mintedId) || mintedId === id0) {
               throw new EnsomiError(
                 "DUPLICATE_SEGMENT_ID",
                 `Split span id "${mintedId}" collides with existing id`,
               );
             }
-            mintedSplit0SpanIds.add(mintedId);
+            split0MintedSpanIds.add(mintedId);
+            simNextSpans.push(
+              { ...sp, t1: range.t0, revision: sp.revision + 1 },
+              normalizeSpan(
+                {
+                  ...sp,
+                  id: mintedId,
+                  segmentId: id0,
+                  t0: range.t0,
+                  t1: sp.t1,
+                  revision: 1,
+                },
+                1,
+              ),
+            );
           }
         }
+        simSpans = simNextSpans;
         const t0Idx = state.segments.indexOf(segAtT0);
         simSegments = state.segments.slice();
         simSegments.splice(t0Idx, 1, simLeft0, simRight0);
@@ -2186,7 +2234,7 @@ function applyEditOpInPlace(state, op, event, opIndex) {
         if (
           (segAtT0 && id1 === id0) ||
           existingIds.has(id1) ||
-          mintedSplit0SpanIds.has(id1)
+          split0MintedSpanIds.has(id1)
         ) {
           throw new EnsomiError("DUPLICATE_SEGMENT_ID", `Segment id "${id1}" already exists`);
         }
@@ -2217,14 +2265,49 @@ function applyEditOpInPlace(state, op, event, opIndex) {
           },
           1,
         );
+        /** @type {Set<string>} */
+        const split1MintedSpanIds = new Set();
+        for (const sp of simSpans) {
+          if (
+            sp.segmentId === simSegAtT1.id &&
+            sp.t1 > range.t1 + 1e-12 &&
+            sp.t0 < range.t1 - 1e-12
+          ) {
+            const mintedId1 = `span_split_${event.seq}_${opTag1}_${sp.id}`;
+            if (
+              existingIds.has(mintedId1) ||
+              split0MintedSpanIds.has(mintedId1) ||
+              split1MintedSpanIds.has(mintedId1) ||
+              (segAtT0 && mintedId1 === id0) ||
+              mintedId1 === id1
+            ) {
+              throw new EnsomiError(
+                "DUPLICATE_SEGMENT_ID",
+                `Split span id "${mintedId1}" collides with existing id`,
+              );
+            }
+            split1MintedSpanIds.add(mintedId1);
+            normalizeSpan(
+              {
+                ...sp,
+                id: mintedId1,
+                segmentId: id1,
+                t0: range.t1,
+                t1: sp.t1,
+                revision: 1,
+              },
+              1,
+            );
+          }
+        }
       }
 
       if (segAtT0) {
-        splitSegmentInPlace(state, segAtT0.id, id0, range.t0, source, event, `${opTag}_p0`);
+        splitSegmentInPlace(state, segAtT0.id, id0, range.t0, source, event, opTag0);
       }
       const segAtT1 = state.segments.find((s) => s.t0 < range.t1 && range.t1 < s.t1);
       if (segAtT1) {
-        splitSegmentInPlace(state, segAtT1.id, id1, range.t1, source, event, `${opTag}_p1`);
+        splitSegmentInPlace(state, segAtT1.id, id1, range.t1, source, event, opTag1);
       }
       if (op.regime !== undefined || op.kept !== undefined) {
         for (let i = 0; i < state.segments.length; i += 1) {

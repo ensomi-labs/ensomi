@@ -1342,4 +1342,142 @@ describe("Astra xhigh regressions and human-safe copy audit", () => {
     assert.equal(replaySpanCollision.spans[0].id, keepSpanId);
     assert.equal(replaySpanCollision.entityRevisions.has("seg_ok_0"), false);
   });
+
+  it("[Stage 11 #1] rejects second-split duplicate span IDs in promote_range_to_segments and guards splitSegmentInPlace atomically", () => {
+    // 1. Twice-split span [1.0, 9.0): split-0 mints `span_split_2_o0_p0_<sp.id>`, then split-1 mints
+    //    `span_split_2_o0_p1_span_split_2_o0_p0_<sp.id>`. If an existing entity already holds that ID,
+    //    promote_range_to_segments MUST reject BEFORE split-0 mutates segments/spans/entityRevisions!
+    let baseTwice = createInitialState({ durationSec: 10 });
+    baseTwice = applyEvent(
+      baseTwice,
+      ev(0, "edit", {
+        op: "upsert_span",
+        span: { id: "sp_wide", segmentId: "seg_0", t0: 1.0, t1: 9.0, kind: "keep" },
+      }),
+    );
+    const collidingSplit1TwiceId = "span_split_2_o0_p1_span_split_2_o0_p0_sp_wide";
+    baseTwice = applyEvent(
+      baseTwice,
+      ev(1, "edit", {
+        op: "upsert_beat",
+        beat: { id: collidingSplit1TwiceId, timeSec: 0.5, source: "user" },
+      }),
+    );
+
+    assert.throws(
+      () =>
+        applyEvent(
+          baseTwice,
+          ev(2, "edit", {
+            op: "promote_range_to_segments",
+            t0: 2.0,
+            t1: 8.0,
+            newSegmentIds: ["seg_s0", "seg_s1"],
+          }),
+        ),
+      (err) => err instanceof EnsomiError && err.code === "DUPLICATE_SEGMENT_ID",
+    );
+
+    const replayTwice = foldTrace(
+      [
+        ev(0, "edit", {
+          op: "upsert_span",
+          span: { id: "sp_wide", segmentId: "seg_0", t0: 1.0, t1: 9.0, kind: "keep" },
+        }),
+        ev(1, "edit", {
+          op: "upsert_beat",
+          beat: { id: collidingSplit1TwiceId, timeSec: 0.5, source: "user" },
+        }),
+        ev(2, "edit", {
+          op: "promote_range_to_segments",
+          t0: 2.0,
+          t1: 8.0,
+          newSegmentIds: ["seg_s0", "seg_s1"],
+        }),
+      ],
+      { durationSec: 10 },
+    );
+    assert.equal(replayTwice.foldWarnings.length, 1);
+    assert.equal(replayTwice.foldWarnings[0].code, "ORPHANED_DEPENDENT_EDIT");
+    assert.deepEqual(
+      replayTwice.segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+    assert.deepEqual(
+      replayTwice.spans.map((s) => [s.id, s.segmentId, s.t0, s.t1]),
+      [["sp_wide", "seg_0", 1, 9]],
+    );
+    assert.equal(replayTwice.entityRevisions.has("seg_s0"), false);
+    assert.equal(replayTwice.entityRevisions.has("span_split_2_o0_p0_sp_wide"), false);
+
+    // 2. Surviving reparented span [3.0, 9.0) inside right child segment [2.0, 10) split at t1=8.0:
+    //    split-1 mints `span_split_2_o0_p1_sp_reparent` -> collision rejected BEFORE split-0 runs!
+    const collidingReparentId = "span_split_2_o0_p1_sp_reparent";
+    const replayReparent = foldTrace(
+      [
+        ev(0, "edit", {
+          op: "upsert_span",
+          span: { id: "sp_reparent", segmentId: "seg_0", t0: 3.0, t1: 9.0, kind: "free" },
+        }),
+        ev(1, "edit", {
+          op: "upsert_span",
+          span: { id: collidingReparentId, segmentId: "seg_0", t0: 0.2, t1: 0.8, kind: "inbox" },
+        }),
+        ev(2, "edit", {
+          op: "promote_range_to_segments",
+          t0: 2.0,
+          t1: 8.0,
+          newSegmentIds: ["seg_rep_0", "seg_rep_1"],
+        }),
+      ],
+      { durationSec: 10 },
+    );
+    assert.equal(replayReparent.foldWarnings.length, 1);
+    assert.equal(replayReparent.foldWarnings[0].code, "ORPHANED_DEPENDENT_EDIT");
+    assert.deepEqual(
+      replayReparent.segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+    assert.equal(replayReparent.entityRevisions.has("seg_rep_0"), false);
+
+    // 3. Direct split_segment (`splitSegmentInPlace`) guards against duplicate minted span IDs atomically!
+    let directState = createInitialState({ durationSec: 10 });
+    directState = applyEvent(
+      directState,
+      ev(0, "edit", [
+        {
+          op: "upsert_span",
+          span: { id: "sp_direct", segmentId: "seg_0", t0: 1.0, t1: 9.0, kind: "keep" },
+        },
+        {
+          op: "upsert_span",
+          span: {
+            id: "span_split_1_o0_sp_direct",
+            segmentId: "seg_0",
+            t0: 0.1,
+            t1: 0.5,
+            kind: "inbox",
+          },
+        },
+      ]),
+    );
+    assert.throws(
+      () =>
+        applyEvent(
+          directState,
+          ev(1, "edit", {
+            op: "split_segment",
+            segmentId: "seg_0",
+            newSegmentId: "seg_direct_right",
+            timeSec: 5.0,
+          }),
+        ),
+      (err) => err instanceof EnsomiError && err.code === "DUPLICATE_SEGMENT_ID",
+    );
+    assert.deepEqual(
+      directState.segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+    assert.equal(directState.entityRevisions.has("seg_direct_right"), false);
+  });
 });
