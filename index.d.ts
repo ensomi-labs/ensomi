@@ -1,55 +1,60 @@
-// Type definitions for ensomi v0 contract
+// Type definitions for ensomi tempo contract
 // Zero-dependency ESM package (Node 22/24+ and browser-compatible sans-IO core)
 
-export type EntitySource = "model" | "user" | "import" | "rule";
-export type EntityKind = "beat" | "boundary" | "sound";
+export type EntitySource = "draft" | "user" | "offer";
+export type SegmentRegime = "auto" | "free" | "break";
+export type SpanKind = "keep" | "free" | "inbox";
+export type SpanPriority = "high" | "medium" | "low";
 
-export type BoundaryKind =
-  | "steady_start"
-  | "free_start"
-  | "reset"
-  | "gap_start"
-  | "gap_end";
+export type SnapRole =
+  | "transient_attack"
+  | "p_center"
+  | "harmonic_change"
+  | "release";
 
-export type StatementKind =
-  | "steady"
-  | "free"
-  | "no_pulse"
-  | "keep"
-  | "beat_run"
-  | "sound_at"
-  | "beat_at"
-  | "forbid_beat";
+export type SnapFamily =
+  | "percussion"
+  | "piano_keys"
+  | "strings_winds"
+  | "vocal"
+  | "bass_synth"
+  | "other";
 
-export type ConstraintForm = "observe" | "clamp" | "forbid" | "freeze";
+export type TriggerLayer = "song_open" | "micro_assist" | "heavy_recompute";
 
-export type OfferScopeKind = "local" | "forward_continuation" | "cross_region";
+export interface LayerTriggerRule {
+  readonly mode: "auto" | "manual";
+  readonly debounceMs: number;
+  readonly cancellation: "latest_wins";
+}
 
-export type OfferRole =
-  | "extend"
-  | "rewrite"
-  | "quick_fix"
-  | "alternative"
-  | "propagate";
+export interface TriggerPolicy {
+  readonly song_open: LayerTriggerRule;
+  readonly micro_assist: LayerTriggerRule;
+  readonly heavy_recompute: LayerTriggerRule;
+}
+
+export type OfferScopeKind = "local" | "forward" | "cross_region";
 
 export type OfferStatus =
-  | "pending"
+  | "valid"
+  | "stale"
+  | "invalid"
   | "accepted"
   | "rejected"
-  | "stale"
   | "superseded";
 
 export type ConflictKind =
+  | "protected_keep"
   | "version_mismatch"
   | "range_changed"
-  | "constraint_violation"
+  | "out_of_scope"
   | "sibling_conflict";
 
 export type TraceEventType =
   | "audio_bound"
   | "draft_loaded"
   | "edit"
-  | "statement"
   | "signal"
   | "offer_batch"
   | "offer_accept"
@@ -59,57 +64,108 @@ export type TraceEventType =
   | "ready";
 
 export type AuthorKind = "user" | "model" | "rule" | "host" | "import";
-
 export type ProviderKind = "model" | "rule" | "mock";
 
 export type EditOpKind =
   | "upsert_beat"
   | "move_beat"
+  | "snap_beat"
   | "remove_beat"
-  | "shift_run_offset"
-  | "upsert_boundary"
-  | "remove_boundary"
+  | "shift_beats"
   | "upsert_sound"
-  | "remove_sound";
+  | "move_sound"
+  | "remove_sound"
+  | "apply_unbeat_cue"
+  | "move_unbeat"
+  | "remove_unbeat"
+  | "move_segment_boundary"
+  | "split_segment"
+  | "merge_segments"
+  | "set_segment_keep"
+  | "set_segment_regime"
+  | "set_range_keep"
+  | "set_range_free"
+  | "promote_range_to_segments"
+  | "upsert_span"
+  | "remove_span";
 
-export interface Beat {
-  id: string;
-  t: number;
-  source: EntitySource;
-  version: number;
-  conf?: number;
-  meta?: Record<string, unknown>;
-}
-
-export interface Boundary {
-  id: string;
-  t: number;
-  kind: BoundaryKind;
-  source: EntitySource;
-  version: number;
-  bpm?: number;
-  meta?: Record<string, unknown>;
-}
-
-export interface SoundAnchor {
-  id: string;
-  t: number;
-  emphasis: number;
-  source: EntitySource;
-  version: number;
-  conf?: number;
-  experimental?: boolean;
-  meta?: Record<string, unknown>;
-}
-
-/** Half-open interval [t0, t1) in source-audio seconds. */
-export interface Span {
+/** Transient half-open interval [t0, t1) in canonical source-audio seconds (`0 <= t0 < t1`). */
+export interface Range {
   t0: number;
   t1: number;
 }
 
+/** Contiguous macro-partition segment covering [t0, t1). */
+export interface Segment {
+  id: string;
+  t0: number;
+  t1: number;
+  regime: SegmentRegime;
+  kept: boolean;
+  source: EntitySource;
+  revision: number;
+}
+
+/** Child interval strictly inside a single parent `Segment` (`seg.t0 <= span.t0 < span.t1 <= seg.t1`). */
+export interface Span {
+  id: string;
+  segmentId: string;
+  t0: number;
+  t1: number;
+  kind: SpanKind;
+  priority?: SpanPriority;
+  reason?: string;
+  score?: number;
+  source: EntitySource;
+  revision: number;
+}
+
+/** Pulse beat (`source === "user"` acts directly as a soft beat guide cue). */
+export interface Beat {
+  id: string;
+  timeSec: number;
+  source: EntitySource;
+  snapEventId?: string;
+  snapFamily?: SnapFamily;
+  snapRole?: SnapRole;
+  confidence?: number;
+  revision: number;
+}
+
+/** Acoustic onset anchor (`source === "user"` acts directly as a soft sound observation cue). */
+export interface SoundAnchor {
+  id: string;
+  timeSec: number;
+  strength?: number;
+  family?: SnapFamily;
+  role?: SnapRole;
+  sigmaMs?: number;
+  source: EntitySource;
+  revision: number;
+}
+
+/** Standalone soft repulsion cue marking where no beat should fall. */
+export interface UnbeatCue {
+  id: string;
+  timeSec: number;
+  source: "user";
+  revision: number;
+}
+
+/** Verifiable `micro_assist` acoustic snap target. */
+export interface SnapCandidate {
+  eventId: string;
+  targetSec: number;
+  deltaMs: number;
+  family: SnapFamily;
+  role: SnapRole;
+  sigmaMs?: number;
+  label: string;
+  salience: number;
+}
+
 export interface AudioDescriptor {
-  audioId: string;
+  songId: string;
   durationSec: number;
   sampleRate?: number;
   clock: string;
@@ -117,117 +173,273 @@ export interface AudioDescriptor {
   leadOffsetSec?: number;
 }
 
-export type BeatInput = Omit<Beat, "version"> & { version?: number };
-export type BoundaryInput = Omit<Boundary, "version"> & { version?: number };
-export type SoundAnchorInput = Omit<SoundAnchor, "version"> & { version?: number };
+export type AudioDescriptorInput = Omit<AudioDescriptor, "clock" | "songId"> & {
+  songId?: string;
+  audioId?: string;
+  clock?: string;
+};
+
+export type SegmentInput = Omit<Segment, "regime" | "kept" | "source" | "revision"> & {
+  regime?: SegmentRegime;
+  kept?: boolean;
+  source?: EntitySource;
+  revision?: number;
+};
+
+export type SpanInput = Omit<Span, "source" | "revision"> & {
+  source?: EntitySource;
+  revision?: number;
+};
+
+export type BeatInput = Omit<Beat, "source" | "revision"> & {
+  source?: EntitySource;
+  revision?: number;
+};
+
+export type SoundAnchorInput = Omit<SoundAnchor, "source" | "revision"> & {
+  source?: EntitySource;
+  revision?: number;
+};
+
+export type UnbeatCueInput = Omit<UnbeatCue, "source" | "revision"> & {
+  source?: "user";
+  revision?: number;
+};
 
 export type EditOp =
   | { op: "upsert_beat"; beat: BeatInput }
   | {
       op: "move_beat";
       id: string;
-      t: number;
+      timeSec: number;
       source?: EntitySource;
-      conf?: number;
-      meta?: Record<string, unknown>;
+      snapEventId?: string | null;
+      snapFamily?: SnapFamily | null;
+      snapRole?: SnapRole | null;
+      confidence?: number;
+    }
+  | {
+      op: "snap_beat";
+      id: string;
+      timeSec: number;
+      snapEventId: string;
+      snapFamily: SnapFamily;
+      snapRole: SnapRole;
+      source?: EntitySource;
     }
   | { op: "remove_beat"; id: string }
   | {
-      op: "shift_run_offset";
-      span?: Span;
+      op: "shift_beats";
+      range?: Range;
       beatIds?: string[];
       deltaSec: number;
       source?: EntitySource;
-      includeBoundaries?: boolean;
     }
-  | { op: "upsert_boundary"; boundary: BoundaryInput }
-  | { op: "remove_boundary"; id: string }
   | { op: "upsert_sound"; sound: SoundAnchorInput }
-  | { op: "remove_sound"; id: string };
+  | {
+      op: "move_sound";
+      id: string;
+      timeSec: number;
+      strength?: number;
+      family?: SnapFamily;
+      role?: SnapRole;
+      sigmaMs?: number;
+      source?: EntitySource;
+    }
+  | { op: "remove_sound"; id: string }
+  | {
+      op: "apply_unbeat_cue";
+      id: string;
+      timeSec: number;
+      captureRadiusSec?: number;
+      removeUserBeats?: boolean;
+    }
+  | { op: "move_unbeat"; id: string; timeSec: number }
+  | { op: "remove_unbeat"; id: string }
+  | {
+      op: "move_segment_boundary";
+      leftSegmentId: string;
+      rightSegmentId: string;
+      timeSec: number;
+      source?: EntitySource;
+    }
+  | {
+      op: "split_segment";
+      segmentId: string;
+      newSegmentId: string;
+      timeSec: number;
+      source?: EntitySource;
+    }
+  | {
+      op: "merge_segments";
+      leftSegmentId: string;
+      rightSegmentId: string;
+      source?: EntitySource;
+    }
+  | {
+      op: "set_segment_keep";
+      segmentId: string;
+      kept: boolean;
+      source?: EntitySource;
+    }
+  | {
+      op: "set_segment_regime";
+      segmentId: string;
+      regime: SegmentRegime;
+      source?: EntitySource;
+    }
+  | {
+      op: "set_range_keep";
+      t0: number;
+      t1: number;
+      kept: boolean;
+      source?: EntitySource;
+    }
+  | {
+      op: "set_range_free";
+      t0: number;
+      t1: number;
+      free: boolean;
+      source?: EntitySource;
+    }
+  | {
+      op: "promote_range_to_segments";
+      t0: number;
+      t1: number;
+      newSegmentIds?: [string?, string?];
+      regime?: SegmentRegime;
+      kept?: boolean;
+      source?: EntitySource;
+    }
+  | { op: "upsert_span"; span: SpanInput }
+  | { op: "remove_span"; id: string };
 
-export interface Statement {
-  id: string;
-  kind: StatementKind;
-  span?: Span;
-  t?: number;
-  value?: Record<string, unknown>;
-  active: boolean;
-  version: number;
-  createdAtSeq: number;
+export interface BeatGuideConstraint {
+  beatId: string;
+  timeSec: number;
+  toleranceSec: number;
+  snapEventId?: string;
+  snapFamily?: SnapFamily;
+  snapRole?: SnapRole;
 }
 
-export type StatementInput = Omit<Statement, "active" | "version" | "createdAtSeq"> & {
-  active?: boolean;
-  version?: number;
-  createdAtSeq?: number;
-};
-
-export interface Constraint {
-  id: string;
-  statementId: string;
-  statementKind: StatementKind;
-  form: ConstraintForm;
-  target: "sound" | "tempo_regime" | "beat" | "beat_run" | "pulse" | "span";
-  span?: Span;
-  t?: number;
-  params: Record<string, unknown>;
+export interface UnbeatRepulsionConstraint {
+  unbeatId: string;
+  timeSec: number;
+  localIbiSec: number | null;
+  repulsionRadiusSec: number;
 }
 
-export interface SignalPayload {
-  scope: Span | "song";
-  reason: string;
-  generation: number;
-  statementIds?: string[];
+export interface SoundObservationConstraint {
+  soundId: string;
+  timeSec: number;
+  strength?: number;
+  family?: SnapFamily;
+  role?: SnapRole;
+  sigmaMs?: number;
+}
+
+export interface FreeIntervalConstraint {
+  segmentId: string;
+  spanId?: string;
+  t0: number;
+  t1: number;
+}
+
+export interface KeepLockConstraint {
+  segmentId: string;
+  spanId?: string;
+  t0: number;
+  t1: number;
+}
+
+export interface CompiledConstraints {
+  beatGuides: BeatGuideConstraint[];
+  unbeatRepulsions: UnbeatRepulsionConstraint[];
+  soundObservations: SoundObservationConstraint[];
+  freeIntervals: FreeIntervalConstraint[];
+  keepLocks: KeepLockConstraint[];
+}
+
+export interface WriteScope {
+  segmentId: string;
+  t0: number;
+  t1: number;
 }
 
 export interface PatchOp {
   upsertBeats?: BeatInput[];
   removeBeatIds?: string[];
-  upsertBoundaries?: BoundaryInput[];
-  removeBoundaryIds?: string[];
   upsertSounds?: SoundAnchorInput[];
   removeSoundIds?: string[];
-  expectedVersions?: Record<string, number>;
-  expectedRevisions?: Record<string, string>;
-  expectedRangeEntityIds?: string[];
-  expectedRangeKinds?: EntityKind[];
-  includeSounds?: boolean;
+  splitSegments?: Array<{
+    segmentId: string;
+    newSegmentId: string;
+    timeSec: number;
+  }>;
+  moveSegmentBoundaries?: Array<{
+    leftSegmentId: string;
+    rightSegmentId: string;
+    timeSec: number;
+  }>;
+  setSegmentRegimes?: Array<{
+    segmentId: string;
+    regime: SegmentRegime;
+  }>;
 }
 
-export interface Conflict {
-  id: string;
+export interface OfferConflict {
   kind: ConflictKind;
   message: string;
-  entityIds?: string[];
-  statementIds?: string[];
-  span?: Span;
+  t0?: number;
+  t1?: number;
 }
 
 export interface OfferConsequences {
   beatsAdded: number;
   beatsMoved: number;
   beatsRemoved: number;
-  soundsReclassified?: number;
+  maxShiftMs: number;
+  segmentChanges: number;
 }
 
 export interface PatchOffer {
   id: string;
   batchId: string;
-  optionIndex?: number;
+  semanticKey: string;
   providerId: string;
   providerKind: ProviderKind;
   generation: number;
   basisSeq: number;
-  role: OfferRole;
+  expectedRevisions: Record<string, string>;
+  expectedScopeBeatIds?: string[];
+  writeScopes: WriteScope[];
+  readScope?: Range | "song";
   scopeKind: OfferScopeKind;
-  readScope: Span | "song";
-  writeScope: Span;
+  optionIndex?: number;
+  optionCount?: number;
+  title: string;
+  consequenceSummary: string;
+  advisoryNotes: string[];
+  providerAdvisories?: string[];
   ops: PatchOp;
-  summary: string;
   consequences: OfferConsequences;
-  conflicts: Conflict[];
-  semanticKey: string;
+  conflicts: OfferConflict[];
   status: OfferStatus;
+}
+
+export interface OfferValidationResult {
+  valid: boolean;
+  status: OfferStatus;
+  conflicts: OfferConflict[];
+  advisoryNotes: string[];
+}
+
+export interface SignalPayload {
+  layer: "heavy_recompute";
+  scope: Range | "song";
+  reason: string;
+  generation: number;
 }
 
 export interface TraceAuthor {
@@ -236,7 +448,7 @@ export interface TraceAuthor {
 }
 
 export interface TraceEvent<TPayload = unknown> {
-  schemaVersion: "0.1";
+  schemaVersion: "0.2";
   seq: number;
   id: string;
   type: TraceEventType;
@@ -247,7 +459,7 @@ export interface TraceEvent<TPayload = unknown> {
 
 export interface RejectionSuppression {
   semanticKey: string;
-  writeScope: Span;
+  writeScopes: WriteScope[];
   rejectedAtSeq: number;
   offerId: string;
 }
@@ -265,20 +477,30 @@ export interface FoldWarning {
   message: string;
 }
 
+export interface SegmentMutationRecord {
+  seq: number;
+  segmentIds: string[];
+  t0: number;
+  t1: number;
+}
+
 export interface SessionState {
   audio: AudioDescriptor | null;
+  durationSec: number;
+  segments: Segment[];
+  spans: Span[];
   beats: Map<string, Beat>;
-  boundaries: Map<string, Boundary>;
   sounds: Map<string, SoundAnchor>;
-  statements: Map<string, Statement>;
+  unbeats: UnbeatCue[];
   offers: Map<string, PatchOffer>;
   entityRevisions: Map<string, string>;
+  segmentMutations: SegmentMutationRecord[];
   suppressedOffers: PatchOffer[];
   suppressions: RejectionSuppression[];
   lastSignal: SignalPayload | null;
   generation: number;
   effort: EffortLedger;
-  visitedSpans: Span[];
+  visitedRanges: Range[];
   ready: boolean;
   readyAtSeq: number | null;
   events: TraceEvent[];
@@ -290,17 +512,19 @@ export interface SessionState {
 
 export interface SerializedSessionState {
   audio: AudioDescriptor | null;
+  durationSec: number;
+  segments: Segment[];
+  spans: Span[];
   beats: Beat[];
-  boundaries: Boundary[];
   sounds: SoundAnchor[];
-  statements: Statement[];
+  unbeats: UnbeatCue[];
   offers: PatchOffer[];
   entityRevisions: Record<string, string>;
   suppressions: RejectionSuppression[];
   lastSignal: SignalPayload | null;
   generation: number;
   effort: EffortLedger;
-  visitedSpans: Span[];
+  visitedRanges: Range[];
   ready: boolean;
   readyAtSeq: number | null;
   retractedEventIds: string[];
@@ -308,7 +532,7 @@ export interface SerializedSessionState {
 }
 
 export interface TraceCheckpoint {
-  schemaVersion: "0.1";
+  schemaVersion: "0.2";
   lastSeq: number;
   eventCount: number;
   stateHash: string;
@@ -326,10 +550,11 @@ export type GridFitStatus = "on_grid" | "subdivision" | "unexplained";
 
 export interface GridFitItem {
   soundId: string;
-  t: number;
+  timeSec: number;
   nearestBeatDistMs: number;
   nearestDivisor: number | null;
-  /** Signed residual `(sound.t - nearestSlotTime) * 1000` (negative = early, positive = late; `Infinity` when 0 beats). */
+  slotTimeSec: number | null;
+  /** Signed `(sound.timeSec - slotTimeSec) * 1000` (negative = early, positive = late; `Infinity` when 0 active beats). */
   residualMs: number;
   status: GridFitStatus;
 }
@@ -337,6 +562,7 @@ export interface GridFitItem {
 export interface GridFitOptions {
   divisors?: number[];
   tolMs?: number;
+  maxInterpolatedIbiSec?: number;
 }
 
 export interface RedLine {
@@ -346,7 +572,7 @@ export interface RedLine {
   meter: number;
   startBeatId: string;
   beatCount: number;
-  kind: "steady_run" | "free_fallback";
+  kind: "steady_run" | "free_pulse";
 }
 
 export interface RedLineProjection {
@@ -359,37 +585,25 @@ export interface RedLineProjection {
 export interface RedLineOptions {
   defaultMeter?: number;
   jitterTolMs?: number;
+  freeJitterTolMs?: number;
+  maxInterpolatedIbiSec?: number;
 }
 
-export interface TroubleSpanBreakdown {
-  lowConf: number;
-  intervalJumps: number;
-  unexplainedSounds: number;
-  activeConflicts: number;
-  unvisited: number;
-}
-
-export interface TroubleSpan {
-  span: Span;
-  score: number;
-  visited: boolean;
-  breakdown: TroubleSpanBreakdown;
-  reasons: string[];
-}
-
-export interface TroubleSpanOptions {
+export interface InboxSpanOptions {
   windowSec?: number;
   lowConfThreshold?: number;
   jumpRatioThreshold?: number;
+  includeReviewedClean?: boolean;
   gridFitOptions?: GridFitOptions;
 }
 
 export interface ProviderCapabilities {
   draft: boolean;
   sounds: boolean;
-  soundsExperimental?: boolean;
+  snapSuggestions: boolean;
   constrainedRecompute: boolean;
-  honoredStatements: StatementKind[];
+  supportedSnapFamilies: SnapFamily[];
+  supportedSnapRoles: SnapRole[];
   diagnostics: boolean;
   alternatives: boolean;
   repeatPropagation: boolean;
@@ -405,19 +619,25 @@ export interface ProviderManifest {
 export type PreparedEvidence = Record<string, unknown>;
 
 export interface AnalysisDraft {
+  segments?: SegmentInput[];
+  spans?: SpanInput[];
   beats?: BeatInput[];
-  boundaries?: BoundaryInput[];
   sounds?: SoundAnchorInput[];
-  statements?: StatementInput[];
+  unbeats?: UnbeatCueInput[];
+}
+
+export interface SuggestSnapsRequest {
+  timeSec: number;
+  windowSec: number;
+  generation: number;
 }
 
 export interface RecomputeRequest {
-  scope: Span | "song";
+  scope: Range | "song";
   reason: string;
   generation: number;
   basisSeq: number;
-  constraints: Constraint[];
-  statementIds?: string[];
+  constraints: CompiledConstraints;
 }
 
 export interface RecomputeResult {
@@ -429,6 +649,12 @@ export interface TimingProvider {
   manifest(): ProviderManifest;
   prepare(audio: AudioDescriptor, signal?: AbortSignal): Promise<PreparedEvidence>;
   analyze(evidence: PreparedEvidence, signal?: AbortSignal): Promise<AnalysisDraft>;
+  suggestSnaps(
+    evidence: PreparedEvidence,
+    state: SessionState,
+    request: SuggestSnapsRequest,
+    signal?: AbortSignal,
+  ): Promise<SnapCandidate[]>;
   recompute(
     evidence: PreparedEvidence,
     state: SessionState,
@@ -437,15 +663,44 @@ export interface TimingProvider {
   ): Promise<RecomputeResult>;
 }
 
+export type TriggerPolicyOverride = {
+  [K in TriggerLayer]?: Partial<LayerTriggerRule>;
+};
+
 export interface SessionControllerOptions {
   provider: TimingProvider;
+  durationSec?: number;
+  triggerPolicy?: TriggerPolicyOverride;
   clock?: () => number;
   idGenerator?: (prefix: string, seq: number) => string;
   initialEvents?: TraceEvent[];
 }
 
-export interface TriggerRecomputeOutcome {
-  status: "applied" | "buffered" | "cancelled" | "superseded";
+export interface LayerLifecycleState {
+  songId: string | null;
+  layer: TriggerLayer;
+  generation: number;
+  inFlight: boolean;
+}
+
+export interface AnalyzeOutcome {
+  status: "applied" | "manual" | "cancelled" | "superseded";
+  songId: string | null;
+  generation: number;
+  event: TraceEvent | null;
+  state: SessionState;
+}
+
+export interface SuggestSnapsOutcome {
+  status: "ok" | "cancelled" | "superseded";
+  songId: string | null;
+  generation: number;
+  candidates: SnapCandidate[];
+}
+
+export interface RecomputeOutcome {
+  status: "applied" | "held" | "cancelled" | "superseded";
+  songId: string | null;
   generation: number;
   offers: PatchOffer[];
   suppressedOffers: PatchOffer[];
@@ -460,7 +715,7 @@ export type AcceptOfferOutcome =
     }
   | {
       ok: false;
-      conflicts: Conflict[];
+      conflicts: OfferConflict[];
     };
 
 export interface RejectOfferOutcome {
@@ -473,8 +728,16 @@ export interface SyntheticDraftOptions {
   bpm?: number;
   jitterMs?: number;
   soundCount?: number;
+  segmentCount?: number;
   seed?: number;
   startSec?: number;
+}
+
+export interface SyntheticDraft {
+  segments: Segment[];
+  spans: Span[];
+  beats: Beat[];
+  sounds: SoundAnchor[];
 }
 
 export interface ScriptedMockProviderOptions {
@@ -484,11 +747,15 @@ export interface ScriptedMockProviderOptions {
   defaultScenario?:
     | "triplet_vs_reset"
     | "local_rewrite"
+    | "forward"
     | "forward_continuation"
     | "cross_region"
+    | "protected_keep_conflict"
     | "hard_constraint_conflict"
     | "slow_cancellable";
   delayMs?: number;
+  analyzeDelayMs?: number;
+  snapDelayMs?: number;
   ignoreAbort?: boolean;
   script?: Array<
     | RecomputeResult
@@ -500,17 +767,32 @@ export interface ScriptedMockProviderOptions {
         callIdx: number;
       }) => RecomputeResult | Promise<RecomputeResult>)
   >;
+  snapScript?: Array<
+    | SnapCandidate[]
+    | ((ctx: {
+        evidence: PreparedEvidence;
+        state: SessionState;
+        request: SuggestSnapsRequest;
+        signal?: AbortSignal;
+        callIdx: number;
+      }) => SnapCandidate[] | Promise<SnapCandidate[]>)
+  >;
 }
 
-export declare const TRACE_SCHEMA_VERSION: "0.1";
-export declare const DEFAULT_POINT_TOL_SEC: number;
+export declare const TRACE_SCHEMA_VERSION: "0.2";
+export declare const DEFAULT_BEAT_GUIDE_TOL_SEC: number;
+export declare const DEFAULT_UNBEAT_FALLBACK_RADIUS_SEC: number;
+export declare const MAX_UNBEAT_REPULSION_RADIUS_SEC: number;
+export declare const DEFAULT_TRIGGER_POLICY: TriggerPolicy;
 
 export declare const ENTITY_SOURCES: readonly EntitySource[];
-export declare const BOUNDARY_KINDS: readonly BoundaryKind[];
-export declare const STATEMENT_KINDS: readonly StatementKind[];
-export declare const CONSTRAINT_FORMS: readonly ConstraintForm[];
+export declare const SEGMENT_REGIMES: readonly SegmentRegime[];
+export declare const SPAN_KINDS: readonly SpanKind[];
+export declare const SPAN_PRIORITIES: readonly SpanPriority[];
+export declare const SNAP_ROLES: readonly SnapRole[];
+export declare const SNAP_FAMILIES: readonly SnapFamily[];
+export declare const TRIGGER_LAYERS: readonly TriggerLayer[];
 export declare const OFFER_SCOPE_KINDS: readonly OfferScopeKind[];
-export declare const OFFER_ROLES: readonly OfferRole[];
 export declare const OFFER_STATUSES: readonly OfferStatus[];
 export declare const CONFLICT_KINDS: readonly ConflictKind[];
 export declare const TRACE_EVENT_TYPES: readonly TraceEventType[];
@@ -529,47 +811,78 @@ export declare function canonicalJson(value: unknown): string;
 export declare function roundTime(value: number, decimals?: number): number;
 
 export declare function clampUnit(value: number): number;
-export declare function assertSpan(span: Span): Span;
-export declare function spanContainsTime(span: Span, t: number): boolean;
-export declare function spansOverlap(a: Span | "song", b: Span | "song"): boolean;
-export declare function normalizeBeat(raw: BeatInput, defaultVersion?: number): Beat;
-export declare function normalizeBoundary(raw: BoundaryInput, defaultVersion?: number): Boundary;
+export declare function formatTimeCode(timeSec: number): string;
+export declare function assertRange(range: Range, durationSec?: number): Range;
+export declare function rangeContainsTime(range: Range, timeSec: number): boolean;
+export declare function rangesOverlap(a: Range | "song", b: Range | "song"): boolean;
+export declare function decomposeRangeToSpans(
+  segments: readonly Segment[],
+  range: Range,
+): WriteScope[];
+export declare function getSegmentBoundaryTimes(segments: readonly Segment[]): number[];
+export declare function normalizeAudioDescriptor(raw: AudioDescriptorInput): AudioDescriptor;
+export declare function normalizeSegment(raw: SegmentInput, defaultRevision?: number): Segment;
+export declare function normalizeSegmentPartition(
+  rawSegments: readonly SegmentInput[] | undefined,
+  durationSec: number,
+  defaultSource?: EntitySource,
+): Segment[];
+export declare function normalizeSpan(raw: SpanInput, defaultRevision?: number): Span;
+export declare function normalizeBeat(raw: BeatInput, defaultRevision?: number): Beat;
 export declare function normalizeSoundAnchor(
   raw: SoundAnchorInput,
-  defaultVersion?: number,
+  defaultRevision?: number,
 ): SoundAnchor;
-export declare function normalizeAudioDescriptor(raw: AudioDescriptor): AudioDescriptor;
-export declare function normalizeStatement(
-  raw: StatementInput,
-  defaultSeq: number,
-  defaultVersion?: number,
-): Statement;
+export declare function normalizeUnbeatCue(
+  raw: UnbeatCueInput,
+  defaultRevision?: number,
+): UnbeatCue;
+export declare function normalizeSnapCandidate(
+  raw: SnapCandidate,
+  querySec?: number,
+): SnapCandidate;
 export declare function assertTraceEventEnvelope(raw: unknown): TraceEvent;
 export declare function assertOfferShape(raw: unknown): void;
 
-export declare function compileConstraints(
-  statements: Iterable<Statement> | Map<string, Statement> | Record<string, Statement>,
-): Constraint[];
+export declare function compileConstraints(state: SessionState): CompiledConstraints;
 
-export declare function computeSemanticKey(writeScope: Span, ops?: PatchOp): string;
-export declare function getRangeEntityIds(
+export declare function computeSemanticKey(
+  writeScopes: readonly WriteScope[],
+  ops?: PatchOp,
+  expectedRevisions?: Record<string, string>,
+): string;
+export declare function getScopeBeatIds(
   state: SessionState,
-  span: Span,
-  options?: { includeSounds?: boolean; kinds?: EntityKind[] },
+  writeScopes: readonly WriteScope[],
 ): string[];
-export declare function computeConsequences(state: SessionState, ops?: PatchOp): OfferConsequences;
-export declare function detectSiblingConflicts(offers: PatchOffer[]): Map<string, Conflict[]>;
+export declare function computeConsequences(
+  state: SessionState,
+  ops?: PatchOp,
+): OfferConsequences;
+export declare function formatConsequenceSummary(state: SessionState, ops?: PatchOp): string;
+export declare function detectSiblingConflicts(
+  offers: readonly PatchOffer[],
+): Map<string, number[]>;
 export declare function isOfferSuppressed(
   state: SessionState,
-  offer: { semanticKey?: string; writeScope: Span; ops?: PatchOp },
+  offer: {
+    semanticKey?: string;
+    writeScopes: readonly WriteScope[];
+    ops?: PatchOp;
+    expectedRevisions?: Record<string, string>;
+  },
 ): boolean;
-export declare function validatePatchOffer(state: SessionState, offer: PatchOffer): Conflict[];
+export declare function validatePatchOffer(
+  state: SessionState,
+  offer: PatchOffer,
+  precompiledConstraints?: CompiledConstraints,
+): OfferValidationResult;
 
-export declare function createInitialState(): SessionState;
+export declare function createInitialState(options?: { durationSec?: number }): SessionState;
 export declare function resolveActiveRetractions(events: TraceEvent[]): Set<string>;
 export declare function applyEvent(state: SessionState, event: TraceEvent): SessionState;
 export declare function foldTrace(events: TraceEvent[]): SessionState;
-export declare function serializeTraceNdjson(events: TraceEvent[]): string;
+export declare function serializeTraceNdjson(events: readonly TraceEvent[]): string;
 export declare function parseTraceNdjson(
   text: string,
   options?: { discardTruncatedTail?: boolean },
@@ -584,53 +897,54 @@ export declare function verifyCheckpoint(
 export declare function computeGridFit(
   sounds: Iterable<SoundAnchor> | Map<string, SoundAnchor>,
   beats: Iterable<Beat> | Map<string, Beat>,
-  boundaries?: Iterable<Boundary> | Map<string, Boundary>,
+  segments?: Iterable<Segment> | Map<string, Segment>,
   options?: GridFitOptions,
 ): GridFitItem[];
 
 export declare function projectRedLines(
   beats: Iterable<Beat> | Map<string, Beat>,
-  boundaries?: Iterable<Boundary> | Map<string, Boundary>,
+  segments?: Iterable<Segment> | Map<string, Segment>,
   options?: RedLineOptions,
 ): RedLineProjection;
 
-export declare function rankTroubleSpans(
+export declare function rankInboxSpans(
   state: SessionState,
-  options?: TroubleSpanOptions,
-): TroubleSpan[];
+  options?: InboxSpanOptions,
+): Span[];
 
 export declare function assertTimingProvider(provider: TimingProvider): void;
 
 export declare class SessionController {
   constructor(options: SessionControllerOptions);
   getManifest(): ProviderManifest;
+  getTriggerPolicy(): TriggerPolicy;
+  isClosed(): boolean;
   getState(): SessionState;
   getTrace(): readonly TraceEvent[];
+  getLayerState(layer?: TriggerLayer): LayerLifecycleState;
   getGeneration(): number;
   getEffortLedger(): EffortLedger;
-  getPendingOffers(): PatchOffer[];
-  getBufferedOffers(): PatchOffer[];
-  isAuditionLocked(): boolean;
-  setAuditionLock(locked: boolean): { flushed: boolean; offers: PatchOffer[] };
+  getValidOffers(): PatchOffer[];
+  getHeldOffers(): PatchOffer[];
+  isHoldingOffers(): boolean;
+  setHoldOffers(hold: boolean): { flushed: boolean; offers: PatchOffer[] };
   exportNdjson(): string;
-  bindAudio(audio: AudioDescriptor, signal?: AbortSignal): Promise<PreparedEvidence>;
-  loadInitialDraft(
+  abortLayer(layer: TriggerLayer, reason?: string): void;
+  abortAll(reason?: string, errorCode?: "ABORTED" | "SUPERSEDED"): void;
+  close(): void;
+  bindAudio(audio: AudioDescriptorInput, signal?: AbortSignal): Promise<PreparedEvidence>;
+  openSong(audio: AudioDescriptorInput, signal?: AbortSignal): Promise<AnalyzeOutcome>;
+  analyze(signal?: AbortSignal): Promise<AnalyzeOutcome>;
+  suggestSnaps(
+    request: { timeSec: number; windowSec?: number; immediate?: boolean },
     signal?: AbortSignal,
-  ): Promise<{ event: TraceEvent; state: SessionState }>;
+  ): Promise<SuggestSnapsOutcome>;
   loadDraft(
-    draft: AnalysisDraft & { replace?: boolean },
+    draft: AnalysisDraft & { replace?: boolean; durationSec?: number },
     author?: TraceAuthor,
   ): { event: TraceEvent; state: SessionState };
   applyEdit(
     opOrOps: EditOp | EditOp[],
-    author?: TraceAuthor,
-  ): { event: TraceEvent; state: SessionState };
-  upsertStatement(
-    statement: StatementInput,
-    author?: TraceAuthor,
-  ): { event: TraceEvent; state: SessionState };
-  deactivateStatement(
-    id: string,
     author?: TraceAuthor,
   ): { event: TraceEvent; state: SessionState };
   retract(
@@ -639,32 +953,42 @@ export declare class SessionController {
     author?: TraceAuthor,
   ): { event: TraceEvent; state: SessionState };
   recordListenEffort(
-    effort: { listenSec?: number; waitSec?: number; span?: Span },
+    effort: { listenSec?: number; waitSec?: number; range?: Range },
     author?: TraceAuthor,
   ): { event: TraceEvent; state: SessionState };
   markReady(
     notes?: string,
     author?: TraceAuthor,
   ): { event: TraceEvent; state: SessionState };
-  cancelRecompute(): void;
-  triggerRecompute(
-    request: { scope: Span | "song"; reason: string; statementIds?: string[] },
+  recompute(
+    request: { scope: Range | "song"; reason: string },
     author?: TraceAuthor,
-  ): Promise<TriggerRecomputeOutcome>;
+  ): Promise<RecomputeOutcome>;
   acceptOffer(offerId: string, author?: TraceAuthor): AcceptOfferOutcome;
   rejectOffer(offerId: string, reason?: string, author?: TraceAuthor): RejectOfferOutcome;
 }
 
-export declare function generateSyntheticDraft(
-  options?: SyntheticDraftOptions,
-): { beats: Beat[]; boundaries: Boundary[]; sounds: SoundAnchor[] };
+export declare function generateSyntheticDraft(options?: SyntheticDraftOptions): SyntheticDraft;
 
 export declare class ScriptedMockProvider implements TimingProvider {
   recomputeCalls: Array<{ generation: number; reason: string; aborted: boolean }>;
+  suggestSnapsCalls: Array<{
+    generation: number;
+    timeSec: number;
+    windowSec: number;
+    aborted: boolean;
+  }>;
+  analyzeCalls: Array<{ aborted: boolean }>;
   constructor(options?: ScriptedMockProviderOptions);
   manifest(): ProviderManifest;
   prepare(audio: AudioDescriptor, signal?: AbortSignal): Promise<PreparedEvidence>;
   analyze(evidence: PreparedEvidence, signal?: AbortSignal): Promise<AnalysisDraft>;
+  suggestSnaps(
+    evidence: PreparedEvidence,
+    state: SessionState,
+    request: SuggestSnapsRequest,
+    signal?: AbortSignal,
+  ): Promise<SnapCandidate[]>;
   recompute(
     evidence: PreparedEvidence,
     state: SessionState,

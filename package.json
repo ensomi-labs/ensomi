@@ -17,7 +17,6 @@
     "index.d.ts",
     "src",
     "schemas",
-    "docs",
     "LICENSE"
   ],
   "scripts": {

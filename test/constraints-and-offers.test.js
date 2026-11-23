@@ -7,7 +7,6 @@ import {
   compileConstraints,
   computeSemanticKey,
   createInitialState,
-  getRangeEntityIds,
   isOfferSuppressed,
   validatePatchOffer,
 } from "../index.js";
@@ -23,233 +22,258 @@ function ev(seq, type, payload, author = { kind: "user" }) {
   };
 }
 
-describe("Constraint IR compiler and conflict-first PatchOffer semantics", () => {
-  it("compiles all 8 active StatementKinds to the 4-form Constraint IR and omits inactive statements", () => {
-    const statements = [
-      { id: "s1", kind: "sound_at", t: 1.2, value: { emphasis: 0.9 }, active: true, version: 1, createdAtSeq: 1 },
-      { id: "s2", kind: "steady", span: { t0: 0, t1: 8 }, value: { bpm: 120 }, active: true, version: 1, createdAtSeq: 2 },
-      { id: "s3", kind: "free", span: { t0: 8, t1: 12 }, active: true, version: 1, createdAtSeq: 3 },
-      { id: "s4", kind: "beat_at", t: 4.0, active: true, version: 1, createdAtSeq: 4 },
-      { id: "s5", kind: "beat_run", span: { t0: 12, t1: 16 }, value: { bpm: 140 }, active: true, version: 1, createdAtSeq: 5 },
-      { id: "s6", kind: "forbid_beat", t: 6.25, active: true, version: 1, createdAtSeq: 6 },
-      { id: "s7", kind: "no_pulse", span: { t0: 16, t1: 20 }, active: true, version: 1, createdAtSeq: 7 },
-      { id: "s8", kind: "keep", span: { t0: 0, t1: 4 }, active: true, version: 1, createdAtSeq: 8 },
-      { id: "s9", kind: "keep", span: { t0: 20, t1: 24 }, active: false, version: 2, createdAtSeq: 9 },
-    ];
-
-    const compiled = compileConstraints(statements);
-    assert.equal(compiled.length, 8);
-    assert.deepEqual(
-      compiled.map((c) => [c.statementKind, c.form]),
-      [
-        ["sound_at", "observe"],
-        ["steady", "clamp"],
-        ["free", "clamp"],
-        ["beat_at", "clamp"],
-        ["beat_run", "clamp"],
-        ["forbid_beat", "forbid"],
-        ["no_pulse", "forbid"],
-        ["keep", "freeze"],
-      ],
-    );
-  });
-
-  it("computes deterministic semanticKey independent of ephemeral entity IDs", () => {
-    const scope = { t0: 2.0, t1: 4.0 };
-    const key1 = computeSemanticKey(scope, {
-      upsertBeats: [
-        { id: "ephemeral_a_1", t: 2.5, source: "model", version: 1 },
-        { id: "ephemeral_a_2", t: 3.0, source: "model", version: 1 },
-      ],
-      removeBeatIds: ["orig_2", "orig_1"],
-    });
-    const key2 = computeSemanticKey(scope, {
-      upsertBeats: [
-        { id: "fresh_uuid_99", t: 3.0, source: "model", version: 5 },
-        { id: "fresh_uuid_42", t: 2.5, source: "model", version: 2 },
-      ],
-      removeBeatIds: ["orig_1", "orig_2"],
-    });
-    assert.equal(key1, key2);
-
-    const keyDifferent = computeSemanticKey(scope, {
-      upsertBeats: [
-        { id: "ephemeral_a_1", t: 2.6, source: "model" },
-        { id: "ephemeral_a_2", t: 3.0, source: "model" },
-      ],
-      removeBeatIds: ["orig_1", "orig_2"],
-    });
-    assert.notEqual(key1, keyDifferent);
-  });
-
-  it("detects version_mismatch, range_changed, keep/forbid constraint_violation, and sibling_conflict", () => {
+describe("Soft-first cue compilation and PatchOffer validation", () => {
+  it("treats user beats & sounds directly as cues without ghost duplicates and scales unbeat repulsion by local IBI", () => {
     let state = createInitialState();
     state = applyEvent(
       state,
-      ev(0, "draft_loaded", {
-        beats: [
-          { id: "b1", t: 1.0, source: "model", version: 1 },
-          { id: "b2", t: 1.5, source: "model", version: 1 },
-          { id: "b3", t: 5.0, source: "model", version: 1 },
-        ],
-      }, { kind: "model" }),
+      ev(0, "audio_bound", { songId: "song_cues", durationSec: 30 }, { kind: "host" }),
+    );
+    // Fast 240 BPM section (IBI = 0.250s -> 0.25 * 0.250 = 0.0625s) in [0, 5),
+    // Steady 120 BPM section (IBI = 0.500s -> min(0.080, 0.125) = 0.080s) in [10, 15),
+    // Sparse isolated region at 25.0s (< 2 beats -> fallback 0.050s)
+    state = applyEvent(
+      state,
+      ev(
+        1,
+        "draft_loaded",
+        {
+          beats: [
+            { id: "fast_0", timeSec: 1.0, source: "draft" },
+            { id: "fast_1", timeSec: 1.25, source: "draft" },
+            { id: "fast_2", timeSec: 1.5, source: "draft" },
+            { id: "fast_3", timeSec: 1.75, source: "draft" },
+            { id: "mid_0", timeSec: 11.0, source: "draft" },
+            { id: "mid_1", timeSec: 11.5, source: "draft" },
+            { id: "mid_2", timeSec: 12.0, source: "draft" },
+          ],
+        },
+        { kind: "model" },
+      ),
     );
 
-    const scope = { t0: 0.5, t1: 2.5 };
-    const initialRangeIds = getRangeEntityIds(state, scope);
+    // User places a beat at 4.0, snaps it to 4.008, adds a user sound, and adds 3 unbeats
+    state = applyEvent(
+      state,
+      ev(2, "edit", [
+        { op: "upsert_beat", beat: { id: "u_beat", timeSec: 4.0, source: "user" } },
+        {
+          op: "snap_beat",
+          id: "u_beat",
+          timeSec: 4.008,
+          snapEventId: "evt_kick",
+          snapFamily: "percussion",
+          snapRole: "transient_attack",
+        },
+        {
+          op: "upsert_sound",
+          sound: {
+            id: "u_snd",
+            timeSec: 8.25,
+            family: "vocal",
+            role: "p_center",
+            source: "user",
+          },
+        },
+        { op: "apply_unbeat_cue", id: "ub_fast", timeSec: 1.375 },
+        { op: "apply_unbeat_cue", id: "ub_mid", timeSec: 11.25 },
+        { op: "apply_unbeat_cue", id: "ub_sparse", timeSec: 25.0 },
+        { op: "set_range_free", t0: 18, t1: 22, free: true },
+        { op: "set_range_keep", t0: 0, t1: 0.8, kept: true },
+      ]),
+    );
 
-    // 1. Version mismatch after user edits b1
-    const offerVersioned = {
-      id: "off_ver",
-      batchId: "b_ver",
-      providerId: "mock",
+    const compiled = compileConstraints(state);
+    // Moving/snapping u_beat updated it in ONE place (zero ghost mistap cue at 4.0!)
+    assert.equal(compiled.beatGuides.length, 1);
+    assert.equal(compiled.beatGuides[0].timeSec, 4.008);
+    assert.equal(compiled.beatGuides[0].snapEventId, "evt_kick");
+
+    assert.equal(compiled.soundObservations.length, 1);
+    assert.equal(compiled.soundObservations[0].timeSec, 8.25);
+
+    const repById = new Map(compiled.unbeatRepulsions.map((r) => [r.unbeatId, r]));
+    assert.equal(repById.get("ub_fast")?.repulsionRadiusSec, 0.0625);
+    assert.equal(repById.get("ub_mid")?.repulsionRadiusSec, 0.08);
+    assert.equal(repById.get("ub_sparse")?.repulsionRadiusSec, 0.05);
+
+    assert.equal(compiled.freeIntervals.length, 1);
+    assert.deepEqual([compiled.freeIntervals[0].t0, compiled.freeIntervals[0].t1], [18, 22]);
+    assert.equal(compiled.keepLocks.length, 1);
+    assert.deepEqual([compiled.keepLocks[0].t0, compiled.keepLocks[0].t1], [0, 0.8]);
+
+    // Deleting u_beat removes the soft guide completely
+    state = applyEvent(state, ev(3, "edit", { op: "remove_beat", id: "u_beat" }));
+    assert.equal(compileConstraints(state).beatGuides.length, 0);
+  });
+
+  it("keeps soft-cue disagreements valid & acceptable with human-readable advisoryNotes while blocking hard violations", () => {
+    let state = createInitialState();
+    state = applyEvent(
+      state,
+      ev(0, "audio_bound", { songId: "song_soft", durationSec: 30 }, { kind: "host" }),
+    );
+    state = applyEvent(
+      state,
+      ev(
+        1,
+        "draft_loaded",
+        {
+          beats: [
+            { id: "b_keep", timeSec: 2.0, source: "draft" },
+            { id: "b_user", timeSec: 14.02, source: "user" },
+          ],
+        },
+        { kind: "model" },
+      ),
+    );
+    state = applyEvent(
+      state,
+      ev(2, "edit", [
+        { op: "apply_unbeat_cue", id: "ub_1", timeSec: 22.41 },
+        { op: "set_range_keep", t0: 1.0, t1: 3.0, kept: true },
+      ]),
+    );
+
+    const userRev = state.entityRevisions.get("b_user");
+    const keepRev = state.entityRevisions.get("b_keep");
+
+    // 1. Soft disagreement: moves user beat by +28 ms (> 20 ms) AND places beat inside unbeat repulsion zone!
+    const softOffer = {
+      id: "off_soft",
+      batchId: "batch_soft",
+      semanticKey: "sk:soft",
+      providerId: "ensomi.scripted",
       providerKind: "mock",
       generation: 1,
-      basisSeq: 0,
-      role: "rewrite",
+      basisSeq: state.lastSeq,
+      expectedRevisions: { b_user: userRev },
+      writeScopes: [{ segmentId: "seg_0", t0: 13.5, t1: 23.0 }],
       scopeKind: "local",
-      readScope: scope,
-      writeScope: scope,
+      title: "Refine phrase pulse",
+      consequenceSummary: "Nudges 1 beat · adds 1 beat",
+      advisoryNotes: [],
       ops: {
-        upsertBeats: [{ id: "b1", t: 1.05, source: "model" }],
-        expectedVersions: { b1: 1 },
-        expectedRangeEntityIds: initialRangeIds,
+        upsertBeats: [
+          { id: "b_user", timeSec: 14.048, source: "offer" },
+          { id: "b_added_near_unbeat", timeSec: 22.43, source: "offer" },
+        ],
       },
-      summary: "Adjust b1",
-      consequences: { beatsAdded: 0, beatsMoved: 1, beatsRemoved: 0 },
+      consequences: { beatsAdded: 1, beatsMoved: 1, beatsRemoved: 0, maxShiftMs: 28, segmentChanges: 0 },
       conflicts: [],
-      semanticKey: "sk:ver",
-      status: "pending",
+      status: "valid",
     };
 
-    assert.equal(validatePatchOffer(state, offerVersioned).length, 0);
-
-    const stateMoved = applyEvent(state, ev(1, "edit", { op: "move_beat", id: "b1", t: 1.1 }));
-    const verConflicts = validatePatchOffer(stateMoved, offerVersioned);
-    assert.ok(verConflicts.some((c) => c.kind === "version_mismatch" && c.entityIds?.includes("b1")));
-
-    // 2. Range membership change when user inserts a new beat inside writeScope
-    const stateInserted = applyEvent(
-      state,
-      ev(1, "edit", { op: "upsert_beat", beat: { id: "b_new", t: 2.0, source: "user" } }),
-    );
-    const rangeConflicts = validatePatchOffer(stateInserted, offerVersioned);
-    assert.ok(rangeConflicts.some((c) => c.kind === "range_changed" && c.entityIds?.includes("b_new")));
-
-    // 3. Constraint violation: active keep (freeze) and forbid_beat
-    let stateConstrained = applyEvent(
-      state,
-      ev(1, "statement", {
-        action: "upsert",
-        statement: { id: "st_keep", kind: "keep", span: { t0: 0.8, t1: 1.6 } },
-      }),
-    );
-    stateConstrained = applyEvent(
-      stateConstrained,
-      ev(2, "statement", {
-        action: "upsert",
-        statement: { id: "st_forbid", kind: "forbid_beat", t: 5.25 },
-      }),
-    );
-
-    const freezeConflicts = validatePatchOffer(stateConstrained, offerVersioned);
+    const softValidation = validatePatchOffer(state, softOffer);
+    assert.equal(softValidation.valid, true);
+    assert.equal(softValidation.status, "valid");
+    assert.equal(softValidation.conflicts.length, 0);
     assert.ok(
-      freezeConflicts.some(
-        (c) => c.kind === "constraint_violation" && c.statementIds?.includes("st_keep"),
+      softValidation.advisoryNotes.some((n) =>
+        n.includes("Moves your beat near 0:14.020 by +28 ms"),
+      ),
+    );
+    assert.ok(
+      softValidation.advisoryNotes.some((n) =>
+        n.includes("Places a beat near your muted tick at 0:22.410"),
       ),
     );
 
-    const forbidOffer = {
-      ...offerVersioned,
-      id: "off_forbid",
-      writeScope: { t0: 5.0, t1: 6.0 },
-      ops: { upsertBeats: [{ id: "b_bad", t: 5.255, source: "model" }] },
-    };
-    const forbidConflicts = validatePatchOffer(stateConstrained, forbidOffer);
-    assert.ok(
-      forbidConflicts.some(
-        (c) => c.kind === "constraint_violation" && c.statementIds?.includes("st_forbid"),
-      ),
+    // Confirm softOffer actually accepts cleanly in the reducer!
+    let afterSoft = applyEvent(
+      state,
+      ev(3, "offer_batch", { batchId: "batch_soft", offers: [softOffer] }, { kind: "model" }),
     );
+    afterSoft = applyEvent(afterSoft, ev(4, "offer_accept", { offerId: "off_soft" }));
+    assert.equal(afterSoft.offers.get("off_soft")?.status, "accepted");
+    assert.equal(afterSoft.beats.get("b_user")?.timeSec, 14.048);
 
-    // 4. Sibling conflict: mutually conflicting options in one batchId
-    const sibA = {
-      ...offerVersioned,
-      id: "sib_a",
-      batchId: "batch_sib",
-      optionIndex: 0,
-      ops: { upsertBeats: [{ id: "b_opt_a", t: 2.1, source: "model" }] },
-      semanticKey: computeSemanticKey(scope, { upsertBeats: [{ id: "b_opt_a", t: 2.1, source: "model" }] }),
+    // 2. Hard block #1: `protected_keep`
+    const keepBlockedOffer = {
+      ...softOffer,
+      id: "off_keep",
+      expectedRevisions: { b_keep: keepRev },
+      writeScopes: [{ segmentId: "seg_0", t0: 1.5, t1: 2.5 }],
+      ops: {
+        upsertBeats: [{ id: "b_keep", timeSec: 2.05, source: "offer" }],
+      },
     };
-    const sibB = {
-      ...offerVersioned,
-      id: "sib_b",
-      batchId: "batch_sib",
-      optionIndex: 1,
-      ops: { upsertBeats: [{ id: "b_opt_b", t: 2.2, source: "model" }] },
-      semanticKey: computeSemanticKey(scope, { upsertBeats: [{ id: "b_opt_b", t: 2.2, source: "model" }] }),
+    const keepCheck = validatePatchOffer(state, keepBlockedOffer);
+    assert.equal(keepCheck.valid, false);
+    assert.equal(keepCheck.status, "invalid");
+    assert.ok(keepCheck.conflicts.some((c) => c.kind === "protected_keep"));
+
+    // 3. Hard block #2: `out_of_scope`
+    const oosOffer = {
+      ...softOffer,
+      id: "off_oos",
+      expectedRevisions: {},
+      writeScopes: [{ segmentId: "seg_0", t0: 5.0, t1: 6.0 }],
+      ops: {
+        upsertBeats: [{ id: "b_outside", timeSec: 9.0, source: "offer" }],
+      },
     };
+    const oosCheck = validatePatchOffer(state, oosOffer);
+    assert.equal(oosCheck.valid, false);
+    assert.equal(oosCheck.status, "invalid");
+    assert.ok(oosCheck.conflicts.some((c) => c.kind === "out_of_scope"));
 
-    let sibState = applyEvent(state, ev(1, "offer_batch", { batchId: "batch_sib", offers: [sibA, sibB] }, { kind: "model" }));
-    sibState = applyEvent(sibState, ev(2, "offer_accept", { offerId: "sib_a" }));
-
-    assert.equal(sibState.offers.get("sib_a")?.status, "accepted");
-    assert.equal(sibState.offers.get("sib_b")?.status, "superseded");
-    const sibConflicts = validatePatchOffer(sibState, sibState.offers.get("sib_b"));
-    assert.ok(sibConflicts.some((c) => c.kind === "sibling_conflict"));
+    // 4. Hard block #3: `range_changed` when segment split overlaps writeScopes after basisSeq
+    const stateSplit = applyEvent(
+      state,
+      ev(3, "edit", { op: "split_segment", segmentId: "seg_0", newSegmentId: "seg_after", timeSec: 18.0 }),
+    );
+    const rangeCheck = validatePatchOffer(stateSplit, softOffer);
+    assert.equal(rangeCheck.valid, false);
+    assert.equal(rangeCheck.status, "stale");
+    assert.ok(rangeCheck.conflicts.some((c) => c.kind === "range_changed"));
   });
 
-  it("suppresses rejected semanticKey and clears suppression on overlapping edit or statement", () => {
-    const scope = { t0: 4.0, t1: 6.0 };
-    const ops1 = { upsertBeats: [{ id: "temp_1", t: 4.5, source: "model" }] };
-    const ops2 = { upsertBeats: [{ id: "temp_999", t: 4.5, source: "model" }] }; // different ephemeral ID, same semantics
-    const offer1 = {
-      id: "off_1",
-      batchId: "b1",
-      providerId: "mock",
+  it("computes ephemeral-ID-independent semanticKeys and clears rejection suppression on overlapping edit", () => {
+    const scopes = [{ segmentId: "seg_0", t0: 4.0, t1: 6.0 }];
+    const k1 = computeSemanticKey(scopes, {
+      upsertBeats: [{ id: "ephem_1", timeSec: 4.5, source: "offer" }],
+    });
+    const k2 = computeSemanticKey(scopes, {
+      upsertBeats: [{ id: "ephem_999", timeSec: 4.5, source: "offer" }],
+    });
+    assert.equal(k1, k2);
+
+    let state = createInitialState();
+    state = applyEvent(
+      state,
+      ev(0, "audio_bound", { songId: "s_sup", durationSec: 12 }, { kind: "host" }),
+    );
+    const offer = {
+      id: "off_sup_1",
+      batchId: "b_sup_1",
+      semanticKey: k1,
+      providerId: "ensomi.scripted",
       providerKind: "mock",
       generation: 1,
       basisSeq: 0,
-      role: "rewrite",
+      expectedRevisions: {},
+      writeScopes: scopes,
       scopeKind: "local",
-      readScope: scope,
-      writeScope: scope,
-      ops: ops1,
-      summary: "Proposal",
-      consequences: { beatsAdded: 1, beatsMoved: 0, beatsRemoved: 0 },
+      title: "Add pickup beat",
+      consequenceSummary: "Adds 1 beat",
+      advisoryNotes: [],
+      ops: { upsertBeats: [{ id: "ephem_1", timeSec: 4.5, source: "offer" }] },
+      consequences: { beatsAdded: 1, beatsMoved: 0, beatsRemoved: 0, maxShiftMs: 0, segmentChanges: 0 },
       conflicts: [],
-      semanticKey: computeSemanticKey(scope, ops1),
-      status: "pending",
+      status: "valid",
     };
 
-    let state = createInitialState();
-    state = applyEvent(state, ev(0, "offer_batch", { batchId: "b1", offers: [offer1] }, { kind: "model" }));
-    state = applyEvent(state, ev(1, "offer_reject", { offerId: "off_1", reason: "wrong phase" }));
+    state = applyEvent(state, ev(1, "offer_batch", { batchId: "b_sup_1", offers: [offer] }, { kind: "model" }));
+    state = applyEvent(state, ev(2, "offer_reject", { offerId: "off_sup_1" }));
+    assert.equal(isOfferSuppressed(state, { writeScopes: scopes, semanticKey: k2 }), true);
 
-    const offer2 = { ...offer1, id: "off_2", batchId: "b2", generation: 2, ops: ops2, semanticKey: computeSemanticKey(scope, ops2) };
-    assert.equal(offer1.semanticKey, offer2.semanticKey);
-    assert.equal(isOfferSuppressed(state, offer2), true);
+    // Non-overlapping edit keeps suppression
+    state = applyEvent(state, ev(3, "edit", { op: "upsert_beat", beat: { id: "far", timeSec: 9.0, source: "user" } }));
+    assert.equal(isOfferSuppressed(state, { writeScopes: scopes, semanticKey: k2 }), true);
 
-    // Non-overlapping edit does NOT clear suppression
-    state = applyEvent(state, ev(2, "edit", { op: "upsert_beat", beat: { id: "far_b", t: 1.0, source: "user" } }));
-    assert.equal(isOfferSuppressed(state, offer2), true);
-
-    // Overlapping edit DOES clear suppression
-    state = applyEvent(state, ev(3, "edit", { op: "upsert_beat", beat: { id: "near_b", t: 5.0, source: "user" } }));
-    assert.equal(isOfferSuppressed(state, offer2), false);
-
-    // Re-reject and verify overlapping statement also clears suppression
-    state = applyEvent(state, ev(4, "offer_batch", { batchId: "b2", offers: [offer2] }, { kind: "model" }));
-    state = applyEvent(state, ev(5, "offer_reject", { offerId: "off_2" }));
-    assert.equal(isOfferSuppressed(state, offer2), true);
-
-    state = applyEvent(
-      state,
-      ev(6, "statement", {
-        action: "upsert",
-        statement: { id: "st_steady", kind: "steady", span: { t0: 5.5, t1: 8.0 } },
-      }),
-    );
-    assert.equal(isOfferSuppressed(state, offer2), false);
+    // Overlapping edit clears suppression
+    state = applyEvent(state, ev(4, "edit", { op: "upsert_beat", beat: { id: "near", timeSec: 4.8, source: "user" } }));
+    assert.equal(isOfferSuppressed(state, { writeScopes: scopes, semanticKey: k2 }), false);
   });
 });

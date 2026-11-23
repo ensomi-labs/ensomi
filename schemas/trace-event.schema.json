@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ensomi.dev/schemas/v0/trace-event.schema.json",
-  "title": "Ensomi v0 Append-Only Trace Event",
-  "description": "Single NDJSON (.jsonl) event envelope for Ensomi v0 traces.",
+  "$id": "https://ensomi.dev/schemas/tempo/trace-event.schema.json",
+  "title": "Ensomi Tempo Contract Append-Only Trace Event",
+  "description": "Single NDJSON (.jsonl) event envelope for Ensomi session traces.",
   "type": "object",
   "required": ["schemaVersion", "seq", "id", "type", "author", "payload"],
   "properties": {
     "schemaVersion": {
-      "const": "0.1"
+      "const": "0.2"
     },
     "seq": {
       "type": "integer",
@@ -23,7 +23,6 @@
         "audio_bound",
         "draft_loaded",
         "edit",
-        "statement",
         "signal",
         "offer_batch",
         "offer_accept",

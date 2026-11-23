@@ -1,16 +1,49 @@
 /**
- * Purely deterministic synthetic TimingProvider (`ScriptedMockProvider`) and
- * synthetic song draft generator for conformance tests and offline development.
- * Uses synthetic data ONLY — zero real audio, beatmaps, or checkpoints.
+ * Deterministic synthetic `TimingProvider` (`ScriptedMockProvider`) and synthetic
+ * song draft generator for conformance tests and offline development.
+ *
+ * Uses clean musical copy across all titles, summaries, advisories, and snap labels
+ * (zero internal IDs, batchIds, hashes, or developer jargon in user-facing strings).
  */
 
 import { canonicalJson, roundTime, sha256Hex } from "./hash.js";
-import { computeConsequences, computeSemanticKey, getRangeEntityIds } from "./offers.js";
-import { EnsomiError, spanContainsTime, STATEMENT_KINDS } from "./types.js";
+import {
+  computeConsequences,
+  computeSemanticKey,
+  formatConsequenceSummary,
+  getScopeBeatIds,
+} from "./offers.js";
+import {
+  decomposeRangeToSpans,
+  EnsomiError,
+  formatTimeCode,
+  normalizeSegmentPartition,
+  rangeContainsTime,
+  SNAP_FAMILIES,
+  SNAP_ROLES,
+} from "./types.js";
+
+const SYNTHETIC_SOUND_PROFILES = Object.freeze([
+  Object.freeze({ family: "percussion", role: "transient_attack", label: "Kick attack", sigmaMs: 3 }),
+  Object.freeze({ family: "percussion", role: "transient_attack", label: "Snare transient", sigmaMs: 3 }),
+  Object.freeze({ family: "piano_keys", role: "p_center", label: "Chord onset", sigmaMs: 5 }),
+  Object.freeze({ family: "bass_synth", role: "transient_attack", label: "Bass attack", sigmaMs: 4 }),
+  Object.freeze({ family: "vocal", role: "p_center", label: "Vocal phrasing onset", sigmaMs: 8 }),
+  Object.freeze({ family: "strings_winds", role: "harmonic_change", label: "Harmonic change", sigmaMs: 10 }),
+]);
+
+const FAMILY_LABELS = Object.freeze({
+  percussion: "Percussion transient",
+  piano_keys: "Keyboard attack",
+  strings_winds: "Ensemble entry",
+  vocal: "Vocal onset",
+  bass_synth: "Bass transient",
+  other: "Acoustic onset",
+});
 
 /**
- * Deterministic linear congruential generator for reproducible synthetic jitter/confidence.
- * @param {number} seed
+ * Deterministic linear congruential generator for reproducible synthetic drafts.
+ * @param {number} [seed=42]
  */
 function createPrng(seed = 42) {
   let state = seed >>> 0;
@@ -21,22 +54,18 @@ function createPrng(seed = 42) {
 }
 
 /**
- * Generate a purely synthetic song draft (beats, boundaries, sounds) for testing and benchmarks.
+ * Generate a deterministic synthetic song draft (`segments`, `beats`, `sounds`, `spans`).
  *
- * @param {{
- *   durationSec?: number,
- *   bpm?: number,
- *   jitterMs?: number,
- *   soundCount?: number,
- *   seed?: number,
- *   startSec?: number,
- * }} [options]
+ * @param {import("../index.d.ts").SyntheticDraftOptions} [options]
+ * @returns {import("../index.d.ts").SyntheticDraft}
  */
 export function generateSyntheticDraft(options = {}) {
   const durationSec = options.durationSec ?? 32;
   const bpm = options.bpm ?? 120;
   const jitterMs = options.jitterMs ?? 0;
   const startSec = options.startSec ?? 0.5;
+  const segmentCount = options.segmentCount ?? 1;
+
   if (typeof durationSec !== "number" || !Number.isFinite(durationSec) || durationSec < 0) {
     throw new EnsomiError(
       "INVALID_OPTIONS",
@@ -72,8 +101,36 @@ export function generateSyntheticDraft(options = {}) {
       `generateSyntheticDraft soundCount must be a non-negative integer, got ${options.soundCount}`,
     );
   }
+  if (!Number.isInteger(segmentCount) || segmentCount < 1) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `generateSyntheticDraft segmentCount must be an integer >= 1, got ${segmentCount}`,
+    );
+  }
+
+  if (durationSec === 0) {
+    return { segments: [], spans: [], beats: [], sounds: [] };
+  }
 
   const rand = createPrng(options.seed ?? 1337);
+
+  const rawSegments = [];
+  for (let i = 0; i < segmentCount; i += 1) {
+    const t0 = roundTime((i * durationSec) / segmentCount, 6);
+    const t1 = i === segmentCount - 1 ? durationSec : roundTime(((i + 1) * durationSec) / segmentCount, 6);
+    if (t1 > t0) {
+      rawSegments.push({
+        id: `seg_${i}`,
+        t0,
+        t1,
+        regime: "auto",
+        kept: false,
+        source: "draft",
+        revision: 1,
+      });
+    }
+  }
+  const segments = normalizeSegmentPartition(rawSegments, durationSec, "draft");
 
   const periodSec = 60 / bpm;
   /** @type {import("../index.d.ts").Beat[]} */
@@ -81,27 +138,16 @@ export function generateSyntheticDraft(options = {}) {
   let idx = 0;
   for (let t = startSec; t < durationSec; t += periodSec) {
     const jitterSec = jitterMs > 0 ? ((rand() * 2 - 1) * jitterMs) / 1000 : 0;
+    const clampedT = Math.min(durationSec - 1e-6, Math.max(0, t + jitterSec));
     beats.push({
       id: `beat_${idx}`,
-      t: roundTime(Math.max(0, t + jitterSec), 6),
-      source: "model",
-      version: 1,
-      conf: roundTime(0.85 + rand() * 0.14, 3),
+      timeSec: roundTime(clampedT, 6),
+      source: "draft",
+      confidence: roundTime(0.85 + rand() * 0.14, 3),
+      revision: 1,
     });
     idx += 1;
   }
-
-  /** @type {import("../index.d.ts").Boundary[]} */
-  const boundaries = [
-    {
-      id: "bnd_0",
-      t: beats.length > 0 ? beats[0].t : startSec,
-      kind: "steady_start",
-      source: "model",
-      version: 1,
-      bpm,
-    },
-  ];
 
   const targetSoundCount = options.soundCount ?? Math.min(beats.length, 64);
   /** @type {import("../index.d.ts").SoundAnchor[]} */
@@ -112,30 +158,26 @@ export function generateSyntheticDraft(options = {}) {
         beats.length - 1,
         Math.floor((i * beats.length) / targetSoundCount),
       );
-      const baseT = beats[beatIdx].t;
+      const baseT = beats[beatIdx].timeSec;
       const subOffset = i % 3 === 1 ? periodSec / 2 : 0;
-      const t = roundTime(Math.min(durationSec - 0.01, baseT + subOffset), 6);
+      const timeSec = roundTime(Math.min(durationSec - 0.005, baseT + subOffset), 6);
+      const profile = SYNTHETIC_SOUND_PROFILES[i % SYNTHETIC_SOUND_PROFILES.length];
       sounds.push({
         id: `snd_${i}`,
-        t,
-        emphasis: roundTime(0.3 + rand() * 0.7, 3),
-        source: "model",
-        version: 1,
-        conf: roundTime(0.8 + rand() * 0.19, 3),
-        experimental: true,
+        timeSec,
+        strength: roundTime(0.35 + rand() * 0.65, 3),
+        family: /** @type {import("../index.d.ts").SnapFamily} */ (profile.family),
+        role: /** @type {import("../index.d.ts").SnapRole} */ (profile.role),
+        sigmaMs: profile.sigmaMs,
+        source: "draft",
+        revision: 1,
       });
     }
   }
 
-  return { beats, boundaries, sounds };
+  return { segments, spans: [], beats, sounds };
 }
 
-/**
- * Helper to wait for `delayMs`, optionally rejecting early when `signal` aborts.
- * @param {number} delayMs
- * @param {AbortSignal | undefined} signal
- * @param {boolean} ignoreAbort
- */
 function delay(delayMs, signal, ignoreAbort) {
   return new Promise((resolve, reject) => {
     if (!ignoreAbort && signal?.aborted) {
@@ -162,27 +204,29 @@ function delay(delayMs, signal, ignoreAbort) {
 
 export class ScriptedMockProvider {
   /**
-   * @param {{
-   *   id?: string,
-   *   version?: string,
-   *   draft?: { beats?: any[], boundaries?: any[], sounds?: any[], statements?: any[] },
-   *   defaultScenario?: string,
-   *   delayMs?: number,
-   *   ignoreAbort?: boolean,
-   *   script?: Array<any>,
-   * }} [options]
+   * @param {import("../index.d.ts").ScriptedMockProviderOptions} [options]
    */
   constructor(options = {}) {
-    this._id = options.id ?? "mock.scripted.v0";
-    this._version = options.version ?? "0.1.0";
+    this._id = options.id ?? "ensomi.scripted";
+    this._version = options.version ?? "0.2.0";
     this._draft = options.draft ?? null;
     this._defaultScenario = options.defaultScenario ?? "local_rewrite";
     this._delayMs = options.delayMs ?? 0;
+    this._analyzeDelayMs = options.analyzeDelayMs ?? 0;
+    this._snapDelayMs = options.snapDelayMs ?? 0;
     this._ignoreAbort = Boolean(options.ignoreAbort);
     this._script = Array.isArray(options.script) ? options.script.slice() : [];
+    this._snapScript = Array.isArray(options.snapScript) ? options.snapScript.slice() : [];
     this._callCount = 0;
+    this._snapCallCount = 0;
+    this._analyzeCallCount = 0;
+
     /** @type {Array<{ generation: number, reason: string, aborted: boolean }>} */
     this.recomputeCalls = [];
+    /** @type {Array<{ generation: number, timeSec: number, windowSec: number, aborted: boolean }>} */
+    this.suggestSnapsCalls = [];
+    /** @type {Array<{ aborted: boolean }>} */
+    this.analyzeCalls = [];
   }
 
   /** @returns {import("../index.d.ts").ProviderManifest} */
@@ -194,9 +238,10 @@ export class ScriptedMockProvider {
       capabilities: {
         draft: true,
         sounds: true,
-        soundsExperimental: true,
+        snapSuggestions: true,
         constrainedRecompute: true,
-        honoredStatements: [...STATEMENT_KINDS],
+        supportedSnapFamilies: [...SNAP_FAMILIES],
+        supportedSnapRoles: [...SNAP_ROLES],
         diagnostics: true,
         alternatives: true,
         repeatPropagation: true,
@@ -209,9 +254,11 @@ export class ScriptedMockProvider {
    * @param {AbortSignal} [signal]
    */
   async prepare(audio, signal) {
-    if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
+    if (!this._ignoreAbort && signal?.aborted) {
+      throw signal.reason ?? new Error("Aborted");
+    }
     return {
-      audioId: audio.audioId,
+      songId: audio.songId,
       durationSec: audio.durationSec,
       clock: audio.clock,
       prepared: true,
@@ -223,11 +270,120 @@ export class ScriptedMockProvider {
    * @param {AbortSignal} [signal]
    */
   async analyze(evidence, signal) {
-    if (signal?.aborted) throw signal.reason ?? new Error("Aborted");
+    this._analyzeCallCount += 1;
+    const record = { aborted: false };
+    this.analyzeCalls.push(record);
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        record.aborted = true;
+      }, { once: true });
+    }
+    if (this._analyzeDelayMs > 0) {
+      await delay(this._analyzeDelayMs, signal, this._ignoreAbort);
+    } else if (!this._ignoreAbort && signal?.aborted) {
+      throw signal.reason ?? new Error("Aborted");
+    }
     if (this._draft) {
       return structuredClone(this._draft);
     }
     return generateSyntheticDraft({ durationSec: evidence?.durationSec ?? 16, bpm: 120 });
+  }
+
+  /**
+   * Ephemeral `micro_assist` snap suggestions near `request.timeSec`.
+   * @param {any} evidence
+   * @param {import("../index.d.ts").SessionState} state
+   * @param {{ timeSec: number, windowSec?: number, generation?: number }} request
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<import("../index.d.ts").SnapCandidate[]>}
+   */
+  async suggestSnaps(evidence, state, request, signal) {
+    this._snapCallCount += 1;
+    const callIdx = this._snapCallCount;
+    const windowSec = request.windowSec ?? 0.08;
+    const record = {
+      generation: request.generation ?? callIdx,
+      timeSec: request.timeSec,
+      windowSec,
+      aborted: false,
+    };
+    this.suggestSnapsCalls.push(record);
+
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        record.aborted = true;
+      }, { once: true });
+    }
+
+    if (this._snapScript.length > 0) {
+      const step = this._snapScript.shift();
+      if (typeof step === "function") {
+        return await step({ evidence, state, request, signal, callIdx });
+      }
+      return structuredClone(step);
+    }
+
+    if (this._snapDelayMs > 0) {
+      await delay(this._snapDelayMs, signal, this._ignoreAbort);
+    } else if (!this._ignoreAbort && signal?.aborted) {
+      throw signal.reason ?? new Error("Aborted");
+    }
+
+    const sounds = state?.sounds instanceof Map ? Array.from(state.sounds.values()) : [];
+    const matching = sounds
+      .filter((s) => Math.abs(s.timeSec - request.timeSec) <= windowSec)
+      .sort((a, b) => Math.abs(a.timeSec - request.timeSec) - Math.abs(b.timeSec - request.timeSec));
+
+    if (matching.length > 0) {
+      return matching.slice(0, 6).map((s) => {
+        const family = s.family ?? "percussion";
+        const role = s.role ?? "transient_attack";
+        return {
+          eventId: `snap_${s.id}`,
+          targetSec: s.timeSec,
+          deltaMs: roundTime((s.timeSec - request.timeSec) * 1000, 4),
+          family,
+          role,
+          ...(s.sigmaMs !== undefined ? { sigmaMs: s.sigmaMs } : { sigmaMs: 4 }),
+          label: FAMILY_LABELS[family] ?? "Acoustic onset",
+          salience: s.strength ?? 0.85,
+        };
+      });
+    }
+
+    const durationSec = evidence?.durationSec ?? state?.durationSec ?? 32;
+    const primaryTarget = Math.min(
+      Math.max(0, roundTime(request.timeSec + Math.min(0.008, windowSec * 0.25), 6)),
+      Math.max(0, durationSec - 0.001),
+    );
+    const secondaryTarget = Math.max(
+      0,
+      roundTime(request.timeSec - Math.min(0.014, windowSec * 0.4), 6),
+    );
+
+    const tag = sha256Hex(`${this._id}:${roundTime(request.timeSec, 4)}`).slice(0, 8);
+    return [
+      {
+        eventId: `evt_${tag}_0`,
+        targetSec: primaryTarget,
+        deltaMs: roundTime((primaryTarget - request.timeSec) * 1000, 4),
+        family: "percussion",
+        role: "transient_attack",
+        sigmaMs: 3,
+        label: "Kick attack",
+        salience: 0.92,
+      },
+      {
+        eventId: `evt_${tag}_1`,
+        targetSec: secondaryTarget,
+        deltaMs: roundTime((secondaryTarget - request.timeSec) * 1000, 4),
+        family: "piano_keys",
+        role: "p_center",
+        sigmaMs: 5,
+        label: "Chord onset",
+        salience: 0.76,
+      },
+    ];
   }
 
   /**
@@ -247,16 +403,11 @@ export class ScriptedMockProvider {
     this.recomputeCalls.push(callRecord);
 
     if (signal) {
-      signal.addEventListener(
-        "abort",
-        () => {
-          callRecord.aborted = true;
-        },
-        { once: true },
-      );
+      signal.addEventListener("abort", () => {
+        callRecord.aborted = true;
+      }, { once: true });
     }
 
-    // Check custom queued script first
     if (this._script.length > 0) {
       const nextStep = this._script.shift();
       if (typeof nextStep === "function") {
@@ -266,151 +417,120 @@ export class ScriptedMockProvider {
     }
 
     const scenario = request.reason || this._defaultScenario;
-    const writeScope =
+    const durationSec =
+      state.durationSec || evidence?.durationSec || state.audio?.durationSec || 16;
+    const effectiveSegments =
+      state.segments.length > 0
+        ? state.segments
+        : normalizeSegmentPartition([], Math.max(durationSec, 16), "draft");
+
+    const baseRange =
       request.scope === "song"
-        ? { t0: 0, t1: evidence?.durationSec ?? state.audio?.durationSec ?? 16 }
+        ? { t0: 0, t1: effectiveSegments[effectiveSegments.length - 1].t1 }
         : { ...request.scope };
 
     if (scenario === "slow_cancellable" || this._delayMs > 0) {
       await delay(this._delayMs || 40, signal, this._ignoreAbort);
+    } else if (!this._ignoreAbort && signal?.aborted) {
+      throw signal.reason ?? new Error("Aborted");
     }
 
-    const idTag = this._durableTag(request, scenario, writeScope);
-    const batchId = `batch_${this._id}_${idTag}`;
+    const idTag = this._durableTag(request, scenario, baseRange);
+    const batchId = `batch_${idTag}`;
 
     if (scenario === "triplet_vs_reset") {
-      return this._buildTripletVsReset(state, request, writeScope, batchId, idTag);
+      return this._buildTripletVsReset(state, effectiveSegments, request, baseRange, batchId, idTag);
     }
-    if (scenario === "forward_continuation") {
-      return this._buildForwardContinuation(state, request, writeScope, batchId, idTag);
+    if (scenario === "forward" || scenario === "forward_continuation") {
+      return this._buildForward(state, effectiveSegments, request, baseRange, batchId, idTag);
     }
     if (scenario === "cross_region") {
-      return this._buildCrossRegion(state, request, writeScope, batchId, idTag);
+      return this._buildCrossRegion(state, effectiveSegments, request, baseRange, batchId, idTag);
     }
-    if (scenario === "hard_constraint_conflict") {
-      return this._buildHardConstraintConflict(state, request, writeScope, batchId, idTag);
+    if (scenario === "protected_keep_conflict" || scenario === "hard_constraint_conflict") {
+      return this._buildProtectedKeepConflict(
+        state,
+        effectiveSegments,
+        request,
+        baseRange,
+        batchId,
+        idTag,
+      );
     }
-    return this._buildLocalRewrite(state, request, writeScope, batchId, idTag);
+    return this._buildLocalRewrite(state, effectiveSegments, request, baseRange, batchId, idTag);
   }
 
-  /**
-   * Build a durable deterministic batch/entity namespace tag derived from
-   * provider identity, generation, basisSeq, scenario, and scope so reopening
-   * a session with a fresh provider instance never collides with earlier IDs.
-   */
-  _durableTag(request, scenario, writeScope) {
+  _durableTag(request, scenario, range) {
     const digest = sha256Hex(
       canonicalJson({
         providerId: this._id,
         generation: request.generation,
         basisSeq: request.basisSeq,
         scenario,
-        writeScope,
+        range,
       }),
     ).slice(0, 8);
     return `g${request.generation}_s${request.basisSeq}_${digest}`;
   }
 
-  /**
-   * Capture version + revision preconditions for existing entities in a list.
-   * @param {import("../index.d.ts").SessionState} state
-   * @param {Array<{ id: string, version: number }>} entities
-   */
-  _capturePreconditions(state, entities) {
-    /** @type {Record<string, number>} */
-    const expectedVersions = {};
-    /** @type {Record<string, string>} */
-    const expectedRevisions = {};
-    const revMap = state.entityRevisions instanceof Map ? state.entityRevisions : null;
-    for (const e of entities) {
-      expectedVersions[e.id] = e.version;
-      const rev = revMap?.get(e.id);
-      if (rev) expectedRevisions[e.id] = rev;
-    }
-    return {
-      expectedVersions,
-      ...(Object.keys(expectedRevisions).length > 0 ? { expectedRevisions } : {}),
-    };
+  _resolveWriteScopes(segments, range) {
+    const slices = decomposeRangeToSpans(segments, range);
+    if (slices.length > 0) return slices;
+    const first = segments[0] ?? { id: "seg_0", t0: range.t0, t1: range.t1 };
+    return [{ segmentId: first.id, t0: range.t0, t1: range.t1 }];
   }
 
-  /**
-   * Build 2 mutually conflicting sibling offers in one batch:
-   *  - Option 0: triplet subdivision interpretation (alternative)
-   *  - Option 1: phase reset interpretation (quick_fix)
-   */
-  _buildTripletVsReset(state, request, writeScope, batchId, idTag) {
-    const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
-    const existingInScope = Array.from(state.beats.values())
-      .filter((b) => spanContainsTime(writeScope, b.t))
-      .sort((a, b) => a.t - b.t);
-    const preconditions = this._capturePreconditions(state, existingInScope);
+  _captureRevisions(state, entities) {
+    /** @type {Record<string, string>} */
+    const expectedRevisions = {};
+    for (const e of entities) {
+      const rev = state.entityRevisions.get(e.id);
+      if (rev) expectedRevisions[e.id] = rev;
+    }
+    return expectedRevisions;
+  }
 
-    const spanLen = writeScope.t1 - writeScope.t0;
-    const tripletBeats =
-      spanLen <= 0
-        ? [
-            {
-              id: `mock_trip_${idTag}_0`,
-              t: roundTime(writeScope.t0, 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.88,
-            },
-          ]
-        : [0, 1, 2].map((k) => ({
-            id: `mock_trip_${idTag}_${k}`,
-            t: roundTime(writeScope.t0 + (k * spanLen) / 3, 6),
-            source: /** @type {const} */ ("model"),
-            conf: 0.88,
-          }));
+  _buildTripletVsReset(state, segments, request, baseRange, batchId, idTag) {
+    const writeScopes = this._resolveWriteScopes(segments, baseRange);
+    const primaryScope = writeScopes[0];
+    const existingInScope = Array.from(state.beats.values())
+      .filter((b) => writeScopes.some((ws) => rangeContainsTime(ws, b.timeSec)))
+      .sort((a, b) => a.timeSec - b.timeSec);
+    const expectedRevisions = this._captureRevisions(state, existingInScope);
+    const expectedScopeBeatIds = getScopeBeatIds(state, writeScopes);
+
+    const spanLen = primaryScope.t1 - primaryScope.t0;
+    const tripletBeats = [0, 1, 2].map((k) => ({
+      id: `trip_${idTag}_${k}`,
+      timeSec: roundTime(primaryScope.t0 + ((k + 0.25) * spanLen) / 3, 6),
+      source: /** @type {const} */ ("offer"),
+      confidence: 0.89,
+    }));
 
     const opsA = {
       removeBeatIds: existingInScope.map((b) => b.id),
       upsertBeats: tripletBeats,
-      ...preconditions,
-      expectedRangeEntityIds,
     };
 
-    const resetOffset0 = spanLen <= 0 ? 0 : Math.min(0.1, spanLen * 0.1);
-    const resetOffset1 = spanLen <= 0 ? 0 : Math.min(0.6, spanLen * 0.6);
-    const resetBeats =
-      spanLen <= 0
-        ? [
-            {
-              id: `mock_reset_${idTag}_0`,
-              t: roundTime(writeScope.t0, 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.91,
-            },
-          ]
-        : [
-            {
-              id: `mock_reset_${idTag}_0`,
-              t: roundTime(writeScope.t0 + resetOffset0, 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.91,
-            },
-            {
-              id: `mock_reset_${idTag}_1`,
-              t: roundTime(writeScope.t0 + resetOffset1, 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.91,
-            },
-          ];
-
+    const off0 = Math.min(0.1, spanLen * 0.15);
+    const off1 = Math.min(0.6, spanLen * 0.65);
+    const resetBeats = [
+      {
+        id: `ph_${idTag}_0`,
+        timeSec: roundTime(primaryScope.t0 + off0, 6),
+        source: /** @type {const} */ ("offer"),
+        confidence: 0.91,
+      },
+      {
+        id: `ph_${idTag}_1`,
+        timeSec: roundTime(primaryScope.t0 + off1, 6),
+        source: /** @type {const} */ ("offer"),
+        confidence: 0.91,
+      },
+    ];
     const opsB = {
       removeBeatIds: existingInScope.map((b) => b.id),
       upsertBeats: resetBeats,
-      upsertBoundaries: [
-        {
-          id: `mock_reset_bnd_${idTag}`,
-          t: roundTime(writeScope.t0 + resetOffset0, 6),
-          kind: /** @type {const} */ ("reset"),
-          source: /** @type {const} */ ("model"),
-          bpm: 120,
-        },
-      ],
-      ...preconditions,
-      expectedRangeEntityIds,
     };
 
     return {
@@ -420,66 +540,60 @@ export class ScriptedMockProvider {
           id: `offer_${idTag}_opt0`,
           batchId,
           optionIndex: 0,
-          role: "alternative",
+          optionCount: 2,
           scopeKind: "local",
-          readScope: writeScope,
-          writeScope,
+          readScope: baseRange,
+          writeScopes,
+          expectedRevisions,
+          expectedScopeBeatIds,
           ops: opsA,
-          summary: "Interpret span as triplet pulse",
+          title: "Fit triplet pulse",
         }),
         this._makeOffer(state, request, {
           id: `offer_${idTag}_opt1`,
           batchId,
           optionIndex: 1,
-          role: "quick_fix",
+          optionCount: 2,
           scopeKind: "local",
-          readScope: writeScope,
-          writeScope,
+          readScope: baseRange,
+          writeScopes,
+          expectedRevisions,
+          expectedScopeBeatIds,
           ops: opsB,
-          summary: "Insert phase reset and realign downbeat",
+          title: "Realign downbeat phase",
         }),
       ],
     };
   }
 
-  _buildLocalRewrite(state, request, writeScope, batchId, idTag) {
-    const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
+  _buildLocalRewrite(state, segments, request, baseRange, batchId, idTag) {
+    const writeScopes = this._resolveWriteScopes(segments, baseRange);
+    const primaryScope = writeScopes[0];
     const existingInScope = Array.from(state.beats.values())
-      .filter((b) => spanContainsTime(writeScope, b.t))
-      .sort((a, b) => a.t - b.t);
-    const preconditions = this._capturePreconditions(state, existingInScope);
+      .filter((b) => writeScopes.some((ws) => rangeContainsTime(ws, b.timeSec)))
+      .sort((a, b) => a.timeSec - b.timeSec);
+    const expectedRevisions = this._captureRevisions(state, existingInScope);
+    const expectedScopeBeatIds = getScopeBeatIds(state, writeScopes);
 
-    const spanLen = writeScope.t1 - writeScope.t0;
-    const upsertBeats =
-      spanLen <= 0
-        ? [
-            {
-              id: `mock_local_${idTag}_0`,
-              t: roundTime(writeScope.t0, 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.94,
-            },
-          ]
-        : [
-            {
-              id: `mock_local_${idTag}_0`,
-              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.25 : spanLen * 0.25), 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.94,
-            },
-            {
-              id: `mock_local_${idTag}_1`,
-              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.75 : spanLen * 0.75), 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.94,
-            },
-          ];
+    const spanLen = primaryScope.t1 - primaryScope.t0;
+    const upsertBeats = [
+      {
+        id: `loc_${idTag}_0`,
+        timeSec: roundTime(primaryScope.t0 + (spanLen >= 1 ? 0.25 : spanLen * 0.25), 6),
+        source: /** @type {const} */ ("offer"),
+        confidence: 0.94,
+      },
+      {
+        id: `loc_${idTag}_1`,
+        timeSec: roundTime(primaryScope.t0 + (spanLen >= 1 ? 0.75 : spanLen * 0.75), 6),
+        source: /** @type {const} */ ("offer"),
+        confidence: 0.94,
+      },
+    ];
 
     const ops = {
       removeBeatIds: existingInScope.map((b) => b.id),
       upsertBeats,
-      ...preconditions,
-      expectedRangeEntityIds,
     };
 
     return {
@@ -488,163 +602,176 @@ export class ScriptedMockProvider {
         this._makeOffer(state, request, {
           id: `offer_${idTag}_local`,
           batchId,
-          optionIndex: 0,
-          role: "rewrite",
           scopeKind: "local",
-          readScope: writeScope,
-          writeScope,
+          readScope: baseRange,
+          writeScopes,
+          expectedRevisions,
+          expectedScopeBeatIds,
           ops,
-          summary: `Local rewrite over [${writeScope.t0}, ${writeScope.t1})`,
+          title: `Align beat grid at ${formatTimeCode(primaryScope.t0)}–${formatTimeCode(primaryScope.t1)}`,
         }),
       ],
     };
   }
 
-  _buildForwardContinuation(state, request, readScope, batchId, idTag) {
-    const writeScope = {
-      t0: roundTime(readScope.t1, 6),
-      t1: roundTime(readScope.t1 + 2.0, 6),
-    };
-    const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
+  _buildForward(state, segments, request, readRange, batchId, idTag) {
+    const maxTrackT1 = segments[segments.length - 1].t1;
+    const fwdT0 = Math.min(readRange.t1, maxTrackT1 - 0.5);
+    const fwdT1 = Math.min(maxTrackT1, roundTime(fwdT0 + 2.0, 6));
+    const writeScopes = this._resolveWriteScopes(segments, { t0: fwdT0, t1: fwdT1 });
+    const primaryScope = writeScopes[0];
+    const expectedScopeBeatIds = getScopeBeatIds(state, writeScopes);
+
+    const spanLen = primaryScope.t1 - primaryScope.t0;
+    const step = Math.min(0.5, spanLen / 4);
     const ops = {
-      upsertBeats: [0, 1, 2, 3].map((k) => ({
-        id: `mock_fwd_${idTag}_${k}`,
-        t: roundTime(writeScope.t0 + k * 0.5, 6),
-        source: /** @type {const} */ ("model"),
-        conf: 0.9,
-      })),
-      expectedRangeEntityIds,
+      upsertBeats: [0, 1, 2, 3]
+        .map((k) => roundTime(primaryScope.t0 + k * step, 6))
+        .filter((t) => t < primaryScope.t1)
+        .map((timeSec, k) => ({
+          id: `fwd_${idTag}_${k}`,
+          timeSec,
+          source: /** @type {const} */ ("offer"),
+          confidence: 0.9,
+        })),
     };
+
     return {
       batchId,
       offers: [
         this._makeOffer(state, request, {
           id: `offer_${idTag}_fwd`,
           batchId,
-          role: "extend",
-          scopeKind: "forward_continuation",
-          readScope,
-          writeScope,
+          scopeKind: "forward",
+          readScope: readRange,
+          writeScopes,
+          expectedRevisions: {},
+          expectedScopeBeatIds,
           ops,
-          summary: `Continue steady grid into [${writeScope.t0}, ${writeScope.t1})`,
+          title: `Continue steady pulse from ${formatTimeCode(primaryScope.t0)}`,
         }),
       ],
     };
   }
 
-  _buildCrossRegion(state, request, readScope, batchId, idTag) {
-    const offset = 8.0;
-    const writeScope = {
-      t0: roundTime(readScope.t0 + offset, 6),
-      t1: roundTime(readScope.t1 + offset, 6),
-    };
-    const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
-    const spanLen = writeScope.t1 - writeScope.t0;
-    const upsertBeats =
-      spanLen <= 0
-        ? [
-            {
-              id: `mock_prop_${idTag}_0`,
-              t: roundTime(writeScope.t0, 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.87,
-            },
-          ]
-        : [
-            {
-              id: `mock_prop_${idTag}_0`,
-              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.25 : spanLen * 0.25), 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.87,
-            },
-            {
-              id: `mock_prop_${idTag}_1`,
-              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.75 : spanLen * 0.75), 6),
-              source: /** @type {const} */ ("model"),
-              conf: 0.87,
-            },
-          ];
+  _buildCrossRegion(state, segments, request, readRange, batchId, idTag) {
+    const maxTrackT1 = segments[segments.length - 1].t1;
+    const spanWidth = Math.max(0.5, readRange.t1 - readRange.t0);
+    const targetT0 = Math.min(roundTime(readRange.t0 + 8.0, 6), Math.max(0, maxTrackT1 - spanWidth));
+    const targetT1 = Math.min(maxTrackT1, roundTime(targetT0 + spanWidth, 6));
+    const writeScopes = this._resolveWriteScopes(segments, { t0: targetT0, t1: targetT1 });
+    const primaryScope = writeScopes[0];
+    const expectedScopeBeatIds = getScopeBeatIds(state, writeScopes);
 
+    const localLen = primaryScope.t1 - primaryScope.t0;
     const ops = {
-      upsertBeats,
-      expectedRangeEntityIds,
+      upsertBeats: [
+        {
+          id: `xreg_${idTag}_0`,
+          timeSec: roundTime(primaryScope.t0 + (localLen >= 1 ? 0.25 : localLen * 0.25), 6),
+          source: /** @type {const} */ ("offer"),
+          confidence: 0.88,
+        },
+        {
+          id: `xreg_${idTag}_1`,
+          timeSec: roundTime(primaryScope.t0 + (localLen >= 1 ? 0.75 : localLen * 0.75), 6),
+          source: /** @type {const} */ ("offer"),
+          confidence: 0.88,
+        },
+      ],
     };
+
+    // Passive non-mutating advisory if another section in the track is Keep-locked
+    const advisoryNotes = [];
+    const otherKeep = request.constraints.keepLocks.find(
+      (lk) => lk.t1 <= primaryScope.t0 || lk.t0 >= primaryScope.t1,
+    );
+    if (otherKeep) {
+      advisoryNotes.push(
+        `Matches edited section (+14 ms) at ${formatTimeCode(otherKeep.t0)}–${formatTimeCode(otherKeep.t1)} — unlock Keep to apply`,
+      );
+    }
+
     return {
       batchId,
       offers: [
         this._makeOffer(state, request, {
           id: `offer_${idTag}_prop`,
           batchId,
-          role: "propagate",
           scopeKind: "cross_region",
-          readScope,
-          writeScope,
+          readScope: readRange,
+          writeScopes,
+          expectedRevisions: {},
+          expectedScopeBeatIds,
           ops,
-          summary: `Propagate timing pattern to repeated region [${writeScope.t0}, ${writeScope.t1})`,
+          title: `Apply timing to repeated passage at ${formatTimeCode(primaryScope.t0)}`,
+          advisoryNotes,
         }),
       ],
     };
   }
 
-  _buildHardConstraintConflict(state, request, writeScope, batchId, idTag) {
-    // Deliberately propose a beat inside the first freeze/forbid constraint (or writeScope midpoint)
-    const hardConstraint = request.constraints.find(
-      (c) => c.form === "freeze" || c.form === "forbid",
-    );
-    const targetT =
-      hardConstraint?.t !== undefined
-        ? hardConstraint.t
-        : hardConstraint?.span
-          ? roundTime((hardConstraint.span.t0 + hardConstraint.span.t1) / 2, 6)
-          : roundTime((writeScope.t0 + writeScope.t1) / 2, 6);
-    const targetScope = hardConstraint?.span ?? writeScope;
+  _buildProtectedKeepConflict(state, segments, request, baseRange, batchId, idTag) {
+    const keepLock = request.constraints.keepLocks[0];
+    const targetRange = keepLock ? { t0: keepLock.t0, t1: keepLock.t1 } : baseRange;
+    const writeScopes = this._resolveWriteScopes(segments, targetRange);
+    const primaryScope = writeScopes[0];
+    const targetTime = roundTime((primaryScope.t0 + primaryScope.t1) / 2, 6);
 
     const ops = {
       upsertBeats: [
         {
-          id: `mock_conflict_${idTag}_0`,
-          t: targetT,
-          source: /** @type {const} */ ("model"),
-          conf: 0.65,
+          id: `kp_${idTag}_0`,
+          timeSec: targetTime,
+          source: /** @type {const} */ ("offer"),
+          confidence: 0.72,
         },
       ],
     };
+
     return {
       batchId,
       offers: [
         this._makeOffer(state, request, {
-          id: `offer_${idTag}_conflict`,
+          id: `offer_${idTag}_keep_test`,
           batchId,
-          role: "rewrite",
           scopeKind: "local",
-          readScope: targetScope,
-          writeScope: targetScope,
+          readScope: targetRange,
+          writeScopes,
+          expectedRevisions: {},
+          expectedScopeBeatIds: getScopeBeatIds(state, writeScopes),
           ops,
-          summary: "Conflicting candidate violating active freeze/forbid constraint",
+          title: `Adjust timing near ${formatTimeCode(targetTime)}`,
         }),
       ],
     };
   }
 
   _makeOffer(state, request, spec) {
+    const ops = spec.ops;
+    const expectedRevisions = spec.expectedRevisions ?? {};
     return {
       id: spec.id,
       batchId: spec.batchId,
       ...(spec.optionIndex !== undefined ? { optionIndex: spec.optionIndex } : {}),
+      ...(spec.optionCount !== undefined ? { optionCount: spec.optionCount } : {}),
       providerId: this._id,
       providerKind: /** @type {const} */ ("mock"),
       generation: request.generation,
       basisSeq: request.basisSeq,
-      role: spec.role,
+      expectedRevisions,
+      ...(spec.expectedScopeBeatIds ? { expectedScopeBeatIds: spec.expectedScopeBeatIds } : {}),
       scopeKind: spec.scopeKind,
       readScope: spec.readScope,
-      writeScope: spec.writeScope,
-      ops: spec.ops,
-      summary: spec.summary,
-      consequences: computeConsequences(state, spec.ops),
+      writeScopes: spec.writeScopes,
+      ops,
+      title: spec.title,
+      consequenceSummary: formatConsequenceSummary(state, ops),
+      advisoryNotes: spec.advisoryNotes ?? [],
+      consequences: computeConsequences(state, ops),
       conflicts: [],
-      semanticKey: computeSemanticKey(spec.writeScope, spec.ops),
-      status: /** @type {const} */ ("pending"),
+      semanticKey: computeSemanticKey(spec.writeScopes, ops, expectedRevisions),
+      status: /** @type {const} */ ("valid"),
     };
   }
 }

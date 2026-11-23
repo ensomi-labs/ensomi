@@ -1,45 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ensomi.dev/schemas/v0/patch-offer.schema.json",
-  "title": "Ensomi v0 PatchOffer, Conflict, and Constraint IR",
+  "$id": "https://ensomi.dev/schemas/tempo/patch-offer.schema.json",
+  "title": "Ensomi Tempo Contract PatchOffer and Validation",
   "type": "object",
   "$ref": "#/$defs/PatchOffer",
   "$defs": {
     "OfferScopeKind": {
       "type": "string",
-      "enum": ["local", "forward_continuation", "cross_region"]
-    },
-    "OfferRole": {
-      "type": "string",
-      "enum": ["extend", "rewrite", "quick_fix", "alternative", "propagate"]
+      "enum": ["local", "forward", "cross_region"]
     },
     "OfferStatus": {
       "type": "string",
-      "enum": ["pending", "accepted", "rejected", "stale", "superseded"]
+      "enum": ["valid", "stale", "invalid", "accepted", "rejected", "superseded"]
     },
     "ConflictKind": {
       "type": "string",
       "enum": [
+        "protected_keep",
         "version_mismatch",
         "range_changed",
-        "constraint_violation",
+        "out_of_scope",
         "sibling_conflict"
       ]
     },
-    "ConstraintForm": {
-      "type": "string",
-      "enum": ["observe", "clamp", "forbid", "freeze"]
-    },
-    "Conflict": {
+    "WriteScope": {
       "type": "object",
-      "required": ["id", "kind", "message"],
+      "required": ["segmentId", "t0", "t1"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
+        "segmentId": { "type": "string", "minLength": 1 },
+        "t0": { "type": "number", "minimum": 0 },
+        "t1": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "OfferConflict": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
         "kind": { "$ref": "#/$defs/ConflictKind" },
-        "message": { "type": "string" },
-        "entityIds": { "type": "array", "items": { "type": "string" } },
-        "statementIds": { "type": "array", "items": { "type": "string" } },
-        "span": { "$ref": "entities.schema.json#/$defs/Span" }
+        "message": { "type": "string", "minLength": 1 },
+        "t0": { "type": "number", "minimum": 0 },
+        "t1": { "type": "number", "minimum": 0 }
       },
       "additionalProperties": false
     },
@@ -52,15 +53,7 @@
         },
         "removeBeatIds": {
           "type": "array",
-          "items": { "type": "string" }
-        },
-        "upsertBoundaries": {
-          "type": "array",
-          "items": { "type": "object" }
-        },
-        "removeBoundaryIds": {
-          "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "upsertSounds": {
           "type": "array",
@@ -68,45 +61,58 @@
         },
         "removeSoundIds": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "expectedVersions": {
-          "type": "object",
-          "additionalProperties": { "type": "integer", "minimum": 1 }
-        },
-        "expectedRevisions": {
-          "type": "object",
-          "additionalProperties": { "type": "string", "minLength": 1 }
-        },
-        "expectedRangeEntityIds": {
+        "splitSegments": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "object",
+            "required": ["segmentId", "newSegmentId", "timeSec"],
+            "properties": {
+              "segmentId": { "type": "string", "minLength": 1 },
+              "newSegmentId": { "type": "string", "minLength": 1 },
+              "timeSec": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
         },
-        "expectedRangeKinds": {
+        "moveSegmentBoundaries": {
           "type": "array",
-          "items": { "type": "string", "enum": ["beat", "boundary", "sound"] }
+          "items": {
+            "type": "object",
+            "required": ["leftSegmentId", "rightSegmentId", "timeSec"],
+            "properties": {
+              "leftSegmentId": { "type": "string", "minLength": 1 },
+              "rightSegmentId": { "type": "string", "minLength": 1 },
+              "timeSec": { "type": "number", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
         },
-        "includeSounds": {
-          "type": "boolean"
+        "setSegmentRegimes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["segmentId", "regime"],
+            "properties": {
+              "segmentId": { "type": "string", "minLength": 1 },
+              "regime": { "$ref": "entities.schema.json#/$defs/SegmentRegime" }
+            },
+            "additionalProperties": false
+          }
         }
       },
       "additionalProperties": false
     },
-    "Constraint": {
+    "OfferConsequences": {
       "type": "object",
-      "required": ["id", "statementId", "statementKind", "form", "target", "params"],
+      "required": ["beatsAdded", "beatsMoved", "beatsRemoved", "maxShiftMs", "segmentChanges"],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "statementId": { "type": "string", "minLength": 1 },
-        "statementKind": { "$ref": "entities.schema.json#/$defs/StatementKind" },
-        "form": { "$ref": "#/$defs/ConstraintForm" },
-        "target": {
-          "type": "string",
-          "enum": ["sound", "tempo_regime", "beat", "beat_run", "pulse", "span"]
-        },
-        "span": { "$ref": "entities.schema.json#/$defs/Span" },
-        "t": { "type": "number" },
-        "params": { "type": "object", "additionalProperties": true }
+        "beatsAdded": { "type": "integer", "minimum": 0 },
+        "beatsMoved": { "type": "integer", "minimum": 0 },
+        "beatsRemoved": { "type": "integer", "minimum": 0 },
+        "maxShiftMs": { "type": "number", "minimum": 0 },
+        "segmentChanges": { "type": "integer", "minimum": 0 }
       },
       "additionalProperties": false
     },
@@ -115,56 +121,68 @@
       "required": [
         "id",
         "batchId",
+        "semanticKey",
         "providerId",
         "providerKind",
         "generation",
         "basisSeq",
-        "role",
+        "expectedRevisions",
+        "writeScopes",
         "scopeKind",
-        "readScope",
-        "writeScope",
+        "title",
+        "consequenceSummary",
+        "advisoryNotes",
         "ops",
-        "summary",
         "consequences",
         "conflicts",
-        "semanticKey",
         "status"
       ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "batchId": { "type": "string", "minLength": 1 },
-        "optionIndex": { "type": "integer", "minimum": 0 },
+        "semanticKey": { "type": "string", "minLength": 1 },
         "providerId": { "type": "string", "minLength": 1 },
         "providerKind": { "type": "string", "enum": ["model", "rule", "mock"] },
         "generation": { "type": "integer", "minimum": 0 },
         "basisSeq": { "type": "integer", "minimum": 0 },
-        "role": { "$ref": "#/$defs/OfferRole" },
-        "scopeKind": { "$ref": "#/$defs/OfferScopeKind" },
+        "expectedRevisions": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "expectedScopeBeatIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "writeScopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/WriteScope" }
+        },
         "readScope": {
           "oneOf": [
             { "const": "song" },
-            { "$ref": "entities.schema.json#/$defs/Span" }
+            { "$ref": "entities.schema.json#/$defs/Range" }
           ]
         },
-        "writeScope": { "$ref": "entities.schema.json#/$defs/Span" },
-        "ops": { "$ref": "#/$defs/PatchOp" },
-        "summary": { "type": "string" },
-        "consequences": {
-          "type": "object",
-          "required": ["beatsAdded", "beatsMoved", "beatsRemoved"],
-          "properties": {
-            "beatsAdded": { "type": "integer", "minimum": 0 },
-            "beatsMoved": { "type": "integer", "minimum": 0 },
-            "beatsRemoved": { "type": "integer", "minimum": 0 },
-            "soundsReclassified": { "type": "integer", "minimum": 0 }
-          },
-          "additionalProperties": false
+        "scopeKind": { "$ref": "#/$defs/OfferScopeKind" },
+        "optionIndex": { "type": "integer", "minimum": 0 },
+        "optionCount": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "consequenceSummary": { "type": "string", "minLength": 1 },
+        "advisoryNotes": {
+          "type": "array",
+          "items": { "type": "string" }
         },
+        "providerAdvisories": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ops": { "$ref": "#/$defs/PatchOp" },
+        "consequences": { "$ref": "#/$defs/OfferConsequences" },
         "conflicts": {
           "type": "array",
-          "items": { "$ref": "#/$defs/Conflict" }
+          "items": { "$ref": "#/$defs/OfferConflict" }
         },
-        "semanticKey": { "type": "string", "minLength": 1 },
         "status": { "$ref": "#/$defs/OfferStatus" }
       },
       "additionalProperties": false
