@@ -114,24 +114,71 @@ export function computeGridFit(sounds, beats, segments = [], options = {}) {
   const sortedSegments = toSortedSegments(segments);
   const rawSortedBeats = toSortedByTime(beats);
 
-  // Exclude stray beats inside `break` segments from forming active pulse slots
-  const activeBeats =
-    sortedSegments.length > 0
-      ? rawSortedBeats.filter((b) => findSegmentAt(sortedSegments, b.timeSec)?.regime !== "break")
-      : rawSortedBeats;
+  // Exclude stray beats inside `break` segments and out-of-partition beats from forming active pulse slots
+  /** @type {import("../index.d.ts").Beat[]} */
+  const activeBeats = [];
+  /** @type {Map<string, import("../index.d.ts").Beat[]>} */
+  const beatsBySegId = new Map();
+
+  if (sortedSegments.length > 0) {
+    for (const b of rawSortedBeats) {
+      const seg = findSegmentAt(sortedSegments, b.timeSec);
+      if (!seg || seg.regime === "break") continue;
+      activeBeats.push(b);
+      let list = beatsBySegId.get(seg.id);
+      if (!list) {
+        list = [];
+        beatsBySegId.set(seg.id, list);
+      }
+      list.push(b);
+    }
+  } else {
+    activeBeats.push(...rawSortedBeats);
+  }
+
+  const maxPartitionT1 =
+    sortedSegments.length > 0 ? sortedSegments[sortedSegments.length - 1].t1 : Infinity;
+  const minPartitionT0 = sortedSegments.length > 0 ? sortedSegments[0].t0 : 0;
 
   /** @type {import("../index.d.ts").GridFitItem[]} */
   const results = [];
 
   for (const sound of sortedSounds) {
+    if (
+      sortedSegments.length > 0 &&
+      (sound.timeSec < minPartitionT0 || sound.timeSec > maxPartitionT1)
+    ) {
+      continue;
+    }
+
     const soundSeg =
       sortedSegments.length > 0 ? findSegmentAt(sortedSegments, sound.timeSec) : null;
 
-    if (activeBeats.length === 0 || soundSeg?.regime === "break") {
+    const candidateBeats =
+      sortedSegments.length > 0
+        ? soundSeg && soundSeg.regime !== "break"
+          ? beatsBySegId.get(soundSeg.id) ?? []
+          : []
+        : activeBeats;
+
+    if (candidateBeats.length === 0 || (sortedSegments.length > 0 && (!soundSeg || soundSeg.regime === "break"))) {
       let nearestBeatDistMs = Infinity;
       let nearestBeatSignedMs = Infinity;
       let nearestSlotSec = null;
-      if (activeBeats.length > 0) {
+      if (sortedSegments.length === 0 && activeBeats.length > 0) {
+        const lIdx = findLeftBeatIndex(activeBeats, sound.timeSec);
+        const rIdx = lIdx + 1 < activeBeats.length ? lIdx + 1 : -1;
+        for (const idx of [lIdx, rIdx]) {
+          if (idx < 0) continue;
+          const signed = (sound.timeSec - activeBeats[idx].timeSec) * 1000;
+          const dist = Math.abs(signed);
+          if (dist < nearestBeatDistMs) {
+            nearestBeatDistMs = dist;
+            nearestBeatSignedMs = signed;
+            nearestSlotSec = activeBeats[idx].timeSec;
+          }
+        }
+      } else if (soundSeg?.regime === "break" && activeBeats.length > 0) {
         const lIdx = findLeftBeatIndex(activeBeats, sound.timeSec);
         const rIdx = lIdx + 1 < activeBeats.length ? lIdx + 1 : -1;
         for (const idx of [lIdx, rIdx]) {
@@ -161,15 +208,15 @@ export function computeGridFit(sounds, beats, segments = [], options = {}) {
       continue;
     }
 
-    const leftIdx = findLeftBeatIndex(activeBeats, sound.timeSec);
-    const rightIdx = leftIdx + 1 < activeBeats.length ? leftIdx + 1 : -1;
+    const leftIdx = findLeftBeatIndex(candidateBeats, sound.timeSec);
+    const rightIdx = leftIdx + 1 < candidateBeats.length ? leftIdx + 1 : -1;
 
     let nearestBeatDistMs = Infinity;
     let nearestBeatSignedMs = Infinity;
-    let nearestBeatSec = activeBeats[0].timeSec;
+    let nearestBeatSec = candidateBeats[0].timeSec;
 
     if (leftIdx >= 0) {
-      const bL = activeBeats[leftIdx];
+      const bL = candidateBeats[leftIdx];
       const signedL = (sound.timeSec - bL.timeSec) * 1000;
       const distL = Math.abs(signedL);
       if (distL < nearestBeatDistMs) {
@@ -179,7 +226,7 @@ export function computeGridFit(sounds, beats, segments = [], options = {}) {
       }
     }
     if (rightIdx >= 0) {
-      const bR = activeBeats[rightIdx];
+      const bR = candidateBeats[rightIdx];
       const signedR = (sound.timeSec - bR.timeSec) * 1000;
       const distR = Math.abs(signedR);
       if (distR < nearestBeatDistMs) {
@@ -189,14 +236,8 @@ export function computeGridFit(sounds, beats, segments = [], options = {}) {
       }
     }
 
-    // Direct beat hit (divisor 1) within the same segment (or unconstrained when segments === [])
-    const nearestBeatSeg =
-      sortedSegments.length > 0 ? findSegmentAt(sortedSegments, nearestBeatSec) : null;
-    const sameSegmentForBeatHit =
-      sortedSegments.length === 0 ||
-      (soundSeg !== null && nearestBeatSeg !== null && soundSeg.id === nearestBeatSeg.id);
-
-    if (divisors.includes(1) && sameSegmentForBeatHit && nearestBeatDistMs <= tolMs) {
+    // Direct beat hit (divisor 1) strictly within the sound's containing segment
+    if (divisors.includes(1) && nearestBeatDistMs <= tolMs) {
       results.push({
         soundId: sound.id,
         timeSec: sound.timeSec,
@@ -219,22 +260,10 @@ export function computeGridFit(sounds, beats, segments = [], options = {}) {
     let bestOverallSlotSec = nearestBeatSec;
 
     if (leftIdx >= 0 && rightIdx >= 0) {
-      const b0 = activeBeats[leftIdx];
-      const b1 = activeBeats[rightIdx];
+      const b0 = candidateBeats[leftIdx];
+      const b1 = candidateBeats[rightIdx];
       const interval = b1.timeSec - b0.timeSec;
-
-      const seg0 = sortedSegments.length > 0 ? findSegmentAt(sortedSegments, b0.timeSec) : null;
-      const seg1 = sortedSegments.length > 0 ? findSegmentAt(sortedSegments, b1.timeSec) : null;
-      const canInterpolate =
-        interval > 0 &&
-        interval <= maxInterpolatedIbiSec &&
-        (sortedSegments.length === 0 ||
-          (soundSeg !== null &&
-            seg0 !== null &&
-            seg1 !== null &&
-            soundSeg.regime !== "break" &&
-            seg0.id === soundSeg.id &&
-            seg1.id === soundSeg.id));
+      const canInterpolate = interval > 0 && interval <= maxInterpolatedIbiSec;
 
       if (canInterpolate) {
         for (const d of divisors) {
@@ -343,6 +372,22 @@ export function projectRedLines(beats, segments = [], options = {}) {
 
   const sortedBeats = toSortedByTime(beats);
   const sortedSegments = toSortedSegments(segments);
+  const rawSpans = options.spans
+    ? options.spans instanceof Map
+      ? Array.from(options.spans.values())
+      : Array.from(options.spans)
+    : [];
+  const freeSpans = rawSpans
+    .filter((sp) => sp && sp.kind === "free" && sp.t1 > sp.t0)
+    .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
+
+  const resolveEffectiveRegime = (seg, timeSec) => {
+    if (seg?.regime === "free") return /** @type {const} */ ("free");
+    const inFreeSpan = freeSpans.some(
+      (sp) => (!seg || sp.segmentId === seg.id) && rangeContainsTime(sp, timeSec),
+    );
+    return inFreeSpan ? /** @type {const} */ ("free") : /** @type {const} */ ("auto");
+  };
 
   /** @type {string[]} */
   const losses = [
@@ -361,25 +406,46 @@ export function projectRedLines(beats, segments = [], options = {}) {
 
   /**
    * Partition beats into contiguous pulse groups:
-   *  - Beats inside `regime === "break"` segments are skipped.
-   *  - A group splits whenever segment ID changes OR consecutive beat gap > `maxInterpolatedIbiSec`
-   *    OR a `break` segment lies between consecutive beats.
+   *  - Beats inside `regime === "break"` segments or outside `segments` bounds are skipped.
+   *  - Coincident beats (`<= 1e-6 s` apart) are coalesced before computing IBIs so `beatLengthMs > 0`.
+   *  - A group splits whenever segment ID or effective regime (`auto` vs `free`) changes OR
+   *    consecutive beat gap > `maxInterpolatedIbiSec` OR a `break` segment lies between beats.
    *
    * @type {Array<{ regime: "auto" | "free", segmentId: string | null, beats: import("../index.d.ts").Beat[], nextConnectedBeatSec: number | null }>}
    */
   const groups = [];
   let omittedBreakBeats = 0;
+  let omittedOutOfRangeBeats = 0;
+  let coalescedCoincidentBeats = 0;
   let breakSplitCount = 0;
 
   /** @type {Array<{ beat: import("../index.d.ts").Beat, seg: import("../index.d.ts").Segment | null }>} */
-  const eligible = [];
+  const rawEligible = [];
   for (const beat of sortedBeats) {
     const seg = sortedSegments.length > 0 ? findSegmentAt(sortedSegments, beat.timeSec) : null;
+    if (sortedSegments.length > 0 && !seg) {
+      omittedOutOfRangeBeats += 1;
+      continue;
+    }
     if (seg?.regime === "break") {
       omittedBreakBeats += 1;
       continue;
     }
-    eligible.push({ beat, seg });
+    rawEligible.push({ beat, seg });
+  }
+
+  /** @type {Array<{ beat: import("../index.d.ts").Beat, seg: import("../index.d.ts").Segment | null }>} */
+  const eligible = [];
+  for (const item of rawEligible) {
+    const prev = eligible[eligible.length - 1];
+    if (prev && Math.abs(item.beat.timeSec - prev.beat.timeSec) <= 1e-6) {
+      if (prev.beat.source !== "user" && item.beat.source === "user") {
+        eligible[eligible.length - 1] = item;
+      }
+      coalescedCoincidentBeats += 1;
+      continue;
+    }
+    eligible.push(item);
   }
 
   if (eligible.length === 0) {
@@ -396,7 +462,7 @@ export function projectRedLines(beats, segments = [], options = {}) {
     sortedSegments.some((s) => s.regime === "break" && s.t1 > tA + 1e-9 && s.t0 < tB - 1e-9);
 
   let currentGroup = {
-    regime: /** @type {"auto" | "free"} */ (eligible[0].seg?.regime === "free" ? "free" : "auto"),
+    regime: resolveEffectiveRegime(eligible[0].seg, eligible[0].beat.timeSec),
     segmentId: eligible[0].seg?.id ?? null,
     beats: [eligible[0].beat],
     nextConnectedBeatSec: /** @type {number | null} */ (null),
@@ -408,8 +474,10 @@ export function projectRedLines(beats, segments = [], options = {}) {
     const dt = curr.beat.timeSec - prev.beat.timeSec;
     const crossedBreak = dt > maxInterpolatedIbiSec || hasBreakBetween(prev.beat.timeSec, curr.beat.timeSec);
     const crossedSegment = (curr.seg?.id ?? null) !== currentGroup.segmentId;
+    const currRegime = resolveEffectiveRegime(curr.seg, curr.beat.timeSec);
+    const crossedRegime = currRegime !== currentGroup.regime;
 
-    if (crossedBreak || crossedSegment) {
+    if (crossedBreak || crossedSegment || crossedRegime) {
       if (crossedBreak) {
         breakSplitCount += 1;
         currentGroup.nextConnectedBeatSec = null;
@@ -418,7 +486,7 @@ export function projectRedLines(beats, segments = [], options = {}) {
       }
       groups.push(currentGroup);
       currentGroup = {
-        regime: curr.seg?.regime === "free" ? "free" : "auto",
+        regime: currRegime,
         segmentId: curr.seg?.id ?? null,
         beats: [curr.beat],
         nextConnectedBeatSec: null,
@@ -442,14 +510,14 @@ export function projectRedLines(beats, segments = [], options = {}) {
       if (grp.beats.length === 1) {
         const b = grp.beats[0];
         let periodSec;
-        if (grp.nextConnectedBeatSec !== null && grp.nextConnectedBeatSec > b.timeSec) {
+        if (grp.nextConnectedBeatSec !== null && grp.nextConnectedBeatSec > b.timeSec + 1e-6) {
           periodSec = grp.nextConnectedBeatSec - b.timeSec;
         } else if (redLines.length > 0) {
           periodSec = 60 / redLines[redLines.length - 1].bpm;
         } else {
           periodSec = 0.5;
         }
-        const beatLengthMs = roundTime(periodSec * 1000, 6);
+        const beatLengthMs = Math.max(1e-3, roundTime(periodSec * 1000, 6));
         redLines.push({
           offsetMs: roundTime(b.timeSec * 1000, 3),
           beatLengthMs,
@@ -463,37 +531,12 @@ export function projectRedLines(beats, segments = [], options = {}) {
       }
 
       let idx = 0;
-      while (idx < grp.beats.length) {
-        if (idx === grp.beats.length - 1) {
-          // Final beat in free group: only emit a trailing line if connected seamlessly to next segment's downbeat at a different interval
-          if (grp.nextConnectedBeatSec !== null) {
-            const lastBeat = grp.beats[idx];
-            const prevPeriodSec = grp.beats[idx].timeSec - grp.beats[idx - 1].timeSec;
-            const bridgePeriodSec = grp.nextConnectedBeatSec - lastBeat.timeSec;
-            if (
-              bridgePeriodSec > 1e-6 &&
-              Math.abs(bridgePeriodSec - prevPeriodSec) * 1000 > freeJitterTolMs
-            ) {
-              const beatLengthMs = roundTime(bridgePeriodSec * 1000, 6);
-              redLines.push({
-                offsetMs: roundTime(lastBeat.timeSec * 1000, 3),
-                beatLengthMs,
-                bpm: roundTime(60000 / beatLengthMs, 4),
-                meter: defaultMeter,
-                startBeatId: lastBeat.id,
-                beatCount: 1,
-                kind: "free_pulse",
-              });
-            }
-          }
-          break;
-        }
-
+      while (idx < grp.beats.length - 1) {
         let end = idx + 1;
         let fit = fitSteadyLinearRun(grp.beats.slice(idx, end + 1));
         while (freeJitterTolMs > 0 && end + 1 < grp.beats.length) {
           const cand = fitSteadyLinearRun(grp.beats.slice(idx, end + 2));
-          if (cand.period > 0 && cand.maxResidualMs <= freeJitterTolMs) {
+          if (cand.period > 1e-6 && cand.maxResidualMs <= freeJitterTolMs) {
             end += 1;
             fit = cand;
           } else {
@@ -501,10 +544,31 @@ export function projectRedLines(beats, segments = [], options = {}) {
           }
         }
 
-        const isFinalInGroup = end === grp.beats.length - 1 && grp.nextConnectedBeatSec === null;
-        const ownedBeatCount = isFinalInGroup ? end - idx + 1 : end - idx;
-        const periodSec = fit.period > 0 ? fit.period : grp.beats[idx + 1].timeSec - grp.beats[idx].timeSec;
-        const beatLengthMs = roundTime(periodSec * 1000, 6);
+        const isFinalRun = end === grp.beats.length - 1;
+        const periodSec =
+          fit.period > 1e-6 ? fit.period : grp.beats[idx + 1].timeSec - grp.beats[idx].timeSec;
+
+        let needsBridgeLine = false;
+        let bridgePeriodSec = 0;
+        if (isFinalRun && grp.nextConnectedBeatSec !== null) {
+          const lastBeat = grp.beats[end];
+          const predNextSec = fit.t0 + (end - idx + 1) * periodSec;
+          bridgePeriodSec = grp.nextConnectedBeatSec - lastBeat.timeSec;
+          if (
+            bridgePeriodSec > 1e-6 &&
+            bridgePeriodSec <= maxInterpolatedIbiSec &&
+            Math.abs(grp.nextConnectedBeatSec - predNextSec) * 1000 > freeJitterTolMs
+          ) {
+            needsBridgeLine = true;
+          }
+        }
+
+        const ownedBeatCount = isFinalRun
+          ? needsBridgeLine
+            ? end - idx
+            : end - idx + 1
+          : end - idx;
+        const beatLengthMs = Math.max(1e-3, roundTime(periodSec * 1000, 6));
         redLines.push({
           offsetMs: roundTime(fit.t0 * 1000, 3),
           beatLengthMs,
@@ -515,7 +579,20 @@ export function projectRedLines(beats, segments = [], options = {}) {
           kind: "free_pulse",
         });
 
-        if (end === grp.beats.length - 1 && grp.nextConnectedBeatSec === null) {
+        if (isFinalRun) {
+          if (needsBridgeLine) {
+            const lastBeat = grp.beats[end];
+            const bridgeMs = Math.max(1e-3, roundTime(bridgePeriodSec * 1000, 6));
+            redLines.push({
+              offsetMs: roundTime(lastBeat.timeSec * 1000, 3),
+              beatLengthMs: bridgeMs,
+              bpm: roundTime(60000 / bridgeMs, 4),
+              meter: defaultMeter,
+              startBeatId: lastBeat.id,
+              beatCount: 1,
+              kind: "free_pulse",
+            });
+          }
           break;
         }
         idx = end;
@@ -527,7 +604,7 @@ export function projectRedLines(beats, segments = [], options = {}) {
     if (grp.beats.length === 1) {
       const b = grp.beats[0];
       let periodSec;
-      if (grp.nextConnectedBeatSec !== null && grp.nextConnectedBeatSec > b.timeSec) {
+      if (grp.nextConnectedBeatSec !== null && grp.nextConnectedBeatSec > b.timeSec + 1e-6) {
         periodSec = grp.nextConnectedBeatSec - b.timeSec;
       } else if (redLines.length > 0) {
         periodSec = 60 / redLines[redLines.length - 1].bpm;
@@ -535,7 +612,7 @@ export function projectRedLines(beats, segments = [], options = {}) {
         periodSec = 0.5;
         losses.push("Defaulted isolated single beat to 120 BPM");
       }
-      const beatLengthMs = roundTime(periodSec * 1000, 6);
+      const beatLengthMs = Math.max(1e-3, roundTime(periodSec * 1000, 6));
       redLines.push({
         offsetMs: roundTime(b.timeSec * 1000, 3),
         beatLengthMs,
@@ -557,7 +634,7 @@ export function projectRedLines(beats, segments = [], options = {}) {
       while (end + 1 < grp.beats.length) {
         const candidateRun = grp.beats.slice(idx, end + 2);
         const candidateFit = fitSteadyLinearRun(candidateRun);
-        if (candidateFit.period > 0 && candidateFit.maxResidualMs <= jitterTolMs) {
+        if (candidateFit.period > 1e-6 && candidateFit.maxResidualMs <= jitterTolMs) {
           end += 1;
           bestFit = candidateFit;
         } else {
@@ -567,9 +644,30 @@ export function projectRedLines(beats, segments = [], options = {}) {
 
       const runBeats = grp.beats.slice(idx, end + 1);
       const isFinalRun = end === grp.beats.length - 1;
-      const ownedBeatCount = isFinalRun ? runBeats.length : end - idx;
-      const periodSec = bestFit.period > 0 ? bestFit.period : 0.5;
-      const beatLengthMs = roundTime(periodSec * 1000, 6);
+      const periodSec =
+        bestFit.period > 1e-6 ? bestFit.period : grp.beats[idx + 1].timeSec - grp.beats[idx].timeSec;
+
+      let needsBridgeLine = false;
+      let bridgeSec = 0;
+      if (isFinalRun && grp.nextConnectedBeatSec !== null) {
+        const lastBeat = grp.beats[grp.beats.length - 1];
+        const predNextSec = bestFit.t0 + runBeats.length * periodSec;
+        bridgeSec = grp.nextConnectedBeatSec - lastBeat.timeSec;
+        if (
+          Math.abs(grp.nextConnectedBeatSec - predNextSec) * 1000 > jitterTolMs &&
+          bridgeSec > 1e-6 &&
+          bridgeSec <= maxInterpolatedIbiSec
+        ) {
+          needsBridgeLine = true;
+        }
+      }
+
+      const ownedBeatCount = isFinalRun
+        ? needsBridgeLine
+          ? runBeats.length - 1
+          : runBeats.length
+        : end - idx;
+      const beatLengthMs = Math.max(1e-3, roundTime(periodSec * 1000, 6));
       const offsetMs = roundTime(bestFit.t0 * 1000, 3);
 
       redLines.push({
@@ -587,31 +685,31 @@ export function projectRedLines(beats, segments = [], options = {}) {
       }
 
       if (isFinalRun) {
-        // If seamlessly connected to next segment's first beat at a shifted transition interval, bridge cleanly from last beat
-        if (grp.nextConnectedBeatSec !== null) {
+        if (needsBridgeLine) {
           const lastBeat = grp.beats[grp.beats.length - 1];
-          const predNextSec = bestFit.t0 + runBeats.length * periodSec;
-          if (Math.abs(grp.nextConnectedBeatSec - predNextSec) * 1000 > jitterTolMs) {
-            const bridgeSec = grp.nextConnectedBeatSec - lastBeat.timeSec;
-            if (bridgeSec > 1e-6 && bridgeSec <= maxInterpolatedIbiSec) {
-              const bridgeMs = roundTime(bridgeSec * 1000, 6);
-              redLines.push({
-                offsetMs: roundTime(lastBeat.timeSec * 1000, 3),
-                beatLengthMs: bridgeMs,
-                bpm: roundTime(60000 / bridgeMs, 4),
-                meter: defaultMeter,
-                startBeatId: lastBeat.id,
-                beatCount: 1,
-                kind: "steady_run",
-              });
-            }
-          }
+          const bridgeMs = Math.max(1e-3, roundTime(bridgeSec * 1000, 6));
+          redLines.push({
+            offsetMs: roundTime(lastBeat.timeSec * 1000, 3),
+            beatLengthMs: bridgeMs,
+            bpm: roundTime(60000 / bridgeMs, 4),
+            meter: defaultMeter,
+            startBeatId: lastBeat.id,
+            beatCount: 1,
+            kind: "steady_run",
+          });
         }
         break;
       }
       // Share pivot beat `end` so tempo change starts right at the transition beat (never one beat late)
       idx = end;
     }
+  }
+
+  if (coalescedCoincidentBeats > 0) {
+    losses.push("Merged coincident beats sharing the same timestamp");
+  }
+  if (omittedOutOfRangeBeats > 0) {
+    losses.push("Skipped beats outside section duration bounds");
   }
 
   if (collapsedBeatCount > 0) {
@@ -703,18 +801,29 @@ export function rankInboxSpans(state, options = {}) {
     );
   }
 
-  const sortedBeats = toSortedByTime(state.beats);
-  const sortedSounds = toSortedByTime(state.sounds);
+  const rawDuration = state.durationSec || state.audio?.durationSec || 0;
+  const rawSortedBeats = toSortedByTime(state.beats);
+  const rawSortedSounds = toSortedByTime(state.sounds);
+  const sortedBeats =
+    rawDuration > 0
+      ? rawSortedBeats.filter((b) => b.timeSec <= rawDuration)
+      : rawSortedBeats;
+  const sortedSounds =
+    rawDuration > 0
+      ? rawSortedSounds.filter((s) => s.timeSec <= rawDuration)
+      : rawSortedSounds;
 
   /** @type {import("../index.d.ts").Segment[]} */
   let segments = toSortedSegments(state.segments);
   if (segments.length === 0) {
-    let maxT = state.durationSec || state.audio?.durationSec || 0;
-    if (sortedBeats.length > 0) {
-      maxT = Math.max(maxT, sortedBeats[sortedBeats.length - 1].timeSec + 0.001);
-    }
-    if (sortedSounds.length > 0) {
-      maxT = Math.max(maxT, sortedSounds[sortedSounds.length - 1].timeSec + 0.001);
+    let maxT = rawDuration;
+    if (maxT <= 0) {
+      if (sortedBeats.length > 0) {
+        maxT = Math.max(maxT, sortedBeats[sortedBeats.length - 1].timeSec + 0.001);
+      }
+      if (sortedSounds.length > 0) {
+        maxT = Math.max(maxT, sortedSounds[sortedSounds.length - 1].timeSec + 0.001);
+      }
     }
     if (maxT <= 0) return [];
     segments = [
@@ -739,7 +848,7 @@ export function rankInboxSpans(state, options = {}) {
 
   const maxIbi = options.gridFitOptions?.maxInterpolatedIbiSec ?? DEFAULT_MAX_INTERPOLATED_IBI_SEC;
 
-  // Precompute sudden IBI jumps strictly within the same `auto` segment
+  // Precompute sudden IBI jumps strictly within the same `auto` segment and outside `free` Spans
   /** @type {Array<{ segmentId: string, timeSec: number, ratio: number }>} */
   const ibiJumps = [];
   for (let i = 2; i < sortedBeats.length; i += 1) {
@@ -750,6 +859,12 @@ export function rankInboxSpans(state, options = {}) {
     const s1 = findSegmentAt(segments, b1.timeSec);
     const s2 = findSegmentAt(segments, b2.timeSec);
     if (!s0 || !s1 || !s2 || s0.id !== s1.id || s1.id !== s2.id || s1.regime !== "auto") {
+      continue;
+    }
+    const inFreeInterval = constraints.freeIntervals.some(
+      (fi) => fi.segmentId === s1.id && rangesOverlap(fi, { t0: b0.timeSec, t1: b2.timeSec }),
+    );
+    if (inFreeInterval) {
       continue;
     }
     const prevIbi = b1.timeSec - b0.timeSec;
@@ -772,12 +887,15 @@ export function rankInboxSpans(state, options = {}) {
 
   for (const seg of segments) {
     if (seg.kept) continue;
+    const segT0 = seg.t0;
+    const segT1 = rawDuration > 0 ? Math.min(seg.t1, rawDuration) : seg.t1;
+    if (segT1 - segT0 <= 1e-6) continue;
 
     const keepSpansInSeg = (state.spans ?? [])
       .filter((sp) => sp.segmentId === seg.id && sp.kind === "keep")
       .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
 
-    const unlocked = unlockedSubIntervals(seg.t0, seg.t1, keepSpansInSeg);
+    const unlocked = unlockedSubIntervals(segT0, segT1, keepSpansInSeg);
 
     // Explicit provider `inbox` spans inside this segment (clipped against Keep locks)
     const explicitInbox = (state.spans ?? []).filter(
@@ -785,19 +903,23 @@ export function rankInboxSpans(state, options = {}) {
     );
 
     for (const sub of unlocked) {
-      const len = sub.t1 - sub.t0;
+      const clampedSubT0 = Math.max(segT0, sub.t0);
+      const clampedSubT1 = Math.min(segT1, sub.t1);
+      const len = clampedSubT1 - clampedSubT0;
       if (len <= 1e-6) continue;
 
       if (seg.regime === "break") {
         // Break segments only surface in Inbox if stray beats still sit inside them
-        const strayBeats = sortedBeats.filter((b) => rangeContainsTime(sub, b.timeSec));
+        const strayBeats = sortedBeats.filter((b) =>
+          rangeContainsTime({ t0: clampedSubT0, t1: clampedSubT1 }, b.timeSec),
+        );
         if (strayBeats.length > 0) {
           candidates.push(
             normalizeSpan({
               id: `inbox_${inboxIdx++}`,
               segmentId: seg.id,
-              t0: roundTime(sub.t0, 4),
-              t1: roundTime(sub.t1, 4),
+              t0: clampedSubT0,
+              t1: clampedSubT1,
               kind: "inbox",
               priority: "medium",
               reason: `${strayBeats.length} stray beat${strayBeats.length === 1 ? "" : "s"} inside Break section`,
@@ -812,9 +934,12 @@ export function rankInboxSpans(state, options = {}) {
 
       const winCount = Math.max(1, Math.ceil(len / windowSec - 1e-9));
       for (let w = 0; w < winCount; w += 1) {
-        const t0 = roundTime(sub.t0 + w * windowSec, 4);
-        const t1 = roundTime(Math.min(sub.t1, sub.t0 + (w + 1) * windowSec), 4);
-        if (t1 <= t0 + 1e-6) continue;
+        const rawT0 = clampedSubT0 + w * windowSec;
+        const rawT1 =
+          w === winCount - 1 ? clampedSubT1 : Math.min(clampedSubT1, clampedSubT0 + (w + 1) * windowSec);
+        const t0 = Math.max(segT0, rawT0);
+        const t1 = Math.min(segT1, rawT1);
+        if (t1 - t0 <= 1e-6) continue;
         const win = { t0, t1 };
         const dur = Math.max(1, t1 - t0);
 

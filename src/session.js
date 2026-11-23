@@ -15,15 +15,18 @@
  */
 
 import { compileConstraints } from "./constraints.js";
+import { canonicalJson } from "./hash.js";
 import {
   computeConsequences,
   computeSemanticKey,
   formatConsequenceSummary,
   getScopeBeatIds,
+  isOfferSuppressed,
   validatePatchOffer,
 } from "./offers.js";
 import {
   applyEvent,
+  computeUndoRedoTargets,
   createInitialState,
   foldTrace,
   serializeTraceNdjson,
@@ -65,6 +68,7 @@ function cloneSessionStateFast(state) {
 
   return {
     audio: state.audio ? { ...state.audio } : null,
+    initialDurationSec: state.initialDurationSec ?? 0,
     durationSec: state.durationSec,
     segments: state.segments.map((s) => ({ ...s })),
     spans: state.spans.map((s) => ({ ...s })),
@@ -203,7 +207,7 @@ export class SessionController {
 
     this._state =
       Array.isArray(options.initialEvents) && options.initialEvents.length > 0
-        ? foldTrace(options.initialEvents)
+        ? foldTrace(options.initialEvents, { durationSec: options.durationSec })
         : createInitialState({ durationSec: options.durationSec });
 
     this._nextSeq = this._state.lastSeq + 1;
@@ -315,7 +319,27 @@ export class SessionController {
 
   /** @returns {import("../index.d.ts").PatchOffer[]} */
   getHeldOffers() {
-    return this._heldOfferBatch ? structuredClone(this._heldOfferBatch.offers) : [];
+    if (!this._heldOfferBatch) return [];
+    const slot = this._slots.heavy_recompute;
+    if (
+      this._heldOfferBatch.songId !== this._currentSongId() ||
+      this._heldOfferBatch.generation !== slot.generation
+    ) {
+      return [];
+    }
+    const liveConstraints = compileConstraints(this._state);
+    const revalidated = this._heldOfferBatch.offers
+      .filter((offer) => !isOfferSuppressed(this._state, offer))
+      .map((offer) => {
+        const check = validatePatchOffer(this._state, offer, liveConstraints);
+        return {
+          ...offer,
+          status: check.status,
+          conflicts: check.conflicts,
+          advisoryNotes: check.advisoryNotes,
+        };
+      });
+    return structuredClone(revalidated);
   }
 
   /** @returns {boolean} */
@@ -534,25 +558,31 @@ export class SessionController {
   }
 
   /**
-   * Bind an `AudioDescriptor` (initializing or updating track duration / song identity).
-   * Switching `songId` aborts all three trigger layers cleanly; updating `durationSec` on
-   * the same `songId` updates the `[0, durationSec)` segment partition in place.
+   * Synchronously commit `audio_bound` and update `_audioEpoch` whenever ANY `AudioDescriptor`
+   * property changes (`songId`, `durationSec`, `sampleRate`, `clock`, `decoder`, `leadOffsetSec`).
    *
-   * @param {import("../index.d.ts").AudioDescriptor} rawAudio
-   * @param {AbortSignal} [signal]
+   * @param {import("../index.d.ts").AudioDescriptorInput} rawAudio
    */
-  async bindAudio(rawAudio, signal) {
+  _bindAudioSync(rawAudio) {
     this._assertOpen();
     const normalized = normalizeAudioDescriptor(rawAudio);
-    const prevSongId = this._currentSongId();
+    const prevAudio = this._state.audio;
+    const prevSongId = prevAudio?.songId ?? null;
     const songChanged = prevSongId !== normalized.songId;
+    const audioChanged =
+      !prevAudio || canonicalJson(prevAudio) !== canonicalJson(normalized);
 
-    if (songChanged || prevSongId === null) {
+    if (audioChanged) {
       this._audioEpoch += 1;
       if (songChanged && prevSongId !== null) {
-        this.abortAll(`Switched song from "${prevSongId}" to "${normalized.songId}"`, "SUPERSEDED");
+        this.abortAll(
+          `Switched song from "${prevSongId}" to "${normalized.songId}"`,
+          "SUPERSEDED",
+        );
       } else if (this._inFlightPrepare) {
-        this._inFlightPrepare.abort.abort(new EnsomiError("SUPERSEDED", "Superseded bindAudio"));
+        this._inFlightPrepare.abort.abort(
+          new EnsomiError("SUPERSEDED", "Superseded bindAudio"),
+        );
         this._inFlightPrepare = null;
       }
       this._evidence = null;
@@ -564,19 +594,37 @@ export class SessionController {
 
     const epoch = this._audioEpoch;
     this._commitEvent("audio_bound", normalized, { kind: "host" });
+    const basisSeq = this._state.lastSeq;
+    return { epoch, basisSeq, songId: normalized.songId };
+  }
+
+  /**
+   * Bind an `AudioDescriptor` (initializing or updating track duration / song identity).
+   * Switching `songId` aborts all three trigger layers cleanly; changing any descriptor field
+   * invalidates cached `PreparedEvidence` before awaiting `_ensurePreparedEvidence`.
+   *
+   * @param {import("../index.d.ts").AudioDescriptorInput} rawAudio
+   * @param {AbortSignal} [signal]
+   */
+  async bindAudio(rawAudio, signal) {
+    const { epoch } = this._bindAudioSync(rawAudio);
     return await this._ensurePreparedEvidence(epoch, signal);
   }
 
   /**
    * Open a song and, when `triggerPolicy.song_open.mode === "auto"`, run `analyze()` automatically.
-   * @param {import("../index.d.ts").AudioDescriptor} audio
+   * Captures `basisSeq` immediately after committing `audio_bound` (before awaiting `prepare()`)
+   * so user edits made during `prepare()` are NEVER overwritten by `draft_loaded(replace: true)`.
+   *
+   * @param {import("../index.d.ts").AudioDescriptorInput} audio
    * @param {AbortSignal} [signal]
    */
   async openSong(audio, signal) {
-    await this.bindAudio(audio, signal);
+    const { epoch, basisSeq } = this._bindAudioSync(audio);
     if (this._triggerPolicy.song_open.mode === "auto") {
-      return await this.analyze(signal);
+      return await this.analyze(signal, { basisSeq });
     }
+    await this._ensurePreparedEvidence(epoch, signal);
     return {
       status: /** @type {const} */ ("manual"),
       songId: this._currentSongId(),
@@ -591,9 +639,10 @@ export class SessionController {
    * Preempts any prior `"song_open"` request without touching `"micro_assist"` or `"heavy_recompute"`.
    *
    * @param {AbortSignal} [signal]
+   * @param {{ basisSeq?: number }} [options]
    * @returns {Promise<import("../index.d.ts").AnalyzeOutcome>}
    */
-  async analyze(signal) {
+  async analyze(signal, options) {
     this._assertOpen();
     if (!this._state.audio) {
       throw new EnsomiError("AUDIO_NOT_BOUND", "bindAudio() must be called before analyze()");
@@ -610,12 +659,20 @@ export class SessionController {
     slot.generation += 1;
     const gen = slot.generation;
     const epoch = this._audioEpoch;
-    const startSeq = this._state.lastSeq;
+    const startSeq =
+      typeof options?.basisSeq === "number" && Number.isInteger(options.basisSeq)
+        ? options.basisSeq
+        : this._state.lastSeq;
 
     const abortController = new AbortController();
     slot.abort = abortController;
     const unlink = linkAbortSignal(signal, abortController);
     const startMs = this._clock();
+
+    const hasPostBasisInvalidation = () =>
+      this._state.events.some(
+        (ev) => ev.seq > startSeq && DRAFT_INVALIDATING_EVENTS.has(ev.type),
+      );
 
     let draft;
     try {
@@ -637,6 +694,15 @@ export class SessionController {
             state: this.getState(),
           };
         }
+        if (hasPostBasisInvalidation()) {
+          return {
+            status: "superseded",
+            songId,
+            generation: gen,
+            event: null,
+            state: this.getState(),
+          };
+        }
       }
 
       const evidence =
@@ -652,6 +718,16 @@ export class SessionController {
       ) {
         return {
           status: this._abortedStatus(abortController),
+          songId,
+          generation: gen,
+          event: null,
+          state: this.getState(),
+        };
+      }
+
+      if (hasPostBasisInvalidation()) {
+        return {
+          status: "superseded",
           songId,
           generation: gen,
           event: null,
@@ -700,10 +776,7 @@ export class SessionController {
       };
     }
 
-    const basisInvalidated = this._state.events.some(
-      (ev) => ev.seq > startSeq && DRAFT_INVALIDATING_EVENTS.has(ev.type),
-    );
-    if (basisInvalidated) {
+    if (hasPostBasisInvalidation()) {
       return {
         status: "superseded",
         songId,
@@ -723,6 +796,7 @@ export class SessionController {
         spans: draft?.spans ?? [],
         beats: draft?.beats ?? [],
         sounds: draft?.sounds ?? [],
+        unbeats: draft?.unbeats ?? [],
         replace: true,
       },
       { kind: authorKind, id: manifest.id },
@@ -928,19 +1002,92 @@ export class SessionController {
    */
   retract(targetEventIdOrSeq, reason, author = { kind: "user" }) {
     this._assertOpen();
+    const prevAudioJson = canonicalJson(this._state.audio);
     const prevSongId = this._currentSongId();
     const payload =
       typeof targetEventIdOrSeq === "number"
         ? { targetSeq: targetEventIdOrSeq, ...(reason ? { reason } : {}) }
         : { targetEventId: targetEventIdOrSeq, ...(reason ? { reason } : {}) };
     const event = this._commitEvent("retract", payload, author);
-    if (this._currentSongId() !== prevSongId) {
+    if (canonicalJson(this._state.audio) !== prevAudioJson) {
       this._audioEpoch += 1;
-      this.abortAll("Audio songId changed due to retract()");
+      if (this._currentSongId() !== prevSongId) {
+        this.abortAll("Audio songId changed due to retract()");
+        for (const layer of TRIGGER_LAYERS) {
+          this._slots[layer].songId = this._currentSongId();
+        }
+      } else if (this._inFlightPrepare) {
+        this._inFlightPrepare.abort.abort(
+          new EnsomiError("SUPERSEDED", "Audio descriptor changed due to retract()"),
+        );
+        this._inFlightPrepare = null;
+      }
       this._evidence = null;
       this._evidenceEpoch = -1;
     }
     return { event: structuredClone(event), state: this.getState() };
+  }
+
+  /** @returns {boolean} */
+  canUndo() {
+    return computeUndoRedoTargets(this._state).canUndo;
+  }
+
+  /** @returns {boolean} */
+  canRedo() {
+    return computeUndoRedoTargets(this._state).canRedo;
+  }
+
+  /**
+   * Undo the latest active user action reconstructed deterministically from `state.events`.
+   * @param {string} [reason]
+   * @param {import("../index.d.ts").TraceAuthor} [author]
+   * @returns {import("../index.d.ts").UndoRedoOutcome}
+   */
+  undo(reason = "undo", author = { kind: "user" }) {
+    this._assertOpen();
+    const { undoTargetEventId } = computeUndoRedoTargets(this._state);
+    if (!undoTargetEventId) {
+      return {
+        ok: false,
+        targetEventId: null,
+        event: null,
+        state: this.getState(),
+      };
+    }
+    const res = this.retract(undoTargetEventId, reason, author);
+    return {
+      ok: true,
+      targetEventId: undoTargetEventId,
+      event: res.event,
+      state: res.state,
+    };
+  }
+
+  /**
+   * Redo the latest undone user action reconstructed deterministically from `state.events`.
+   * @param {string} [reason]
+   * @param {import("../index.d.ts").TraceAuthor} [author]
+   * @returns {import("../index.d.ts").UndoRedoOutcome}
+   */
+  redo(reason = "redo", author = { kind: "user" }) {
+    this._assertOpen();
+    const { redoTargetEventId } = computeUndoRedoTargets(this._state);
+    if (!redoTargetEventId) {
+      return {
+        ok: false,
+        targetEventId: null,
+        event: null,
+        state: this.getState(),
+      };
+    }
+    const res = this.retract(redoTargetEventId, reason, author);
+    return {
+      ok: true,
+      targetEventId: redoTargetEventId,
+      event: res.event,
+      state: res.state,
+    };
   }
 
   /**
@@ -1201,27 +1348,35 @@ export class SessionController {
         this._commitEvent("listen_effort", { waitSec }, { kind: "host" });
       }
       const liveConstraints = compileConstraints(this._state);
-      const previewOffers = normalizedOffers.map((offer) => {
+      /** @type {import("../index.d.ts").PatchOffer[]} */
+      const suppressedWhileHeld = [];
+      /** @type {import("../index.d.ts").PatchOffer[]} */
+      const previewOffers = [];
+      for (const offer of normalizedOffers) {
+        if (isOfferSuppressed(this._state, offer)) {
+          suppressedWhileHeld.push(offer);
+          continue;
+        }
         const check = validatePatchOffer(this._state, offer, liveConstraints);
-        return {
+        previewOffers.push({
           ...offer,
           status: check.status,
           conflicts: check.conflicts,
           advisoryNotes: check.advisoryNotes,
-        };
-      });
+        });
+      }
       this._heldOfferBatch = {
         songId,
         generation: gen,
         batchId: defaultBatchId,
-        offers: normalizedOffers,
+        offers: previewOffers,
       };
       return {
         status: "held",
         songId,
         generation: gen,
         offers: structuredClone(previewOffers),
-        suppressedOffers: [],
+        suppressedOffers: structuredClone(suppressedWhileHeld),
       };
     }
 

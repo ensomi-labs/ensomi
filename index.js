@@ -62,6 +62,7 @@ export {
 
 export {
   applyEvent,
+  computeUndoRedoTargets,
   createCheckpoint,
   createInitialState,
   foldTrace,

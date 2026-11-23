@@ -486,6 +486,7 @@ export interface SegmentMutationRecord {
 
 export interface SessionState {
   audio: AudioDescriptor | null;
+  initialDurationSec: number;
   durationSec: number;
   segments: Segment[];
   spans: Span[];
@@ -535,6 +536,7 @@ export interface TraceCheckpoint {
   schemaVersion: "0.2";
   lastSeq: number;
   eventCount: number;
+  initialDurationSec?: number;
   stateHash: string;
   snapshot: SerializedSessionState;
 }
@@ -587,6 +589,7 @@ export interface RedLineOptions {
   jitterTolMs?: number;
   freeJitterTolMs?: number;
   maxInterpolatedIbiSec?: number;
+  spans?: Iterable<Span> | Map<string, Span>;
 }
 
 export interface InboxSpanOptions {
@@ -721,6 +724,22 @@ export type AcceptOfferOutcome =
 export interface RejectOfferOutcome {
   ok: true;
   offer: PatchOffer | undefined;
+}
+
+export interface UndoRedoTargets {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoTargetEventId: string | null;
+  redoTargetEventId: string | null;
+  undoStack: string[];
+  redoStack: string[];
+}
+
+export interface UndoRedoOutcome {
+  ok: boolean;
+  targetEventId: string | null;
+  event: TraceEvent | null;
+  state: SessionState;
 }
 
 export interface SyntheticDraftOptions {
@@ -880,8 +899,14 @@ export declare function validatePatchOffer(
 
 export declare function createInitialState(options?: { durationSec?: number }): SessionState;
 export declare function resolveActiveRetractions(events: TraceEvent[]): Set<string>;
+export declare function computeUndoRedoTargets(
+  state: SessionState | readonly TraceEvent[],
+): UndoRedoTargets;
 export declare function applyEvent(state: SessionState, event: TraceEvent): SessionState;
-export declare function foldTrace(events: TraceEvent[]): SessionState;
+export declare function foldTrace(
+  events: TraceEvent[],
+  options?: { durationSec?: number },
+): SessionState;
 export declare function serializeTraceNdjson(events: readonly TraceEvent[]): string;
 export declare function parseTraceNdjson(
   text: string,
@@ -892,6 +917,7 @@ export declare function createCheckpoint(state: SessionState): TraceCheckpoint;
 export declare function verifyCheckpoint(
   checkpoint: TraceCheckpoint,
   prefixEvents: TraceEvent[],
+  options?: { durationSec?: number },
 ): CheckpointVerification;
 
 export declare function computeGridFit(
@@ -934,7 +960,7 @@ export declare class SessionController {
   close(): void;
   bindAudio(audio: AudioDescriptorInput, signal?: AbortSignal): Promise<PreparedEvidence>;
   openSong(audio: AudioDescriptorInput, signal?: AbortSignal): Promise<AnalyzeOutcome>;
-  analyze(signal?: AbortSignal): Promise<AnalyzeOutcome>;
+  analyze(signal?: AbortSignal, options?: { basisSeq?: number }): Promise<AnalyzeOutcome>;
   suggestSnaps(
     request: { timeSec: number; windowSec?: number; immediate?: boolean },
     signal?: AbortSignal,
@@ -952,6 +978,10 @@ export declare class SessionController {
     reason?: string,
     author?: TraceAuthor,
   ): { event: TraceEvent; state: SessionState };
+  canUndo(): boolean;
+  canRedo(): boolean;
+  undo(reason?: string, author?: TraceAuthor): UndoRedoOutcome;
+  redo(reason?: string, author?: TraceAuthor): UndoRedoOutcome;
   recordListenEffort(
     effort: { listenSec?: number; waitSec?: number; range?: Range },
     author?: TraceAuthor,

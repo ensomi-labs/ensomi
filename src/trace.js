@@ -39,7 +39,58 @@ const USER_ACTION_TYPES = new Set([
   "offer_reject",
 ]);
 
+const UNDOABLE_EVENT_TYPES = new Set([
+  "edit",
+  "offer_accept",
+  "offer_reject",
+  "ready",
+]);
+
+const REPLAY_ORPHAN_ERROR_CODES = new Set([
+  "INVALID_SEGMENT_EDIT",
+  "DUPLICATE_SEGMENT_ID",
+  "INVALID_SPAN",
+  "INVALID_RANGE",
+]);
+
 const SEGMENT_REGIME_SET = new Set(SEGMENT_REGIMES);
+
+const DEEP_FROZEN_EVENTS = new WeakSet();
+
+/**
+ * Recursively freeze a plain JSON-like value in place.
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
+function deepFreezeInPlace(value) {
+  if (value === null || typeof value !== "object") return value;
+  Object.freeze(value);
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      deepFreezeInPlace(value[i]);
+    }
+  } else {
+    for (const key of Object.keys(value)) {
+      deepFreezeInPlace(/** @type {Record<string, unknown>} */ (value)[key]);
+    }
+  }
+  return value;
+}
+
+/**
+ * Clone and recursively freeze a `TraceEvent` once so `state.events[i]` is 100% immutable
+ * across `getState()`, provider snapshots, and incremental/full folds.
+ * @param {import("../index.d.ts").TraceEvent} ev
+ * @returns {import("../index.d.ts").TraceEvent}
+ */
+function cloneAndFreezeEvent(ev) {
+  if (DEEP_FROZEN_EVENTS.has(ev)) return ev;
+  const cloned = /** @type {import("../index.d.ts").TraceEvent} */ (structuredClone(ev));
+  deepFreezeInPlace(cloned);
+  DEEP_FROZEN_EVENTS.add(cloned);
+  return cloned;
+}
 
 /**
  * Create a clean initial sans-IO SessionState.
@@ -77,6 +128,7 @@ export function createInitialState(options = {}) {
 
   return {
     audio: null,
+    initialDurationSec: durationSec,
     durationSec,
     segments,
     spans: [],
@@ -114,6 +166,7 @@ export function createInitialState(options = {}) {
 function cloneStateShallow(state) {
   return {
     audio: state.audio ? { ...state.audio } : null,
+    initialDurationSec: state.initialDurationSec ?? 0,
     durationSec: state.durationSec,
     segments: state.segments.slice(),
     spans: state.spans.slice(),
@@ -327,6 +380,153 @@ function normalizeChildSpansForSegment(state, seg, rev, idPrefix) {
 }
 
 /**
+ * Prune beats, sounds, unbeats, and visitedRanges strictly beyond `maxDurationSec` (`> maxDurationSec`),
+ * cleaning up `state.entityRevisions` so shrunk tracks never retain out-of-range entities.
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ * @param {number} maxDurationSec
+ */
+function pruneEntitiesBeyondDurationInPlace(state, maxDurationSec) {
+  if (typeof maxDurationSec !== "number" || !Number.isFinite(maxDurationSec) || maxDurationSec <= 0) {
+    return;
+  }
+  for (const [id, beat] of state.beats.entries()) {
+    if (beat.timeSec > maxDurationSec) {
+      state.beats.delete(id);
+      state.entityRevisions.delete(id);
+    }
+  }
+  for (const [id, sound] of state.sounds.entries()) {
+    if (sound.timeSec > maxDurationSec) {
+      state.sounds.delete(id);
+      state.entityRevisions.delete(id);
+    }
+  }
+  if (state.unbeats.length > 0) {
+    const survivingUnbeats = [];
+    for (const u of state.unbeats) {
+      if (u.timeSec > maxDurationSec) {
+        state.entityRevisions.delete(u.id);
+      } else {
+        survivingUnbeats.push(u);
+      }
+    }
+    state.unbeats = survivingUnbeats;
+  }
+  if (state.visitedRanges.length > 0) {
+    const survivingRanges = [];
+    for (const vr of state.visitedRanges) {
+      if (vr.t0 >= maxDurationSec - 1e-9) continue;
+      survivingRanges.push({
+        t0: vr.t0,
+        t1: Math.min(vr.t1, maxDurationSec),
+      });
+    }
+    state.visitedRanges = survivingRanges;
+  }
+}
+
+/**
+ * Reconcile all existing `state.spans` against `state.segments` (reparenting or splitting
+ * spans whose parent segment ID changed or resized, and pruning spans outside `[0, durationSec)`).
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ * @param {string} rev
+ * @param {string} idPrefix
+ */
+function reconcileSpansWithSegmentsInPlace(state, rev, idPrefix) {
+  if (state.segments.length === 0) {
+    for (const sp of state.spans) {
+      state.entityRevisions.delete(sp.id);
+    }
+    state.spans = [];
+    return;
+  }
+
+  const segById = new Map(state.segments.map((s) => [s.id, s]));
+  /** @type {import("../index.d.ts").Span[]} */
+  const reconciled = [];
+  let splitCounter = 0;
+
+  for (const sp of state.spans) {
+    const parent = segById.get(sp.segmentId);
+    if (
+      parent &&
+      sp.t0 >= parent.t0 - 1e-9 &&
+      sp.t1 <= parent.t1 + 1e-9 &&
+      Math.min(parent.t1, sp.t1) > Math.max(parent.t0, sp.t0) + 1e-9
+    ) {
+      const clampedT0 = Math.max(parent.t0, sp.t0);
+      const clampedT1 = Math.min(parent.t1, sp.t1);
+      if (clampedT0 !== sp.t0 || clampedT1 !== sp.t1) {
+        const updated = { ...sp, t0: clampedT0, t1: clampedT1, revision: sp.revision + 1 };
+        reconciled.push(updated);
+        state.entityRevisions.set(updated.id, rev);
+      } else {
+        reconciled.push(sp);
+        if (!state.entityRevisions.has(sp.id)) {
+          state.entityRevisions.set(sp.id, rev);
+        }
+      }
+      continue;
+    }
+
+    if (sp.t1 <= sp.t0 + 1e-9) {
+      state.entityRevisions.delete(sp.id);
+      continue;
+    }
+
+    const slices = decomposeRangeToSpans(state.segments, {
+      t0: Math.max(0, sp.t0),
+      t1: sp.t1,
+    });
+    if (slices.length === 0) {
+      state.entityRevisions.delete(sp.id);
+      continue;
+    }
+
+    for (let k = 0; k < slices.length; k += 1) {
+      const sl = slices[k];
+      if (k === 0) {
+        const reparented = normalizeSpan(
+          {
+            ...sp,
+            id: sp.id,
+            segmentId: sl.segmentId,
+            t0: sl.t0,
+            t1: sl.t1,
+            revision: sp.revision + 1,
+          },
+          sp.revision + 1,
+        );
+        reconciled.push(reparented);
+        state.entityRevisions.set(reparented.id, rev);
+      } else {
+        const freshId = `${idPrefix}_reparent_${splitCounter++}_${sp.id}`;
+        const created = normalizeSpan(
+          {
+            ...sp,
+            id: freshId,
+            segmentId: sl.segmentId,
+            t0: sl.t0,
+            t1: sl.t1,
+            revision: 1,
+          },
+          1,
+        );
+        reconciled.push(created);
+        state.entityRevisions.set(created.id, rev);
+      }
+    }
+  }
+
+  state.spans = reconciled;
+  for (const seg of state.segments) {
+    normalizeChildSpansForSegment(state, seg, rev, `${idPrefix}_${seg.id}`);
+  }
+}
+
+/**
  * Synchronize `state.segments` when `durationSec` is initialized or updated,
  * preserving existing segments when possible while enforcing exact `[0, durationSec)` contiguity.
  *
@@ -455,7 +655,8 @@ function syncDurationPartitionInPlace(state, nextDurationSec, rev, seq) {
     }
   }
   state.spans = survivingSpans;
-  sortSpansInPlace(state.spans);
+  reconcileSpansWithSegmentsInPlace(state, rev, `sync_${seq}`);
+  pruneEntitiesBeyondDurationInPlace(state, nextDurationSec);
   state.segmentMutations.push({
     seq,
     segmentIds: [...droppedSegIds, trimmed[trimmed.length - 1].id],
@@ -1068,6 +1269,116 @@ export function resolveActiveRetractions(events) {
     retractedIds.add(target.id);
   }
   return retractedIds;
+}
+
+/**
+ * Deterministically reconstruct `undoStack` and `redoStack` directly from `state.events`
+ * so Undo/Redo survives `.jsonl` persistence and process restarts with zero in-memory desync:
+ *  - Non-retract user actions (`edit`, `offer_accept`, `offer_reject`, `ready`) push onto
+ *    `undoStack` and clear `redoStack` (branch cleared).
+ *  - A `retract` event `R` targeting an entry in `undoStack` removes that entry from `undoStack`
+ *    and pushes `R.id` onto `redoStack`.
+ *  - A `retract` event `R2` targeting an active undo-retract `R` in `redoStack` (Redo) removes
+ *    `R` from `redoStack` and restores `R`'s original target event back onto `undoStack`.
+ *
+ * @param {import("../index.d.ts").SessionState | readonly import("../index.d.ts").TraceEvent[]} stateOrEvents
+ * @returns {import("../index.d.ts").UndoRedoTargets}
+ */
+export function computeUndoRedoTargets(stateOrEvents) {
+  const events = Array.isArray(stateOrEvents)
+    ? stateOrEvents
+    : Array.isArray(stateOrEvents?.events)
+      ? stateOrEvents.events
+      : [];
+
+  if (events.length === 0) {
+    return {
+      canUndo: false,
+      canRedo: false,
+      undoTargetEventId: null,
+      redoTargetEventId: null,
+      undoStack: [],
+      redoStack: [],
+    };
+  }
+
+  /** @type {Map<string, import("../index.d.ts").TraceEvent>} */
+  const byId = new Map();
+  /** @type {Map<number, import("../index.d.ts").TraceEvent>} */
+  const bySeq = new Map();
+  const activeRetractedIds = resolveActiveRetractions(
+    /** @type {import("../index.d.ts").TraceEvent[]} */ (events),
+  );
+
+  /** @type {string[]} */
+  const undoStack = [];
+  /** @type {Array<{ retractId: string, originalId: string }>} */
+  const redoEntries = [];
+  /** @type {Map<string, string>} */
+  const retractedUndoByRetractId = new Map();
+  /** @type {string | null} */
+  let currentSongId = null;
+
+  for (const ev of events) {
+    byId.set(ev.id, ev);
+    bySeq.set(ev.seq, ev);
+
+    if (ev.type === "audio_bound" && !activeRetractedIds.has(ev.id)) {
+      const rawAudio = /** @type {any} */ (ev.payload)?.audio ?? ev.payload;
+      const nextSongId =
+        typeof rawAudio?.songId === "string" && rawAudio.songId.length > 0
+          ? rawAudio.songId
+          : typeof rawAudio?.audioId === "string"
+            ? rawAudio.audioId
+            : null;
+      if (currentSongId !== null && nextSongId !== null && nextSongId !== currentSongId) {
+        undoStack.length = 0;
+        redoEntries.length = 0;
+        retractedUndoByRetractId.clear();
+      }
+      if (nextSongId !== null) {
+        currentSongId = nextSongId;
+      }
+      continue;
+    }
+
+    if (UNDOABLE_EVENT_TYPES.has(ev.type) && (ev.author?.kind ?? "user") === "user") {
+      undoStack.push(ev.id);
+      redoEntries.length = 0;
+      continue;
+    }
+
+    if (ev.type === "retract") {
+      const target = resolveRetractTarget(ev, byId, bySeq);
+      const undoIdx = undoStack.lastIndexOf(target.id);
+      if (undoIdx >= 0) {
+        undoStack.splice(undoIdx, 1);
+        redoEntries.push({ retractId: ev.id, originalId: target.id });
+        retractedUndoByRetractId.set(ev.id, target.id);
+        continue;
+      }
+      const redoIdx = redoEntries.findLastIndex((entry) => entry.retractId === target.id);
+      if (redoIdx >= 0) {
+        const [restored] = redoEntries.splice(redoIdx, 1);
+        undoStack.push(restored.originalId);
+        continue;
+      }
+      const historicOriginalId = retractedUndoByRetractId.get(target.id);
+      if (historicOriginalId && !undoStack.includes(historicOriginalId)) {
+        undoStack.push(historicOriginalId);
+      }
+    }
+  }
+
+  const redoStack = redoEntries.map((e) => e.retractId);
+  return {
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+    undoTargetEventId: undoStack.length > 0 ? undoStack[undoStack.length - 1] : null,
+    redoTargetEventId: redoStack.length > 0 ? redoStack[redoStack.length - 1] : null,
+    undoStack,
+    redoStack,
+  };
 }
 
 /**
@@ -1751,11 +2062,85 @@ function applyEditOpInPlace(state, op, event, opIndex) {
 }
 
 /**
+ * Copy mutable domain fields from `src` back onto `dst` after a validated op succeeds.
+ * @param {import("../index.d.ts").SessionState} dst
+ * @param {import("../index.d.ts").SessionState} src
+ */
+function commitOpDraftInPlace(dst, src) {
+  dst.segments = src.segments;
+  dst.spans = src.spans;
+  dst.beats = src.beats;
+  dst.sounds = src.sounds;
+  dst.unbeats = src.unbeats;
+  dst.entityRevisions = src.entityRevisions;
+  dst.segmentMutations = src.segmentMutations;
+  dst.foldWarnings = src.foldWarnings;
+}
+
+/**
+ * Check whether an `EnsomiError` thrown by an edit op is a state-precondition failure
+ * (e.g. missing/non-adjacent segment or out-of-bounds span/range after selective retraction)
+ * vs. malformed op syntax.
+ *
+ * @param {unknown} err
+ * @param {any} op
+ */
+function isReplayOrphanPreconditionError(err, op) {
+  if (!(err instanceof EnsomiError) || !REPLAY_ORPHAN_ERROR_CODES.has(err.code)) {
+    return false;
+  }
+  if (!op || typeof op !== "object") return false;
+  if (op.op === "split_segment") {
+    if (typeof op.newSegmentId !== "string" || op.newSegmentId.length === 0) return false;
+    if (typeof op.timeSec !== "number" || !Number.isFinite(op.timeSec) || op.timeSec <= 0) {
+      return false;
+    }
+  }
+  if (op.op === "set_segment_regime" && !SEGMENT_REGIME_SET.has(op.regime)) {
+    return false;
+  }
+  if (
+    (op.op === "set_range_keep" ||
+      op.op === "set_range_free" ||
+      op.op === "promote_range_to_segments") &&
+    (typeof op.t0 !== "number" ||
+      typeof op.t1 !== "number" ||
+      !Number.isFinite(op.t0) ||
+      !Number.isFinite(op.t1) ||
+      op.t0 < 0 ||
+      op.t1 <= op.t0)
+  ) {
+    return false;
+  }
+  if (op.op === "upsert_span") {
+    const sp = op.span;
+    if (
+      !sp ||
+      typeof sp !== "object" ||
+      typeof sp.id !== "string" ||
+      sp.id.length === 0 ||
+      typeof sp.segmentId !== "string" ||
+      sp.segmentId.length === 0 ||
+      typeof sp.t0 !== "number" ||
+      typeof sp.t1 !== "number" ||
+      !Number.isFinite(sp.t0) ||
+      !Number.isFinite(sp.t1) ||
+      sp.t0 < 0 ||
+      sp.t1 <= sp.t0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Apply a single active (non-retracted, non-retract) event in place on `state`.
  * @param {import("../index.d.ts").SessionState} state
  * @param {import("../index.d.ts").TraceEvent} event
+ * @param {boolean} [isReplay=false]
  */
-function applyActiveEventInPlace(state, event) {
+function applyActiveEventInPlace(state, event, isReplay = false) {
   if (event.author?.kind === "user" && USER_ACTION_TYPES.has(event.type)) {
     state.effort.actionCount += 1;
   }
@@ -1770,7 +2155,7 @@ function applyActiveEventInPlace(state, event) {
       const nextAudio = normalizeAudioDescriptor(rawAudio);
       state.audio = nextAudio;
       if (prevSongId !== null && prevSongId !== nextAudio.songId) {
-        // Switching song resets per-song entities and sets up fresh partition
+        // Switching song resets all song-local state and sets up fresh partition
         state.beats.clear();
         state.sounds.clear();
         state.unbeats = [];
@@ -1781,6 +2166,10 @@ function applyActiveEventInPlace(state, event) {
         state.suppressions = [];
         state.segments = [];
         state.spans = [];
+        state.visitedRanges = [];
+        state.lastSignal = null;
+        state.ready = false;
+        state.readyAtSeq = null;
         state.durationSec = 0;
       }
       syncDurationPartitionInPlace(state, nextAudio.durationSec, rev, event.seq);
@@ -1801,20 +2190,31 @@ function applyActiveEventInPlace(state, event) {
         state.entityRevisions.clear();
       }
 
-      if (typeof payload.durationSec === "number" && Number.isFinite(payload.durationSec) && payload.durationSec >= 0) {
-        state.durationSec = payload.durationSec;
-      } else if (state.durationSec === 0 && Array.isArray(payload.segments) && payload.segments.length > 0) {
+      let nextDurationSec = state.durationSec;
+      if (
+        typeof payload.durationSec === "number" &&
+        Number.isFinite(payload.durationSec) &&
+        payload.durationSec >= 0
+      ) {
+        nextDurationSec = payload.durationSec;
+      } else if (
+        nextDurationSec === 0 &&
+        Array.isArray(payload.segments) &&
+        payload.segments.length > 0
+      ) {
         const maxSegT1 = Math.max(
           0,
-          ...payload.segments
-            .map((s) => (typeof s?.t1 === "number" && Number.isFinite(s.t1) ? s.t1 : 0)),
+          ...payload.segments.map((s) =>
+            typeof s?.t1 === "number" && Number.isFinite(s.t1) ? s.t1 : 0,
+          ),
         );
-        if (maxSegT1 > 0) state.durationSec = maxSegT1;
+        if (maxSegT1 > 0) nextDurationSec = maxSegT1;
       }
 
-      if (state.durationSec > 0) {
-        if (replace || Array.isArray(payload.segments) || state.segments.length === 0) {
-          for (const oldSeg of state.segments) state.entityRevisions.delete(oldSeg.id);
+      if (Array.isArray(payload.segments) || replace || (nextDurationSec > 0 && state.segments.length === 0)) {
+        state.durationSec = nextDurationSec;
+        for (const oldSeg of state.segments) state.entityRevisions.delete(oldSeg.id);
+        if (state.durationSec > 0) {
           state.segments = normalizeSegmentPartition(payload.segments, state.durationSec, "draft");
           for (const seg of state.segments) {
             state.entityRevisions.set(seg.id, rev);
@@ -1826,12 +2226,18 @@ function applyActiveEventInPlace(state, event) {
             t1: state.durationSec,
           });
         } else {
-          for (const seg of state.segments) {
-            if (!state.entityRevisions.has(seg.id)) state.entityRevisions.set(seg.id, rev);
-          }
+          state.segments = [];
         }
-      } else if (replace) {
-        state.segments = [];
+        reconcileSpansWithSegmentsInPlace(state, rev, `draft_${event.seq}`);
+      } else if (nextDurationSec !== state.durationSec) {
+        syncDurationPartitionInPlace(state, nextDurationSec, rev, event.seq);
+        for (const seg of state.segments) {
+          if (!state.entityRevisions.has(seg.id)) state.entityRevisions.set(seg.id, rev);
+        }
+      } else {
+        for (const seg of state.segments) {
+          if (!state.entityRevisions.has(seg.id)) state.entityRevisions.set(seg.id, rev);
+        }
       }
 
       for (const rawBeat of payload.beats ?? []) {
@@ -1883,7 +2289,9 @@ function applyActiveEventInPlace(state, event) {
               },
               rawSpan.revision ?? 1,
             );
-            state.spans.push(sp);
+            const existingSpIdx = state.spans.findIndex((x) => x.id === sp.id);
+            if (existingSpIdx >= 0) state.spans[existingSpIdx] = sp;
+            else state.spans.push(sp);
             state.entityRevisions.set(sp.id, rev);
           } else if (
             typeof rawSpan.t0 === "number" &&
@@ -1910,14 +2318,18 @@ function applyActiveEventInPlace(state, event) {
                 },
                 1,
               );
-              state.spans.push(sp);
+              const existingSpIdx = state.spans.findIndex((x) => x.id === sp.id);
+              if (existingSpIdx >= 0) state.spans[existingSpIdx] = sp;
+              else state.spans.push(sp);
               state.entityRevisions.set(sp.id, rev);
             }
           }
         }
-        for (const seg of state.segments) {
-          normalizeChildSpansForSegment(state, seg, rev, `draft_${event.seq}`);
-        }
+        reconcileSpansWithSegmentsInPlace(state, rev, `draft_${event.seq}`);
+      }
+
+      if (state.durationSec > 0) {
+        pruneEntitiesBeyondDurationInPlace(state, state.durationSec);
       }
 
       refreshOfferStatuses(state);
@@ -1933,7 +2345,27 @@ function applyActiveEventInPlace(state, event) {
       /** @type {Array<{ t0: number, t1: number }>} */
       const touched = [];
       for (let i = 0; i < ops.length; i += 1) {
-        touched.push(...applyEditOpInPlace(state, ops[i], event, i));
+        if (!isReplay) {
+          touched.push(...applyEditOpInPlace(state, ops[i], event, i));
+        } else {
+          const opDraft = cloneStateShallow(state);
+          try {
+            const opTouched = applyEditOpInPlace(opDraft, ops[i], event, i);
+            commitOpDraftInPlace(state, opDraft);
+            touched.push(...opTouched);
+          } catch (err) {
+            if (isReplayOrphanPreconditionError(err, ops[i])) {
+              state.foldWarnings.push({
+                seq: event.seq,
+                eventId: event.id,
+                code: "ORPHANED_DEPENDENT_EDIT",
+                message: err instanceof Error ? err.message : String(err),
+              });
+            } else {
+              throw err;
+            }
+          }
+        }
       }
       clearOverlappingSuppressions(state, touched);
       refreshOfferStatuses(state);
@@ -2138,83 +2570,110 @@ function applyActiveEventInPlace(state, event) {
       const ops = offer.ops ?? {};
       /** @type {Array<{ t0: number, t1: number }>} */
       const touched = [...offer.writeScopes.map((ws) => ({ t0: ws.t0, t1: ws.t1 }))];
+      const execTarget = isReplay ? cloneStateShallow(state) : state;
 
-      for (const id of ops.removeBeatIds ?? []) {
-        state.beats.delete(id);
-        state.entityRevisions.delete(id);
-      }
-      for (const rawBeat of ops.upsertBeats ?? []) {
-        const existing = state.beats.get(rawBeat.id);
-        const nextRev = existing ? existing.revision + 1 : rawBeat.revision ?? 1;
-        const beat = normalizeBeat(
-          {
-            ...rawBeat,
-            source: rawBeat.source ?? "offer",
-            revision: nextRev,
-          },
-          nextRev,
-        );
-        state.beats.set(beat.id, beat);
-        state.entityRevisions.set(beat.id, rev);
-      }
-      for (const id of ops.removeSoundIds ?? []) {
-        state.sounds.delete(id);
-        state.entityRevisions.delete(id);
-      }
-      for (const rawSound of ops.upsertSounds ?? []) {
-        const existing = state.sounds.get(rawSound.id);
-        const nextRev = existing ? existing.revision + 1 : rawSound.revision ?? 1;
-        const sound = normalizeSoundAnchor(
-          {
-            ...rawSound,
-            source: rawSound.source ?? "offer",
-            revision: nextRev,
-          },
-          nextRev,
-        );
-        state.sounds.set(sound.id, sound);
-        state.entityRevisions.set(sound.id, rev);
-      }
-
-      const splitList = ops.splitSegments ?? [];
-      for (let i = 0; i < splitList.length; i += 1) {
-        const s = splitList[i];
-        splitSegmentInPlace(state, s.segmentId, s.newSegmentId, s.timeSec, "offer", event, `oa_sp${i}`);
-      }
-      const moveList = ops.moveSegmentBoundaries ?? [];
-      for (let i = 0; i < moveList.length; i += 1) {
-        const m = moveList[i];
-        moveSegmentBoundaryInPlace(
-          state,
-          m.leftSegmentId,
-          m.rightSegmentId,
-          m.timeSec,
-          "offer",
-          event,
-          `oa_mv${i}`,
-        );
-      }
-      const regList = ops.setSegmentRegimes ?? [];
-      for (let i = 0; i < regList.length; i += 1) {
-        const r = regList[i];
-        const idx = state.segments.findIndex((seg) => seg.id === r.segmentId);
-        if (idx >= 0) {
-          const seg = state.segments[idx];
-          const nextSeg = normalizeSegment(
-            {
-              ...seg,
-              regime: r.regime,
-              source: "offer",
-              revision: seg.revision + 1,
-            },
-            seg.revision + 1,
-          );
-          state.segments[idx] = nextSeg;
-          state.entityRevisions.set(nextSeg.id, rev);
-          if (nextSeg.regime === "free") {
-            normalizeChildSpansForSegment(state, nextSeg, rev, `oa_rg${i}`);
+      try {
+        for (const id of ops.removeBeatIds ?? []) {
+          if (execTarget.beats.delete(id)) {
+            execTarget.entityRevisions.delete(id);
           }
         }
+        for (const rawBeat of ops.upsertBeats ?? []) {
+          const existing = execTarget.beats.get(rawBeat.id);
+          const nextRev = existing ? existing.revision + 1 : rawBeat.revision ?? 1;
+          const beat = normalizeBeat(
+            {
+              ...rawBeat,
+              source: rawBeat.source ?? "offer",
+              revision: nextRev,
+            },
+            nextRev,
+          );
+          execTarget.beats.set(beat.id, beat);
+          execTarget.entityRevisions.set(beat.id, rev);
+        }
+        for (const id of ops.removeSoundIds ?? []) {
+          if (execTarget.sounds.delete(id)) {
+            execTarget.entityRevisions.delete(id);
+          }
+        }
+        for (const rawSound of ops.upsertSounds ?? []) {
+          const existing = execTarget.sounds.get(rawSound.id);
+          const nextRev = existing ? existing.revision + 1 : rawSound.revision ?? 1;
+          const sound = normalizeSoundAnchor(
+            {
+              ...rawSound,
+              source: rawSound.source ?? "offer",
+              revision: nextRev,
+            },
+            nextRev,
+          );
+          execTarget.sounds.set(sound.id, sound);
+          execTarget.entityRevisions.set(sound.id, rev);
+        }
+
+        const splitList = ops.splitSegments ?? [];
+        for (let i = 0; i < splitList.length; i += 1) {
+          const s = splitList[i];
+          splitSegmentInPlace(
+            execTarget,
+            s.segmentId,
+            s.newSegmentId,
+            s.timeSec,
+            "offer",
+            event,
+            `oa_sp${i}`,
+          );
+        }
+        const moveList = ops.moveSegmentBoundaries ?? [];
+        for (let i = 0; i < moveList.length; i += 1) {
+          const m = moveList[i];
+          moveSegmentBoundaryInPlace(
+            execTarget,
+            m.leftSegmentId,
+            m.rightSegmentId,
+            m.timeSec,
+            "offer",
+            event,
+            `oa_mv${i}`,
+          );
+        }
+        const regList = ops.setSegmentRegimes ?? [];
+        for (let i = 0; i < regList.length; i += 1) {
+          const r = regList[i];
+          const idx = execTarget.segments.findIndex((seg) => seg.id === r.segmentId);
+          if (idx >= 0) {
+            const seg = execTarget.segments[idx];
+            const nextSeg = normalizeSegment(
+              {
+                ...seg,
+                regime: r.regime,
+                source: "offer",
+                revision: seg.revision + 1,
+              },
+              seg.revision + 1,
+            );
+            execTarget.segments[idx] = nextSeg;
+            execTarget.entityRevisions.set(nextSeg.id, rev);
+            if (nextSeg.regime === "free") {
+              normalizeChildSpansForSegment(execTarget, nextSeg, rev, `oa_rg${i}`);
+            }
+          }
+        }
+        if (isReplay) {
+          commitOpDraftInPlace(state, execTarget);
+        }
+      } catch (err) {
+        if (isReplay && err instanceof EnsomiError) {
+          state.foldWarnings.push({
+            seq: event.seq,
+            eventId: event.id,
+            code: "ORPHANED_DEPENDENT_EDIT",
+            message: err.message,
+          });
+          break;
+        }
+        throw err;
       }
 
       state.offers.set(offerId, {
@@ -2344,28 +2803,31 @@ export function applyEvent(state, event) {
     throw new EnsomiError("DUPLICATE_EVENT_ID", `Duplicate trace event id "${event.id}"`);
   }
 
-  const clonedEvent = /** @type {import("../index.d.ts").TraceEvent} */ (structuredClone(event));
+  const clonedEvent = cloneAndFreezeEvent(event);
 
   if (clonedEvent.type === "retract") {
-    return foldTrace([...state.events, clonedEvent]);
+    return foldTrace([...state.events, clonedEvent], {
+      durationSec: state.initialDurationSec,
+    });
   }
 
   const next = cloneStateShallow(state);
   next.events.push(clonedEvent);
   next.eventIds.add(clonedEvent.id);
   next.lastSeq = clonedEvent.seq;
-  applyActiveEventInPlace(next, clonedEvent);
+  applyActiveEventInPlace(next, clonedEvent, false);
   return next;
 }
 
 /**
  * Fold a full sequence of TraceEvents from event 0 into a materialized `SessionState`.
- * Guaranteed identical to `events.reduce(applyEvent, createInitialState())`.
+ * Guaranteed identical to `events.reduce(applyEvent, createInitialState(options))` on non-retract traces.
  *
  * @param {import("../index.d.ts").TraceEvent[]} events
+ * @param {{ durationSec?: number }} [options]
  * @returns {import("../index.d.ts").SessionState}
  */
-export function foldTrace(events) {
+export function foldTrace(events, options = {}) {
   if (!Array.isArray(events)) {
     throw new EnsomiError("INVALID_TRACE", "events must be an array");
   }
@@ -2392,14 +2854,14 @@ export function foldTrace(events) {
     }
     seenIds.add(ev.id);
     prevSeq = ev.seq;
-    const cloned = /** @type {import("../index.d.ts").TraceEvent} */ (structuredClone(ev));
+    const cloned = cloneAndFreezeEvent(ev);
     clonedEvents.push(cloned);
     byId.set(cloned.id, cloned);
     bySeq.set(cloned.seq, cloned);
   }
 
   const retractedIds = resolveActiveRetractions(clonedEvents);
-  const state = createInitialState();
+  const state = createInitialState(options);
   state.retractedEventIds = retractedIds;
 
   for (const ev of clonedEvents) {
@@ -2422,7 +2884,7 @@ export function foldTrace(events) {
       continue;
     }
 
-    applyActiveEventInPlace(state, ev);
+    applyActiveEventInPlace(state, ev, true);
   }
 
   return state;
@@ -2561,6 +3023,7 @@ export function createCheckpoint(state) {
     schemaVersion: TRACE_SCHEMA_VERSION,
     lastSeq: state.lastSeq,
     eventCount: state.events.length,
+    ...(state.initialDurationSec > 0 ? { initialDurationSec: state.initialDurationSec } : {}),
     stateHash,
     snapshot,
   };
@@ -2570,10 +3033,17 @@ export function createCheckpoint(state) {
  * Verify a checkpoint against the trace prefix that produced it.
  * @param {import("../index.d.ts").TraceCheckpoint} checkpoint
  * @param {import("../index.d.ts").TraceEvent[]} prefixEvents
+ * @param {{ durationSec?: number }} [options]
  * @returns {import("../index.d.ts").CheckpointVerification}
  */
-export function verifyCheckpoint(checkpoint, prefixEvents) {
-  const refState = foldTrace(prefixEvents);
+export function verifyCheckpoint(checkpoint, prefixEvents, options = {}) {
+  const durationSec =
+    options?.durationSec !== undefined
+      ? options.durationSec
+      : typeof checkpoint?.initialDurationSec === "number"
+        ? checkpoint.initialDurationSec
+        : undefined;
+  const refState = foldTrace(prefixEvents, { durationSec });
   const refCheckpoint = createCheckpoint(refState);
 
   if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) {
