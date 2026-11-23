@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ensomi.dev/schemas/v0/provider-manifest.schema.json",
+  "title": "Ensomi v0 TimingProvider Manifest",
+  "type": "object",
+  "required": ["id", "version", "kind", "capabilities"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "enum": ["model", "rule", "mock"] },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "draft",
+        "sounds",
+        "constrainedRecompute",
+        "honoredStatements",
+        "diagnostics",
+        "alternatives",
+        "repeatPropagation"
+      ],
+      "properties": {
+        "draft": { "type": "boolean" },
+        "sounds": { "type": "boolean" },
+        "soundsExperimental": { "type": "boolean" },
+        "constrainedRecompute": { "type": "boolean" },
+        "honoredStatements": {
+          "type": "array",
+          "items": { "$ref": "entities.schema.json#/$defs/StatementKind" }
+        },
+        "diagnostics": { "type": "boolean" },
+        "alternatives": { "type": "boolean" },
+        "repeatPropagation": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

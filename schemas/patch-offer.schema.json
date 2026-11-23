@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ensomi.dev/schemas/v0/patch-offer.schema.json",
+  "title": "Ensomi v0 PatchOffer, Conflict, and Constraint IR",
+  "type": "object",
+  "$ref": "#/$defs/PatchOffer",
+  "$defs": {
+    "OfferScopeKind": {
+      "type": "string",
+      "enum": ["local", "forward_continuation", "cross_region"]
+    },
+    "OfferRole": {
+      "type": "string",
+      "enum": ["extend", "rewrite", "quick_fix", "alternative", "propagate"]
+    },
+    "OfferStatus": {
+      "type": "string",
+      "enum": ["pending", "accepted", "rejected", "stale", "superseded"]
+    },
+    "ConflictKind": {
+      "type": "string",
+      "enum": [
+        "version_mismatch",
+        "range_changed",
+        "constraint_violation",
+        "sibling_conflict"
+      ]
+    },
+    "ConstraintForm": {
+      "type": "string",
+      "enum": ["observe", "clamp", "forbid", "freeze"]
+    },
+    "Conflict": {
+      "type": "object",
+      "required": ["id", "kind", "message"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/ConflictKind" },
+        "message": { "type": "string" },
+        "entityIds": { "type": "array", "items": { "type": "string" } },
+        "statementIds": { "type": "array", "items": { "type": "string" } },
+        "span": { "$ref": "entities.schema.json#/$defs/Span" }
+      },
+      "additionalProperties": false
+    },
+    "PatchOp": {
+      "type": "object",
+      "properties": {
+        "upsertBeats": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "removeBeatIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "upsertBoundaries": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "removeBoundaryIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "upsertSounds": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "removeSoundIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expectedVersions": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "expectedRangeEntityIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Constraint": {
+      "type": "object",
+      "required": ["id", "statementId", "statementKind", "form", "target", "params"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "statementId": { "type": "string", "minLength": 1 },
+        "statementKind": { "$ref": "entities.schema.json#/$defs/StatementKind" },
+        "form": { "$ref": "#/$defs/ConstraintForm" },
+        "target": {
+          "type": "string",
+          "enum": ["sound", "tempo_regime", "beat", "beat_run", "pulse", "span"]
+        },
+        "span": { "$ref": "entities.schema.json#/$defs/Span" },
+        "t": { "type": "number" },
+        "params": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "PatchOffer": {
+      "type": "object",
+      "required": [
+        "id",
+        "batchId",
+        "providerId",
+        "providerKind",
+        "generation",
+        "basisSeq",
+        "role",
+        "scopeKind",
+        "readScope",
+        "writeScope",
+        "ops",
+        "summary",
+        "consequences",
+        "conflicts",
+        "semanticKey",
+        "status"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "batchId": { "type": "string", "minLength": 1 },
+        "optionIndex": { "type": "integer", "minimum": 0 },
+        "providerId": { "type": "string", "minLength": 1 },
+        "providerKind": { "type": "string", "enum": ["model", "rule", "mock"] },
+        "generation": { "type": "integer", "minimum": 0 },
+        "basisSeq": { "type": "integer", "minimum": 0 },
+        "role": { "$ref": "#/$defs/OfferRole" },
+        "scopeKind": { "$ref": "#/$defs/OfferScopeKind" },
+        "readScope": {
+          "oneOf": [
+            { "const": "song" },
+            { "$ref": "entities.schema.json#/$defs/Span" }
+          ]
+        },
+        "writeScope": { "$ref": "entities.schema.json#/$defs/Span" },
+        "ops": { "$ref": "#/$defs/PatchOp" },
+        "summary": { "type": "string" },
+        "consequences": {
+          "type": "object",
+          "required": ["beatsAdded", "beatsMoved", "beatsRemoved"],
+          "properties": {
+            "beatsAdded": { "type": "integer", "minimum": 0 },
+            "beatsMoved": { "type": "integer", "minimum": 0 },
+            "beatsRemoved": { "type": "integer", "minimum": 0 },
+            "soundsReclassified": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "conflicts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Conflict" }
+        },
+        "semanticKey": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/OfferStatus" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

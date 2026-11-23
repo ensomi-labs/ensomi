@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ensomi.dev/schemas/v0/entities.schema.json",
+  "title": "Ensomi v0 Core Entities",
+  "description": "Clock-agnostic source-audio-second entities for Ensomi v0.",
+  "$defs": {
+    "EntitySource": {
+      "type": "string",
+      "enum": ["model", "user", "import", "rule"]
+    },
+    "BoundaryKind": {
+      "type": "string",
+      "enum": ["steady_start", "free_start", "reset", "gap_start", "gap_end"]
+    },
+    "Span": {
+      "type": "object",
+      "description": "Half-open interval [t0, t1) in source-audio seconds.",
+      "required": ["t0", "t1"],
+      "properties": {
+        "t0": { "type": "number" },
+        "t1": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "Beat": {
+      "type": "object",
+      "required": ["id", "t", "source", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "t": { "type": "number" },
+        "source": { "$ref": "#/$defs/EntitySource" },
+        "version": { "type": "integer", "minimum": 1 },
+        "conf": { "type": "number", "minimum": 0, "maximum": 1 },
+        "meta": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "Boundary": {
+      "type": "object",
+      "required": ["id", "t", "kind", "source", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "t": { "type": "number" },
+        "kind": { "$ref": "#/$defs/BoundaryKind" },
+        "source": { "$ref": "#/$defs/EntitySource" },
+        "version": { "type": "integer", "minimum": 1 },
+        "bpm": { "type": "number", "exclusiveMinimum": 0 },
+        "meta": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "SoundAnchor": {
+      "type": "object",
+      "description": "Acoustic sound anchor stored independently of beats.",
+      "required": ["id", "t", "emphasis", "source", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "t": { "type": "number" },
+        "emphasis": { "type": "number", "minimum": 0, "maximum": 1 },
+        "source": { "$ref": "#/$defs/EntitySource" },
+        "version": { "type": "integer", "minimum": 1 },
+        "conf": { "type": "number", "minimum": 0, "maximum": 1 },
+        "experimental": { "type": "boolean" },
+        "meta": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "AudioDescriptor": {
+      "type": "object",
+      "required": ["audioId", "durationSec", "clock"],
+      "properties": {
+        "audioId": { "type": "string", "minLength": 1 },
+        "durationSec": { "type": "number", "minimum": 0 },
+        "sampleRate": { "type": "number", "exclusiveMinimum": 0 },
+        "clock": { "type": "string", "minLength": 1 },
+        "decoder": { "type": "string" },
+        "leadOffsetSec": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "StatementKind": {
+      "type": "string",
+      "enum": [
+        "steady",
+        "free",
+        "no_pulse",
+        "keep",
+        "beat_run",
+        "sound_at",
+        "beat_at",
+        "forbid_beat"
+      ]
+    },
+    "Statement": {
+      "type": "object",
+      "required": ["id", "kind", "active", "version", "createdAtSeq"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/StatementKind" },
+        "span": { "$ref": "#/$defs/Span" },
+        "t": { "type": "number" },
+        "value": { "type": "object", "additionalProperties": true },
+        "active": { "type": "boolean" },
+        "version": { "type": "integer", "minimum": 1 },
+        "createdAtSeq": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

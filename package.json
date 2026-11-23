@@ -2,6 +2,30 @@
   "name": "ensomi",
   "version": "0.0.1",
   "description": "The developer kit for Ensomi models.",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src",
+    "schemas",
+    "docs",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "homepage": "https://github.com/ensomi-labs/ensomi#readme",
   "bugs": {
     "url": "https://github.com/ensomi-labs/ensomi/issues"
