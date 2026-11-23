@@ -410,12 +410,12 @@ export class SessionController {
   _commitEvent(type, payload, author = { kind: "user" }) {
     const seq = this._nextSeq;
     const needsSeedDuration =
-      type !== "audio_bound" &&
       this._state.initialDurationSec > 0 &&
-      this._state.audio === null &&
-      !this._state.events.some(
-        (e) => typeof e.seedDurationSec === "number" && e.seedDurationSec > 0,
-      );
+      (seq === 0 ||
+        (this._state.audio === null &&
+          !this._state.events.some(
+            (e) => typeof e.seedDurationSec === "number" && e.seedDurationSec > 0,
+          )));
     const event = {
       schemaVersion: TRACE_SCHEMA_VERSION,
       seq,

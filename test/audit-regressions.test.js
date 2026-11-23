@@ -1189,4 +1189,157 @@ describe("Astra xhigh regressions and human-safe copy audit", () => {
     assert.equal(shrunkDraft.unbeats.length, 0);
     assert.equal(shrunkDraft.entityRevisions.size, 0);
   });
+
+  it("[Stage 9 #1] stamps seedDurationSec on seq === 0 audio_bound so retracting audio_bound restores initialDurationSec on standalone .jsonl replay", async () => {
+    const provider = new ScriptedMockProvider();
+    const ctrl = new SessionController({ provider, durationSec: 10 });
+
+    // First committed event (seq: 0) is audio_bound!
+    await ctrl.bindAudio({ songId: "s_seed_audio0", durationSec: 25, sampleRate: 44100 });
+    const traceAfterBind = ctrl.getTrace();
+    assert.equal(traceAfterBind.length, 1);
+    assert.equal(traceAfterBind[0].seq, 0);
+    assert.equal(traceAfterBind[0].type, "audio_bound");
+    assert.equal(traceAfterBind[0].seedDurationSec, 10);
+
+    // 1. Standalone replay BEFORE retracting audio_bound matches live state & checkpoint 100%,
+    //    and retracting seq: 0 on a standalone controller initialized from that .jsonl restores 10s!
+    const preRetractEvents = parseTraceNdjson(ctrl.exportNdjson());
+    const foldedPreRetract = foldTrace(preRetractEvents);
+    assert.equal(foldedPreRetract.initialDurationSec, 10);
+    assert.equal(foldedPreRetract.durationSec, 25);
+    assert.deepEqual(serializeState(foldedPreRetract), serializeState(ctrl.getState()));
+
+    const standaloneBeforeRetract = new SessionController({
+      provider: new ScriptedMockProvider(),
+      initialEvents: preRetractEvents,
+    });
+    const standaloneRetractRes = standaloneBeforeRetract.retract(0, "retract audio_bound");
+    assert.equal(standaloneRetractRes.state.durationSec, 10);
+    assert.deepEqual(
+      standaloneRetractRes.state.segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+
+    // 2. Retract audio_bound on live ctrl, then replay exported .jsonl standalone WITHOUT options.durationSec:
+    //    both live and standalone .jsonl restore 10s (never 0s) with identical checkpoints!
+    ctrl.retract(0, "retract audio_bound");
+    assert.equal(ctrl.getState().durationSec, 10);
+    assert.deepEqual(
+      ctrl.getState().segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+
+    const postRetractEvents = parseTraceNdjson(ctrl.exportNdjson());
+    const foldedPostRetract = foldTrace(postRetractEvents);
+    assert.equal(foldedPostRetract.durationSec, 10);
+    assert.equal(foldedPostRetract.initialDurationSec, 10);
+    assert.deepEqual(
+      foldedPostRetract.segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+    assert.deepEqual(serializeState(foldedPostRetract), serializeState(ctrl.getState()));
+    assert.equal(
+      verifyCheckpoint(createCheckpoint(ctrl.getState()), postRetractEvents).valid,
+      true,
+    );
+  });
+
+  it("[Stage 9 #2] atomically rolls back / rejects 2-split promote_range_to_segments when the second split fails in isReplay or live", () => {
+    // 1. Replay scenario:
+    //    seq 0: audio_bound (10s -> seg_0 [0, 10))
+    //    seq 1: split_segment seg_0 at 5.0 -> seg_0 [0, 5), seg_mid [5, 10)
+    //    seq 2: merge_segments seg_0 + seg_mid -> seg_0 [0, 10) (deletes seg_mid from entityRevisions)
+    //    seq 3: promote_range_to_segments [2.0, 8.0) with newSegmentIds: ["seg_p0", "seg_mid"], regime: "free", kept: true
+    //    seq 4: retract seq 2 (merge_segments) -> during replay of seq 3, split #1 at t0=2.0 inside seg_0 [0, 5)
+    //           would succeed, while split #2 at t1=8.0 inside seg_mid [5, 10) fails with DUPLICATE_SEGMENT_ID ("seg_mid")!
+    //           Split #1 MUST NOT remain half-applied!
+    const ctrl = new SessionController({ provider: new ScriptedMockProvider() });
+    const events = [
+      ev(0, "audio_bound", { songId: "s_atomic_prom", durationSec: 10 }, { kind: "host" }),
+      ev(1, "edit", {
+        op: "split_segment",
+        segmentId: "seg_0",
+        newSegmentId: "seg_mid",
+        timeSec: 5.0,
+      }),
+      ev(2, "edit", {
+        op: "merge_segments",
+        leftSegmentId: "seg_0",
+        rightSegmentId: "seg_mid",
+      }),
+      ev(3, "edit", {
+        op: "promote_range_to_segments",
+        t0: 2.0,
+        t1: 8.0,
+        newSegmentIds: ["seg_p0", "seg_mid"],
+        regime: "free",
+        kept: true,
+      }),
+      ev(4, "retract", { targetSeq: 2, reason: "undo merge" }),
+    ];
+
+    const replayed = foldTrace(events);
+    assert.equal(replayed.foldWarnings.length, 1);
+    assert.equal(replayed.foldWarnings[0].code, "ORPHANED_DEPENDENT_EDIT");
+    assert.equal(replayed.foldWarnings[0].seq, 3);
+
+    // Zero half-applied first split ("seg_p0" must NOT exist anywhere in segments or entityRevisions)!
+    assert.deepEqual(
+      replayed.segments.map((s) => [s.id, s.t0, s.t1, s.regime, s.kept]),
+      [
+        ["seg_0", 0, 5, "auto", false],
+        ["seg_mid", 5, 10, "auto", false],
+      ],
+    );
+    assert.equal(replayed.entityRevisions.has("seg_p0"), false);
+    assert.equal(replayed.segmentMutations.some((m) => m.segmentIds.includes("seg_p0")), false);
+    void ctrl;
+
+    // 2. Collision between newSegmentIds[1] and the span ID minted by split #1 at t0:
+    //    must reject BEFORE split #1 mutates segments/spans/entityRevisions in both live and replay!
+    let withSpan = createInitialState({ durationSec: 10 });
+    withSpan = applyEvent(
+      withSpan,
+      ev(0, "edit", { op: "set_range_keep", t0: 1.0, t1: 9.0, kept: true }),
+    );
+    const keepSpanId = withSpan.spans[0].id;
+    const collidingSpanId = `span_split_1_o0_p0_${keepSpanId}`;
+
+    assert.throws(
+      () =>
+        applyEvent(
+          withSpan,
+          ev(1, "edit", {
+            op: "promote_range_to_segments",
+            t0: 2.0,
+            t1: 8.0,
+            newSegmentIds: ["seg_ok_0", collidingSpanId],
+          }),
+        ),
+      (err) => err instanceof EnsomiError && err.code === "DUPLICATE_SEGMENT_ID",
+    );
+    // Original state untouched, and replay records ORPHANED_DEPENDENT_EDIT with zero partial split!
+    const replaySpanCollision = foldTrace(
+      [
+        ev(0, "edit", { op: "set_range_keep", t0: 1.0, t1: 9.0, kept: true }),
+        ev(1, "edit", {
+          op: "promote_range_to_segments",
+          t0: 2.0,
+          t1: 8.0,
+          newSegmentIds: ["seg_ok_0", collidingSpanId],
+        }),
+      ],
+      { durationSec: 10 },
+    );
+    assert.equal(replaySpanCollision.foldWarnings.length, 1);
+    assert.equal(replaySpanCollision.foldWarnings[0].code, "ORPHANED_DEPENDENT_EDIT");
+    assert.deepEqual(
+      replaySpanCollision.segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 10]],
+    );
+    assert.equal(replaySpanCollision.spans.length, 1);
+    assert.equal(replaySpanCollision.spans[0].id, keepSpanId);
+    assert.equal(replaySpanCollision.entityRevisions.has("seg_ok_0"), false);
+  });
 });

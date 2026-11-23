@@ -2084,30 +2084,141 @@ function applyEditOpInPlace(state, op, event, opIndex) {
       if (op.regime !== undefined && !SEGMENT_REGIME_SET.has(op.regime)) {
         throw new EnsomiError("INVALID_SEGMENT_EDIT", `Invalid segment regime: ${op.regime}`);
       }
+      if (state.segments.length === 0) {
+        throw new EnsomiError(
+          "INVALID_SEGMENT_EDIT",
+          "promote_range_to_segments requires an active segment partition",
+        );
+      }
+
+      // Pre-validate BOTH t0 and t1 split preconditions (including simulated post-t0 partition
+      // and minted span IDs) BEFORE mutating state.segments / state.spans / state.entityRevisions!
+      const existingIds = new Set([
+        ...state.segments.map((s) => s.id),
+        ...state.spans.map((s) => s.id),
+        ...state.beats.keys(),
+        ...state.sounds.keys(),
+        ...state.unbeats.map((u) => u.id),
+        ...state.entityRevisions.keys(),
+      ]);
+
       const segAtT0 = state.segments.find((s) => s.t0 < range.t0 && range.t0 < s.t1);
-      const id0 = op.newSegmentIds?.[0] ?? `seg_prom_${event.seq}_${opTag}_0`;
+      const id0 =
+        op.newSegmentIds && op.newSegmentIds[0] !== undefined
+          ? op.newSegmentIds[0]
+          : `seg_prom_${event.seq}_${opTag}_0`;
+      /** @type {Set<string>} */
+      const mintedSplit0SpanIds = new Set();
+      /** @type {import("../index.d.ts").Segment[]} */
+      let simSegments = state.segments;
+
       if (segAtT0) {
         if (typeof id0 !== "string" || id0.length === 0) {
-          throw new EnsomiError("INVALID_SEGMENT_EDIT", "split_segment requires non-empty newSegmentId");
+          throw new EnsomiError(
+            "INVALID_SEGMENT_EDIT",
+            "split_segment requires non-empty newSegmentId",
+          );
         }
-        if (state.segments.some((s) => s.id === id0) || state.entityRevisions.has(id0)) {
+        if (existingIds.has(id0)) {
           throw new EnsomiError("DUPLICATE_SEGMENT_ID", `Segment id "${id0}" already exists`);
         }
+        if (
+          typeof range.t0 !== "number" ||
+          !Number.isFinite(range.t0) ||
+          range.t0 <= segAtT0.t0 ||
+          range.t0 >= segAtT0.t1
+        ) {
+          throw new EnsomiError(
+            "INVALID_SEGMENT_EDIT",
+            `split_segment timeSec (${range.t0}) must be strictly inside (${segAtT0.t0}, ${segAtT0.t1})`,
+          );
+        }
+        const simLeft0 = normalizeSegment(
+          { ...segAtT0, t1: range.t0, source, revision: segAtT0.revision + 1 },
+          segAtT0.revision + 1,
+        );
+        const simRight0 = normalizeSegment(
+          {
+            id: id0,
+            t0: range.t0,
+            t1: segAtT0.t1,
+            regime: segAtT0.regime,
+            kept: segAtT0.kept,
+            source,
+            revision: 1,
+          },
+          1,
+        );
+        for (const sp of state.spans) {
+          if (
+            sp.segmentId === segAtT0.id &&
+            sp.t1 > range.t0 + 1e-12 &&
+            sp.t0 < range.t0 - 1e-12
+          ) {
+            const mintedId = `span_split_${event.seq}_${opTag}_p0_${sp.id}`;
+            if (existingIds.has(mintedId) || mintedId === id0) {
+              throw new EnsomiError(
+                "DUPLICATE_SEGMENT_ID",
+                `Split span id "${mintedId}" collides with existing id`,
+              );
+            }
+            mintedSplit0SpanIds.add(mintedId);
+          }
+        }
+        const t0Idx = state.segments.indexOf(segAtT0);
+        simSegments = state.segments.slice();
+        simSegments.splice(t0Idx, 1, simLeft0, simRight0);
       }
-      const willSplitT1 = state.segments.some((s) => s.t0 < range.t1 && range.t1 < s.t1);
-      const id1 = op.newSegmentIds?.[1] ?? `seg_prom_${event.seq}_${opTag}_1`;
-      if (willSplitT1) {
+
+      const simSegAtT1 = simSegments.find((s) => s.t0 < range.t1 && range.t1 < s.t1);
+      const id1 =
+        op.newSegmentIds && op.newSegmentIds[1] !== undefined
+          ? op.newSegmentIds[1]
+          : `seg_prom_${event.seq}_${opTag}_1`;
+
+      if (simSegAtT1) {
         if (typeof id1 !== "string" || id1.length === 0) {
-          throw new EnsomiError("INVALID_SEGMENT_EDIT", "split_segment requires non-empty newSegmentId");
+          throw new EnsomiError(
+            "INVALID_SEGMENT_EDIT",
+            "split_segment requires non-empty newSegmentId",
+          );
         }
         if (
           (segAtT0 && id1 === id0) ||
-          state.segments.some((s) => s.id === id1) ||
-          state.entityRevisions.has(id1)
+          existingIds.has(id1) ||
+          mintedSplit0SpanIds.has(id1)
         ) {
           throw new EnsomiError("DUPLICATE_SEGMENT_ID", `Segment id "${id1}" already exists`);
         }
+        if (
+          typeof range.t1 !== "number" ||
+          !Number.isFinite(range.t1) ||
+          range.t1 <= simSegAtT1.t0 ||
+          range.t1 >= simSegAtT1.t1
+        ) {
+          throw new EnsomiError(
+            "INVALID_SEGMENT_EDIT",
+            `split_segment timeSec (${range.t1}) must be strictly inside (${simSegAtT1.t0}, ${simSegAtT1.t1})`,
+          );
+        }
+        normalizeSegment(
+          { ...simSegAtT1, t1: range.t1, source, revision: simSegAtT1.revision + 1 },
+          simSegAtT1.revision + 1,
+        );
+        normalizeSegment(
+          {
+            id: id1,
+            t0: range.t1,
+            t1: simSegAtT1.t1,
+            regime: simSegAtT1.regime,
+            kept: simSegAtT1.kept,
+            source,
+            revision: 1,
+          },
+          1,
+        );
       }
+
       if (segAtT0) {
         splitSegmentInPlace(state, segAtT0.id, id0, range.t0, source, event, `${opTag}_p0`);
       }
@@ -2239,6 +2350,13 @@ function isReplayOrphanPreconditionError(err, op) {
       op.t1 <= op.t0)
   ) {
     return false;
+  }
+  if (op.op === "promote_range_to_segments" && Array.isArray(op.newSegmentIds)) {
+    for (const segId of op.newSegmentIds) {
+      if (segId !== undefined && (typeof segId !== "string" || segId.length === 0)) {
+        return false;
+      }
+    }
   }
   if (op.op === "upsert_span") {
     const sp = op.span;
@@ -2493,10 +2611,46 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
         if (!isReplay) {
           touched.push(...applyEditOpInPlace(state, ops[i], event, i));
         } else {
+          const opItem = ops[i];
+          const isStructuralOp =
+            opItem &&
+            typeof opItem === "object" &&
+            (opItem.op === "promote_range_to_segments" ||
+              opItem.op === "split_segment" ||
+              opItem.op === "move_segment_boundary" ||
+              opItem.op === "merge_segments" ||
+              opItem.op === "set_segment_keep" ||
+              opItem.op === "set_segment_regime" ||
+              opItem.op === "set_range_keep" ||
+              opItem.op === "set_range_free" ||
+              opItem.op === "upsert_span" ||
+              opItem.op === "remove_span");
+          const savedSegments = isStructuralOp ? state.segments.slice() : null;
+          const savedSpans = isStructuralOp ? state.spans.slice() : null;
+          const savedSegMutLen = state.segmentMutations.length;
+          const savedRevs =
+            isStructuralOp
+              ? new Map(
+                  [...state.segments.map((s) => s.id), ...state.spans.map((s) => s.id)].map(
+                    (id) => [id, state.entityRevisions.get(id)],
+                  ),
+                )
+              : null;
           try {
-            touched.push(...applyEditOpInPlace(state, ops[i], event, i));
+            touched.push(...applyEditOpInPlace(state, opItem, event, i));
           } catch (err) {
-            if (isReplayOrphanPreconditionError(err, ops[i])) {
+            if (savedSegments && savedSpans && savedRevs) {
+              for (const seg of state.segments) state.entityRevisions.delete(seg.id);
+              for (const sp of state.spans) state.entityRevisions.delete(sp.id);
+              state.segments = savedSegments;
+              state.spans = savedSpans;
+              state.segmentMutations.length = savedSegMutLen;
+              for (const [id, prevRev] of savedRevs) {
+                if (prevRev !== undefined) state.entityRevisions.set(id, prevRev);
+                else state.entityRevisions.delete(id);
+              }
+            }
+            if (isReplayOrphanPreconditionError(err, opItem)) {
               state.foldWarnings.push({
                 seq: event.seq,
                 eventId: event.id,
@@ -3059,18 +3213,27 @@ export function foldTrace(events, options = {}) {
   const retractedIds = resolveActiveRetractions(clonedEvents);
   let effectiveDurationSec = options?.durationSec;
   if (effectiveDurationSec === undefined) {
-    for (const ev of clonedEvents) {
-      if (ev.type === "audio_bound" && !retractedIds.has(ev.id)) {
-        break;
-      }
-      if (typeof ev.seedDurationSec === "number" && Number.isFinite(ev.seedDurationSec) && ev.seedDurationSec > 0) {
-        effectiveDurationSec = ev.seedDurationSec;
-        break;
-      }
-      const basisDur = /** @type {any} */ (ev.payload)?.basisDurationSec;
-      if (typeof basisDur === "number" && Number.isFinite(basisDur) && basisDur > 0) {
-        effectiveDurationSec = basisDur;
-        break;
+    const firstSeed = clonedEvents[0]?.seedDurationSec;
+    if (typeof firstSeed === "number" && Number.isFinite(firstSeed) && firstSeed > 0) {
+      effectiveDurationSec = firstSeed;
+    } else {
+      for (const ev of clonedEvents) {
+        if (ev.type === "audio_bound" && !retractedIds.has(ev.id)) {
+          break;
+        }
+        if (
+          typeof ev.seedDurationSec === "number" &&
+          Number.isFinite(ev.seedDurationSec) &&
+          ev.seedDurationSec > 0
+        ) {
+          effectiveDurationSec = ev.seedDurationSec;
+          break;
+        }
+        const basisDur = /** @type {any} */ (ev.payload)?.basisDurationSec;
+        if (typeof basisDur === "number" && Number.isFinite(basisDur) && basisDur > 0) {
+          effectiveDurationSec = basisDur;
+          break;
+        }
       }
     }
   }
