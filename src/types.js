@@ -832,6 +832,17 @@ export function assertTraceEventEnvelope(raw) {
   if (ev.tsMs !== undefined && (typeof ev.tsMs !== "number" || !Number.isFinite(ev.tsMs))) {
     throw new EnsomiError("INVALID_EVENT", `Event tsMs must be a finite number, got ${ev.tsMs}`);
   }
+  if (
+    ev.seedDurationSec !== undefined &&
+    (typeof ev.seedDurationSec !== "number" ||
+      !Number.isFinite(ev.seedDurationSec) ||
+      ev.seedDurationSec <= 0)
+  ) {
+    throw new EnsomiError(
+      "INVALID_EVENT",
+      `Event seedDurationSec must be a positive finite number, got ${ev.seedDurationSec}`,
+    );
+  }
   if (!ev.author || typeof ev.author !== "object" || Array.isArray(ev.author)) {
     throw new EnsomiError("INVALID_EVENT", "Event author must be an object");
   }

@@ -18,6 +18,7 @@ import {
   assertRange,
   assertTraceEventEnvelope,
   decomposeRangeToSpans,
+  ENTITY_SOURCES,
   EnsomiError,
   normalizeAudioDescriptor,
   normalizeBeat,
@@ -53,6 +54,7 @@ const REPLAY_ORPHAN_ERROR_CODES = new Set([
   "INVALID_RANGE",
 ]);
 
+const ENTITY_SOURCE_SET = new Set(ENTITY_SOURCES);
 const SEGMENT_REGIME_SET = new Set(SEGMENT_REGIMES);
 
 const DEEP_FROZEN_EVENTS = new WeakSet();
@@ -79,6 +81,36 @@ function deepFreezeInPlace(value) {
 }
 
 /**
+ * Single-pass JS clone + deep freeze for JSON-like event values (avoids C++ structuredClone
+ * serialization overhead on thousands of TraceEvents during foldTrace).
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
+function cloneAndFreezePlain(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    const len = value.length;
+    const arr = new Array(len);
+    for (let i = 0; i < len; i += 1) {
+      arr[i] = cloneAndFreezePlain(value[i]);
+    }
+    return /** @type {T} */ (Object.freeze(arr));
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    const cloned = structuredClone(value);
+    return deepFreezeInPlace(cloned);
+  }
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const key of Object.keys(value)) {
+    out[key] = cloneAndFreezePlain(/** @type {Record<string, unknown>} */ (value)[key]);
+  }
+  return /** @type {T} */ (Object.freeze(out));
+}
+
+/**
  * Clone and recursively freeze a `TraceEvent` once so `state.events[i]` is 100% immutable
  * across `getState()`, provider snapshots, and incremental/full folds.
  * @param {import("../index.d.ts").TraceEvent} ev
@@ -86,8 +118,7 @@ function deepFreezeInPlace(value) {
  */
 function cloneAndFreezeEvent(ev) {
   if (DEEP_FROZEN_EVENTS.has(ev)) return ev;
-  const cloned = /** @type {import("../index.d.ts").TraceEvent} */ (structuredClone(ev));
-  deepFreezeInPlace(cloned);
+  const cloned = cloneAndFreezePlain(ev);
   DEEP_FROZEN_EVENTS.add(cloned);
   return cloned;
 }
@@ -527,6 +558,26 @@ function reconcileSpansWithSegmentsInPlace(state, rev, idPrefix) {
 }
 
 /**
+ * Clear all segments, spans, beats, sounds, unbeats, and visitedRanges when duration shrinks to 0,
+ * removing their IDs from `state.entityRevisions`.
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ */
+function clearAllDurationEntitiesInPlace(state) {
+  for (const seg of state.segments) state.entityRevisions.delete(seg.id);
+  for (const sp of state.spans) state.entityRevisions.delete(sp.id);
+  for (const id of state.beats.keys()) state.entityRevisions.delete(id);
+  for (const id of state.sounds.keys()) state.entityRevisions.delete(id);
+  for (const u of state.unbeats) state.entityRevisions.delete(u.id);
+  state.segments = [];
+  state.spans = [];
+  state.beats.clear();
+  state.sounds.clear();
+  state.unbeats = [];
+  state.visitedRanges = [];
+}
+
+/**
  * Synchronize `state.segments` when `durationSec` is initialized or updated,
  * preserving existing segments when possible while enforcing exact `[0, durationSec)` contiguity.
  *
@@ -540,10 +591,15 @@ function syncDurationPartitionInPlace(state, nextDurationSec, rev, seq) {
   state.durationSec = nextDurationSec;
 
   if (nextDurationSec === 0) {
-    for (const seg of state.segments) state.entityRevisions.delete(seg.id);
-    for (const sp of state.spans) state.entityRevisions.delete(sp.id);
-    state.segments = [];
-    state.spans = [];
+    clearAllDurationEntitiesInPlace(state);
+    if (prevDuration > 0) {
+      state.segmentMutations.push({
+        seq,
+        segmentIds: [],
+        t0: 0,
+        t1: prevDuration,
+      });
+    }
     return;
   }
 
@@ -559,6 +615,10 @@ function syncDurationPartitionInPlace(state, nextDurationSec, rev, seq) {
     };
     state.segments = [seg];
     state.entityRevisions.set(seg.id, rev);
+    if (state.spans.length > 0) {
+      reconcileSpansWithSegmentsInPlace(state, rev, `sync_${seq}`);
+    }
+    pruneEntitiesBeyondDurationInPlace(state, nextDurationSec);
     return;
   }
 
@@ -1310,12 +1370,20 @@ export function computeUndoRedoTargets(stateOrEvents) {
     /** @type {import("../index.d.ts").TraceEvent[]} */ (events),
   );
 
+  /** @type {Set<string>} */
+  const undoableRoots = new Set();
+  /** @type {Map<string, string>} */
+  const parentOf = new Map();
+  /** @type {Map<string, string>} */
+  const rootOf = new Map();
+  /** @type {Map<string, string[]>} */
+  const childrenOf = new Map();
+  /** @type {Map<string, boolean>} */
+  const effective = new Map();
   /** @type {string[]} */
   const undoStack = [];
-  /** @type {Array<{ retractId: string, originalId: string }>} */
-  const redoEntries = [];
-  /** @type {Map<string, string>} */
-  const retractedUndoByRetractId = new Map();
+  /** @type {string[]} */
+  const redoStack = [];
   /** @type {string | null} */
   let currentSongId = null;
 
@@ -1332,9 +1400,9 @@ export function computeUndoRedoTargets(stateOrEvents) {
             ? rawAudio.audioId
             : null;
       if (currentSongId !== null && nextSongId !== null && nextSongId !== currentSongId) {
+        undoableRoots.clear();
         undoStack.length = 0;
-        redoEntries.length = 0;
-        retractedUndoByRetractId.clear();
+        redoStack.length = 0;
       }
       if (nextSongId !== null) {
         currentSongId = nextSongId;
@@ -1343,34 +1411,74 @@ export function computeUndoRedoTargets(stateOrEvents) {
     }
 
     if (UNDOABLE_EVENT_TYPES.has(ev.type) && (ev.author?.kind ?? "user") === "user") {
+      undoableRoots.add(ev.id);
+      rootOf.set(ev.id, ev.id);
+      childrenOf.set(ev.id, []);
+      effective.set(ev.id, true);
       undoStack.push(ev.id);
-      redoEntries.length = 0;
+      redoStack.length = 0;
       continue;
     }
 
     if (ev.type === "retract") {
       const target = resolveRetractTarget(ev, byId, bySeq);
-      const undoIdx = undoStack.lastIndexOf(target.id);
-      if (undoIdx >= 0) {
-        undoStack.splice(undoIdx, 1);
-        redoEntries.push({ retractId: ev.id, originalId: target.id });
-        retractedUndoByRetractId.set(ev.id, target.id);
-        continue;
+      parentOf.set(ev.id, target.id);
+      childrenOf.set(ev.id, []);
+      effective.set(ev.id, true);
+      const rootId = rootOf.get(target.id) ?? target.id;
+      rootOf.set(ev.id, rootId);
+
+      let targetKids = childrenOf.get(target.id);
+      if (!targetKids) {
+        targetKids = [];
+        childrenOf.set(target.id, targetKids);
       }
-      const redoIdx = redoEntries.findLastIndex((entry) => entry.retractId === target.id);
-      if (redoIdx >= 0) {
-        const [restored] = redoEntries.splice(redoIdx, 1);
-        undoStack.push(restored.originalId);
-        continue;
+      targetKids.push(ev.id);
+
+      // Recompute effective status bottom-up along the ancestor chain (node x is effective iff
+      // zero children of x are currently effective).
+      /** @type {string | undefined} */
+      let curr = target.id;
+      while (curr !== undefined) {
+        const kids = childrenOf.get(curr) ?? [];
+        const nextEff = !kids.some((cid) => effective.get(cid) === true);
+        const prevEff = effective.get(curr);
+        effective.set(curr, nextEff);
+        if (prevEff === nextEff) break;
+        curr = parentOf.get(curr);
       }
-      const historicOriginalId = retractedUndoByRetractId.get(target.id);
-      if (historicOriginalId && !undoStack.includes(historicOriginalId)) {
-        undoStack.push(historicOriginalId);
+
+      if (undoableRoots.has(rootId)) {
+        const directKids = childrenOf.get(rootId) ?? [];
+        const effectiveDirectSet = new Set(
+          directKids.filter((cid) => effective.get(cid) === true),
+        );
+        for (let rIdx = redoStack.length - 1; rIdx >= 0; rIdx -= 1) {
+          const rid = redoStack[rIdx];
+          if (directKids.includes(rid) && !effectiveDirectSet.has(rid)) {
+            redoStack.splice(rIdx, 1);
+          }
+        }
+
+        if (effective.get(rootId) === true) {
+          if (!undoStack.includes(rootId)) {
+            undoStack.push(rootId);
+          }
+        } else {
+          const undoIdx = undoStack.lastIndexOf(rootId);
+          if (undoIdx >= 0) {
+            undoStack.splice(undoIdx, 1);
+          }
+          for (const cid of directKids) {
+            if (effectiveDirectSet.has(cid) && !redoStack.includes(cid)) {
+              redoStack.push(cid);
+            }
+          }
+        }
       }
     }
   }
 
-  const redoStack = redoEntries.map((e) => e.retractId);
   return {
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
@@ -1587,6 +1695,9 @@ function applyEditOpInPlace(state, op, event, opIndex) {
     case "shift_beats": {
       if (typeof op.deltaSec !== "number" || !Number.isFinite(op.deltaSec)) {
         throw new EnsomiError("INVALID_EDIT", `shift_beats requires finite deltaSec, got ${op.deltaSec}`);
+      }
+      if (op.source !== undefined && !ENTITY_SOURCE_SET.has(op.source)) {
+        throw new EnsomiError("INVALID_BEAT", `Invalid beat source: ${op.source}`);
       }
       const range = op.range ? assertRange(op.range) : null;
       const beatIdSet = Array.isArray(op.beatIds) ? new Set(op.beatIds) : null;
@@ -1909,9 +2020,12 @@ function applyEditOpInPlace(state, op, event, opIndex) {
     }
 
     case "set_range_keep": {
+      const source = op.source ?? "user";
+      if (!ENTITY_SOURCE_SET.has(source)) {
+        throw new EnsomiError("INVALID_SPAN", `Invalid span source: ${source}`);
+      }
       const range = assertRange({ t0: op.t0, t1: op.t1 }, state.durationSec);
       const slices = decomposeRangeToSpans(state.segments, range);
-      const source = op.source ?? "user";
       for (let sIdx = 0; sIdx < slices.length; sIdx += 1) {
         const sl = slices[sIdx];
         const segIdx = state.segments.findIndex((s) => s.id === sl.segmentId);
@@ -1934,9 +2048,12 @@ function applyEditOpInPlace(state, op, event, opIndex) {
     }
 
     case "set_range_free": {
+      const source = op.source ?? "user";
+      if (!ENTITY_SOURCE_SET.has(source)) {
+        throw new EnsomiError("INVALID_SPAN", `Invalid span source: ${source}`);
+      }
       const range = assertRange({ t0: op.t0, t1: op.t1 }, state.durationSec);
       const slices = decomposeRangeToSpans(state.segments, range);
-      const source = op.source ?? "user";
       for (let sIdx = 0; sIdx < slices.length; sIdx += 1) {
         const sl = slices[sIdx];
         const segIdx = state.segments.findIndex((s) => s.id === sl.segmentId);
@@ -1961,14 +2078,41 @@ function applyEditOpInPlace(state, op, event, opIndex) {
     case "promote_range_to_segments": {
       const range = assertRange({ t0: op.t0, t1: op.t1 }, state.durationSec);
       const source = op.source ?? "user";
+      if (!ENTITY_SOURCE_SET.has(source)) {
+        throw new EnsomiError("INVALID_SEGMENT", `Invalid segment source: ${source}`);
+      }
+      if (op.regime !== undefined && !SEGMENT_REGIME_SET.has(op.regime)) {
+        throw new EnsomiError("INVALID_SEGMENT_EDIT", `Invalid segment regime: ${op.regime}`);
+      }
       const segAtT0 = state.segments.find((s) => s.t0 < range.t0 && range.t0 < s.t1);
+      const id0 = op.newSegmentIds?.[0] ?? `seg_prom_${event.seq}_${opTag}_0`;
       if (segAtT0) {
-        const id0 = op.newSegmentIds?.[0] ?? `seg_prom_${event.seq}_${opTag}_0`;
+        if (typeof id0 !== "string" || id0.length === 0) {
+          throw new EnsomiError("INVALID_SEGMENT_EDIT", "split_segment requires non-empty newSegmentId");
+        }
+        if (state.segments.some((s) => s.id === id0) || state.entityRevisions.has(id0)) {
+          throw new EnsomiError("DUPLICATE_SEGMENT_ID", `Segment id "${id0}" already exists`);
+        }
+      }
+      const willSplitT1 = state.segments.some((s) => s.t0 < range.t1 && range.t1 < s.t1);
+      const id1 = op.newSegmentIds?.[1] ?? `seg_prom_${event.seq}_${opTag}_1`;
+      if (willSplitT1) {
+        if (typeof id1 !== "string" || id1.length === 0) {
+          throw new EnsomiError("INVALID_SEGMENT_EDIT", "split_segment requires non-empty newSegmentId");
+        }
+        if (
+          (segAtT0 && id1 === id0) ||
+          state.segments.some((s) => s.id === id1) ||
+          state.entityRevisions.has(id1)
+        ) {
+          throw new EnsomiError("DUPLICATE_SEGMENT_ID", `Segment id "${id1}" already exists`);
+        }
+      }
+      if (segAtT0) {
         splitSegmentInPlace(state, segAtT0.id, id0, range.t0, source, event, `${opTag}_p0`);
       }
       const segAtT1 = state.segments.find((s) => s.t0 < range.t1 && range.t1 < s.t1);
       if (segAtT1) {
-        const id1 = op.newSegmentIds?.[1] ?? `seg_prom_${event.seq}_${opTag}_1`;
         splitSegmentInPlace(state, segAtT1.id, id1, range.t1, source, event, `${opTag}_p1`);
       }
       if (op.regime !== undefined || op.kept !== undefined) {
@@ -2059,22 +2203,6 @@ function applyEditOpInPlace(state, op, event, opIndex) {
   }
 
   return touched;
-}
-
-/**
- * Copy mutable domain fields from `src` back onto `dst` after a validated op succeeds.
- * @param {import("../index.d.ts").SessionState} dst
- * @param {import("../index.d.ts").SessionState} src
- */
-function commitOpDraftInPlace(dst, src) {
-  dst.segments = src.segments;
-  dst.spans = src.spans;
-  dst.beats = src.beats;
-  dst.sounds = src.sounds;
-  dst.unbeats = src.unbeats;
-  dst.entityRevisions = src.entityRevisions;
-  dst.segmentMutations = src.segmentMutations;
-  dst.foldWarnings = src.foldWarnings;
 }
 
 /**
@@ -2181,6 +2309,7 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
       if (!payload || typeof payload !== "object") {
         throw new EnsomiError("INVALID_PAYLOAD", "draft_loaded payload must be an object");
       }
+      const prevDuration = state.durationSec;
       const replace = payload.replace !== false;
       if (replace) {
         state.beats.clear();
@@ -2209,6 +2338,12 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
           ),
         );
         if (maxSegT1 > 0) nextDurationSec = maxSegT1;
+      }
+
+      if (payload.durationSec === 0 || (prevDuration > 0 && nextDurationSec === 0)) {
+        syncDurationPartitionInPlace(state, 0, rev, event.seq);
+        refreshOfferStatuses(state);
+        break;
       }
 
       if (Array.isArray(payload.segments) || replace || (nextDurationSec > 0 && state.segments.length === 0)) {
@@ -2337,6 +2472,16 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
     }
 
     case "edit": {
+      if (
+        state.durationSec === 0 &&
+        state.audio === null &&
+        typeof payload?.basisDurationSec === "number" &&
+        Number.isFinite(payload.basisDurationSec) &&
+        payload.basisDurationSec > 0
+      ) {
+        state.initialDurationSec = payload.basisDurationSec;
+        syncDurationPartitionInPlace(state, payload.basisDurationSec, "0:init", event.seq);
+      }
       const ops = Array.isArray(payload)
         ? payload
         : Array.isArray(payload?.ops)
@@ -2348,11 +2493,8 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
         if (!isReplay) {
           touched.push(...applyEditOpInPlace(state, ops[i], event, i));
         } else {
-          const opDraft = cloneStateShallow(state);
           try {
-            const opTouched = applyEditOpInPlace(opDraft, ops[i], event, i);
-            commitOpDraftInPlace(state, opDraft);
-            touched.push(...opTouched);
+            touched.push(...applyEditOpInPlace(state, ops[i], event, i));
           } catch (err) {
             if (isReplayOrphanPreconditionError(err, ops[i])) {
               state.foldWarnings.push({
@@ -2514,7 +2656,19 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
             ),
         );
         if (overshadowed) {
-          state.offers.set(existingId, { ...existing, status: "stale" });
+          state.offers.set(existingId, {
+            ...existing,
+            status: "stale",
+            conflicts:
+              existing.conflicts?.length > 0
+                ? existing.conflicts
+                : [
+                    {
+                      kind: "version_mismatch",
+                      message: "Superseded by a newer suggestion.",
+                    },
+                  ],
+          });
         }
       }
 
@@ -2570,53 +2724,70 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
       const ops = offer.ops ?? {};
       /** @type {Array<{ t0: number, t1: number }>} */
       const touched = [...offer.writeScopes.map((ws) => ({ t0: ws.t0, t1: ws.t1 }))];
-      const execTarget = isReplay ? cloneStateShallow(state) : state;
 
-      try {
-        for (const id of ops.removeBeatIds ?? []) {
-          if (execTarget.beats.delete(id)) {
-            execTarget.entityRevisions.delete(id);
-          }
-        }
-        for (const rawBeat of ops.upsertBeats ?? []) {
-          const existing = execTarget.beats.get(rawBeat.id);
-          const nextRev = existing ? existing.revision + 1 : rawBeat.revision ?? 1;
-          const beat = normalizeBeat(
+      // Pre-normalize beat & sound updates before mutating state (O(|ops|), zero full-Map copy)
+      const removedBeatIdSet = new Set(ops.removeBeatIds ?? []);
+      /** @type {import("../index.d.ts").Beat[]} */
+      const preparedBeats = [];
+      for (const rawBeat of ops.upsertBeats ?? []) {
+        const existing = removedBeatIdSet.has(rawBeat.id)
+          ? undefined
+          : state.beats.get(rawBeat.id);
+        const nextRev = existing ? existing.revision + 1 : rawBeat.revision ?? 1;
+        preparedBeats.push(
+          normalizeBeat(
             {
               ...rawBeat,
               source: rawBeat.source ?? "offer",
               revision: nextRev,
             },
             nextRev,
-          );
-          execTarget.beats.set(beat.id, beat);
-          execTarget.entityRevisions.set(beat.id, rev);
-        }
-        for (const id of ops.removeSoundIds ?? []) {
-          if (execTarget.sounds.delete(id)) {
-            execTarget.entityRevisions.delete(id);
-          }
-        }
-        for (const rawSound of ops.upsertSounds ?? []) {
-          const existing = execTarget.sounds.get(rawSound.id);
-          const nextRev = existing ? existing.revision + 1 : rawSound.revision ?? 1;
-          const sound = normalizeSoundAnchor(
+          ),
+        );
+      }
+
+      const removedSoundIdSet = new Set(ops.removeSoundIds ?? []);
+      /** @type {import("../index.d.ts").SoundAnchor[]} */
+      const preparedSounds = [];
+      for (const rawSound of ops.upsertSounds ?? []) {
+        const existing = removedSoundIdSet.has(rawSound.id)
+          ? undefined
+          : state.sounds.get(rawSound.id);
+        const nextRev = existing ? existing.revision + 1 : rawSound.revision ?? 1;
+        preparedSounds.push(
+          normalizeSoundAnchor(
             {
               ...rawSound,
               source: rawSound.source ?? "offer",
               revision: nextRev,
             },
             nextRev,
-          );
-          execTarget.sounds.set(sound.id, sound);
-          execTarget.entityRevisions.set(sound.id, rev);
-        }
+          ),
+        );
+      }
 
-        const splitList = ops.splitSegments ?? [];
+      const splitList = ops.splitSegments ?? [];
+      const moveList = ops.moveSegmentBoundaries ?? [];
+      const regList = ops.setSegmentRegimes ?? [];
+      const hasSegOps = splitList.length > 0 || moveList.length > 0 || regList.length > 0;
+      const savedSegments = isReplay && hasSegOps ? state.segments.slice() : null;
+      const savedSpans = isReplay && hasSegOps ? state.spans.slice() : null;
+      const savedSegMutLen = state.segmentMutations.length;
+      const savedSegRevs =
+        isReplay && hasSegOps
+          ? new Map(
+              [...state.segments.map((s) => s.id), ...state.spans.map((s) => s.id)].map((id) => [
+                id,
+                state.entityRevisions.get(id),
+              ]),
+            )
+          : null;
+
+      try {
         for (let i = 0; i < splitList.length; i += 1) {
           const s = splitList[i];
           splitSegmentInPlace(
-            execTarget,
+            state,
             s.segmentId,
             s.newSegmentId,
             s.timeSec,
@@ -2625,11 +2796,10 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
             `oa_sp${i}`,
           );
         }
-        const moveList = ops.moveSegmentBoundaries ?? [];
         for (let i = 0; i < moveList.length; i += 1) {
           const m = moveList[i];
           moveSegmentBoundaryInPlace(
-            execTarget,
+            state,
             m.leftSegmentId,
             m.rightSegmentId,
             m.timeSec,
@@ -2638,12 +2808,11 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
             `oa_mv${i}`,
           );
         }
-        const regList = ops.setSegmentRegimes ?? [];
         for (let i = 0; i < regList.length; i += 1) {
           const r = regList[i];
-          const idx = execTarget.segments.findIndex((seg) => seg.id === r.segmentId);
+          const idx = state.segments.findIndex((seg) => seg.id === r.segmentId);
           if (idx >= 0) {
-            const seg = execTarget.segments[idx];
+            const seg = state.segments[idx];
             const nextSeg = normalizeSegment(
               {
                 ...seg,
@@ -2653,17 +2822,25 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
               },
               seg.revision + 1,
             );
-            execTarget.segments[idx] = nextSeg;
-            execTarget.entityRevisions.set(nextSeg.id, rev);
+            state.segments[idx] = nextSeg;
+            state.entityRevisions.set(nextSeg.id, rev);
             if (nextSeg.regime === "free") {
-              normalizeChildSpansForSegment(execTarget, nextSeg, rev, `oa_rg${i}`);
+              normalizeChildSpansForSegment(state, nextSeg, rev, `oa_rg${i}`);
             }
           }
         }
-        if (isReplay) {
-          commitOpDraftInPlace(state, execTarget);
-        }
       } catch (err) {
+        if (savedSegments && savedSpans && savedSegRevs) {
+          for (const seg of state.segments) state.entityRevisions.delete(seg.id);
+          for (const sp of state.spans) state.entityRevisions.delete(sp.id);
+          state.segments = savedSegments;
+          state.spans = savedSpans;
+          state.segmentMutations.length = savedSegMutLen;
+          for (const [id, prevRev] of savedSegRevs) {
+            if (prevRev !== undefined) state.entityRevisions.set(id, prevRev);
+            else state.entityRevisions.delete(id);
+          }
+        }
         if (isReplay && err instanceof EnsomiError) {
           state.foldWarnings.push({
             seq: event.seq,
@@ -2674,6 +2851,25 @@ function applyActiveEventInPlace(state, event, isReplay = false) {
           break;
         }
         throw err;
+      }
+
+      for (const id of ops.removeBeatIds ?? []) {
+        if (state.beats.delete(id)) {
+          state.entityRevisions.delete(id);
+        }
+      }
+      for (const beat of preparedBeats) {
+        state.beats.set(beat.id, beat);
+        state.entityRevisions.set(beat.id, rev);
+      }
+      for (const id of ops.removeSoundIds ?? []) {
+        if (state.sounds.delete(id)) {
+          state.entityRevisions.delete(id);
+        }
+      }
+      for (const sound of preparedSounds) {
+        state.sounds.set(sound.id, sound);
+        state.entityRevisions.set(sound.id, rev);
       }
 
       state.offers.set(offerId, {
@@ -2861,7 +3057,27 @@ export function foldTrace(events, options = {}) {
   }
 
   const retractedIds = resolveActiveRetractions(clonedEvents);
-  const state = createInitialState(options);
+  let effectiveDurationSec = options?.durationSec;
+  if (effectiveDurationSec === undefined) {
+    for (const ev of clonedEvents) {
+      if (ev.type === "audio_bound" && !retractedIds.has(ev.id)) {
+        break;
+      }
+      if (typeof ev.seedDurationSec === "number" && Number.isFinite(ev.seedDurationSec) && ev.seedDurationSec > 0) {
+        effectiveDurationSec = ev.seedDurationSec;
+        break;
+      }
+      const basisDur = /** @type {any} */ (ev.payload)?.basisDurationSec;
+      if (typeof basisDur === "number" && Number.isFinite(basisDur) && basisDur > 0) {
+        effectiveDurationSec = basisDur;
+        break;
+      }
+    }
+  }
+
+  const state = createInitialState(
+    effectiveDurationSec !== undefined ? { ...options, durationSec: effectiveDurationSec } : options,
+  );
   state.retractedEventIds = retractedIds;
 
   for (const ev of clonedEvents) {

@@ -453,6 +453,7 @@ export interface TraceEvent<TPayload = unknown> {
   id: string;
   type: TraceEventType;
   tsMs?: number;
+  seedDurationSec?: number;
   author: TraceAuthor;
   payload: TPayload;
 }

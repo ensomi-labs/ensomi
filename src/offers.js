@@ -1240,6 +1240,26 @@ export function validatePatchOffer(state, offer, precompiledConstraints) {
   }
 
   if (conflicts.length === 0) {
+    const storedOffer = state?.offers instanceof Map ? state.offers.get(offer.id) : undefined;
+    if (offer.status === "stale" || storedOffer?.status === "stale") {
+      const staleConflicts =
+        Array.isArray(offer.conflicts) && offer.conflicts.length > 0
+          ? offer.conflicts.slice()
+          : Array.isArray(storedOffer?.conflicts) && storedOffer.conflicts.length > 0
+            ? storedOffer.conflicts.slice()
+            : [
+                {
+                  kind: "version_mismatch",
+                  message: "Superseded by a newer suggestion.",
+                },
+              ];
+      return {
+        valid: false,
+        status: "stale",
+        conflicts: staleConflicts,
+        advisoryNotes,
+      };
+    }
     return {
       valid: true,
       status: "valid",

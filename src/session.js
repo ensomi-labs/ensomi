@@ -244,7 +244,7 @@ export class SessionController {
     };
 
     this._holdOffers = false;
-    /** @type {{ songId: string | null, generation: number, batchId: string, offers: import("../index.d.ts").PatchOffer[] } | null} */
+    /** @type {{ songId: string | null, audioEpoch: number, generation: number, batchId: string, offers: import("../index.d.ts").PatchOffer[] } | null} */
     this._heldOfferBatch = null;
   }
 
@@ -323,6 +323,7 @@ export class SessionController {
     const slot = this._slots.heavy_recompute;
     if (
       this._heldOfferBatch.songId !== this._currentSongId() ||
+      this._heldOfferBatch.audioEpoch !== this._audioEpoch ||
       this._heldOfferBatch.generation !== slot.generation
     ) {
       return [];
@@ -362,7 +363,11 @@ export class SessionController {
       const held = this._heldOfferBatch;
       this._heldOfferBatch = null;
       const slot = this._slots.heavy_recompute;
-      if (held.generation === slot.generation && held.songId === this._currentSongId()) {
+      if (
+        held.generation === slot.generation &&
+        held.songId === this._currentSongId() &&
+        held.audioEpoch === this._audioEpoch
+      ) {
         const beforeSuppressedCount = this._state.suppressedOffers.length;
         const manifest = this._provider.manifest();
         const authorKind = manifest.kind === "rule" ? "rule" : "model";
@@ -404,12 +409,20 @@ export class SessionController {
    */
   _commitEvent(type, payload, author = { kind: "user" }) {
     const seq = this._nextSeq;
+    const needsSeedDuration =
+      type !== "audio_bound" &&
+      this._state.initialDurationSec > 0 &&
+      this._state.audio === null &&
+      !this._state.events.some(
+        (e) => typeof e.seedDurationSec === "number" && e.seedDurationSec > 0,
+      );
     const event = {
       schemaVersion: TRACE_SCHEMA_VERSION,
       seq,
       id: this._idGenerator(type, seq),
       type,
       tsMs: this._clock(),
+      ...(needsSeedDuration ? { seedDurationSec: this._state.initialDurationSec } : {}),
       author: structuredClone(author),
       payload: structuredClone(payload),
     };
@@ -574,6 +587,7 @@ export class SessionController {
 
     if (audioChanged) {
       this._audioEpoch += 1;
+      this._heldOfferBatch = null;
       if (songChanged && prevSongId !== null) {
         this.abortAll(
           `Switched song from "${prevSongId}" to "${normalized.songId}"`,
@@ -1011,6 +1025,7 @@ export class SessionController {
     const event = this._commitEvent("retract", payload, author);
     if (canonicalJson(this._state.audio) !== prevAudioJson) {
       this._audioEpoch += 1;
+      this._heldOfferBatch = null;
       if (this._currentSongId() !== prevSongId) {
         this.abortAll("Audio songId changed due to retract()");
         for (const layer of TRIGGER_LAYERS) {
@@ -1352,11 +1367,14 @@ export class SessionController {
       const suppressedWhileHeld = [];
       /** @type {import("../index.d.ts").PatchOffer[]} */
       const previewOffers = [];
+      /** @type {import("../index.d.ts").PatchOffer[]} */
+      const retainableOffers = [];
       for (const offer of normalizedOffers) {
         if (isOfferSuppressed(this._state, offer)) {
           suppressedWhileHeld.push(offer);
           continue;
         }
+        retainableOffers.push(offer);
         const check = validatePatchOffer(this._state, offer, liveConstraints);
         previewOffers.push({
           ...offer,
@@ -1367,9 +1385,10 @@ export class SessionController {
       }
       this._heldOfferBatch = {
         songId,
+        audioEpoch: epoch,
         generation: gen,
         batchId: defaultBatchId,
-        offers: previewOffers,
+        offers: retainableOffers,
       };
       return {
         status: "held",

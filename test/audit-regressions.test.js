@@ -987,4 +987,206 @@ describe("Astra xhigh regressions and human-safe copy audit", () => {
     assert.deepEqual(sibMap.get("opt_a"), [1]);
     assert.deepEqual(sibMap.get("opt_b"), [0]);
   });
+
+  it("[Stage 7 #1] derives Undo/Redo from bottom-up effective-retract graph across arbitrary-depth selective retract-of-redo", async () => {
+    const ctrl = new SessionController({ provider: new ScriptedMockProvider(), durationSec: 12 });
+
+    // Add A (e0) -> Undo (r1 retracts e0) -> Redo (r2 retracts r1) -> selective retract(r2) (r3 retracts r2)
+    const e0 = ctrl.applyEdit({
+      op: "upsert_beat",
+      beat: { id: "beat_a", timeSec: 2.0, source: "user" },
+    });
+    assert.equal(ctrl.getState().beats.has("beat_a"), true);
+    assert.equal(ctrl.canUndo(), true);
+    assert.equal(ctrl.canRedo(), false);
+
+    const r1 = ctrl.undo();
+    assert.equal(r1.ok, true);
+    assert.equal(ctrl.getState().beats.has("beat_a"), false);
+    assert.equal(ctrl.canUndo(), false);
+    assert.equal(ctrl.canRedo(), true);
+
+    const r2 = ctrl.redo();
+    assert.equal(r2.ok, true);
+    assert.equal(ctrl.getState().beats.has("beat_a"), true);
+    assert.equal(ctrl.canUndo(), true);
+    assert.equal(ctrl.canRedo(), false);
+
+    // Selectively retract the Redo event r2!
+    const r3 = ctrl.retract(r2.event.id, "retract redo");
+    assert.equal(r3.state.beats.has("beat_a"), false);
+    assert.equal(ctrl.canUndo(), false);
+    assert.equal(ctrl.canRedo(), true);
+    assert.equal(computeUndoRedoTargets(ctrl.getState()).redoTargetEventId, r1.event.id);
+
+    // Verify NDJSON round-trip preserves the exact effective redo target (r1)
+    const restored = new SessionController({
+      provider: new ScriptedMockProvider(),
+      initialEvents: parseTraceNdjson(ctrl.exportNdjson()),
+    });
+    assert.equal(restored.canUndo(), false);
+    assert.equal(restored.canRedo(), true);
+
+    // Calling redo() targets r1 and restores beat_a!
+    const r4 = restored.redo();
+    assert.equal(r4.ok, true);
+    assert.equal(r4.targetEventId, r1.event.id);
+    assert.equal(restored.getState().beats.has("beat_a"), true);
+    assert.equal(restored.canUndo(), true);
+    assert.equal(restored.canRedo(), false);
+    assert.equal(computeUndoRedoTargets(restored.getState()).undoTargetEventId, e0.event.id);
+
+    // Deeper selective retract chain: retract r4 -> r1 becomes effective again -> beat_a absent, canRedo=true!
+    const r5 = restored.retract(r4.event.id, "retract second redo");
+    assert.equal(r5.state.beats.has("beat_a"), false);
+    assert.equal(restored.canUndo(), false);
+    assert.equal(restored.canRedo(), true);
+  });
+
+  it("[Stage 7 #2] replays standalone .jsonl from SessionController({ durationSec }) without re-passing durationSec and preserves pre-bindAudio beats", async () => {
+    const provider = new ScriptedMockProvider();
+    const ctrl = new SessionController({ provider, durationSec: 10 });
+    // Zero synthetic startup trace events!
+    assert.equal(ctrl.getTrace().length, 0);
+
+    const b1 = ctrl.applyEdit({
+      op: "upsert_beat",
+      beat: { id: "b_keep_early", timeSec: 2.5, source: "user" },
+    });
+    ctrl.applyEdit({
+      op: "upsert_beat",
+      beat: { id: "b_prune_late", timeSec: 9.5, source: "user" },
+    });
+    ctrl.applyEdit({
+      op: "split_segment",
+      segmentId: "seg_0",
+      newSegmentId: "seg_1",
+      timeSec: 4.0,
+    });
+    // Even if the very first event (carrying seedDurationSec) is retracted, standalone .jsonl still seeds 10s!
+    ctrl.retract(b1.event.id, "undo b1");
+    ctrl.applyEdit({
+      op: "upsert_beat",
+      beat: { id: "b_keep_2", timeSec: 3.0, source: "user" },
+    });
+
+    const parsed = parseTraceNdjson(ctrl.exportNdjson());
+    const standaloneCtrl = new SessionController({
+      provider: new ScriptedMockProvider(),
+      initialEvents: parsed,
+    });
+    assert.equal(standaloneCtrl.getState().foldWarnings.length, 0);
+    assert.deepEqual(
+      standaloneCtrl.getState().segments.map((s) => [s.id, s.t0, s.t1]),
+      [
+        ["seg_0", 0, 4],
+        ["seg_1", 4, 10],
+      ],
+    );
+    assert.deepEqual(serializeState(standaloneCtrl.getState()), serializeState(ctrl.getState()));
+
+    // Also test binding audio for the first time (prevAudio === null) when beats already exist in state:
+    // preserves beats <= nextAudio.durationSec (3.0 <= 6.0) and prunes beats > nextAudio.durationSec (9.5 > 6.0)!
+    await standaloneCtrl.bindAudio({ songId: "bound_first_time", durationSec: 6.0 });
+    assert.equal(standaloneCtrl.getState().beats.has("b_keep_2"), true);
+    assert.equal(standaloneCtrl.getState().beats.has("b_prune_late"), false);
+    assert.deepEqual(
+      standaloneCtrl.getState().segments.map((s) => [s.id, s.t0, s.t1]),
+      [
+        ["seg_0", 0, 4],
+        ["seg_1", 4, 6],
+      ],
+    );
+
+    // Also test unbound controller (durationSec: 0) with pre-placed beats before first audio_bound:
+    const unbound = new SessionController({ provider: new ScriptedMockProvider() });
+    unbound.applyEdit([
+      { op: "upsert_beat", beat: { id: "ub_in", timeSec: 2.0, source: "user" } },
+      { op: "upsert_beat", beat: { id: "ub_out", timeSec: 12.0, source: "user" } },
+    ]);
+    await unbound.bindAudio({ songId: "unbound_healed", durationSec: 8.0 });
+    assert.equal(unbound.getState().beats.has("ub_in"), true);
+    assert.equal(unbound.getState().beats.has("ub_out"), false);
+    assert.deepEqual(
+      unbound.getState().segments.map((s) => [s.id, s.t0, s.t1]),
+      [["seg_0", 0, 8]],
+    );
+  });
+
+  it("[Stage 7 #3] enforces validatePatchOffer stored-stale parity, held-offer _audioEpoch check, and zero-duration shrink cleanup", async () => {
+    // 1. Overshadowed stored-stale offer: validatePatchOffer and acceptOffer agree 100%!
+    const ctrl = new SessionController({ provider: new ScriptedMockProvider() });
+    await ctrl.bindAudio({ songId: "s_stale_parity", durationSec: 12, sampleRate: 44100 });
+    ctrl.loadDraft({ beats: [{ id: "b0", timeSec: 0.5, source: "draft" }] });
+
+    const r1 = await ctrl.recompute({ scope: { t0: 0, t1: 4 }, reason: "local_rewrite" });
+    const oldOfferId = r1.offers[0].id;
+    assert.equal(ctrl.getState().offers.get(oldOfferId)?.status, "valid");
+
+    // Newer generation overlapping [0, 4) marks oldOfferId as "stale" even with zero beat edits!
+    const r2 = await ctrl.recompute({ scope: { t0: 0, t1: 4 }, reason: "local_rewrite" });
+    assert.equal(r2.status, "applied");
+    const staleStored = ctrl.getState().offers.get(oldOfferId);
+    assert.equal(staleStored?.status, "stale");
+
+    const checkStale = validatePatchOffer(ctrl.getState(), staleStored);
+    assert.equal(checkStale.valid, false);
+    assert.equal(checkStale.status, "stale");
+    assert.ok(checkStale.conflicts.length > 0);
+    for (const c of checkStale.conflicts) {
+      assertCleanHumanCopy(c.message, "stored-stale conflict.message");
+    }
+    assert.equal(ctrl.acceptOffer(oldOfferId).ok, false);
+
+    // 2. Held-offer _audioEpoch invalidation on same-songId descriptor change (sampleRate / leadOffsetSec)!
+    ctrl.setHoldOffers(true);
+    const heldBatch = await ctrl.recompute({ scope: { t0: 4, t1: 8 }, reason: "local_rewrite" });
+    assert.equal(heldBatch.status, "held");
+    assert.equal(ctrl.getHeldOffers().length, 1);
+
+    // Rebind SAME songId with updated sampleRate -> _audioEpoch increments -> held batch cleared!
+    await ctrl.bindAudio({
+      songId: "s_stale_parity",
+      durationSec: 12,
+      sampleRate: 48000,
+      leadOffsetSec: 0.005,
+    });
+    assert.deepEqual(ctrl.getHeldOffers(), []);
+    const flushedAfterRebind = ctrl.setHoldOffers(false);
+    assert.equal(flushedAfterRebind.flushed, false);
+    assert.deepEqual(flushedAfterRebind.offers, []);
+
+    // 3. Zero-duration shrink clears beats, sounds, unbeats, and entityRevisions on both audio_bound and additive draft_loaded!
+    let stateA = createInitialState();
+    stateA = applyEvent(
+      stateA,
+      ev(0, "audio_bound", { songId: "s_zero", durationSec: 10 }, { kind: "host" }),
+    );
+    stateA = applyEvent(
+      stateA,
+      ev(1, "edit", [
+        { op: "upsert_beat", beat: { id: "bz_1", timeSec: 2.0, source: "user" } },
+        { op: "upsert_sound", sound: { id: "sz_1", timeSec: 3.0, source: "user" } },
+        { op: "apply_unbeat_cue", id: "uz_1", timeSec: 2.5 },
+      ]),
+    );
+    const shrunkAudio = applyEvent(
+      stateA,
+      ev(2, "audio_bound", { songId: "s_zero", durationSec: 0 }, { kind: "host" }),
+    );
+    assert.equal(shrunkAudio.beats.size, 0);
+    assert.equal(shrunkAudio.sounds.size, 0);
+    assert.equal(shrunkAudio.unbeats.length, 0);
+    assert.equal(shrunkAudio.entityRevisions.size, 0);
+    assert.equal(projectRedLines(shrunkAudio.beats, shrunkAudio.segments).redLines.length, 0);
+
+    const shrunkDraft = applyEvent(
+      stateA,
+      ev(2, "draft_loaded", { replace: false, durationSec: 0, segments: [] }, { kind: "model" }),
+    );
+    assert.equal(shrunkDraft.beats.size, 0);
+    assert.equal(shrunkDraft.sounds.size, 0);
+    assert.equal(shrunkDraft.unbeats.length, 0);
+    assert.equal(shrunkDraft.entityRevisions.size, 0);
+  });
 });

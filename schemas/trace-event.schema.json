@@ -35,6 +35,10 @@
     "tsMs": {
       "type": "number"
     },
+    "seedDurationSec": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
     "author": {
       "type": "object",
       "required": ["kind"],

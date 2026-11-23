@@ -9,6 +9,7 @@ import {
   applyEvent,
   computeGridFit,
   createInitialState,
+  foldTrace,
   generateSyntheticDraft,
   projectRedLines,
   rankInboxSpans,
@@ -114,5 +115,90 @@ describe("Performance benchmark (10-minute synthetic song)", () => {
 
     const inbox = rankInboxSpans(state, { windowSec: 4 });
     assert.ok(inbox.length > 0);
+  });
+
+  it("folds 6,000 distinct beat edits on a 10-minute song in < 80 ms with O(1) zero-container-copy replay", () => {
+    const draft = generateSyntheticDraft({
+      durationSec: 600,
+      bpm: 150,
+      jitterMs: 2,
+      soundCount: 1000,
+      segmentCount: 8,
+      startSec: 0.2,
+      seed: 4242,
+    });
+
+    /** @type {import("../index.d.ts").TraceEvent[]} */
+    const events = [
+      {
+        schemaVersion: TRACE_SCHEMA_VERSION,
+        seq: 0,
+        id: "audio_0",
+        type: "audio_bound",
+        author: { kind: "host" },
+        payload: { songId: "perf_6000", durationSec: 600 },
+      },
+      {
+        schemaVersion: TRACE_SCHEMA_VERSION,
+        seq: 1,
+        id: "draft_1",
+        type: "draft_loaded",
+        author: { kind: "model" },
+        payload: draft,
+      },
+    ];
+
+    const beatCount = draft.beats.length;
+    for (let i = 0; i < 6000; i += 1) {
+      const idx = (i * 17) % beatCount;
+      const baseTime = draft.beats[idx].timeSec;
+      events.push({
+        schemaVersion: TRACE_SCHEMA_VERSION,
+        seq: 2 + i,
+        id: `edit_${i}`,
+        type: "edit",
+        author: { kind: "user" },
+        payload: {
+          op: "move_beat",
+          id: `beat_${idx}`,
+          timeSec: Number((baseTime + ((i % 9) - 4) * 0.001).toFixed(6)),
+        },
+      });
+    }
+
+    // Warm V8 JIT once, then measure fresh foldTrace over all 6,002 events (unfrozen plain objects!)
+    const warmEvents = structuredClone(events);
+    const warmed = foldTrace(warmEvents);
+    assert.equal(warmed.lastSeq, 6001);
+
+    const freshEvents = structuredClone(events);
+    const t0 = performance.now();
+    const folded = foldTrace(freshEvents);
+    const foldMs = performance.now() - t0;
+
+    assert.equal(folded.lastSeq, 6001);
+    assert.equal(folded.beats.size, beatCount);
+    assert.equal(folded.effort.actionCount, 6000);
+    assert.ok(
+      foldMs < 80,
+      `Expected 6,000-edit foldTrace < 80 ms, got ${foldMs.toFixed(2)} ms`,
+    );
+
+    // Also measure retract re-fold on pre-frozen events (SessionController.undo() path)
+    const t0Retract = performance.now();
+    const afterRetract = applyEvent(folded, {
+      schemaVersion: TRACE_SCHEMA_VERSION,
+      seq: 6002,
+      id: "retract_6002",
+      type: "retract",
+      author: { kind: "user" },
+      payload: { targetEventId: "edit_5999" },
+    });
+    const retractMs = performance.now() - t0Retract;
+    assert.equal(afterRetract.retractedEventIds.has("edit_5999"), true);
+    assert.ok(
+      retractMs < 80,
+      `Expected retract() over 6,000-edit trace < 80 ms, got ${retractMs.toFixed(2)} ms`,
+    );
   });
 });
