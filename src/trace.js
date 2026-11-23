@@ -46,6 +46,7 @@ export function createInitialState() {
     sounds: new Map(),
     statements: new Map(),
     offers: new Map(),
+    entityRevisions: new Map(),
     suppressedOffers: [],
     suppressions: [],
     lastSignal: null,
@@ -79,6 +80,7 @@ function cloneStateShallow(state) {
     sounds: new Map(state.sounds),
     statements: new Map(state.statements),
     offers: new Map(state.offers),
+    entityRevisions: new Map(state.entityRevisions),
     suppressedOffers: state.suppressedOffers.slice(),
     suppressions: state.suppressions.slice(),
     lastSignal: state.lastSignal ? structuredClone(state.lastSignal) : null,
@@ -223,6 +225,7 @@ function applyEditOpInPlace(state, op, event) {
   if (!op || typeof op !== "object") {
     throw new EnsomiError("INVALID_EDIT", "EditOp must be an object");
   }
+  const rev = `${event.seq}:${event.id}`;
   /** @type {Array<{ t0: number, t1: number }>} */
   const touched = [];
 
@@ -240,6 +243,7 @@ function applyEditOpInPlace(state, op, event) {
       }
       touched.push({ t0: beat.t, t1: beat.t });
       state.beats.set(beat.id, beat);
+      state.entityRevisions.set(beat.id, rev);
       break;
     }
 
@@ -274,6 +278,7 @@ function applyEditOpInPlace(state, op, event) {
         existing.version + 1,
       );
       state.beats.set(updated.id, updated);
+      state.entityRevisions.set(updated.id, rev);
       break;
     }
 
@@ -293,6 +298,7 @@ function applyEditOpInPlace(state, op, event) {
       }
       touched.push({ t0: existing.t, t1: existing.t });
       state.beats.delete(op.id);
+      state.entityRevisions.delete(op.id);
       break;
     }
 
@@ -334,6 +340,7 @@ function applyEditOpInPlace(state, op, event) {
               existing.version + 1,
             ),
           );
+          state.entityRevisions.set(id, rev);
         }
       }
       if (op.includeBoundaries && span) {
@@ -352,6 +359,7 @@ function applyEditOpInPlace(state, op, event) {
                 existing.version + 1,
               ),
             );
+            state.entityRevisions.set(id, rev);
           }
         }
       }
@@ -371,6 +379,7 @@ function applyEditOpInPlace(state, op, event) {
       }
       touched.push({ t0: boundary.t, t1: boundary.t });
       state.boundaries.set(boundary.id, boundary);
+      state.entityRevisions.set(boundary.id, rev);
       break;
     }
 
@@ -390,6 +399,7 @@ function applyEditOpInPlace(state, op, event) {
       }
       touched.push({ t0: existing.t, t1: existing.t });
       state.boundaries.delete(op.id);
+      state.entityRevisions.delete(op.id);
       break;
     }
 
@@ -406,6 +416,7 @@ function applyEditOpInPlace(state, op, event) {
       }
       touched.push({ t0: sound.t, t1: sound.t });
       state.sounds.set(sound.id, sound);
+      state.entityRevisions.set(sound.id, rev);
       break;
     }
 
@@ -425,6 +436,7 @@ function applyEditOpInPlace(state, op, event) {
       }
       touched.push({ t0: existing.t, t1: existing.t });
       state.sounds.delete(op.id);
+      state.entityRevisions.delete(op.id);
       break;
     }
 
@@ -460,23 +472,28 @@ function applyActiveEventInPlace(state, event) {
       if (!payload || typeof payload !== "object") {
         throw new EnsomiError("INVALID_PAYLOAD", "draft_loaded payload must be an object");
       }
+      const rev = `${event.seq}:${event.id}`;
       const replace = payload.replace !== false;
       if (replace) {
         state.beats.clear();
         state.boundaries.clear();
         state.sounds.clear();
+        state.entityRevisions.clear();
       }
       for (const rawBeat of payload.beats ?? []) {
         const beat = normalizeBeat(rawBeat, rawBeat.version ?? 1);
         state.beats.set(beat.id, beat);
+        state.entityRevisions.set(beat.id, rev);
       }
       for (const rawBoundary of payload.boundaries ?? []) {
         const boundary = normalizeBoundary(rawBoundary, rawBoundary.version ?? 1);
         state.boundaries.set(boundary.id, boundary);
+        state.entityRevisions.set(boundary.id, rev);
       }
       for (const rawSound of payload.sounds ?? []) {
         const sound = normalizeSoundAnchor(rawSound, rawSound.version ?? 1);
         state.sounds.set(sound.id, sound);
+        state.entityRevisions.set(sound.id, rev);
       }
       for (const rawStatement of payload.statements ?? []) {
         const st = normalizeStatement(rawStatement, event.seq, rawStatement.version ?? 1);
@@ -582,6 +599,7 @@ function applyActiveEventInPlace(state, event) {
 
       /** @type {import("../index.d.ts").PatchOffer[]} */
       const normalizedIncoming = [];
+      const seenIncomingIds = new Set();
       for (const rawOffer of payload.offers) {
         const candidate = {
           ...rawOffer,
@@ -591,6 +609,13 @@ function applyActiveEventInPlace(state, event) {
           conflicts: Array.isArray(rawOffer.conflicts) ? structuredClone(rawOffer.conflicts) : [],
         };
         assertOfferShape(candidate);
+        if (seenIncomingIds.has(candidate.id) || state.offers.has(candidate.id)) {
+          throw new EnsomiError(
+            "DUPLICATE_OFFER_ID",
+            `Duplicate offer id "${candidate.id}" in offer_batch`,
+          );
+        }
+        seenIncomingIds.add(candidate.id);
         candidate.writeScope = assertSpan(candidate.writeScope);
         if (candidate.readScope !== "song") {
           candidate.readScope = assertSpan(candidate.readScope);
@@ -623,8 +648,15 @@ function applyActiveEventInPlace(state, event) {
             combined.push(sc);
           }
         }
+        const hasDataConflict = liveConflicts.some(
+          (c) => c.kind === "version_mismatch" || c.kind === "range_changed",
+        );
         const finalOffer = {
           ...offer,
+          status:
+            offer.status === "pending" && hasDataConflict
+              ? /** @type {const} */ ("stale")
+              : offer.status,
           conflicts: combined,
         };
         acceptedIntoState.push(finalOffer);
@@ -665,11 +697,21 @@ function applyActiveEventInPlace(state, event) {
         break;
       }
 
+      if (offer.status !== "pending") {
+        state.foldWarnings.push({
+          seq: event.seq,
+          eventId: event.id,
+          code: "OFFER_NOT_PENDING",
+          message: `offer_accept ignored for "${offerId}" with non-pending status "${offer.status}"`,
+        });
+        break;
+      }
+
       const conflicts = validatePatchOffer(state, offer);
       if (conflicts.length > 0) {
         state.offers.set(offerId, {
           ...offer,
-          status: offer.status === "superseded" ? "superseded" : "stale",
+          status: "stale",
           conflicts,
         });
         state.foldWarnings.push({
@@ -681,33 +723,40 @@ function applyActiveEventInPlace(state, event) {
         break;
       }
 
+      const rev = `${event.seq}:${event.id}`;
       const ops = offer.ops ?? {};
       for (const id of ops.removeBeatIds ?? []) {
         state.beats.delete(id);
+        state.entityRevisions.delete(id);
       }
       for (const rawBeat of ops.upsertBeats ?? []) {
         const existing = state.beats.get(rawBeat.id);
         const nextVersion = existing ? existing.version + 1 : rawBeat.version ?? 1;
         const beat = normalizeBeat({ ...rawBeat, version: nextVersion }, nextVersion);
         state.beats.set(beat.id, beat);
+        state.entityRevisions.set(beat.id, rev);
       }
       for (const id of ops.removeBoundaryIds ?? []) {
         state.boundaries.delete(id);
+        state.entityRevisions.delete(id);
       }
       for (const rawBoundary of ops.upsertBoundaries ?? []) {
         const existing = state.boundaries.get(rawBoundary.id);
         const nextVersion = existing ? existing.version + 1 : rawBoundary.version ?? 1;
         const boundary = normalizeBoundary({ ...rawBoundary, version: nextVersion }, nextVersion);
         state.boundaries.set(boundary.id, boundary);
+        state.entityRevisions.set(boundary.id, rev);
       }
       for (const id of ops.removeSoundIds ?? []) {
         state.sounds.delete(id);
+        state.entityRevisions.delete(id);
       }
       for (const rawSound of ops.upsertSounds ?? []) {
         const existing = state.sounds.get(rawSound.id);
         const nextVersion = existing ? existing.version + 1 : rawSound.version ?? 1;
         const sound = normalizeSoundAnchor({ ...rawSound, version: nextVersion }, nextVersion);
         state.sounds.set(sound.id, sound);
+        state.entityRevisions.set(sound.id, rev);
       }
 
       state.offers.set(offerId, {
@@ -752,6 +801,16 @@ function applyActiveEventInPlace(state, event) {
           eventId: event.id,
           code: "MISSING_OFFER",
           message: `offer_reject skipped unknown offer "${offerId}"`,
+        });
+        break;
+      }
+
+      if (offer.status !== "pending") {
+        state.foldWarnings.push({
+          seq: event.seq,
+          eventId: event.id,
+          code: "OFFER_NOT_PENDING",
+          message: `offer_reject ignored for "${offerId}" with non-pending status "${offer.status}"`,
         });
         break;
       }
@@ -826,20 +885,23 @@ export function applyEvent(state, event) {
     throw new EnsomiError("DUPLICATE_EVENT_ID", `Duplicate trace event id "${event.id}"`);
   }
 
-  if (event.type === "retract") {
-    return foldTrace([...state.events, event]);
+  const clonedEvent = /** @type {import("../index.d.ts").TraceEvent} */ (structuredClone(event));
+
+  if (clonedEvent.type === "retract") {
+    return foldTrace([...state.events, clonedEvent]);
   }
 
   const next = cloneStateShallow(state);
-  next.events.push(event);
-  next.eventIds.add(event.id);
-  next.lastSeq = event.seq;
-  applyActiveEventInPlace(next, event);
+  next.events.push(clonedEvent);
+  next.eventIds.add(clonedEvent.id);
+  next.lastSeq = clonedEvent.seq;
+  applyActiveEventInPlace(next, clonedEvent);
   return next;
 }
 
 /**
  * Fold a full sequence of TraceEvents from event 0 into a materialized SessionState.
+ * Deep-clones all input events on ingestion so caller mutations can never corrupt history.
  * Guaranteed equivalent to `events.reduce(applyEvent, createInitialState())`.
  *
  * @param {import("../index.d.ts").TraceEvent[]} events
@@ -852,6 +914,13 @@ export function foldTrace(events) {
 
   let prevSeq = -1;
   const seenIds = new Set();
+  /** @type {import("../index.d.ts").TraceEvent[]} */
+  const clonedEvents = [];
+  /** @type {Map<string, import("../index.d.ts").TraceEvent>} */
+  const byId = new Map();
+  /** @type {Map<number, import("../index.d.ts").TraceEvent>} */
+  const bySeq = new Map();
+
   for (const ev of events) {
     assertTraceEventEnvelope(ev);
     if (prevSeq >= 0 && ev.seq <= prevSeq) {
@@ -865,20 +934,50 @@ export function foldTrace(events) {
     }
     seenIds.add(ev.id);
     prevSeq = ev.seq;
+    const cloned = /** @type {import("../index.d.ts").TraceEvent} */ (structuredClone(ev));
+    clonedEvents.push(cloned);
+    byId.set(cloned.id, cloned);
+    bySeq.set(cloned.seq, cloned);
   }
 
-  const retractedIds = resolveActiveRetractions(events);
+  const retractedIds = resolveActiveRetractions(clonedEvents);
   const state = createInitialState();
   state.retractedEventIds = retractedIds;
 
-  for (const ev of events) {
+  for (const ev of clonedEvents) {
     state.events.push(ev);
     state.eventIds.add(ev.id);
     state.lastSeq = ev.seq;
 
     if (ev.type === "retract") {
-      if (!retractedIds.has(ev.id) && ev.author?.kind === "user") {
-        state.effort.actionCount += 1;
+      if (!retractedIds.has(ev.id)) {
+        if (ev.author?.kind === "user") {
+          state.effort.actionCount += 1;
+        }
+        const target = resolveRetractTarget(ev, byId, bySeq);
+        // Any still-pending offer whose basisSeq included the retracted event has a diverged basis history.
+        for (const [offerId, offer] of state.offers.entries()) {
+          if (offer.status !== "pending") continue;
+          if (offer.basisSeq >= target.seq && offer.basisSeq < ev.seq) {
+            const conflictId = `conflict:basis_retracted:${offerId}:${ev.id}`;
+            const nextConflicts = offer.conflicts.some((c) => c.id === conflictId)
+              ? offer.conflicts
+              : [
+                  ...offer.conflicts,
+                  {
+                    id: conflictId,
+                    kind: /** @type {const} */ ("version_mismatch"),
+                    message: `Offer basisSeq ${offer.basisSeq} was invalidated by retraction of event "${target.id}" (seq ${target.seq})`,
+                    span: { ...offer.writeScope },
+                  },
+                ];
+            state.offers.set(offerId, {
+              ...offer,
+              status: "stale",
+              conflicts: nextConflicts,
+            });
+          }
+        }
       }
       continue;
     }
@@ -965,11 +1064,16 @@ export function parseTraceNdjson(text, options = {}) {
 }
 
 /**
- * Convert materialized SessionState into a canonical JSON-serializable object.
+ * Convert materialized SessionState into a canonical, deeply cloned JSON-serializable object.
  * @param {import("../index.d.ts").SessionState} state
  */
 export function serializeState(state) {
-  return {
+  const revEntries =
+    state.entityRevisions instanceof Map
+      ? Array.from(state.entityRevisions.entries()).sort(([a], [b]) => a.localeCompare(b))
+      : [];
+
+  return structuredClone({
     audio: state.audio,
     beats: Array.from(state.beats.values()).sort((a, b) => a.t - b.t || a.id.localeCompare(b.id)),
     boundaries: Array.from(state.boundaries.values()).sort(
@@ -980,6 +1084,7 @@ export function serializeState(state) {
       (a, b) => a.createdAtSeq - b.createdAtSeq || a.id.localeCompare(b.id),
     ),
     offers: Array.from(state.offers.values()).sort((a, b) => a.id.localeCompare(b.id)),
+    entityRevisions: Object.fromEntries(revEntries),
     suppressions: state.suppressions
       .slice()
       .sort((a, b) => a.rejectedAtSeq - b.rejectedAtSeq || a.semanticKey.localeCompare(b.semanticKey)),
@@ -991,11 +1096,12 @@ export function serializeState(state) {
     readyAtSeq: state.readyAtSeq,
     retractedEventIds: Array.from(state.retractedEventIds).sort(),
     lastSeq: state.lastSeq,
-  };
+  });
 }
 
 /**
  * Create a verifiable deterministic checkpoint from materialized SessionState.
+ * The returned snapshot is deeply cloned and detached from live state.
  * @param {import("../index.d.ts").SessionState} state
  * @returns {import("../index.d.ts").TraceCheckpoint}
  */
@@ -1013,12 +1119,52 @@ export function createCheckpoint(state) {
 
 /**
  * Verify a checkpoint against the trace prefix that produced it.
+ * Validates checkpoint schemaVersion and structure, and verifies that
+ * hash(checkpoint.snapshot) matches BOTH checkpoint.stateHash and hash(replayedSnapshot).
+ *
  * @param {import("../index.d.ts").TraceCheckpoint} checkpoint
  * @param {import("../index.d.ts").TraceEvent[]} prefixEvents
  */
 export function verifyCheckpoint(checkpoint, prefixEvents) {
   const refState = foldTrace(prefixEvents);
   const refCheckpoint = createCheckpoint(refState);
+
+  if (!checkpoint || typeof checkpoint !== "object" || Array.isArray(checkpoint)) {
+    return {
+      valid: false,
+      reason: "checkpoint must be a plain object",
+      expectedHash: refCheckpoint.stateHash,
+      actualHash: "",
+    };
+  }
+  if (checkpoint.schemaVersion !== TRACE_SCHEMA_VERSION) {
+    return {
+      valid: false,
+      reason: `schemaVersion mismatch: checkpoint=${checkpoint.schemaVersion}, expected=${TRACE_SCHEMA_VERSION}`,
+      expectedHash: refCheckpoint.stateHash,
+      actualHash: typeof checkpoint.stateHash === "string" ? checkpoint.stateHash : "",
+    };
+  }
+  if (
+    !checkpoint.snapshot ||
+    typeof checkpoint.snapshot !== "object" ||
+    Array.isArray(checkpoint.snapshot)
+  ) {
+    return {
+      valid: false,
+      reason: "checkpoint snapshot must be a plain object",
+      expectedHash: refCheckpoint.stateHash,
+      actualHash: typeof checkpoint.stateHash === "string" ? checkpoint.stateHash : "",
+    };
+  }
+  if (typeof checkpoint.stateHash !== "string" || checkpoint.stateHash.length === 0) {
+    return {
+      valid: false,
+      reason: "checkpoint stateHash must be a non-empty string",
+      expectedHash: refCheckpoint.stateHash,
+      actualHash: "",
+    };
+  }
   if (checkpoint.lastSeq !== refCheckpoint.lastSeq) {
     return {
       valid: false,
@@ -1035,6 +1181,16 @@ export function verifyCheckpoint(checkpoint, prefixEvents) {
       actualHash: checkpoint.stateHash,
     };
   }
+
+  const snapshotHash = `sha256:${sha256Hex(canonicalJson(checkpoint.snapshot))}`;
+  if (snapshotHash !== checkpoint.stateHash) {
+    return {
+      valid: false,
+      reason: "checkpoint snapshot contents do not match checkpoint.stateHash",
+      expectedHash: refCheckpoint.stateHash,
+      actualHash: snapshotHash,
+    };
+  }
   if (checkpoint.stateHash !== refCheckpoint.stateHash) {
     return {
       valid: false,
@@ -1046,6 +1202,6 @@ export function verifyCheckpoint(checkpoint, prefixEvents) {
   return {
     valid: true,
     expectedHash: refCheckpoint.stateHash,
-    actualHash: checkpoint.stateHash,
+    actualHash: snapshotHash,
   };
 }

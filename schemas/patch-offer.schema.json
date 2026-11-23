@@ -74,9 +74,20 @@
           "type": "object",
           "additionalProperties": { "type": "integer", "minimum": 1 }
         },
+        "expectedRevisions": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
         "expectedRangeEntityIds": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "expectedRangeKinds": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["beat", "boundary", "sound"] }
+        },
+        "includeSounds": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false

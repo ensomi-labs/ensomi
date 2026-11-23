@@ -4,9 +4,9 @@
  * Uses synthetic data ONLY — zero real audio, beatmaps, or checkpoints.
  */
 
-import { roundTime } from "./hash.js";
+import { canonicalJson, roundTime, sha256Hex } from "./hash.js";
 import { computeConsequences, computeSemanticKey, getRangeEntityIds } from "./offers.js";
-import { STATEMENT_KINDS } from "./types.js";
+import { EnsomiError, spanContainsTime, STATEMENT_KINDS } from "./types.js";
 
 /**
  * Deterministic linear congruential generator for reproducible synthetic jitter/confidence.
@@ -37,6 +37,42 @@ export function generateSyntheticDraft(options = {}) {
   const bpm = options.bpm ?? 120;
   const jitterMs = options.jitterMs ?? 0;
   const startSec = options.startSec ?? 0.5;
+  if (typeof durationSec !== "number" || !Number.isFinite(durationSec) || durationSec < 0) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `generateSyntheticDraft durationSec must be a non-negative finite number, got ${durationSec}`,
+    );
+  }
+  if (typeof bpm !== "number" || !Number.isFinite(bpm) || bpm <= 0) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `generateSyntheticDraft bpm must be a positive finite number, got ${bpm}`,
+    );
+  }
+  if (typeof startSec !== "number" || !Number.isFinite(startSec) || startSec < 0) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `generateSyntheticDraft startSec must be a non-negative finite number, got ${startSec}`,
+    );
+  }
+  if (typeof jitterMs !== "number" || !Number.isFinite(jitterMs) || jitterMs < 0) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `generateSyntheticDraft jitterMs must be a non-negative finite number, got ${jitterMs}`,
+    );
+  }
+  if (
+    options.soundCount !== undefined &&
+    (typeof options.soundCount !== "number" ||
+      !Number.isInteger(options.soundCount) ||
+      options.soundCount < 0)
+  ) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `generateSyntheticDraft soundCount must be a non-negative integer, got ${options.soundCount}`,
+    );
+  }
+
   const rand = createPrng(options.seed ?? 1337);
 
   const periodSec = 60 / bpm;
@@ -239,21 +275,62 @@ export class ScriptedMockProvider {
       await delay(this._delayMs || 40, signal, this._ignoreAbort);
     }
 
-    const batchId = `batch_${this._id}_g${request.generation}_${callIdx}`;
+    const idTag = this._durableTag(request, scenario, writeScope);
+    const batchId = `batch_${this._id}_${idTag}`;
 
     if (scenario === "triplet_vs_reset") {
-      return this._buildTripletVsReset(state, request, writeScope, batchId, callIdx);
+      return this._buildTripletVsReset(state, request, writeScope, batchId, idTag);
     }
     if (scenario === "forward_continuation") {
-      return this._buildForwardContinuation(state, request, writeScope, batchId, callIdx);
+      return this._buildForwardContinuation(state, request, writeScope, batchId, idTag);
     }
     if (scenario === "cross_region") {
-      return this._buildCrossRegion(state, request, writeScope, batchId, callIdx);
+      return this._buildCrossRegion(state, request, writeScope, batchId, idTag);
     }
     if (scenario === "hard_constraint_conflict") {
-      return this._buildHardConstraintConflict(state, request, writeScope, batchId, callIdx);
+      return this._buildHardConstraintConflict(state, request, writeScope, batchId, idTag);
     }
-    return this._buildLocalRewrite(state, request, writeScope, batchId, callIdx);
+    return this._buildLocalRewrite(state, request, writeScope, batchId, idTag);
+  }
+
+  /**
+   * Build a durable deterministic batch/entity namespace tag derived from
+   * provider identity, generation, basisSeq, scenario, and scope so reopening
+   * a session with a fresh provider instance never collides with earlier IDs.
+   */
+  _durableTag(request, scenario, writeScope) {
+    const digest = sha256Hex(
+      canonicalJson({
+        providerId: this._id,
+        generation: request.generation,
+        basisSeq: request.basisSeq,
+        scenario,
+        writeScope,
+      }),
+    ).slice(0, 8);
+    return `g${request.generation}_s${request.basisSeq}_${digest}`;
+  }
+
+  /**
+   * Capture version + revision preconditions for existing entities in a list.
+   * @param {import("../index.d.ts").SessionState} state
+   * @param {Array<{ id: string, version: number }>} entities
+   */
+  _capturePreconditions(state, entities) {
+    /** @type {Record<string, number>} */
+    const expectedVersions = {};
+    /** @type {Record<string, string>} */
+    const expectedRevisions = {};
+    const revMap = state.entityRevisions instanceof Map ? state.entityRevisions : null;
+    for (const e of entities) {
+      expectedVersions[e.id] = e.version;
+      const rev = revMap?.get(e.id);
+      if (rev) expectedRevisions[e.id] = rev;
+    }
+    return {
+      expectedVersions,
+      ...(Object.keys(expectedRevisions).length > 0 ? { expectedRevisions } : {}),
+    };
   }
 
   /**
@@ -261,55 +338,78 @@ export class ScriptedMockProvider {
    *  - Option 0: triplet subdivision interpretation (alternative)
    *  - Option 1: phase reset interpretation (quick_fix)
    */
-  _buildTripletVsReset(state, request, writeScope, batchId, callIdx) {
+  _buildTripletVsReset(state, request, writeScope, batchId, idTag) {
     const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
     const existingInScope = Array.from(state.beats.values())
-      .filter((b) => b.t >= writeScope.t0 && b.t < writeScope.t1)
+      .filter((b) => spanContainsTime(writeScope, b.t))
       .sort((a, b) => a.t - b.t);
-    /** @type {Record<string, number>} */
-    const expectedVersions = {};
-    for (const b of existingInScope) expectedVersions[b.id] = b.version;
+    const preconditions = this._capturePreconditions(state, existingInScope);
 
-    const spanLen = Math.max(0.5, writeScope.t1 - writeScope.t0);
-    const tripletStep = spanLen / 3;
+    const spanLen = writeScope.t1 - writeScope.t0;
+    const tripletBeats =
+      spanLen <= 0
+        ? [
+            {
+              id: `mock_trip_${idTag}_0`,
+              t: roundTime(writeScope.t0, 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.88,
+            },
+          ]
+        : [0, 1, 2].map((k) => ({
+            id: `mock_trip_${idTag}_${k}`,
+            t: roundTime(writeScope.t0 + (k * spanLen) / 3, 6),
+            source: /** @type {const} */ ("model"),
+            conf: 0.88,
+          }));
+
     const opsA = {
       removeBeatIds: existingInScope.map((b) => b.id),
-      upsertBeats: [0, 1, 2].map((k) => ({
-        id: `mock_trip_${callIdx}_${k}`,
-        t: roundTime(writeScope.t0 + k * tripletStep, 6),
-        source: /** @type {const} */ ("model"),
-        conf: 0.88,
-      })),
-      expectedVersions,
+      upsertBeats: tripletBeats,
+      ...preconditions,
       expectedRangeEntityIds,
     };
 
+    const resetOffset0 = spanLen <= 0 ? 0 : Math.min(0.1, spanLen * 0.1);
+    const resetOffset1 = spanLen <= 0 ? 0 : Math.min(0.6, spanLen * 0.6);
+    const resetBeats =
+      spanLen <= 0
+        ? [
+            {
+              id: `mock_reset_${idTag}_0`,
+              t: roundTime(writeScope.t0, 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.91,
+            },
+          ]
+        : [
+            {
+              id: `mock_reset_${idTag}_0`,
+              t: roundTime(writeScope.t0 + resetOffset0, 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.91,
+            },
+            {
+              id: `mock_reset_${idTag}_1`,
+              t: roundTime(writeScope.t0 + resetOffset1, 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.91,
+            },
+          ];
+
     const opsB = {
       removeBeatIds: existingInScope.map((b) => b.id),
-      upsertBeats: [
-        {
-          id: `mock_reset_${callIdx}_0`,
-          t: roundTime(writeScope.t0 + 0.1, 6),
-          source: /** @type {const} */ ("model"),
-          conf: 0.91,
-        },
-        {
-          id: `mock_reset_${callIdx}_1`,
-          t: roundTime(writeScope.t0 + 0.6, 6),
-          source: /** @type {const} */ ("model"),
-          conf: 0.91,
-        },
-      ],
+      upsertBeats: resetBeats,
       upsertBoundaries: [
         {
-          id: `mock_reset_bnd_${callIdx}`,
-          t: roundTime(writeScope.t0 + 0.1, 6),
+          id: `mock_reset_bnd_${idTag}`,
+          t: roundTime(writeScope.t0 + resetOffset0, 6),
           kind: /** @type {const} */ ("reset"),
           source: /** @type {const} */ ("model"),
           bpm: 120,
         },
       ],
-      expectedVersions,
+      ...preconditions,
       expectedRangeEntityIds,
     };
 
@@ -317,7 +417,7 @@ export class ScriptedMockProvider {
       batchId,
       offers: [
         this._makeOffer(state, request, {
-          id: `offer_${callIdx}_opt0`,
+          id: `offer_${idTag}_opt0`,
           batchId,
           optionIndex: 0,
           role: "alternative",
@@ -328,7 +428,7 @@ export class ScriptedMockProvider {
           summary: "Interpret span as triplet pulse",
         }),
         this._makeOffer(state, request, {
-          id: `offer_${callIdx}_opt1`,
+          id: `offer_${idTag}_opt1`,
           batchId,
           optionIndex: 1,
           role: "quick_fix",
@@ -342,32 +442,43 @@ export class ScriptedMockProvider {
     };
   }
 
-  _buildLocalRewrite(state, request, writeScope, batchId, callIdx) {
+  _buildLocalRewrite(state, request, writeScope, batchId, idTag) {
     const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
     const existingInScope = Array.from(state.beats.values())
-      .filter((b) => b.t >= writeScope.t0 && b.t < writeScope.t1)
+      .filter((b) => spanContainsTime(writeScope, b.t))
       .sort((a, b) => a.t - b.t);
-    /** @type {Record<string, number>} */
-    const expectedVersions = {};
-    for (const b of existingInScope) expectedVersions[b.id] = b.version;
+    const preconditions = this._capturePreconditions(state, existingInScope);
+
+    const spanLen = writeScope.t1 - writeScope.t0;
+    const upsertBeats =
+      spanLen <= 0
+        ? [
+            {
+              id: `mock_local_${idTag}_0`,
+              t: roundTime(writeScope.t0, 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.94,
+            },
+          ]
+        : [
+            {
+              id: `mock_local_${idTag}_0`,
+              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.25 : spanLen * 0.25), 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.94,
+            },
+            {
+              id: `mock_local_${idTag}_1`,
+              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.75 : spanLen * 0.75), 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.94,
+            },
+          ];
 
     const ops = {
       removeBeatIds: existingInScope.map((b) => b.id),
-      upsertBeats: [
-        {
-          id: `mock_local_${callIdx}_0`,
-          t: roundTime(writeScope.t0 + 0.25, 6),
-          source: /** @type {const} */ ("model"),
-          conf: 0.94,
-        },
-        {
-          id: `mock_local_${callIdx}_1`,
-          t: roundTime(writeScope.t0 + 0.75, 6),
-          source: /** @type {const} */ ("model"),
-          conf: 0.94,
-        },
-      ],
-      expectedVersions,
+      upsertBeats,
+      ...preconditions,
       expectedRangeEntityIds,
     };
 
@@ -375,7 +486,7 @@ export class ScriptedMockProvider {
       batchId,
       offers: [
         this._makeOffer(state, request, {
-          id: `offer_${callIdx}_local`,
+          id: `offer_${idTag}_local`,
           batchId,
           optionIndex: 0,
           role: "rewrite",
@@ -389,7 +500,7 @@ export class ScriptedMockProvider {
     };
   }
 
-  _buildForwardContinuation(state, request, readScope, batchId, callIdx) {
+  _buildForwardContinuation(state, request, readScope, batchId, idTag) {
     const writeScope = {
       t0: roundTime(readScope.t1, 6),
       t1: roundTime(readScope.t1 + 2.0, 6),
@@ -397,7 +508,7 @@ export class ScriptedMockProvider {
     const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
     const ops = {
       upsertBeats: [0, 1, 2, 3].map((k) => ({
-        id: `mock_fwd_${callIdx}_${k}`,
+        id: `mock_fwd_${idTag}_${k}`,
         t: roundTime(writeScope.t0 + k * 0.5, 6),
         source: /** @type {const} */ ("model"),
         conf: 0.9,
@@ -408,7 +519,7 @@ export class ScriptedMockProvider {
       batchId,
       offers: [
         this._makeOffer(state, request, {
-          id: `offer_${callIdx}_fwd`,
+          id: `offer_${idTag}_fwd`,
           batchId,
           role: "extend",
           scopeKind: "forward_continuation",
@@ -421,35 +532,48 @@ export class ScriptedMockProvider {
     };
   }
 
-  _buildCrossRegion(state, request, readScope, batchId, callIdx) {
+  _buildCrossRegion(state, request, readScope, batchId, idTag) {
     const offset = 8.0;
     const writeScope = {
       t0: roundTime(readScope.t0 + offset, 6),
       t1: roundTime(readScope.t1 + offset, 6),
     };
     const expectedRangeEntityIds = getRangeEntityIds(state, writeScope);
+    const spanLen = writeScope.t1 - writeScope.t0;
+    const upsertBeats =
+      spanLen <= 0
+        ? [
+            {
+              id: `mock_prop_${idTag}_0`,
+              t: roundTime(writeScope.t0, 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.87,
+            },
+          ]
+        : [
+            {
+              id: `mock_prop_${idTag}_0`,
+              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.25 : spanLen * 0.25), 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.87,
+            },
+            {
+              id: `mock_prop_${idTag}_1`,
+              t: roundTime(writeScope.t0 + (spanLen >= 1 ? 0.75 : spanLen * 0.75), 6),
+              source: /** @type {const} */ ("model"),
+              conf: 0.87,
+            },
+          ];
+
     const ops = {
-      upsertBeats: [
-        {
-          id: `mock_prop_${callIdx}_0`,
-          t: roundTime(writeScope.t0 + 0.25, 6),
-          source: /** @type {const} */ ("model"),
-          conf: 0.87,
-        },
-        {
-          id: `mock_prop_${callIdx}_1`,
-          t: roundTime(writeScope.t0 + 0.75, 6),
-          source: /** @type {const} */ ("model"),
-          conf: 0.87,
-        },
-      ],
+      upsertBeats,
       expectedRangeEntityIds,
     };
     return {
       batchId,
       offers: [
         this._makeOffer(state, request, {
-          id: `offer_${callIdx}_prop`,
+          id: `offer_${idTag}_prop`,
           batchId,
           role: "propagate",
           scopeKind: "cross_region",
@@ -462,7 +586,7 @@ export class ScriptedMockProvider {
     };
   }
 
-  _buildHardConstraintConflict(state, request, writeScope, batchId, callIdx) {
+  _buildHardConstraintConflict(state, request, writeScope, batchId, idTag) {
     // Deliberately propose a beat inside the first freeze/forbid constraint (or writeScope midpoint)
     const hardConstraint = request.constraints.find(
       (c) => c.form === "freeze" || c.form === "forbid",
@@ -478,7 +602,7 @@ export class ScriptedMockProvider {
     const ops = {
       upsertBeats: [
         {
-          id: `mock_conflict_${callIdx}_0`,
+          id: `mock_conflict_${idTag}_0`,
           t: targetT,
           source: /** @type {const} */ ("model"),
           conf: 0.65,
@@ -489,7 +613,7 @@ export class ScriptedMockProvider {
       batchId,
       offers: [
         this._makeOffer(state, request, {
-          id: `offer_${callIdx}_conflict`,
+          id: `offer_${idTag}_conflict`,
           batchId,
           role: "rewrite",
           scopeKind: "local",

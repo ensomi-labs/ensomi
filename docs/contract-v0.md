@@ -51,18 +51,19 @@ A provider proposes changes as sparse versioned `PatchOffer` objects rather than
 - **`OfferScopeKind`**: `"local" | "forward_continuation" | "cross_region"`
 - **`OfferRole`**: `"extend" | "rewrite" | "quick_fix" | "alternative" | "propagate"`
 - **`OfferStatus`**: `"pending" | "accepted" | "rejected" | "stale" | "superseded"`
-- **`PatchOp`**: `{ upsertBeats?, removeBeatIds?, upsertBoundaries?, removeBoundaryIds?, upsertSounds?, removeSoundIds?, expectedVersions?, expectedRangeEntityIds? }`
+- **`PatchOp`**: `{ upsertBeats?, removeBeatIds?, upsertBoundaries?, removeBoundaryIds?, upsertSounds?, removeSoundIds?, expectedVersions?, expectedRevisions?, expectedRangeEntityIds?, expectedRangeKinds?, includeSounds? }`
 - **`Conflict`**: `{ id, kind, message, entityIds?, statementIds?, span? }`
-  - `version_mismatch`: an entity listed in `expectedVersions` is missing or has a different `version`.
-  - `range_changed`: the set of entity IDs currently inside `writeScope` differs from `expectedRangeEntityIds`.
-  - `constraint_violation`: the patch mutates a frozen (`keep`) span/entity, places a beat in a forbidden (`forbid_beat` / `no_pulse`) location, or removes a clamped `beat_at` beat without replacement.
+  - `version_mismatch`: an entity listed in `expectedVersions` or `expectedRevisions` is missing, has a different `version` or immutable originating revision (`seq:eventId`), was modified after `offer.basisSeq`, lacks an explicit update/remove precondition for an existing entity, or the offer is no longer `"pending"`.
+  - `range_changed`: the set of entity IDs currently inside `writeScope` (filtered by `expectedRangeKinds` / `includeSounds` when provided) differs from `expectedRangeEntityIds`.
+  - `constraint_violation`: the patch touches any entity position outside `writeScope`, contains duplicate IDs in an upsert array, mutates a frozen (`keep`) span/entity (respecting entity-kind scope and full entity content), places a beat in a forbidden (`forbid_beat` / `no_pulse`) location, or leaves a clamped `beat_at` position unoccupied in the resulting state.
   - `sibling_conflict`: mutually conflicting options sharing a `batchId`. Accepting one sibling immediately transitions all other pending siblings in the same `batchId` to `"superseded"`, and attempting to accept a superseded sibling returns `{ ok: false, conflicts: [{ kind: "sibling_conflict", ... }] }`.
 
 ### Semantic Keys & Rejection Suppression
 
-- `computeSemanticKey(writeScope, ops)` computes a deterministic SHA-256-derived key over canonicalized `(writeScope, ops)` with freshly generated ephemeral entity IDs and versions stripped from upserts.
-- Rejecting an offer records `{ semanticKey, writeScope }` in `state.suppressions`. Subsequent offers with the same `semanticKey` overlapping `writeScope` are suppressed on arrival.
+- `computeSemanticKey(writeScope, ops)` computes a deterministic SHA-256-derived key over canonicalized `(writeScope, ops)` preserving stable IDs for existing/updated entities while stripping freshly generated ephemeral entity IDs and versions from newly inserted entities.
+- Rejecting a `"pending"` offer records `{ semanticKey, writeScope }` in `state.suppressions`. Subsequent offers with the same `semanticKey` overlapping `writeScope` are suppressed on arrival.
 - Any new `edit` or `statement` overlapping a suppression's `writeScope` automatically clears that suppression so fresh offers can resurface after user changes.
+- Duplicate offer IDs within or across `offer_batch` events are rejected (`EnsomiError("DUPLICATE_OFFER_ID")`).
 
 Schemas: [`schemas/patch-offer.schema.json`](../schemas/patch-offer.schema.json).
 
@@ -100,7 +101,7 @@ Event types: `"audio_bound" | "draft_loaded" | "edit" | "statement" | "signal" |
 - `parseTraceNdjson(text, { discardTruncatedTail?: boolean })`:
   - When `discardTruncatedTail: true`, discards **only** an incomplete/corrupt final line (e.g., partial crash write).
   - Interior line corruption **always throws** `EnsomiError("CORRUPT_NDJSON")`.
-- `createCheckpoint(state)` and `verifyCheckpoint(checkpoint, prefixEvents)` produce and verify deterministic SHA-256 state digests against prefix replay.
+- `createCheckpoint(state)` and `verifyCheckpoint(checkpoint, prefixEvents)` produce deeply cloned snapshots and verify `schemaVersion`, structure, `hash(checkpoint.snapshot) === checkpoint.stateHash`, and deterministic SHA-256 equivalence against prefix replay.
 
 Schemas: [`schemas/trace-event.schema.json`](../schemas/trace-event.schema.json).
 
@@ -111,15 +112,15 @@ Schemas: [`schemas/trace-event.schema.json`](../schemas/trace-event.schema.json)
 Derived views are never stored in `SessionState`:
 
 1. **`computeGridFit(sounds, beats, boundaries, { divisors = [1, 2, 3, 4, 6, 8], tolMs = 20 })`**
-   - Classifies every `SoundAnchor` as `"on_grid"` (`nearestDivisor === 1`), `"subdivision"` (`nearestDivisor > 1`), or `"unexplained"` (`nearestDivisor === null`), reporting `nearestBeatDistMs` and `residualMs`.
-   - Subdivisions do not interpolate across `gap_start` boundaries.
+   - Classifies every `SoundAnchor` as `"on_grid"` (`nearestDivisor === 1`), `"subdivision"` (`nearestDivisor > 1`), or `"unexplained"` (`nearestDivisor === null`), reporting unsigned `nearestBeatDistMs` and **signed** `residualMs = (sound.t - nearestSlotTime) * 1000` (negative = early relative to slot, positive = late relative to slot; `Infinity` when 0 beats exist).
+   - Gap spans are swept independently from `gap_start` (inclusive start `[t, ...)`) to `gap_end` (exclusive end), so subdivisions do not interpolate across any active gap interval (including `gap_start` at a beat timestamp).
    - Moving a beat automatically reclassifies every affected sound.
 2. **`projectRedLines(beats, boundaries, { defaultMeter = 4, jitterTolMs = 15 })`**
-   - Collapses contiguous steady beat runs via ordinary least-squares linear fit within `jitterTolMs` so per-beat jitter does not spam `.osu` `[TimingPoints]` red lines.
+   - Segments inter-beat intervals via ordinary least-squares linear fit within `jitterTolMs`, sharing the pivot beat between adjoining runs so tempo transitions take effect at the pivot beat with zero phantom beats.
    - Honors `steady_start`, `reset`, `free_start`, `gap_start`, and `gap_end` boundaries.
    - Explicitly returns `barPolicy: "barlines_not_inferred"` and a `losses: string[]` report.
 3. **`rankTroubleSpans(state, { windowSec = 4 })`**
-   - Ranks song windows descending by a transparent weighted sum of low beat confidence, unexplained inter-beat interval jumps, emphasis-weighted unexplained sound density, active offer conflicts, and unvisited status.
+   - Validates `windowSec` is finite and `> 0`, and ranks song windows descending by a transparent weighted sum of low beat confidence, unexplained inter-beat interval jumps, emphasis-weighted unexplained sound density, active offer conflicts, and unvisited status.
 
 ---
 

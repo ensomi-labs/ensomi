@@ -2,6 +2,7 @@
 // Zero-dependency ESM package (Node 22/24+ and browser-compatible sans-IO core)
 
 export type EntitySource = "model" | "user" | "import" | "rule";
+export type EntityKind = "beat" | "boundary" | "sound";
 
 export type BoundaryKind =
   | "steady_start"
@@ -187,7 +188,10 @@ export interface PatchOp {
   upsertSounds?: SoundAnchorInput[];
   removeSoundIds?: string[];
   expectedVersions?: Record<string, number>;
+  expectedRevisions?: Record<string, string>;
   expectedRangeEntityIds?: string[];
+  expectedRangeKinds?: EntityKind[];
+  includeSounds?: boolean;
 }
 
 export interface Conflict {
@@ -268,6 +272,7 @@ export interface SessionState {
   sounds: Map<string, SoundAnchor>;
   statements: Map<string, Statement>;
   offers: Map<string, PatchOffer>;
+  entityRevisions: Map<string, string>;
   suppressedOffers: PatchOffer[];
   suppressions: RejectionSuppression[];
   lastSignal: SignalPayload | null;
@@ -290,6 +295,7 @@ export interface SerializedSessionState {
   sounds: SoundAnchor[];
   statements: Statement[];
   offers: PatchOffer[];
+  entityRevisions: Record<string, string>;
   suppressions: RejectionSuppression[];
   lastSignal: SignalPayload | null;
   generation: number;
@@ -323,6 +329,7 @@ export interface GridFitItem {
   t: number;
   nearestBeatDistMs: number;
   nearestDivisor: number | null;
+  /** Signed residual `(sound.t - nearestSlotTime) * 1000` (negative = early, positive = late; `Infinity` when 0 beats). */
   residualMs: number;
   status: GridFitStatus;
 }
@@ -548,7 +555,7 @@ export declare function computeSemanticKey(writeScope: Span, ops?: PatchOp): str
 export declare function getRangeEntityIds(
   state: SessionState,
   span: Span,
-  options?: { includeSounds?: boolean },
+  options?: { includeSounds?: boolean; kinds?: EntityKind[] },
 ): string[];
 export declare function computeConsequences(state: SessionState, ops?: PatchOp): OfferConsequences;
 export declare function detectSiblingConflicts(offers: PatchOffer[]): Map<string, Conflict[]>;

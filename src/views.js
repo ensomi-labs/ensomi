@@ -6,7 +6,7 @@
  */
 
 import { roundTime } from "./hash.js";
-import { spanContainsTime, spansOverlap } from "./types.js";
+import { EnsomiError, spanContainsTime, spansOverlap } from "./types.js";
 
 /**
  * Normalize a Map or Iterable of entities to an array sorted by time ascending.
@@ -44,16 +44,57 @@ function findLeftBeatIndex(sortedBeats, t) {
 }
 
 /**
- * Check whether a gap_start boundary falls strictly between t0 and t1.
- * @param {Array<{ t: number, kind: string }>} sortedBoundaries
+ * Sweep gap_start / gap_end boundaries independently of beats to build active half-open gap spans [t0, t1).
+ * A gap_start at t opens a gap immediately at t (covering [t, ...)), closed by a subsequent gap_end at t2.
+ * When both gap_end and gap_start share the exact same timestamp, gap_end closes first before gap_start opens.
+ *
+ * @param {Array<{ id: string, t: number, kind: string }>} sortedBoundaries
+ * @returns {Array<{ t0: number, t1: number }>}
+ */
+function buildGapSpans(sortedBoundaries) {
+  const ordered = sortedBoundaries
+    .filter((b) => b.kind === "gap_start" || b.kind === "gap_end")
+    .sort((a, b) => {
+      if (a.t !== b.t) return a.t - b.t;
+      if (a.kind !== b.kind) return a.kind === "gap_end" ? -1 : 1;
+      return a.id.localeCompare(b.id);
+    });
+
+  /** @type {Array<{ t0: number, t1: number }>} */
+  const spans = [];
+  /** @type {number | null} */
+  let gapOpenAt = null;
+
+  for (const b of ordered) {
+    if (b.kind === "gap_start") {
+      if (gapOpenAt === null) {
+        gapOpenAt = b.t;
+      }
+    } else if (b.kind === "gap_end") {
+      if (gapOpenAt !== null) {
+        if (b.t > gapOpenAt) {
+          spans.push({ t0: gapOpenAt, t1: b.t });
+        }
+        gapOpenAt = null;
+      }
+    }
+  }
+  if (gapOpenAt !== null) {
+    spans.push({ t0: gapOpenAt, t1: Infinity });
+  }
+  return spans;
+}
+
+/**
+ * Check whether an open beat interval (t0, t1) intersects any active gap span [g.t0, g.t1).
+ * @param {Array<{ t0: number, t1: number }>} gapSpans
  * @param {number} t0
  * @param {number} t1
  */
-function hasGapBetween(sortedBoundaries, t0, t1) {
-  for (const b of sortedBoundaries) {
-    if (b.t <= t0) continue;
-    if (b.t >= t1) break;
-    if (b.kind === "gap_start") return true;
+function hasActiveGapInInterval(gapSpans, t0, t1) {
+  for (const g of gapSpans) {
+    if (g.t0 >= t1) break;
+    if (g.t1 > t0) return true;
   }
   return false;
 }
@@ -61,6 +102,9 @@ function hasGapBetween(sortedBoundaries, t0, t1) {
 /**
  * Compute per-sound grid fit against current beats and boundaries.
  * Moving a beat automatically reclassifies every affected sound.
+ * `residualMs` is signed: `(sound.t - nearestSlotTime) * 1000`
+ * (negative = sound is early relative to slot, positive = sound is late relative to slot;
+ * `Infinity` when there are 0 beats).
  *
  * @param {Iterable<import("../index.d.ts").SoundAnchor> | Map<string, import("../index.d.ts").SoundAnchor>} sounds
  * @param {Iterable<import("../index.d.ts").Beat> | Map<string, import("../index.d.ts").Beat>} beats
@@ -77,6 +121,7 @@ export function computeGridFit(sounds, beats, boundaries = [], options = {}) {
   const sortedSounds = toSortedByTime(sounds);
   const sortedBeats = toSortedByTime(beats);
   const sortedBoundaries = toSortedByTime(boundaries);
+  const gapSpans = buildGapSpans(sortedBoundaries);
 
   /** @type {import("../index.d.ts").GridFitItem[]} */
   const results = [];
@@ -98,11 +143,22 @@ export function computeGridFit(sounds, beats, boundaries = [], options = {}) {
     const rightIdx = leftIdx + 1 < sortedBeats.length ? leftIdx + 1 : -1;
 
     let nearestBeatDistMs = Infinity;
+    let nearestBeatSignedMs = Infinity;
     if (leftIdx >= 0) {
-      nearestBeatDistMs = Math.min(nearestBeatDistMs, Math.abs(sound.t - sortedBeats[leftIdx].t) * 1000);
+      const signedL = (sound.t - sortedBeats[leftIdx].t) * 1000;
+      const distL = Math.abs(signedL);
+      if (distL < nearestBeatDistMs) {
+        nearestBeatDistMs = distL;
+        nearestBeatSignedMs = signedL;
+      }
     }
     if (rightIdx >= 0) {
-      nearestBeatDistMs = Math.min(nearestBeatDistMs, Math.abs(sortedBeats[rightIdx].t - sound.t) * 1000);
+      const signedR = (sound.t - sortedBeats[rightIdx].t) * 1000;
+      const distR = Math.abs(signedR);
+      if (distR < nearestBeatDistMs) {
+        nearestBeatDistMs = distR;
+        nearestBeatSignedMs = signedR;
+      }
     }
 
     // Direct beat hit (divisor 1) always takes precedence when within tolerance.
@@ -112,7 +168,7 @@ export function computeGridFit(sounds, beats, boundaries = [], options = {}) {
         t: sound.t,
         nearestBeatDistMs: roundTime(nearestBeatDistMs, 4),
         nearestDivisor: 1,
-        residualMs: roundTime(nearestBeatDistMs, 4),
+        residualMs: roundTime(nearestBeatSignedMs, 4),
         status: "on_grid",
       });
       continue;
@@ -120,29 +176,34 @@ export function computeGridFit(sounds, beats, boundaries = [], options = {}) {
 
     // Evaluate enclosing beat interval for subdivisions
     let bestWithinDivisor = null;
-    let bestWithinErr = Infinity;
-    let bestOverallErr = nearestBeatDistMs;
+    let bestWithinAbsErr = Infinity;
+    let bestWithinSignedMs = 0;
+    let bestOverallAbsErr = nearestBeatDistMs;
+    let bestOverallSignedMs = nearestBeatSignedMs;
 
     if (leftIdx >= 0 && rightIdx >= 0) {
       const b0 = sortedBeats[leftIdx];
       const b1 = sortedBeats[rightIdx];
       const interval = b1.t - b0.t;
-      if (interval > 0 && !hasGapBetween(sortedBoundaries, b0.t, b1.t)) {
+      if (interval > 0 && !hasActiveGapInInterval(gapSpans, b0.t, b1.t)) {
         for (const d of divisors) {
           if (d === 1) continue;
           const pos = ((sound.t - b0.t) / interval) * d;
           const k = Math.round(pos);
           if (k <= 0 || k >= d) continue;
           const gridT = b0.t + (k / d) * interval;
-          const errMs = Math.abs(sound.t - gridT) * 1000;
-          if (errMs < bestOverallErr) {
-            bestOverallErr = errMs;
+          const signedMs = (sound.t - gridT) * 1000;
+          const errMs = Math.abs(signedMs);
+          if (errMs < bestOverallAbsErr) {
+            bestOverallAbsErr = errMs;
+            bestOverallSignedMs = signedMs;
           }
           if (errMs <= tolMs) {
             // Prefer significantly tighter residual, else simpler (smaller) divisor
-            if (bestWithinDivisor === null || errMs < bestWithinErr - 0.5) {
+            if (bestWithinDivisor === null || errMs < bestWithinAbsErr - 0.5) {
               bestWithinDivisor = d;
-              bestWithinErr = errMs;
+              bestWithinAbsErr = errMs;
+              bestWithinSignedMs = signedMs;
             }
           }
         }
@@ -155,7 +216,7 @@ export function computeGridFit(sounds, beats, boundaries = [], options = {}) {
         t: sound.t,
         nearestBeatDistMs: roundTime(nearestBeatDistMs, 4),
         nearestDivisor: bestWithinDivisor,
-        residualMs: roundTime(bestWithinErr, 4),
+        residualMs: roundTime(bestWithinSignedMs, 4),
         status: "subdivision",
       });
     } else {
@@ -164,7 +225,7 @@ export function computeGridFit(sounds, beats, boundaries = [], options = {}) {
         t: sound.t,
         nearestBeatDistMs: roundTime(nearestBeatDistMs, 4),
         nearestDivisor: null,
-        residualMs: roundTime(bestOverallErr, 4),
+        residualMs: roundTime(bestOverallSignedMs, 4),
         status: "unexplained",
       });
     }
@@ -329,31 +390,33 @@ export function projectRedLines(beats, boundaries = [], options = {}) {
       continue;
     }
 
-    // Steady segment: greedily collapse maximal linear runs within jitterTolMs
-    let idx = 0;
-    while (idx < seg.beats.length) {
-      if (idx === seg.beats.length - 1) {
-        const b = seg.beats[idx];
-        const fallbackBpm =
-          seg.bpmHint ??
-          (redLines.length > 0 ? redLines[redLines.length - 1].bpm : 120);
-        const beatLengthMs = roundTime(60000 / fallbackBpm, 6);
-        redLines.push({
-          offsetMs: roundTime(b.t * 1000, 3),
-          beatLengthMs,
-          bpm: roundTime(fallbackBpm, 4),
-          meter: defaultMeter,
-          startBeatId: b.id,
-          beatCount: 1,
-          kind: "steady_run",
-        });
-        steadyRunCount += 1;
-        if (!seg.bpmHint && redLines.length === 1) {
-          losses.push("single_beat_tempo_assumed: defaulted isolated beat to 120 BPM");
-        }
-        break;
+    // Steady segment: segment inter-beat intervals via OLS linear fit within jitterTolMs,
+    // sharing the pivot beat between adjoining runs so tempo transitions start at the pivot beat
+    // with zero phantom beats.
+    if (seg.beats.length === 1) {
+      const b = seg.beats[0];
+      const fallbackBpm =
+        seg.bpmHint ??
+        (redLines.length > 0 ? redLines[redLines.length - 1].bpm : 120);
+      const beatLengthMs = roundTime(60000 / fallbackBpm, 6);
+      redLines.push({
+        offsetMs: roundTime(b.t * 1000, 3),
+        beatLengthMs,
+        bpm: roundTime(fallbackBpm, 4),
+        meter: defaultMeter,
+        startBeatId: b.id,
+        beatCount: 1,
+        kind: "steady_run",
+      });
+      steadyRunCount += 1;
+      if (!seg.bpmHint && redLines.length === 1) {
+        losses.push("single_beat_tempo_assumed: defaulted isolated beat to 120 BPM");
       }
+      continue;
+    }
 
+    let idx = 0;
+    while (idx < seg.beats.length - 1) {
       let end = idx + 1;
       let bestFit = fitSteadyLinearRun(seg.beats.slice(idx, end + 1));
 
@@ -369,6 +432,8 @@ export function projectRedLines(beats, boundaries = [], options = {}) {
       }
 
       const runBeats = seg.beats.slice(idx, end + 1);
+      const isFinalRun = end === seg.beats.length - 1;
+      const ownedBeatCount = isFinalRun ? runBeats.length : end - idx;
       const periodSec =
         bestFit.period > 0
           ? bestFit.period
@@ -384,15 +449,19 @@ export function projectRedLines(beats, boundaries = [], options = {}) {
         bpm: roundTime(60000 / beatLengthMs, 4),
         meter: defaultMeter,
         startBeatId: runBeats[0].id,
-        beatCount: runBeats.length,
+        beatCount: ownedBeatCount,
         kind: "steady_run",
       });
       steadyRunCount += 1;
       if (runBeats.length > 1) {
-        collapsedBeatCount += runBeats.length;
+        collapsedBeatCount += ownedBeatCount;
       }
 
-      idx = end + 1;
+      if (isFinalRun) {
+        break;
+      }
+      // Share the pivot beat `end` as the starting beat of the next run!
+      idx = end;
     }
   }
 
@@ -438,6 +507,28 @@ export function rankTroubleSpans(state, options = {}) {
   const windowSec = options.windowSec ?? 4;
   const lowConfThreshold = options.lowConfThreshold ?? 0.7;
   const jumpRatioThreshold = options.jumpRatioThreshold ?? 0.12;
+  if (typeof windowSec !== "number" || !Number.isFinite(windowSec) || windowSec <= 0) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `rankTroubleSpans windowSec must be a positive finite number, got ${windowSec}`,
+    );
+  }
+  if (typeof lowConfThreshold !== "number" || !Number.isFinite(lowConfThreshold)) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `rankTroubleSpans lowConfThreshold must be a finite number, got ${lowConfThreshold}`,
+    );
+  }
+  if (
+    typeof jumpRatioThreshold !== "number" ||
+    !Number.isFinite(jumpRatioThreshold) ||
+    jumpRatioThreshold < 0
+  ) {
+    throw new EnsomiError(
+      "INVALID_OPTIONS",
+      `rankTroubleSpans jumpRatioThreshold must be a non-negative finite number, got ${jumpRatioThreshold}`,
+    );
+  }
 
   const sortedBeats = toSortedByTime(state.beats);
   const sortedBoundaries = toSortedByTime(state.boundaries);
