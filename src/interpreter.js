@@ -351,14 +351,23 @@ function sortSpansInPlace(spans) {
 
 /**
  * Validate `Beat.boundTo` against live `state.sounds` (`SOUND_NOT_FOUND` if `soundId` is missing,
- * `INVALID_BEAT_BINDING` if `anchorId` does not exist on that sound) and stamp `anchorAtUs`.
+ * `INVALID_BEAT_BINDING` if `anchorId` does not exist on that sound), stamp authoritative `anchorAtUs`,
+ * and immediately flag `alignmentStale: true` when `Math.abs(targetAtUs - anchorAtUs) > tolUs`.
  *
  * @param {import("../index.d.ts").SessionState} state
  * @param {unknown} rawBoundTo
  * @param {number} targetAtUs
+ * @param {number} [effectiveBeatTolUs]
+ * @param {number} [fallbackTolUs=DEFAULT_SOUND_TOL_US]
  * @returns {import("../index.d.ts").BeatBinding}
  */
-export function resolveAndStampBeatBinding(state, rawBoundTo, targetAtUs) {
+export function resolveAndStampBeatBinding(
+  state,
+  rawBoundTo,
+  targetAtUs,
+  effectiveBeatTolUs,
+  fallbackTolUs = DEFAULT_SOUND_TOL_US,
+) {
   const norm = normalizeBeatBinding(rawBoundTo);
   /** @type {import("../index.d.ts").SoundAnchorPoint | null} */
   let resolvedSoundAnchor = null;
@@ -391,9 +400,12 @@ export function resolveAndStampBeatBinding(state, rawBoundTo, targetAtUs) {
   const anchorAtUs = resolvedSoundAnchor
     ? resolvedSoundAnchor.atUs
     : (norm.anchorAtUs ?? targetAtUs);
+  const tolUs = effectiveBeatTolUs ?? resolvedSoundAnchor?.sigmaUs ?? fallbackTolUs;
+  const isStale = Boolean(norm.alignmentStale) || Math.abs(targetAtUs - anchorAtUs) > tolUs;
   return normalizeBeatBinding({
     ...norm,
     anchorAtUs,
+    alignmentStale: isStale ? true : undefined,
   });
 }
 
@@ -1242,11 +1254,19 @@ export function executeTransaction(state, ops, ctx) {
             },
             { durationUs },
           );
+          const upsertTolUs =
+            ctx.actorMode === "user"
+              ? op.tolUs !== undefined
+                ? assertNonNegSafeIntUs(op.tolUs, "upsert_beat.tolUs", "INVALID_VERDICT")
+                : existing?.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US
+              : existing?.verdict?.tolUs;
           if (draftBeat.boundTo) {
             const resolvedBoundTo = resolveAndStampBeatBinding(
               state,
               draftBeat.boundTo,
               draftBeat.atUs,
+              upsertTolUs,
+              DEFAULT_SOUND_TOL_US,
             );
             draftBeat = deepFreeze({
               ...draftBeat,
@@ -1255,10 +1275,6 @@ export function executeTransaction(state, ops, ctx) {
           }
 
           if (ctx.actorMode === "user") {
-            const tolUs =
-              op.tolUs !== undefined
-                ? assertNonNegSafeIntUs(op.tolUs, "upsert_beat.tolUs", "INVALID_VERDICT")
-                : existing?.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US;
             const vd = computeEntityValueDigest("beat", draftBeat);
             draftBeat = normalizeBeat(
               {
@@ -1267,7 +1283,7 @@ export function executeTransaction(state, ops, ctx) {
                   kind: origin === "user" ? "placed" : "adjusted",
                   eventId: ctx.eventId,
                   valueDigest: vd,
-                  tolUs,
+                  tolUs: /** @type {number} */ (upsertTolUs),
                   via: op.via ?? "tap",
                 },
               },
@@ -1309,11 +1325,19 @@ export function executeTransaction(state, ops, ctx) {
           if (ctx.actorMode === "user" && op.via !== undefined) {
             assertVerdictVia(op.via, "move_beat.via");
           }
+          const effectiveMoveTolUs =
+            ctx.actorMode === "user" ? resolvedTolUs : existing.verdict?.tolUs;
           const nextBoundTo =
             op.boundTo === null
               ? undefined
               : op.boundTo !== undefined
-                ? resolveAndStampBeatBinding(state, op.boundTo, atUs)
+                ? resolveAndStampBeatBinding(
+                    state,
+                    op.boundTo,
+                    atUs,
+                    effectiveMoveTolUs,
+                    DEFAULT_SOUND_TOL_US,
+                  )
                 : existing.boundTo
                   ? atUs === existing.atUs
                     ? existing.boundTo
@@ -1322,7 +1346,9 @@ export function executeTransaction(state, ops, ctx) {
                         existing.boundTo,
                         atUs,
                         atUs - existing.atUs,
-                        existing.verdict?.tolUs,
+                        ctx.actorMode === "user" && op.tolUs !== undefined
+                          ? resolvedTolUs
+                          : existing.verdict?.tolUs,
                       )
                   : undefined;
           let nextStructural;
@@ -1422,7 +1448,19 @@ export function executeTransaction(state, ops, ctx) {
             rawSnapConf !== undefined
               ? assertUnitInterval(rawSnapConf, "snap_beat.confidence", "INVALID_FIELD")
               : existing.confidence;
-          const boundTo = resolveAndStampBeatBinding(state, op.boundTo, atUs);
+          const snapTolUs =
+            ctx.actorMode === "user"
+              ? op.tolUs !== undefined
+                ? assertNonNegSafeIntUs(op.tolUs, "snap_beat.tolUs", "INVALID_VERDICT")
+                : DEFAULT_SNAP_BEAT_TOL_US
+              : existing.verdict?.tolUs;
+          const boundTo = resolveAndStampBeatBinding(
+            state,
+            op.boundTo,
+            atUs,
+            snapTolUs,
+            DEFAULT_SNAP_BEAT_TOL_US,
+          );
 
           let lineage = existing.lineage;
           if (ctx.actorMode === "user" && existing.origin !== "user" && !lineage) {
@@ -1449,10 +1487,6 @@ export function executeTransaction(state, ops, ctx) {
           );
 
           if (ctx.actorMode === "user") {
-            const tolUs =
-              op.tolUs !== undefined
-                ? assertNonNegSafeIntUs(op.tolUs, "snap_beat.tolUs", "INVALID_VERDICT")
-                : DEFAULT_SNAP_BEAT_TOL_US;
             const vd = computeEntityValueDigest("beat", nextBeat);
             nextBeat = normalizeBeat(
               {
@@ -1461,7 +1495,7 @@ export function executeTransaction(state, ops, ctx) {
                   kind: existing.origin === "user" ? "placed" : "adjusted",
                   eventId: ctx.eventId,
                   valueDigest: vd,
-                  tolUs,
+                  tolUs: /** @type {number} */ (snapTolUs),
                   via: op.via ?? "snap",
                 },
               },
@@ -1486,6 +1520,12 @@ export function executeTransaction(state, ops, ctx) {
           const op = /** @type {Extract<import("../index.d.ts").TransactionOp, { op: "shift_beats" }>} */ (rawOp);
           const range = assertIntervalUs(op.startUs, op.endUs, durationUs, "shift_beats");
           const deltaUs = assertSafeIntUs(op.deltaUs, "shift_beats.deltaUs");
+          if (op.includeVerified !== undefined && typeof op.includeVerified !== "boolean") {
+            throw new EnsomiError(
+              "INVALID_FIELD",
+              `shift_beats.includeVerified must be a boolean, got ${String(op.includeVerified)}`,
+            );
+          }
           const includeVerified = op.includeVerified === true;
           if (deltaUs === 0) break; // semantic no-op
 

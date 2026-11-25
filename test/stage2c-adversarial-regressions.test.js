@@ -975,4 +975,295 @@ describe("Stage 2C Adversarial Audit Regressions (Astra P1 #8, #9, #10, #12 & P2
       assert.equal(finalModelEphem?.boundTo?.alignmentStale, true);
     });
   });
+
+  describe("[Stage 2F-1 Astra Stage 2E #8 & #17]: replacementId write-scope/mutation & immediate BeatBinding alignmentStale", () => {
+    it("#8a: rejects OfferChallenge.replacementId outside offer.writeRanges (status: invalid, conflict: out_of_scope, throws OUT_OF_SCOPE on offer_accept)", () => {
+      // Verified beat b1 at 1.0s, unverified beat b2 at 8.0s
+      let state = createAudioState(10_000_000, {
+        beats: [{ id: "b2", atUs: 8_000_000, confidence: 0.75 }],
+      });
+      state = applyEvent(
+        state,
+        makeEvent(2, "ev_place_b1", "edit", {
+          op: "upsert_beat",
+          beat: { id: "b1", atUs: 1_000_000 },
+        }),
+      );
+      const b1 = state.beats.get("b1");
+      const d1 = computeEntityValueDigest("beat", b1);
+
+      const outOfScopeRepOffer = bindOfferToBasis(state, {
+        id: "off_rep_oos_8s",
+        batchId: "b_2f1_8a",
+        kind: "pulse",
+        writeRanges: [{ startUs: 500_000, endUs: 2_000_000 }],
+        ops: [{ op: "remove_beats", ids: ["b1"] }],
+        challenges: [
+          {
+            challengeId: "ch_b1_oos",
+            targetKind: "beat",
+            targetId: "b1",
+            expectedRevision: b1.revision,
+            expectedValueDigest: d1,
+            reasonCode: "launder_distant_beat",
+            replacementId: "b2",
+          },
+        ],
+        notes: [],
+      });
+
+      assert.equal(outOfScopeRepOffer.status, "invalid");
+      assert.ok(outOfScopeRepOffer.conflicts.some((c) => c.kind === "out_of_scope"));
+
+      const withBatch = applyEvent(
+        state,
+        makeEvent(
+          3,
+          "ev_batch_8a",
+          "offer_batch",
+          { batchId: "b_2f1_8a", offers: [outOfScopeRepOffer] },
+          { kind: "model" },
+        ),
+      );
+      assert.equal(withBatch.offers.get("off_rep_oos_8s")?.status, "invalid");
+
+      assert.throws(
+        () =>
+          applyEvent(
+            withBatch,
+            makeEvent(4, "ev_acc_8a", "offer_accept", {
+              offerIds: ["off_rep_oos_8s"],
+              authorizedChallenges: [
+                {
+                  offerId: "off_rep_oos_8s",
+                  challengeId: "ch_b1_oos",
+                  targetId: "b1",
+                  expectedValueDigest: d1,
+                  disposition: "confirm_replacement",
+                },
+              ],
+            }),
+          ),
+        (err) => err instanceof EnsomiError && err.code === "OUT_OF_SCOPE",
+      );
+    });
+
+    it("#8b: rejects OfferChallenge.replacementId naming an untouched pre-existing mark inside offer.writeRanges (status: invalid, conflict: invalid_op, throws INVALID_OFFER on offer_accept)", () => {
+      // Verified beat b1 at 1.0s, unverified beat b2 at 8.0s, unverified sound s2 at [7.0s, 7.5s), unverified soundClass sc2
+      let state = createAudioState(10_000_000, {
+        beats: [{ id: "b2", atUs: 8_000_000, confidence: 0.75 }],
+        sounds: [
+          {
+            id: "s2",
+            startUs: 7_000_000,
+            endUs: 7_500_000,
+            endKind: "observed",
+            anchors: [{ id: "a_s2", role: "transient_attack", atUs: 7_005_000 }],
+            primaryAnchorId: "a_s2",
+          },
+        ],
+        soundClasses: [{ id: "sc2", exemplarSoundIds: ["s2"], matchMode: "hit" }],
+      });
+      state = applyEvent(
+        state,
+        makeEvent(2, "ev_place_b1_sc1", "edit", [
+          { op: "upsert_beat", beat: { id: "b1", atUs: 1_000_000 } },
+          {
+            op: "upsert_sound_class",
+            soundClass: { id: "sc1", exemplarSoundIds: ["s2"], matchMode: "voice" },
+          },
+        ]),
+      );
+      const b1 = state.beats.get("b1");
+      const d1 = computeEntityValueDigest("beat", b1);
+
+      // Offer scoped [0.5s, 9.0s) removes b1 and names untouched pre-existing b2 at 8.0s (and even tries a zero-change no-op move_beat!)
+      for (const ops of [
+        [{ op: "remove_beats", ids: ["b1"] }],
+        [
+          { op: "remove_beats", ids: ["b1"] },
+          { op: "move_beat", id: "b2", atUs: 8_000_000, confidence: 0.75 },
+        ],
+      ]) {
+        const untouchedRepOffer = bindOfferToBasis(state, {
+          id: "off_rep_untouched",
+          batchId: "b_2f1_8b",
+          kind: "pulse",
+          writeRanges: [{ startUs: 500_000, endUs: 9_000_000 }],
+          ops,
+          challenges: [
+            {
+              challengeId: "ch_b1_untouched",
+              targetKind: "beat",
+              targetId: "b1",
+              expectedRevision: b1.revision,
+              expectedValueDigest: d1,
+              reasonCode: "launder_untouched_beat",
+              replacementId: "b2",
+            },
+          ],
+          notes: [],
+        });
+
+        assert.equal(untouchedRepOffer.status, "invalid");
+        assert.ok(untouchedRepOffer.conflicts.some((c) => c.kind === "invalid_op"));
+
+        const withBatch = applyEvent(
+          state,
+          makeEvent(
+            3,
+            "ev_batch_8b",
+            "offer_batch",
+            { batchId: "b_2f1_8b", offers: [untouchedRepOffer] },
+            { kind: "model" },
+          ),
+        );
+        assert.throws(
+          () =>
+            applyEvent(
+              withBatch,
+              makeEvent(4, "ev_acc_8b", "offer_accept", {
+                offerIds: ["off_rep_untouched"],
+                authorizedChallenges: [
+                  {
+                    offerId: "off_rep_untouched",
+                    challengeId: "ch_b1_untouched",
+                    targetId: "b1",
+                    expectedValueDigest: d1,
+                    disposition: "confirm_replacement",
+                  },
+                ],
+              }),
+            ),
+          (err) => err instanceof EnsomiError && err.code === "INVALID_OFFER",
+        );
+      }
+
+      // Also verify untouched sound_class replacementId is rejected with invalid_op
+      const sc1 = state.soundClasses.get("sc1");
+      const dSc1 = computeEntityValueDigest("sound_class", sc1);
+      const untouchedScOffer = bindOfferToBasis(state, {
+        id: "off_sc_untouched",
+        batchId: "b_2f1_8b_sc",
+        kind: "sound_match",
+        writeRanges: [{ startUs: 500_000, endUs: 9_000_000 }],
+        ops: [{ op: "remove_sound_classes", ids: ["sc1"] }],
+        challenges: [
+          {
+            challengeId: "ch_sc1",
+            targetKind: "sound_class",
+            targetId: "sc1",
+            expectedRevision: sc1.revision,
+            expectedValueDigest: dSc1,
+            reasonCode: "merge_class",
+            replacementId: "sc2",
+          },
+        ],
+        notes: [],
+      });
+      assert.equal(untouchedScOffer.status, "invalid");
+      assert.ok(untouchedScOffer.conflicts.some((c) => c.kind === "invalid_op"));
+    });
+
+    it("#17: immediately flags alignmentStale: true when binding Beat.boundTo to a displaced Sound anchor, and explicitly normalizes shift_beats.includeVerified in TraceEvent/Offer", () => {
+      let state = createAudioState(10_000_000, {
+        beats: [
+          { id: "b_snap", atUs: 1_000_000 },
+          { id: "b_move", atUs: 1_000_000 },
+        ],
+        sounds: [
+          {
+            id: "snd_disp",
+            startUs: 950_000,
+            endUs: 1_300_000,
+            endKind: "observed",
+            anchors: [{ id: "anc_disp", role: "transient_attack", atUs: 1_008_000 }],
+            primaryAnchorId: "anc_disp",
+          },
+        ],
+      });
+
+      // Move Sound anchor to 1,200,000 us
+      state = applyEvent(
+        state,
+        makeEvent(2, "ev_move_snd", "edit", {
+          op: "update_sound",
+          id: "snd_disp",
+          patch: {
+            anchors: [{ id: "anc_disp", role: "transient_attack", atUs: 1_200_000 }],
+          },
+        }),
+      );
+
+      // Now snap_beat at 1,008,000 us (tolUs: 2_000) referencing { soundId: "snd_disp", anchorId: "anc_disp" }
+      state = applyEvent(
+        state,
+        makeEvent(3, "ev_snap_stale", "edit", [
+          {
+            op: "snap_beat",
+            id: "b_snap",
+            atUs: 1_008_000,
+            tolUs: 2_000,
+            boundTo: {
+              soundId: "snd_disp",
+              anchorId: "anc_disp",
+              anchorRole: "transient_attack",
+            },
+          },
+          {
+            op: "upsert_beat",
+            beat: {
+              id: "b_upsert_stale",
+              atUs: 1_008_000,
+              boundTo: {
+                soundId: "snd_disp",
+                anchorId: "anc_disp",
+                anchorRole: "transient_attack",
+              },
+            },
+            tolUs: 20_000,
+          },
+          {
+            op: "move_beat",
+            id: "b_move",
+            atUs: 1_008_000,
+            tolUs: 20_000,
+            boundTo: {
+              soundId: "snd_disp",
+              anchorId: "anc_disp",
+              anchorRole: "transient_attack",
+            },
+          },
+          {
+            op: "shift_beats",
+            startUs: 0,
+            endUs: 5_000_000,
+            deltaUs: 5_000,
+          },
+        ]),
+      );
+
+      for (const bid of ["b_snap", "b_upsert_stale", "b_move"]) {
+        const beat = state.beats.get(bid);
+        assert.equal(beat?.boundTo?.anchorAtUs, 1_200_000);
+        assert.equal(beat?.boundTo?.alignmentStale, true);
+        assert.equal(beat?.verdict?.valueDigest, computeEntityValueDigest("beat", beat));
+      }
+
+      // Verify `shift_beats.includeVerified` is explicitly normalized to boolean `false` in stored TraceEvent and Offer
+      const recordedEditOps = /** @type {any[]} */ (state.events[state.events.length - 1].payload);
+      assert.equal(recordedEditOps[3].op, "shift_beats");
+      assert.strictEqual(recordedEditOps[3].includeVerified, false);
+
+      const boundShiftOffer = bindOfferToBasis(state, {
+        id: "off_norm_shift",
+        batchId: "b_norm_shift",
+        kind: "pulse",
+        writeRanges: [{ startUs: 0, endUs: 5_000_000 }],
+        ops: [{ op: "shift_beats", startUs: 0, endUs: 2_000_000, deltaUs: 10_000 }],
+        notes: [],
+      });
+      assert.strictEqual(boundShiftOffer.ops[0].includeVerified, false);
+    });
+  });
 });

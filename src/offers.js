@@ -474,6 +474,11 @@ export function computeOfferSemanticKey(offer) {
           atUs: op.atUs,
           rightRegime: op.rightRegime ?? null,
         };
+      case "shift_beats":
+        return {
+          ...op,
+          includeVerified: op.includeVerified === true,
+        };
       default:
         return op;
     }
@@ -1837,18 +1842,17 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
       const afterTarget = getVerdictEntity(afterState, ch.targetKind, ch.targetId);
       if (ch.replacementId !== undefined) {
         if (typeof ch.replacementId !== "string" || ch.replacementId.length === 0) continue;
-        const repEntity = getVerdictEntity(afterState, ch.targetKind, ch.replacementId);
-        if (!repEntity) {
+        const repCheck = validateChallengeReplacementScopeAndWrite(
+          beforeState,
+          afterState,
+          offer,
+          mergedWriteRanges,
+          ch,
+        );
+        if (!repCheck.ok) {
           pushConflict({
-            kind: "invalid_op",
-            message: `Challenge replacement "${ch.replacementId}" (${ch.targetKind}) does not exist in post-offer state.`,
-          });
-          continue;
-        }
-        if (afterTarget && ch.replacementId !== ch.targetId) {
-          pushConflict({
-            kind: "invalid_op",
-            message: `Challenge "${ch.challengeId}" specifies replacementId "${ch.replacementId}" while target "${ch.targetId}" was not removed.`,
+            kind: repCheck.conflictKind,
+            message: repCheck.message,
           });
           continue;
         }
@@ -2050,6 +2054,103 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
 }
 
 /**
+ * Verify that an explicit `OfferChallenge.replacementId` exists in post-offer state,
+ * lies strictly inside `mergedWriteRanges`, and was created or mutated by `offer.ops`.
+ * Shared between `evaluateOfferInternal` and `evaluateOfferAcceptBatch`!
+ *
+ * @param {import("../index.d.ts").SessionState} beforeState
+ * @param {import("../index.d.ts").SessionState} afterState
+ * @param {import("../index.d.ts").Offer} offer
+ * @param {readonly import("../index.d.ts").RangeUs[]} mergedWriteRanges
+ * @param {import("../index.d.ts").OfferChallenge} ch
+ * @returns {
+ *   | { ok: true; repEntity: any }
+ *   | { ok: false; errorCode: "OUT_OF_SCOPE" | "INVALID_OFFER"; conflictKind: "out_of_scope" | "invalid_op"; message: string }
+ * }
+ */
+export function validateChallengeReplacementScopeAndWrite(
+  beforeState,
+  afterState,
+  offer,
+  mergedWriteRanges,
+  ch,
+) {
+  const repId = /** @type {string} */ (ch.replacementId);
+  const repEntity = getVerdictEntity(afterState, ch.targetKind, repId);
+  if (!repEntity) {
+    return {
+      ok: false,
+      errorCode: "INVALID_OFFER",
+      conflictKind: "invalid_op",
+      message: `Challenge replacement "${repId}" (${ch.targetKind}) does not exist in post-offer state.`,
+    };
+  }
+  const afterTarget = getVerdictEntity(afterState, ch.targetKind, ch.targetId);
+  if (afterTarget && repId !== ch.targetId) {
+    return {
+      ok: false,
+      errorCode: "INVALID_OFFER",
+      conflictKind: "invalid_op",
+      message: `Challenge "${ch.challengeId}" specifies replacementId "${repId}" while target "${ch.targetId}" was not removed.`,
+    };
+  }
+
+  // 1. Write-scope containment check
+  if (ch.targetKind === "beat" || ch.targetKind === "unbeat" || ch.targetKind === "boundary") {
+    const inScope = mergedWriteRanges.some((wr) => rangeContainsUs(wr, repEntity.atUs));
+    if (!inScope) {
+      return {
+        ok: false,
+        errorCode: "OUT_OF_SCOPE",
+        conflictKind: "out_of_scope",
+        message: `Challenge replacement "${repId}" (${ch.targetKind}) near ${formatTimeUs(repEntity.atUs)} lies outside offer writeRanges.`,
+      };
+    }
+  } else if (ch.targetKind === "sound") {
+    const inScope = mergedWriteRanges.some(
+      (wr) => repEntity.startUs >= wr.startUs && repEntity.endUs <= wr.endUs,
+    );
+    if (!inScope) {
+      return {
+        ok: false,
+        errorCode: "OUT_OF_SCOPE",
+        conflictKind: "out_of_scope",
+        message: `Challenge replacement "${repId}" (sound) at ${formatTimeUs(repEntity.startUs)}–${formatTimeUs(repEntity.endUs)} lies outside offer writeRanges.`,
+      };
+    }
+  } else if (ch.targetKind === "sound_class") {
+    const writtenBySoundClassOp = (offer.ops ?? []).some(
+      (op) =>
+        op &&
+        typeof op === "object" &&
+        op.op === "upsert_sound_class" &&
+        op.soundClass?.id === repId,
+    );
+    if (!writtenBySoundClassOp) {
+      return {
+        ok: false,
+        errorCode: "INVALID_OFFER",
+        conflictKind: "invalid_op",
+        message: `Challenge replacement "${repId}" (sound_class) was not created or updated by offer.ops.`,
+      };
+    }
+  }
+
+  // 2. Actually written (created or mutated) by `offer.ops`
+  const beforeRepEntity = getVerdictEntity(beforeState, ch.targetKind, repId);
+  if (beforeRepEntity && repEntity.revision === beforeRepEntity.revision) {
+    return {
+      ok: false,
+      errorCode: "INVALID_OFFER",
+      conflictKind: "invalid_op",
+      message: `Challenge replacement "${repId}" (${ch.targetKind}) was not created or modified by offer.ops.`,
+    };
+  }
+
+  return { ok: true, repEntity };
+}
+
+/**
  * Validate an `Offer` against `snapshotOrState` without mutating caller state.
  *
  * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} snapshotOrState
@@ -2178,6 +2279,14 @@ export function bindOfferToBasis(capturedBasis, rawOffer, defaults = {}) {
 
   const rawOps = Array.isArray(rawOffer.ops) ? structuredClone(rawOffer.ops) : [];
   const ops = rawOps.map((op) => {
+    if (
+      op &&
+      typeof op === "object" &&
+      op.op === "shift_beats" &&
+      (op.includeVerified === undefined || typeof op.includeVerified === "boolean")
+    ) {
+      return { ...op, includeVerified: Boolean(op.includeVerified) };
+    }
     if (op && typeof op === "object" && op.op === "promote_range_to_segments") {
       const nextOp = { ...op };
       if (op.newBoundaryIds !== undefined) {

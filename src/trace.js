@@ -22,6 +22,7 @@ import {
   computeOfferSemanticKey,
   evaluateOfferInternal,
   isOfferSuppressed,
+  validateChallengeReplacementScopeAndWrite,
   validateOffer,
 } from "./offers.js";
 import {
@@ -33,7 +34,7 @@ import {
   serializeState,
   toSnapshot,
 } from "./state.js";
-import { assertNonNegSafeIntUs, assertRangeUs, rangesOverlapUs } from "./time.js";
+import { assertNonNegSafeIntUs, assertRangeUs, mergeRangesUs, rangesOverlapUs } from "./time.js";
 import {
   assertNonEmptyId,
   assertOfferShape,
@@ -66,6 +67,7 @@ const UNDOABLE_EVENT_TYPES = new Set([
 const ORPHANABLE_ERROR_CODES = new Set([
   "AUDIO_NOT_BOUND",
   "OUT_OF_BOUNDS",
+  "OUT_OF_SCOPE",
   "MISSING_ENTITY",
   "SOUND_NOT_FOUND",
   "INVALID_BEAT_BINDING",
@@ -76,6 +78,7 @@ const ORPHANABLE_ERROR_CODES = new Set([
   "INVALID_SEGMENT_EDIT",
   "INVALID_SPAN",
   "INVALID_RANGE",
+  "INVALID_OFFER",
   "OFFER_NOT_ACCEPTABLE",
   "CHALLENGE_CONFIRM_REQUIRED",
   "MISSING_OFFER",
@@ -86,14 +89,21 @@ const FROZEN_EVENTS = new WeakSet();
 
 /**
  * Normalize optional 2-slot ID tuples on `promote_range_to_segments` ops (`[undefined, "id"]` -> `[null, "id"]`)
+ * and explicitly serialize `includeVerified: Boolean(op.includeVerified)` on `shift_beats` ops
  * before JCS validation and freezing.
  *
  * @param {any} op
  */
 function sanitizeOpTuples(op) {
+  if (!op || typeof op !== "object") return op;
+  if (op.op === "shift_beats") {
+    if (op.includeVerified !== undefined && typeof op.includeVerified !== "boolean") {
+      return op;
+    }
+    const inc = Boolean(op.includeVerified);
+    return op.includeVerified === inc ? op : { ...op, includeVerified: inc };
+  }
   if (
-    !op ||
-    typeof op !== "object" ||
     op.op !== "promote_range_to_segments" ||
     (op.newBoundaryIds === undefined && op.newSegmentIds === undefined)
   ) {
@@ -115,9 +125,20 @@ function sanitizeOpTuples(op) {
   return next;
 }
 
+function needsOpSanitize(op) {
+  if (!op || typeof op !== "object") return false;
+  if (op.op === "promote_range_to_segments") {
+    return op.newBoundaryIds !== undefined || op.newSegmentIds !== undefined;
+  }
+  if (op.op === "shift_beats") {
+    return op.includeVerified === undefined;
+  }
+  return false;
+}
+
 /**
- * Sanitize `promote_range_to_segments` tuple `undefined` slots on `edit` and `offer_batch` events.
- * Fast O(1) pass-through for all other event/op kinds.
+ * Normalize `promote_range_to_segments` tuple `undefined` slots and explicit `shift_beats.includeVerified`
+ * booleans on `edit` and `offer_batch` events. Fast O(1) pass-through for all other event/op kinds.
  *
  * @param {import("../index.d.ts").TraceEvent} ev
  * @returns {import("../index.d.ts").TraceEvent}
@@ -127,22 +148,19 @@ function sanitizeEventTuples(ev) {
   const payload = /** @type {any} */ (ev.payload);
   if (ev.type === "edit" && payload && typeof payload === "object") {
     if (Array.isArray(payload)) {
-      if (payload.some((op) => op?.op === "promote_range_to_segments")) {
+      if (payload.some(needsOpSanitize)) {
         return { ...ev, payload: payload.map(sanitizeOpTuples) };
       }
     } else if (Array.isArray(payload.ops)) {
-      if (payload.ops.some((op) => op?.op === "promote_range_to_segments")) {
+      if (payload.ops.some(needsOpSanitize)) {
         return { ...ev, payload: { ...payload, ops: payload.ops.map(sanitizeOpTuples) } };
       }
-    } else if (payload.op === "promote_range_to_segments") {
+    } else if (needsOpSanitize(payload)) {
       return { ...ev, payload: sanitizeOpTuples(payload) };
     }
   } else if (ev.type === "offer_batch" && payload && Array.isArray(payload.offers)) {
     const needsSanitize = payload.offers.some(
-      (off) =>
-        off &&
-        Array.isArray(off.ops) &&
-        off.ops.some((op) => op?.op === "promote_range_to_segments"),
+      (off) => off && Array.isArray(off.ops) && off.ops.some(needsOpSanitize),
     );
     if (needsSanitize) {
       return {
@@ -1235,9 +1253,16 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
 
     const { validation, beforeState, afterState } = evaluateOfferInternal(scratch, offer);
     if (validation.status !== "valid" && validation.status !== "requires_challenge_confirm") {
+      const hasOutOfScope = validation.conflicts.some((c) => c.kind === "out_of_scope");
+      const hasInvalidOp = validation.conflicts.some((c) => c.kind === "invalid_op");
+      const errorCode = hasOutOfScope
+        ? "OUT_OF_SCOPE"
+        : hasInvalidOp
+          ? "INVALID_OFFER"
+          : "OFFER_NOT_ACCEPTABLE";
       return {
         ok: /** @type {const} */ (false),
-        errorCode: "OFFER_NOT_ACCEPTABLE",
+        errorCode,
         message: `Offer "${offerId}" cannot be accepted in status "${validation.status}"`,
         details: { offerId, status: validation.status, conflicts: validation.conflicts },
         status: validation.status,
@@ -1298,6 +1323,7 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
 
     // Apply authorized challenge verdict dispositions (`confirm_replacement` | `clear_verdict`)
     // strictly using the validated `authMap` entry and explicit `replacementId` ONLY!
+    const mergedOfferWriteRanges = mergeRangesUs(offer.writeRanges);
     const claimedReplacementKeys = new Set();
     for (const reqCh of validation.requiredChallenges) {
       const auth = authMap.get(`${offer.id}\0${reqCh.challengeId}`);
@@ -1310,7 +1336,7 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
         if (claimedReplacementKeys.has(repKey)) {
           return {
             ok: /** @type {const} */ (false),
-            errorCode: "OFFER_NOT_ACCEPTABLE",
+            errorCode: "INVALID_OFFER",
             message: `Offer "${offerId}" declares duplicate challenges claiming replacement "${repKey}"`,
             details: { offerId, replacementId: reqCh.replacementId },
             status: /** @type {import("../index.d.ts").OfferStatus} */ ("invalid"),
@@ -1324,17 +1350,24 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
           };
         }
         claimedReplacementKeys.add(repKey);
-        if (!getVerdictEntity(scratch, reqCh.targetKind, reqCh.replacementId)) {
+        const repCheck = validateChallengeReplacementScopeAndWrite(
+          beforeState,
+          scratch,
+          offer,
+          mergedOfferWriteRanges,
+          reqCh,
+        );
+        if (!repCheck.ok) {
           return {
             ok: /** @type {const} */ (false),
-            errorCode: "OFFER_NOT_ACCEPTABLE",
-            message: `Offer "${offerId}" challenge replacement "${reqCh.replacementId}" does not exist`,
+            errorCode: repCheck.errorCode,
+            message: repCheck.message,
             details: { offerId, replacementId: reqCh.replacementId },
             status: /** @type {import("../index.d.ts").OfferStatus} */ ("invalid"),
             conflicts: [
               deepFreeze({
-                kind: /** @type {const} */ ("invalid_op"),
-                message: `Challenge replacement "${reqCh.replacementId}" (${reqCh.targetKind}) does not exist in post-offer state.`,
+                kind: repCheck.conflictKind,
+                message: repCheck.message,
               }),
             ],
             requiredChallenges: /** @type {import("../index.d.ts").OfferChallenge[]} */ ([]),
@@ -1859,7 +1892,7 @@ export function serializeTraceNdjson(events) {
     throw new EnsomiError("INVALID_TRACE", "events must be an array");
   }
   if (events.length === 0) return "";
-  return `${events.map((ev) => canonicalJson(ev)).join("\n")}\n`;
+  return `${events.map((ev) => canonicalJson(sanitizeEventTuples(ev))).join("\n")}\n`;
 }
 
 /**
