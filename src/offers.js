@@ -249,8 +249,33 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
   const boundaryTouchesWrite = (atUs) =>
     mergedRanges.some((wr) => atUs >= wr.startUs && atUs <= wr.endUs);
 
+  /** @type {Set<string>} */
+  const referencedSegmentIds = new Set();
+  if (Array.isArray(ops)) {
+    for (const op of ops) {
+      if (!op || typeof op !== "object") continue;
+      if (
+        (op.op === "split_segment" ||
+          op.op === "set_segment_regime" ||
+          op.op === "set_segment_kinematics") &&
+        typeof op.segmentId === "string"
+      ) {
+        referencedSegmentIds.add(op.segmentId);
+      } else if (op.op === "merge_segments") {
+        if (typeof op.leftSegmentId === "string") referencedSegmentIds.add(op.leftSegmentId);
+        if (typeof op.rightSegmentId === "string") referencedSegmentIds.add(op.rightSegmentId);
+      } else if (op.op === "move_boundary" && typeof op.boundaryId === "string") {
+        for (const s of state.segments) {
+          if (s.startBoundaryId === op.boundaryId || s.endBoundaryId === op.boundaryId) {
+            referencedSegmentIds.add(s.id);
+          }
+        }
+      }
+    }
+  }
+
   const segments = state.segments
-    .filter((s) => overlapsWrite(s.startUs, s.endUs))
+    .filter((s) => overlapsWrite(s.startUs, s.endUs) || referencedSegmentIds.has(s.id))
     .map((s) => ({
       id: s.id,
       startUs: s.startUs,

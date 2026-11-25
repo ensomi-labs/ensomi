@@ -1943,5 +1943,53 @@ describe("Stage 1 Adversarial Audit Regressions (P0-1..P0-4, P1-1..P1-6, P2-1..P
       assert.ok(consumerTs.includes("matchScript:"));
       assert.ok(consumerTs.includes("segmentationScript:"));
     });
+
+    it("tracks adjacent exterior segment dependencies when move_boundary sits at exact writeRanges endpoint", () => {
+      let s = createInitialState();
+      s = applyEvent(
+        s,
+        makeEvent(0, "e0", "audio_bound", { audioId: "a", durationUs: 20_000_000 }, { kind: "host" }),
+      );
+      s = applyEvent(
+        s,
+        makeEvent(
+          1,
+          "e1",
+          "draft_loaded",
+          {
+            segments: [
+              { id: "seg_0_4", startUs: 0, endUs: 4_000_000, regime: "auto" },
+              { id: "seg_4_20", startUs: 4_000_000, endUs: 20_000_000, regime: "auto" },
+            ],
+            boundaries: [{ id: "bnd_4", atUs: 4_000_000 }],
+          },
+          { kind: "model" },
+        ),
+      );
+
+      const off = bindOfferToBasis(s, {
+        id: "off_bnd_edge",
+        batchId: "b_edge",
+        kind: "segmentation",
+        writeRanges: [{ startUs: 4_000_000, endUs: 8_000_000 }],
+        ops: [{ op: "move_boundary", boundaryId: "bnd_4", atUs: 6_000_000 }],
+        notes: [],
+      });
+      assert.equal(off.status, "valid");
+
+      // Changing seg_0_4 [0, 4s) regime to "break" MUST mark off_bnd_edge stale (`policy_changed`)
+      // because moving bnd_4 to 6s expands seg_0_4 into [4s, 6s)!
+      const s2 = applyEvent(
+        s,
+        makeEvent(2, "e2", "edit", {
+          op: "set_segment_regime",
+          segmentId: "seg_0_4",
+          regime: "break",
+        }),
+      );
+      const val = validateOffer(s2, off);
+      assert.equal(val.status, "stale");
+      assert.ok(val.conflicts.some((c) => c.kind === "policy_changed"));
+    });
   });
 });
