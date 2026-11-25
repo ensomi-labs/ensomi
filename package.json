@@ -1,39 +1,7 @@
 {
   "name": "ensomi",
-  "version": "0.1.0",
-  "description": "Zero-dependency ESM contract, epistemic transaction reducer, JCS conformance, and session controller for Ensomi models.",
-  "type": "module",
-  "main": "./index.js",
-  "types": "./index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./index.d.ts",
-      "default": "./index.js"
-    },
-    "./testing": {
-      "types": "./testing.d.ts",
-      "default": "./testing.js"
-    },
-    "./schemas/*": "./schemas/*",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "index.js",
-    "index.d.ts",
-    "testing.js",
-    "testing.d.ts",
-    "src",
-    "schemas",
-    "conformance",
-    "README.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "test": "node --test"
-  },
-  "engines": {
-    "node": ">=22"
-  },
+  "version": "0.0.1",
+  "description": "The developer kit for Ensomi models.",
   "homepage": "https://github.com/ensomi-labs/ensomi#readme",
   "bugs": {
     "url": "https://github.com/ensomi-labs/ensomi/issues"
