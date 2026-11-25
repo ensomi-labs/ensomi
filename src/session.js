@@ -1,129 +1,80 @@
 /**
- * Headless `SessionController` with three independent `(songId, layer, generation)`
- * trigger policy lifecycles (`song_open`, `micro_assist`, `heavy_recompute`):
+ * Headless `SessionController` with three independent `(audioId, layer, generation)` lifecycles:
+ *  1. `song_open`       : `bindAudio`, `openSong`, `analyze`, `loadDraft`, `resetDocument`
+ *  2. `micro_assist`    : `suggestSnaps`, `suggestSoundOptions` (100% trace-free!)
+ *  3. `heavy_recompute` : `recompute`, `matchSounds`, `suggestSegmentation`
  *
- *  - `suggestSnaps(...)` (`micro_assist`) NEVER aborts an in-flight `recompute(...)`
- *    (`heavy_recompute`) or `analyze(...)` (`song_open`), and writes ZERO events to `.jsonl`.
- *  - A newer call on the SAME layer preempts (`abort()`) the prior in-flight call on that
- *    layer and drops stale responses silently.
- *  - Switching song (`songId` change) or calling `abortAll()` / `close()` aborts all three
- *    layers cleanly.
- *  - `setHoldOffers(boolean)` buffers completed `heavy_recompute` offers while `Alt`-auditioning,
- *    validating each offer independently against current `state` on flush/arrival so
- *    non-overlapping `cross_region` offers stay `"valid"` while overlapping local edits mark
- *    only overlapping offers `"stale"`.
+ * Host-bound safety invariants:
+ *  - Every provider call receives a plain JSON-safe `ProviderView` (`{ snapshot, constraints }`),
+ *    `requestId`, `generation`, `audioId`, and opaque `EvidenceRef` — NEVER live `SessionState`.
+ *  - `dependencies` & `basisDigest` on returned `Offer`s are bound on the host from `capturedBasis`.
+ *  - Preemption / cancellation triggers both optional JS `AbortSignal` and JSON-safe `provider.cancel?.(requestId)`.
+ *  - `analyze()` NEVER overwrites active human `verdict`s or `approval`s (`keep`).
  */
 
-import { compileConstraints } from "./constraints.js";
-import { canonicalJson } from "./hash.js";
+import { canonicalJson, compareCodeUnits, EnsomiError } from "./jcs.js";
 import {
-  computeConsequences,
-  computeSemanticKey,
-  formatConsequenceSummary,
-  getScopeBeatIds,
+  bindOfferToBasis,
   isOfferSuppressed,
-  validatePatchOffer,
+  previewOffer as previewOfferPure,
+  validateOffer,
 } from "./offers.js";
+import {
+  cloneSessionStateShallow,
+  createInitialState,
+  createProviderView,
+  hasActiveHumanTruth,
+  toSnapshot,
+} from "./state.js";
+import { assertNonNegSafeIntUs, assertPointUs, assertRangeUs } from "./time.js";
 import {
   applyEvent,
   computeUndoRedoTargets,
-  createInitialState,
   foldTrace,
   serializeTraceNdjson,
 } from "./trace.js";
 import {
-  assertRange,
+  assertNonEmptyId,
+  CHALLENGE_DISPOSITION_SET,
   DEFAULT_TRIGGER_POLICY,
-  decomposeRangeToSpans,
-  EnsomiError,
-  normalizeAudioDescriptor,
+  deepFreeze,
+  normalizeAudioBinding,
   normalizeSnapCandidate,
+  normalizeSoundOptionCandidate,
+  SOUND_MATCH_MODES,
   TRACE_SCHEMA_VERSION,
   TRIGGER_LAYERS,
 } from "./types.js";
 
 const TRIGGER_LAYER_SET = new Set(TRIGGER_LAYERS);
+const SOUND_MATCH_MODE_SET = new Set(SOUND_MATCH_MODES);
 const DRAFT_INVALIDATING_EVENTS = new Set([
+  "reset_document",
   "draft_loaded",
   "edit",
   "offer_accept",
   "retract",
 ]);
 
-/**
- * Fast defensive clone of `SessionState` so caller/provider mutations cannot corrupt
- * internal controller state while keeping 10-minute song edits well under 1 ms.
- * @param {import("../index.d.ts").SessionState} state
- * @returns {import("../index.d.ts").SessionState}
- */
-function cloneSessionStateFast(state) {
-  const beats = new Map();
-  for (const [k, v] of state.beats) beats.set(k, { ...v });
-
-  const sounds = new Map();
-  for (const [k, v] of state.sounds) sounds.set(k, { ...v });
-
-  const offers = new Map();
-  for (const [k, v] of state.offers) offers.set(k, structuredClone(v));
-
-  return {
-    audio: state.audio ? { ...state.audio } : null,
-    initialDurationSec: state.initialDurationSec ?? 0,
-    durationSec: state.durationSec,
-    segments: state.segments.map((s) => ({ ...s })),
-    spans: state.spans.map((s) => ({ ...s })),
-    beats,
-    sounds,
-    unbeats: state.unbeats.map((u) => ({ ...u })),
-    offers,
-    entityRevisions: new Map(state.entityRevisions),
-    segmentMutations: state.segmentMutations.map((m) => ({
-      ...m,
-      segmentIds: m.segmentIds.slice(),
-    })),
-    suppressedOffers: structuredClone(state.suppressedOffers),
-    suppressions: state.suppressions.map((s) => ({
-      ...s,
-      writeScopes: s.writeScopes.map((ws) => ({ ...ws })),
-    })),
-    lastSignal: state.lastSignal ? structuredClone(state.lastSignal) : null,
-    generation: state.generation,
-    effort: { ...state.effort },
-    visitedRanges: state.visitedRanges.map((r) => ({ ...r })),
-    ready: state.ready,
-    readyAtSeq: state.readyAtSeq,
-    events: state.events.slice(),
-    eventIds: new Set(state.eventIds),
-    retractedEventIds: new Set(state.retractedEventIds),
-    lastSeq: state.lastSeq,
-    foldWarnings: state.foldWarnings.map((w) => ({ ...w })),
-  };
-}
-
-/**
- * Link an optional caller `AbortSignal` into an internal `AbortController`.
- * @param {AbortSignal | undefined} callerSignal
- * @param {AbortController} internalController
- */
-function linkAbortSignal(callerSignal, internalController) {
+function linkAbortSignal(callerSignal, internalController, onCancel) {
   if (!callerSignal) return () => {};
   if (callerSignal.aborted) {
-    internalController.abort(callerSignal.reason ?? new EnsomiError("ABORTED", "Operation aborted"));
+    internalController.abort(
+      callerSignal.reason ?? new EnsomiError("ABORTED", "Operation aborted"),
+    );
+    onCancel?.();
     return () => {};
   }
   const onAbort = () => {
-    internalController.abort(callerSignal.reason ?? new EnsomiError("ABORTED", "Operation aborted"));
+    internalController.abort(
+      callerSignal.reason ?? new EnsomiError("ABORTED", "Operation aborted"),
+    );
+    onCancel?.();
   };
   callerSignal.addEventListener("abort", onAbort, { once: true });
   return () => callerSignal.removeEventListener("abort", onAbort);
 }
 
-/**
- * Wait `ms` unless `signal` aborts first. Resolves `false` if aborted, `true` if elapsed.
- * @param {number} ms
- * @param {AbortSignal} signal
- * @returns {Promise<boolean>}
- */
 function waitDebounce(ms, signal) {
   if (ms <= 0) return Promise.resolve(!signal.aborted);
   if (signal.aborted) return Promise.resolve(false);
@@ -140,11 +91,6 @@ function waitDebounce(ms, signal) {
   });
 }
 
-/**
- * Normalize trigger policy overrides onto `DEFAULT_TRIGGER_POLICY`.
- * @param {Partial<import("../index.d.ts").TriggerPolicy> | undefined} custom
- * @returns {import("../index.d.ts").TriggerPolicy}
- */
 function resolveTriggerPolicy(custom) {
   /** @type {any} */
   const resolved = {};
@@ -153,17 +99,20 @@ function resolveTriggerPolicy(custom) {
     const over = custom?.[layer];
     const mode = over?.mode ?? base.mode;
     if (mode !== "auto" && mode !== "manual") {
-      throw new EnsomiError("INVALID_POLICY", `Invalid mode "${mode}" for layer "${layer}"`);
+      throw new EnsomiError("INVALID_POLICY", `Invalid mode "${String(mode)}" for layer "${layer}"`);
     }
     const debounceMs = over?.debounceMs ?? base.debounceMs;
     if (typeof debounceMs !== "number" || !Number.isFinite(debounceMs) || debounceMs < 0) {
-      throw new EnsomiError("INVALID_POLICY", `Invalid debounceMs "${debounceMs}" for layer "${layer}"`);
+      throw new EnsomiError(
+        "INVALID_POLICY",
+        `Invalid debounceMs "${String(debounceMs)}" for layer "${layer}"`,
+      );
     }
     const cancellation = over?.cancellation ?? base.cancellation;
     if (cancellation !== "latest_wins") {
       throw new EnsomiError(
         "INVALID_POLICY",
-        `Invalid cancellation "${cancellation}" for layer "${layer}"`,
+        `Invalid cancellation "${String(cancellation)}" for layer "${layer}"`,
       );
     }
     resolved[layer] = Object.freeze({ mode, debounceMs, cancellation });
@@ -171,19 +120,49 @@ function resolveTriggerPolicy(custom) {
   return Object.freeze(resolved);
 }
 
-/**
- * Validate a `TimingProvider` implements `manifest`, `prepare`, `analyze`, `recompute`, and `suggestSnaps`.
- * @param {import("../index.d.ts").TimingProvider} provider
- */
-export function assertTimingProvider(provider) {
-  if (!provider || typeof provider !== "object") {
-    throw new EnsomiError("INVALID_PROVIDER", "TimingProvider must be an object");
+function normalizeEvidenceRef(raw, audioId) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new EnsomiError("INVALID_EVIDENCE_REF", "Provider.prepare() must return a plain JSON EvidenceRef object");
   }
-  for (const method of ["manifest", "prepare", "analyze", "recompute", "suggestSnaps"]) {
+  const r = /** @type {Record<string, unknown>} */ (raw);
+  const evidenceId =
+    typeof r.evidenceId === "string" && r.evidenceId.length > 0
+      ? r.evidenceId
+      : `ev_${audioId}`;
+  // Verify strict RFC 8785 JSON-safety of EvidenceRef!
+  const candidate = {
+    ...r,
+    evidenceId,
+    audioId: typeof r.audioId === "string" && r.audioId.length > 0 ? r.audioId : audioId,
+  };
+  canonicalJson(candidate);
+  return deepFreeze(structuredClone(candidate));
+}
+
+/**
+ * Validate a `Provider` implements required contract methods (`manifest`, `prepare`,
+ * `analyze`, `suggestSnaps`, `recompute`) and any optional methods are functions.
+ *
+ * @param {import("../index.d.ts").Provider} provider
+ */
+export function assertProvider(provider) {
+  if (!provider || typeof provider !== "object") {
+    throw new EnsomiError("INVALID_PROVIDER", "Provider must be an object");
+  }
+  for (const method of ["manifest", "prepare", "analyze", "suggestSnaps", "recompute"]) {
     if (typeof /** @type {any} */ (provider)[method] !== "function") {
       throw new EnsomiError(
         "INVALID_PROVIDER",
-        `TimingProvider is missing required method "${method}()"`,
+        `Provider is missing required method "${method}()"`,
+      );
+    }
+  }
+  for (const opt of ["suggestSoundOptions", "matchSounds", "suggestSegmentation", "cancel"]) {
+    const fn = /** @type {any} */ (provider)[opt];
+    if (fn !== undefined && typeof fn !== "function") {
+      throw new EnsomiError(
+        "INVALID_PROVIDER",
+        `Provider optional property "${opt}" must be a function when provided`,
       );
     }
   }
@@ -197,7 +176,7 @@ export class SessionController {
     if (!options || typeof options !== "object") {
       throw new EnsomiError("INVALID_OPTIONS", "SessionController requires an options object");
     }
-    assertTimingProvider(options.provider);
+    assertProvider(options.provider);
 
     this._provider = options.provider;
     this._clock = options.clock ?? (() => Date.now());
@@ -207,44 +186,48 @@ export class SessionController {
 
     this._state =
       Array.isArray(options.initialEvents) && options.initialEvents.length > 0
-        ? foldTrace(options.initialEvents, { durationSec: options.durationSec })
-        : createInitialState({ durationSec: options.durationSec });
+        ? foldTrace(options.initialEvents, { durationUs: options.durationUs })
+        : createInitialState({ durationUs: options.durationUs });
 
     this._nextSeq = this._state.lastSeq + 1;
     this._audioEpoch = 0;
-    this._evidence = null;
+    /** @type {import("../index.d.ts").EvidenceRef | null} */
+    this._evidenceRef = null;
     this._evidenceEpoch = -1;
-    /** @type {{ epoch: number, promise: Promise<import("../index.d.ts").PreparedEvidence>, abort: AbortController } | null} */
+    /** @type {{ epoch: number, requestId: string, promise: Promise<import("../index.d.ts").EvidenceRef>, abort: AbortController } | null} */
     this._inFlightPrepare = null;
 
-    const initialSongId = this._state.audio?.songId ?? null;
+    const initialAudioId = this._state.audio?.audioId ?? null;
     /**
-     * Three completely independent `(songId, layer, generation, AbortController)` slots!
-     * @type {Record<import("../index.d.ts").TriggerLayer, { songId: string | null, layer: import("../index.d.ts").TriggerLayer, generation: number, abort: AbortController | null }>}
+     * Three independent `(audioId, layer, generation, requestId, AbortController)` slots.
+     * @type {Record<import("../index.d.ts").TriggerLayer, { audioId: string | null, layer: import("../index.d.ts").TriggerLayer, generation: number, requestId: string | null, abort: AbortController | null }>}
      */
     this._slots = {
       song_open: {
-        songId: initialSongId,
+        audioId: initialAudioId,
         layer: "song_open",
         generation: 0,
+        requestId: null,
         abort: null,
       },
       micro_assist: {
-        songId: initialSongId,
+        audioId: initialAudioId,
         layer: "micro_assist",
         generation: 0,
+        requestId: null,
         abort: null,
       },
       heavy_recompute: {
-        songId: initialSongId,
+        audioId: initialAudioId,
         layer: "heavy_recompute",
         generation: this._state.generation,
+        requestId: null,
         abort: null,
       },
     };
 
     this._holdOffers = false;
-    /** @type {{ songId: string | null, audioEpoch: number, generation: number, batchId: string, offers: import("../index.d.ts").PatchOffer[] } | null} */
+    /** @type {{ audioId: string | null, audioEpoch: number, generation: number, batchId: string, offers: import("../index.d.ts").Offer[] } | null} */
     this._heldOfferBatch = null;
   }
 
@@ -254,8 +237,20 @@ export class SessionController {
     }
   }
 
-  _currentSongId() {
-    return this._state.audio?.songId ?? null;
+  _currentAudioId() {
+    return this._state.audio?.audioId ?? null;
+  }
+
+  _notifyProviderCancel(requestId) {
+    if (!requestId || typeof this._provider.cancel !== "function") return;
+    try {
+      const res = this._provider.cancel(requestId);
+      if (res && typeof /** @type {any} */ (res).catch === "function") {
+        /** @type {Promise<void>} */ (res).catch(() => {});
+      }
+    } catch {
+      // Ignore provider cancel cleanup errors
+    }
   }
 
   /** @returns {import("../index.d.ts").ProviderManifest} */
@@ -275,27 +270,34 @@ export class SessionController {
 
   /** @returns {import("../index.d.ts").SessionState} */
   getState() {
-    return cloneSessionStateFast(this._state);
+    return cloneSessionStateShallow(this._state);
+  }
+
+  /** @returns {import("../index.d.ts").Snapshot} */
+  getSnapshot() {
+    return toSnapshot(this._state);
   }
 
   /** @returns {readonly import("../index.d.ts").TraceEvent[]} */
   getTrace() {
-    return structuredClone(this._state.events);
+    return this._state.events.slice();
   }
 
   /**
-   * Read the lifecycle state of one trigger layer (`"song_open"`, `"micro_assist"`, `"heavy_recompute"`).
+   * Read the lifecycle state of one trigger layer (`"song_open" | "micro_assist" | "heavy_recompute"`).
    * @param {import("../index.d.ts").TriggerLayer} [layer="heavy_recompute"]
+   * @returns {import("../index.d.ts").LayerLifecycleState}
    */
   getLayerState(layer = "heavy_recompute") {
     if (!TRIGGER_LAYER_SET.has(layer)) {
-      throw new EnsomiError("INVALID_LAYER", `Unknown trigger layer: ${layer}`);
+      throw new EnsomiError("INVALID_LAYER", `Unknown trigger layer: ${String(layer)}`);
     }
     const slot = this._slots[layer];
     return {
-      songId: slot.songId,
+      audioId: slot.audioId,
       layer: slot.layer,
       generation: slot.generation,
+      requestId: slot.requestId,
       inFlight: slot.abort !== null,
     };
   }
@@ -310,37 +312,35 @@ export class SessionController {
     return { ...this._state.effort };
   }
 
-  /** @returns {import("../index.d.ts").PatchOffer[]} */
+  /** @returns {import("../index.d.ts").Offer[]} */
   getValidOffers() {
-    return structuredClone(
-      Array.from(this._state.offers.values()).filter((o) => o.status === "valid"),
+    return Array.from(this._state.offers.values()).filter(
+      (o) => o.status === "valid" || o.status === "requires_challenge_confirm",
     );
   }
 
-  /** @returns {import("../index.d.ts").PatchOffer[]} */
+  /** @returns {import("../index.d.ts").Offer[]} */
   getHeldOffers() {
     if (!this._heldOfferBatch) return [];
     const slot = this._slots.heavy_recompute;
     if (
-      this._heldOfferBatch.songId !== this._currentSongId() ||
+      this._heldOfferBatch.audioId !== this._currentAudioId() ||
       this._heldOfferBatch.audioEpoch !== this._audioEpoch ||
       this._heldOfferBatch.generation !== slot.generation
     ) {
       return [];
     }
-    const liveConstraints = compileConstraints(this._state);
-    const revalidated = this._heldOfferBatch.offers
+    return this._heldOfferBatch.offers
       .filter((offer) => !isOfferSuppressed(this._state, offer))
       .map((offer) => {
-        const check = validatePatchOffer(this._state, offer, liveConstraints);
-        return {
+        const check = validateOffer(this._state, offer, { ignoreTerminalStatus: true });
+        return deepFreeze({
           ...offer,
           status: check.status,
           conflicts: check.conflicts,
-          advisoryNotes: check.advisoryNotes,
-        };
+          notes: check.notes,
+        });
       });
-    return structuredClone(revalidated);
   }
 
   /** @returns {boolean} */
@@ -350,11 +350,10 @@ export class SessionController {
 
   /**
    * Hold completed `heavy_recompute` offer batches in memory while `Alt`-auditioning.
-   * Releasing the hold (`setHoldOffers(false)`) commits the latest held batch against
-   * current `state`, validating each offer independently.
+   * Releasing the hold (`setHoldOffers(false)`) commits the held batch against current state.
    *
    * @param {boolean} hold
-   * @returns {{ flushed: boolean, offers: import("../index.d.ts").PatchOffer[] }}
+   * @returns {{ flushed: boolean, offers: import("../index.d.ts").Offer[] }}
    */
   setHoldOffers(hold) {
     const next = Boolean(hold);
@@ -365,7 +364,7 @@ export class SessionController {
       const slot = this._slots.heavy_recompute;
       if (
         held.generation === slot.generation &&
-        held.songId === this._currentSongId() &&
+        held.audioId === this._currentAudioId() &&
         held.audioEpoch === this._audioEpoch
       ) {
         const beforeSuppressedCount = this._state.suppressedOffers.length;
@@ -376,7 +375,7 @@ export class SessionController {
           {
             batchId: held.batchId,
             offers: held.offers,
-            waitSec: 0,
+            waitUs: 0,
           },
           { kind: authorKind, id: manifest.id },
         );
@@ -389,7 +388,7 @@ export class SessionController {
           .filter(Boolean);
         return {
           flushed: true,
-          offers: /** @type {import("../index.d.ts").PatchOffer[]} */ (structuredClone(surfaced)),
+          offers: /** @type {import("../index.d.ts").Offer[]} */ (surfaced),
         };
       }
     }
@@ -401,28 +400,14 @@ export class SessionController {
     return serializeTraceNdjson(this._state.events);
   }
 
-  /**
-   * Commit a TraceEvent to the append-only trace and advance materialized `SessionState`.
-   * @param {import("../index.d.ts").TraceEventType} type
-   * @param {unknown} payload
-   * @param {import("../index.d.ts").TraceAuthor} [author]
-   */
   _commitEvent(type, payload, author = { kind: "user" }) {
     const seq = this._nextSeq;
-    const needsSeedDuration =
-      this._state.initialDurationSec > 0 &&
-      (seq === 0 ||
-        (this._state.audio === null &&
-          !this._state.events.some(
-            (e) => typeof e.seedDurationSec === "number" && e.seedDurationSec > 0,
-          )));
     const event = {
       schemaVersion: TRACE_SCHEMA_VERSION,
       seq,
       id: this._idGenerator(type, seq),
       type,
       tsMs: this._clock(),
-      ...(needsSeedDuration ? { seedDurationSec: this._state.initialDurationSec } : {}),
       author: structuredClone(author),
       payload: structuredClone(payload),
     };
@@ -431,46 +416,54 @@ export class SessionController {
     if (this._state.generation > this._slots.heavy_recompute.generation) {
       this._slots.heavy_recompute.generation = this._state.generation;
     }
-    return event;
+    return this._state.events[this._state.events.length - 1];
+  }
+
+  _preemptSlot(layer, errorCode, reason) {
+    const slot = this._slots[layer];
+    if (slot.abort) {
+      const prevReqId = slot.requestId;
+      slot.abort.abort(new EnsomiError(errorCode, reason));
+      slot.abort = null;
+      slot.requestId = null;
+      this._notifyProviderCancel(prevReqId);
+    }
   }
 
   /**
    * Abort a single trigger layer slot without disturbing the other two layers.
+   *
    * @param {import("../index.d.ts").TriggerLayer} layer
    * @param {string} [reason]
    */
   abortLayer(layer, reason = `Layer "${layer}" aborted`) {
     if (!TRIGGER_LAYER_SET.has(layer)) {
-      throw new EnsomiError("INVALID_LAYER", `Unknown trigger layer: ${layer}`);
+      throw new EnsomiError("INVALID_LAYER", `Unknown trigger layer: ${String(layer)}`);
     }
     const slot = this._slots[layer];
     slot.generation += 1;
-    if (slot.abort) {
-      slot.abort.abort(new EnsomiError("ABORTED", reason));
-      slot.abort = null;
-    }
+    this._preemptSlot(layer, "ABORTED", reason);
     if (layer === "heavy_recompute") {
       this._heldOfferBatch = null;
     }
   }
 
   /**
-   * Abort all three trigger layers and any in-flight evidence preparation cleanly.
+   * Abort all three trigger layers and any in-flight `prepare()` cleanly.
+   *
    * @param {string} [reason]
    * @param {"ABORTED" | "SUPERSEDED"} [errorCode="ABORTED"]
    */
   abortAll(reason = "All in-flight provider operations aborted", errorCode = "ABORTED") {
     if (this._inFlightPrepare) {
+      const reqId = this._inFlightPrepare.requestId;
       this._inFlightPrepare.abort.abort(new EnsomiError(errorCode, reason));
       this._inFlightPrepare = null;
+      this._notifyProviderCancel(reqId);
     }
     for (const layer of TRIGGER_LAYERS) {
-      const slot = this._slots[layer];
-      slot.generation += 1;
-      if (slot.abort) {
-        slot.abort.abort(new EnsomiError(errorCode, reason));
-        slot.abort = null;
-      }
+      this._slots[layer].generation += 1;
+      this._preemptSlot(layer, errorCode, reason);
     }
     this._heldOfferBatch = null;
   }
@@ -483,27 +476,26 @@ export class SessionController {
   }
 
   /**
-   * Permanently close the session controller, aborting all three trigger layers cleanly.
+   * Permanently close the session controller, aborting all layers cleanly.
    */
   close() {
-    this.abortAll("SessionController closed");
+    this.abortAll("SessionController closed", "ABORTED");
     this._closed = true;
   }
 
   /**
-   * Ensure `PreparedEvidence` is cached for `epoch`, sharing one in-flight `prepare()` call
-   * across concurrent layers on the same song without cross-layer interference.
+   * Ensure JSON-safe `EvidenceRef` is prepared for `epoch`.
    *
    * @param {number} epoch
    * @param {AbortSignal} [signal]
-   * @returns {Promise<import("../index.d.ts").PreparedEvidence>}
+   * @returns {Promise<import("../index.d.ts").EvidenceRef>}
    */
-  async _ensurePreparedEvidence(epoch, signal) {
-    if (this._evidence !== null && this._evidenceEpoch === epoch) {
-      return this._evidence;
+  async _ensureEvidenceRef(epoch, signal) {
+    if (this._evidenceRef !== null && this._evidenceEpoch === epoch) {
+      return this._evidenceRef;
     }
     if (!this._state.audio) {
-      return {};
+      throw new EnsomiError("AUDIO_NOT_BOUND", "Audio is not bound");
     }
     if (this._inFlightPrepare && this._inFlightPrepare.epoch === epoch) {
       const pending = this._inFlightPrepare.promise;
@@ -530,16 +522,18 @@ export class SessionController {
 
     const prepareAbort = new AbortController();
     const audioCopy = structuredClone(this._state.audio);
+    const requestId = `req_prepare_e${epoch}_${audioCopy.audioId}`;
 
     const preparePromise = (async () => {
       try {
-        const evidence = await this._provider.prepare(audioCopy, prepareAbort.signal);
+        const rawRef = await this._provider.prepare(audioCopy, prepareAbort.signal);
         if (epoch !== this._audioEpoch || prepareAbort.signal.aborted) {
           throw new EnsomiError("SUPERSEDED", "Audio preparation superseded");
         }
-        this._evidence = evidence;
+        const evidenceRef = normalizeEvidenceRef(rawRef, audioCopy.audioId);
+        this._evidenceRef = evidenceRef;
         this._evidenceEpoch = epoch;
-        return evidence;
+        return evidenceRef;
       } finally {
         if (this._inFlightPrepare && this._inFlightPrepare.promise === preparePromise) {
           this._inFlightPrepare = null;
@@ -547,7 +541,7 @@ export class SessionController {
       }
     })();
 
-    this._inFlightPrepare = { epoch, promise: preparePromise, abort: prepareAbort };
+    this._inFlightPrepare = { epoch, requestId, promise: preparePromise, abort: prepareAbort };
 
     if (!signal) return await preparePromise;
     if (signal.aborted) {
@@ -570,78 +564,83 @@ export class SessionController {
     });
   }
 
-  /**
-   * Synchronously commit `audio_bound` and update `_audioEpoch` whenever ANY `AudioDescriptor`
-   * property changes (`songId`, `durationSec`, `sampleRate`, `clock`, `decoder`, `leadOffsetSec`).
-   *
-   * @param {import("../index.d.ts").AudioDescriptorInput} rawAudio
-   */
   _bindAudioSync(rawAudio) {
     this._assertOpen();
-    const normalized = normalizeAudioDescriptor(rawAudio);
+    const normalized = normalizeAudioBinding(rawAudio);
     const prevAudio = this._state.audio;
-    const prevSongId = prevAudio?.songId ?? null;
-    const songChanged = prevSongId !== normalized.songId;
-    const audioChanged =
-      !prevAudio || canonicalJson(prevAudio) !== canonicalJson(normalized);
+    const prevAudioId = prevAudio?.audioId ?? null;
+    const audioIdChanged = prevAudioId !== normalized.audioId;
+    const audioChanged = !prevAudio || canonicalJson(prevAudio) !== canonicalJson(normalized);
+
+    if (
+      prevAudio !== null &&
+      (audioIdChanged || normalized.durationUs < prevAudio.durationUs) &&
+      hasActiveHumanTruth(this._state)
+    ) {
+      throw new EnsomiError(
+        "PROTECTED_HUMAN_TRUTH",
+        "Cannot rebind different audio over active human verdicts or approvals; call resetDocument() first",
+      );
+    }
 
     if (audioChanged) {
       this._audioEpoch += 1;
       this._heldOfferBatch = null;
-      if (songChanged && prevSongId !== null) {
+      if (audioIdChanged && prevAudioId !== null) {
         this.abortAll(
-          `Switched song from "${prevSongId}" to "${normalized.songId}"`,
+          `Switched audio from "${prevAudioId}" to "${normalized.audioId}"`,
           "SUPERSEDED",
         );
       } else if (this._inFlightPrepare) {
-        this._inFlightPrepare.abort.abort(
-          new EnsomiError("SUPERSEDED", "Superseded bindAudio"),
-        );
+        const reqId = this._inFlightPrepare.requestId;
+        this._inFlightPrepare.abort.abort(new EnsomiError("SUPERSEDED", "Superseded bindAudio"));
         this._inFlightPrepare = null;
+        this._notifyProviderCancel(reqId);
       }
-      this._evidence = null;
+      this._evidenceRef = null;
       this._evidenceEpoch = -1;
       for (const layer of TRIGGER_LAYERS) {
-        this._slots[layer].songId = normalized.songId;
+        this._slots[layer].audioId = normalized.audioId;
       }
     }
 
     const epoch = this._audioEpoch;
     this._commitEvent("audio_bound", normalized, { kind: "host" });
     const basisSeq = this._state.lastSeq;
-    return { epoch, basisSeq, songId: normalized.songId };
+    return { epoch, basisSeq, audioId: normalized.audioId };
   }
 
   /**
-   * Bind an `AudioDescriptor` (initializing or updating track duration / song identity).
-   * Switching `songId` aborts all three trigger layers cleanly; changing any descriptor field
-   * invalidates cached `PreparedEvidence` before awaiting `_ensurePreparedEvidence`.
+   * Bind an `AudioBinding` (`{ audioId, durationUs, sampleRateHz?, sampleCount?, audioSha256?, decodedPcmSha256? }`)
+   * and prepare provider `EvidenceRef`.
    *
-   * @param {import("../index.d.ts").AudioDescriptorInput} rawAudio
+   * @param {import("../index.d.ts").AudioBinding} audio
    * @param {AbortSignal} [signal]
+   * @returns {Promise<import("../index.d.ts").EvidenceRef>}
    */
-  async bindAudio(rawAudio, signal) {
-    const { epoch } = this._bindAudioSync(rawAudio);
-    return await this._ensurePreparedEvidence(epoch, signal);
+  async bindAudio(audio, signal) {
+    const { epoch } = this._bindAudioSync(audio);
+    return await this._ensureEvidenceRef(epoch, signal);
   }
 
   /**
-   * Open a song and, when `triggerPolicy.song_open.mode === "auto"`, run `analyze()` automatically.
-   * Captures `basisSeq` immediately after committing `audio_bound` (before awaiting `prepare()`)
-   * so user edits made during `prepare()` are NEVER overwritten by `draft_loaded(replace: true)`.
+   * Open a song and, when `triggerPolicy.song_open.mode === "auto"`, run `analyze()`.
+   * Captures `basisSeq` immediately after `audio_bound` (before `prepare()`) so user edits
+   * made while `prepare()` runs are NEVER overwritten!
    *
-   * @param {import("../index.d.ts").AudioDescriptorInput} audio
+   * @param {import("../index.d.ts").AudioBinding} audio
    * @param {AbortSignal} [signal]
+   * @returns {Promise<import("../index.d.ts").AnalyzeOutcome>}
    */
   async openSong(audio, signal) {
     const { epoch, basisSeq } = this._bindAudioSync(audio);
     if (this._triggerPolicy.song_open.mode === "auto") {
       return await this.analyze(signal, { basisSeq });
     }
-    await this._ensurePreparedEvidence(epoch, signal);
+    await this._ensureEvidenceRef(epoch, signal);
     return {
-      status: /** @type {const} */ ("manual"),
-      songId: this._currentSongId(),
+      status: "manual",
+      audioId: this._currentAudioId(),
       generation: this._slots.song_open.generation,
       event: null,
       state: this.getState(),
@@ -649,8 +648,30 @@ export class SessionController {
   }
 
   /**
-   * Layer 1 (`song_open`): Run `provider.analyze()` on the `"song_open"` slot.
-   * Preempts any prior `"song_open"` request without touching `"micro_assist"` or `"heavy_recompute"`.
+   * Explicitly reset the document (`reset_document`), retiring active marks/approvals cleanly.
+   * Undoable via `undo()` / `retract()`!
+   *
+   * @param {{ reason?: string, audio?: import("../index.d.ts").AudioBinding }} [options]
+   * @param {import("../index.d.ts").TraceAuthor} [author]
+   */
+  resetDocument(options = {}, author = { kind: "user" }) {
+    this._assertOpen();
+    this.abortAll("Reset document", "SUPERSEDED");
+    if (options.audio) {
+      this._audioEpoch += 1;
+      this._evidenceRef = null;
+      this._evidenceEpoch = -1;
+      for (const layer of TRIGGER_LAYERS) {
+        this._slots[layer].audioId = options.audio.audioId;
+      }
+    }
+    const event = this._commitEvent("reset_document", options, author);
+    return { event, state: this.getState() };
+  }
+
+  /**
+   * Layer 1 (`song_open`): Run `provider.analyze(...)` on the `"song_open"` slot.
+   * Refuses to overwrite active human `verdict`s or `approval`s (`status: "superseded"`).
    *
    * @param {AbortSignal} [signal]
    * @param {{ basisSeq?: number }} [options]
@@ -663,46 +684,60 @@ export class SessionController {
     }
 
     const slot = this._slots.song_open;
-    if (slot.abort) {
-      slot.abort.abort(new EnsomiError("SUPERSEDED", "Superseded by newer analyze()"));
-      slot.abort = null;
-    }
+    this._preemptSlot("song_open", "SUPERSEDED", "Superseded by newer analyze()");
 
-    const songId = this._state.audio.songId;
-    slot.songId = songId;
+    const audio = this._state.audio;
+    const audioId = audio.audioId;
+    slot.audioId = audioId;
     slot.generation += 1;
     const gen = slot.generation;
     const epoch = this._audioEpoch;
     const startSeq =
-      typeof options?.basisSeq === "number" && Number.isInteger(options.basisSeq)
+      typeof options?.basisSeq === "number" && Number.isSafeInteger(options.basisSeq)
         ? options.basisSeq
         : this._state.lastSeq;
+    const requestId = `req_song_open_g${gen}_s${startSeq}`;
+
+    if (hasActiveHumanTruth(this._state)) {
+      return {
+        status: "superseded",
+        audioId,
+        generation: gen,
+        event: null,
+        state: this.getState(),
+      };
+    }
 
     const abortController = new AbortController();
     slot.abort = abortController;
-    const unlink = linkAbortSignal(signal, abortController);
+    slot.requestId = requestId;
+    const unlink = linkAbortSignal(signal, abortController, () =>
+      this._notifyProviderCancel(requestId),
+    );
     const startMs = this._clock();
+    const capturedView = createProviderView(this._state);
 
     const hasPostBasisInvalidation = () =>
+      hasActiveHumanTruth(this._state) ||
       this._state.events.some(
         (ev) => ev.seq > startSeq && DRAFT_INVALIDATING_EVENTS.has(ev.type),
       );
 
     let draft;
     try {
-      const openDebounceMs = this._triggerPolicy.song_open.debounceMs;
-      if (openDebounceMs > 0) {
-        const debounceOk = await waitDebounce(openDebounceMs, abortController.signal);
+      const debounceMs = this._triggerPolicy.song_open.debounceMs;
+      if (debounceMs > 0) {
+        const ok = await waitDebounce(debounceMs, abortController.signal);
         if (
-          !debounceOk ||
+          !ok ||
           abortController.signal.aborted ||
           slot.generation !== gen ||
-          this._currentSongId() !== songId ||
+          this._currentAudioId() !== audioId ||
           epoch !== this._audioEpoch
         ) {
           return {
             status: this._abortedStatus(abortController),
-            songId,
+            audioId,
             generation: gen,
             event: null,
             state: this.getState(),
@@ -711,7 +746,7 @@ export class SessionController {
         if (hasPostBasisInvalidation()) {
           return {
             status: "superseded",
-            songId,
+            audioId,
             generation: gen,
             event: null,
             state: this.getState(),
@@ -719,48 +754,53 @@ export class SessionController {
         }
       }
 
-      const evidence =
-        this._evidence !== null && this._evidenceEpoch === epoch
-          ? this._evidence
-          : await this._ensurePreparedEvidence(epoch, abortController.signal);
-
+      const evidenceRef = await this._ensureEvidenceRef(epoch, abortController.signal);
       if (
         abortController.signal.aborted ||
         slot.generation !== gen ||
-        this._currentSongId() !== songId ||
+        this._currentAudioId() !== audioId ||
         epoch !== this._audioEpoch
       ) {
         return {
           status: this._abortedStatus(abortController),
-          songId,
+          audioId,
           generation: gen,
           event: null,
           state: this.getState(),
         };
       }
-
       if (hasPostBasisInvalidation()) {
         return {
           status: "superseded",
-          songId,
+          audioId,
           generation: gen,
           event: null,
           state: this.getState(),
         };
       }
 
-      draft = await this._provider.analyze(evidence, abortController.signal);
+      draft = await this._provider.analyze(
+        deepFreeze({
+          requestId,
+          generation: gen,
+          audioId,
+          audio,
+          evidenceRef,
+          view: capturedView,
+        }),
+        abortController.signal,
+      );
     } catch (err) {
       if (
         abortController.signal.aborted ||
         slot.generation !== gen ||
-        this._currentSongId() !== songId ||
+        this._currentAudioId() !== audioId ||
         epoch !== this._audioEpoch ||
         this._closed
       ) {
         return {
           status: this._abortedStatus(abortController),
-          songId,
+          audioId,
           generation: gen,
           event: null,
           state: this.getState(),
@@ -771,19 +811,20 @@ export class SessionController {
       unlink();
       if (slot.abort === abortController) {
         slot.abort = null;
+        slot.requestId = null;
       }
     }
 
     if (
       abortController.signal.aborted ||
       slot.generation !== gen ||
-      this._currentSongId() !== songId ||
+      this._currentAudioId() !== audioId ||
       epoch !== this._audioEpoch ||
       this._closed
     ) {
       return {
         status: this._abortedStatus(abortController),
-        songId,
+        audioId,
         generation: gen,
         event: null,
         state: this.getState(),
@@ -793,149 +834,145 @@ export class SessionController {
     if (hasPostBasisInvalidation()) {
       return {
         status: "superseded",
-        songId,
+        audioId,
         generation: gen,
         event: null,
         state: this.getState(),
       };
     }
 
-    const waitSec = Math.max(0, (this._clock() - startMs) / 1000);
+    const waitUs = Math.max(0, Math.round((this._clock() - startMs) * 1000));
     const manifest = this._provider.manifest();
     const authorKind = manifest.kind === "rule" ? "rule" : "model";
     const ev = this._commitEvent(
       "draft_loaded",
       {
         segments: draft?.segments ?? [],
+        boundaries: draft?.boundaries ?? [],
         spans: draft?.spans ?? [],
         beats: draft?.beats ?? [],
         sounds: draft?.sounds ?? [],
+        soundClasses: draft?.soundClasses ?? [],
         unbeats: draft?.unbeats ?? [],
         replace: true,
       },
       { kind: authorKind, id: manifest.id },
     );
-    if (waitSec > 0) {
-      this._commitEvent("listen_effort", { waitSec }, { kind: "host" });
+    if (waitUs > 0) {
+      this._commitEvent("listen_effort", { waitUs }, { kind: "host" });
     }
     return {
       status: "applied",
-      songId,
+      audioId,
       generation: gen,
-      event: structuredClone(ev),
+      event: ev,
       state: this.getState(),
     };
   }
 
   /**
-   * Layer 2 (`micro_assist`): Ephemeral in-memory snap candidate query.
-   * - Runs on the independent `"micro_assist"` slot (NEVER aborts `analyze` or `recompute`).
-   * - Writes ZERO events to the `.jsonl` trace!
+   * Layer 2 (`micro_assist`): Trace-free snap candidate query near `atUs`.
+   * NEVER aborts `song_open` or `heavy_recompute` and writes ZERO `.jsonl` events.
    *
-   * @param {{ timeSec: number, windowSec?: number, immediate?: boolean }} request
+   * @param {{ atUs: number, windowUs?: number, immediate?: boolean }} request
    * @param {AbortSignal} [signal]
    * @returns {Promise<import("../index.d.ts").SuggestSnapsOutcome>}
    */
   async suggestSnaps(request, signal) {
     this._assertOpen();
+    if (!this._state.audio) {
+      throw new EnsomiError("AUDIO_NOT_BOUND", "bindAudio() must be called before suggestSnaps()");
+    }
     if (!request || typeof request !== "object") {
-      throw new EnsomiError("INVALID_REQUEST", "suggestSnaps requires { timeSec, windowSec? }");
+      throw new EnsomiError("INVALID_REQUEST", "suggestSnaps requires { atUs, windowUs? }");
     }
-    if (typeof request.timeSec !== "number" || !Number.isFinite(request.timeSec) || request.timeSec < 0) {
-      throw new EnsomiError(
-        "INVALID_REQUEST",
-        `suggestSnaps timeSec must be a non-negative finite number, got ${request.timeSec}`,
-      );
-    }
-    const windowSec = request.windowSec ?? 0.08;
-    if (typeof windowSec !== "number" || !Number.isFinite(windowSec) || windowSec <= 0) {
-      throw new EnsomiError(
-        "INVALID_REQUEST",
-        `suggestSnaps windowSec must be a positive finite number, got ${windowSec}`,
-      );
+    const atUs = assertPointUs(request.atUs, this._state.durationUs, "suggestSnaps.atUs");
+    const windowUs =
+      request.windowUs !== undefined
+        ? assertNonNegSafeIntUs(request.windowUs, "suggestSnaps.windowUs", "INVALID_REQUEST")
+        : 80_000;
+    if (windowUs <= 0) {
+      throw new EnsomiError("INVALID_REQUEST", "suggestSnaps.windowUs must be > 0");
     }
 
     const slot = this._slots.micro_assist;
-    if (slot.abort) {
-      slot.abort.abort(new EnsomiError("SUPERSEDED", "Superseded by newer suggestSnaps()"));
-      slot.abort = null;
-    }
+    this._preemptSlot("micro_assist", "SUPERSEDED", "Superseded by newer micro_assist request");
 
-    const songId = this._currentSongId();
-    slot.songId = songId;
+    const audioId = this._state.audio.audioId;
+    slot.audioId = audioId;
     slot.generation += 1;
     const gen = slot.generation;
     const epoch = this._audioEpoch;
+    const requestId = `req_snaps_g${gen}_t${atUs}`;
 
     const abortController = new AbortController();
     slot.abort = abortController;
-    const unlink = linkAbortSignal(signal, abortController);
+    slot.requestId = requestId;
+    const unlink = linkAbortSignal(signal, abortController, () =>
+      this._notifyProviderCancel(requestId),
+    );
 
     const debounceMs = request.immediate ? 0 : this._triggerPolicy.micro_assist.debounceMs;
 
     let rawCandidates;
     try {
       if (debounceMs > 0) {
-        const debounceOk = await waitDebounce(debounceMs, abortController.signal);
+        const ok = await waitDebounce(debounceMs, abortController.signal);
         if (
-          !debounceOk ||
+          !ok ||
           abortController.signal.aborted ||
           slot.generation !== gen ||
-          this._currentSongId() !== songId ||
+          this._currentAudioId() !== audioId ||
           epoch !== this._audioEpoch
         ) {
           return {
             status: this._abortedStatus(abortController),
-            songId,
+            audioId,
             generation: gen,
             candidates: [],
           };
         }
       }
 
-      const evidence =
-        this._evidence !== null && this._evidenceEpoch === epoch
-          ? this._evidence
-          : this._state.audio
-            ? await this._ensurePreparedEvidence(epoch, abortController.signal)
-            : {};
-
+      const evidenceRef = await this._ensureEvidenceRef(epoch, abortController.signal);
       if (
         abortController.signal.aborted ||
         slot.generation !== gen ||
-        this._currentSongId() !== songId ||
+        this._currentAudioId() !== audioId ||
         epoch !== this._audioEpoch
       ) {
         return {
           status: this._abortedStatus(abortController),
-          songId,
+          audioId,
           generation: gen,
           candidates: [],
         };
       }
 
-      const snapshotState = cloneSessionStateFast(this._state);
+      const view = createProviderView(this._state);
       rawCandidates = await this._provider.suggestSnaps(
-        evidence,
-        snapshotState,
-        {
-          timeSec: request.timeSec,
-          windowSec,
+        deepFreeze({
+          requestId,
           generation: gen,
-        },
+          audioId,
+          evidenceRef,
+          atUs,
+          windowUs,
+          view,
+        }),
         abortController.signal,
       );
     } catch (err) {
       if (
         abortController.signal.aborted ||
         slot.generation !== gen ||
-        this._currentSongId() !== songId ||
+        this._currentAudioId() !== audioId ||
         epoch !== this._audioEpoch ||
         this._closed
       ) {
         return {
           status: this._abortedStatus(abortController),
-          songId,
+          audioId,
           generation: gen,
           candidates: [],
         };
@@ -945,70 +982,229 @@ export class SessionController {
       unlink();
       if (slot.abort === abortController) {
         slot.abort = null;
+        slot.requestId = null;
       }
     }
 
     if (
       abortController.signal.aborted ||
       slot.generation !== gen ||
-      this._currentSongId() !== songId ||
+      this._currentAudioId() !== audioId ||
       epoch !== this._audioEpoch ||
       this._closed
     ) {
       return {
         status: this._abortedStatus(abortController),
-        songId,
+        audioId,
         generation: gen,
         candidates: [],
       };
     }
 
     const candidates = (Array.isArray(rawCandidates) ? rawCandidates : [])
-      .map((c) => normalizeSnapCandidate(c, request.timeSec))
+      .map((c) => normalizeSnapCandidate(c, atUs, this._state.durationUs))
       .sort(
         (a, b) =>
           b.salience - a.salience ||
-          Math.abs(a.deltaMs) - Math.abs(b.deltaMs) ||
-          a.eventId.localeCompare(b.eventId),
+          Math.abs(a.deltaUs) - Math.abs(b.deltaUs) ||
+          compareCodeUnits(a.candidateId, b.candidateId),
       );
 
     return {
       status: "ok",
-      songId,
+      audioId,
       generation: gen,
       candidates,
     };
   }
 
   /**
-   * Directly commit an imported/synthetic draft without invoking `provider.analyze()`.
-   * Preempts any in-flight `"song_open"` (`analyze`) without disturbing other layers.
+   * Layer 2 (`micro_assist`): Trace-free polyphonic `[startUs, endUs)` Sound option query.
    *
-   * @param {import("../index.d.ts").AnalysisDraft & { replace?: boolean, durationSec?: number }} draft
+   * @param {{ atUs?: number, rangeUs?: import("../index.d.ts").RangeUs, windowUs?: number, immediate?: boolean }} request
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<import("../index.d.ts").SuggestSoundOptionsOutcome>}
+   */
+  async suggestSoundOptions(request, signal) {
+    this._assertOpen();
+    if (!this._state.audio) {
+      throw new EnsomiError(
+        "AUDIO_NOT_BOUND",
+        "bindAudio() must be called before suggestSoundOptions()",
+      );
+    }
+    if (typeof this._provider.suggestSoundOptions !== "function") {
+      throw new EnsomiError(
+        "UNSUPPORTED_CAPABILITY",
+        "Provider does not implement suggestSoundOptions()",
+      );
+    }
+    if (!request || typeof request !== "object" || (request.atUs === undefined && !request.rangeUs)) {
+      throw new EnsomiError(
+        "INVALID_REQUEST",
+        "suggestSoundOptions requires at least one of { atUs, rangeUs }",
+      );
+    }
+    const atUs =
+      request.atUs !== undefined
+        ? assertPointUs(request.atUs, this._state.durationUs, "suggestSoundOptions.atUs")
+        : undefined;
+    const rangeUs = request.rangeUs
+      ? assertRangeUs(request.rangeUs, this._state.durationUs)
+      : undefined;
+    const windowUs =
+      request.windowUs !== undefined
+        ? assertNonNegSafeIntUs(request.windowUs, "suggestSoundOptions.windowUs", "INVALID_REQUEST")
+        : 80_000;
+
+    const slot = this._slots.micro_assist;
+    this._preemptSlot("micro_assist", "SUPERSEDED", "Superseded by newer micro_assist request");
+
+    const audioId = this._state.audio.audioId;
+    slot.audioId = audioId;
+    slot.generation += 1;
+    const gen = slot.generation;
+    const epoch = this._audioEpoch;
+    const requestId = `req_sound_opts_g${gen}`;
+
+    const abortController = new AbortController();
+    slot.abort = abortController;
+    slot.requestId = requestId;
+    const unlink = linkAbortSignal(signal, abortController, () =>
+      this._notifyProviderCancel(requestId),
+    );
+    const debounceMs = request.immediate ? 0 : this._triggerPolicy.micro_assist.debounceMs;
+
+    let rawOptions;
+    try {
+      if (debounceMs > 0) {
+        const ok = await waitDebounce(debounceMs, abortController.signal);
+        if (
+          !ok ||
+          abortController.signal.aborted ||
+          slot.generation !== gen ||
+          this._currentAudioId() !== audioId ||
+          epoch !== this._audioEpoch
+        ) {
+          return {
+            status: this._abortedStatus(abortController),
+            audioId,
+            generation: gen,
+            options: [],
+          };
+        }
+      }
+
+      const evidenceRef = await this._ensureEvidenceRef(epoch, abortController.signal);
+      if (
+        abortController.signal.aborted ||
+        slot.generation !== gen ||
+        this._currentAudioId() !== audioId ||
+        epoch !== this._audioEpoch
+      ) {
+        return {
+          status: this._abortedStatus(abortController),
+          audioId,
+          generation: gen,
+          options: [],
+        };
+      }
+
+      const view = createProviderView(this._state);
+      rawOptions = await this._provider.suggestSoundOptions(
+        deepFreeze({
+          requestId,
+          generation: gen,
+          audioId,
+          evidenceRef,
+          ...(atUs !== undefined ? { atUs } : {}),
+          ...(rangeUs ? { rangeUs } : {}),
+          windowUs,
+          view,
+        }),
+        abortController.signal,
+      );
+    } catch (err) {
+      if (
+        abortController.signal.aborted ||
+        slot.generation !== gen ||
+        this._currentAudioId() !== audioId ||
+        epoch !== this._audioEpoch ||
+        this._closed
+      ) {
+        return {
+          status: this._abortedStatus(abortController),
+          audioId,
+          generation: gen,
+          options: [],
+        };
+      }
+      throw err;
+    } finally {
+      unlink();
+      if (slot.abort === abortController) {
+        slot.abort = null;
+        slot.requestId = null;
+      }
+    }
+
+    if (
+      abortController.signal.aborted ||
+      slot.generation !== gen ||
+      this._currentAudioId() !== audioId ||
+      epoch !== this._audioEpoch ||
+      this._closed
+    ) {
+      return {
+        status: this._abortedStatus(abortController),
+        audioId,
+        generation: gen,
+        options: [],
+      };
+    }
+
+    const options = (Array.isArray(rawOptions) ? rawOptions : [])
+      .map((o) => normalizeSoundOptionCandidate(o, this._state.durationUs))
+      .sort(
+        (a, b) => b.salience - a.salience || compareCodeUnits(a.optionId, b.optionId),
+      );
+
+    return {
+      status: "ok",
+      audioId,
+      generation: gen,
+      options,
+    };
+  }
+
+  /**
+   * Load an imported/synthetic draft directly on the `song_open` slot.
+   *
+   * @param {import("../index.d.ts").AnalysisDraft & { replace?: boolean }} draft
    * @param {import("../index.d.ts").TraceAuthor} [author]
    */
   loadDraft(draft, author = { kind: "import" }) {
     this._assertOpen();
     this.abortLayer("song_open", "Superseded by loadDraft()");
     const event = this._commitEvent("draft_loaded", draft, author);
-    return { event: structuredClone(event), state: this.getState() };
+    return { event, state: this.getState() };
   }
 
   /**
-   * Apply one or more direct `EditOp`s immediately. Never auto-triggers `heavy_recompute`.
-   * @param {import("../index.d.ts").EditOp | import("../index.d.ts").EditOp[]} opOrOps
+   * Execute one or more `TransactionOp`s atomically as a user `edit` event.
+   *
+   * @param {import("../index.d.ts").TransactionOp | readonly import("../index.d.ts").TransactionOp[]} opOrOps
    * @param {import("../index.d.ts").TraceAuthor} [author]
    */
   applyEdit(opOrOps, author = { kind: "user" }) {
     this._assertOpen();
     const payload = Array.isArray(opOrOps) ? { ops: opOrOps } : opOrOps;
     const event = this._commitEvent("edit", payload, author);
-    return { event: structuredClone(event), state: this.getState() };
+    return { event, state: this.getState() };
   }
 
   /**
-   * Retract an earlier trace event by event ID or seq (backward-referencing only).
-   * Retracting a prior `"retract"` event performs a clean redo.
+   * Retract an earlier trace event by eventId or seq (event-atomic selective undo/redo).
    *
    * @param {string | number} targetEventIdOrSeq
    * @param {string} [reason]
@@ -1017,7 +1213,7 @@ export class SessionController {
   retract(targetEventIdOrSeq, reason, author = { kind: "user" }) {
     this._assertOpen();
     const prevAudioJson = canonicalJson(this._state.audio);
-    const prevSongId = this._currentSongId();
+    const prevAudioId = this._currentAudioId();
     const payload =
       typeof targetEventIdOrSeq === "number"
         ? { targetSeq: targetEventIdOrSeq, ...(reason ? { reason } : {}) }
@@ -1026,21 +1222,23 @@ export class SessionController {
     if (canonicalJson(this._state.audio) !== prevAudioJson) {
       this._audioEpoch += 1;
       this._heldOfferBatch = null;
-      if (this._currentSongId() !== prevSongId) {
-        this.abortAll("Audio songId changed due to retract()");
+      if (this._currentAudioId() !== prevAudioId) {
+        this.abortAll("Audio changed due to retract()", "SUPERSEDED");
         for (const layer of TRIGGER_LAYERS) {
-          this._slots[layer].songId = this._currentSongId();
+          this._slots[layer].audioId = this._currentAudioId();
         }
       } else if (this._inFlightPrepare) {
+        const reqId = this._inFlightPrepare.requestId;
         this._inFlightPrepare.abort.abort(
-          new EnsomiError("SUPERSEDED", "Audio descriptor changed due to retract()"),
+          new EnsomiError("SUPERSEDED", "Audio binding changed due to retract()"),
         );
         this._inFlightPrepare = null;
+        this._notifyProviderCancel(reqId);
       }
-      this._evidence = null;
+      this._evidenceRef = null;
       this._evidenceEpoch = -1;
     }
-    return { event: structuredClone(event), state: this.getState() };
+    return { event, state: this.getState() };
   }
 
   /** @returns {boolean} */
@@ -1054,7 +1252,8 @@ export class SessionController {
   }
 
   /**
-   * Undo the latest active user action reconstructed deterministically from `state.events`.
+   * Undo the latest active user action.
+   *
    * @param {string} [reason]
    * @param {import("../index.d.ts").TraceAuthor} [author]
    * @returns {import("../index.d.ts").UndoRedoOutcome}
@@ -1063,24 +1262,15 @@ export class SessionController {
     this._assertOpen();
     const { undoTargetEventId } = computeUndoRedoTargets(this._state);
     if (!undoTargetEventId) {
-      return {
-        ok: false,
-        targetEventId: null,
-        event: null,
-        state: this.getState(),
-      };
+      return { ok: false, targetEventId: null, event: null, state: this.getState() };
     }
     const res = this.retract(undoTargetEventId, reason, author);
-    return {
-      ok: true,
-      targetEventId: undoTargetEventId,
-      event: res.event,
-      state: res.state,
-    };
+    return { ok: true, targetEventId: undoTargetEventId, event: res.event, state: res.state };
   }
 
   /**
-   * Redo the latest undone user action reconstructed deterministically from `state.events`.
+   * Redo the latest undone user action.
+   *
    * @param {string} [reason]
    * @param {import("../index.d.ts").TraceAuthor} [author]
    * @returns {import("../index.d.ts").UndoRedoOutcome}
@@ -1089,106 +1279,96 @@ export class SessionController {
     this._assertOpen();
     const { redoTargetEventId } = computeUndoRedoTargets(this._state);
     if (!redoTargetEventId) {
-      return {
-        ok: false,
-        targetEventId: null,
-        event: null,
-        state: this.getState(),
-      };
+      return { ok: false, targetEventId: null, event: null, state: this.getState() };
     }
     const res = this.retract(redoTargetEventId, reason, author);
-    return {
-      ok: true,
-      targetEventId: redoTargetEventId,
-      event: res.event,
-      state: res.state,
-    };
+    return { ok: true, targetEventId: redoTargetEventId, event: res.event, state: res.state };
   }
 
   /**
-   * Record user listening time / visited range / wait time in the effort ledger.
-   * @param {{ listenSec?: number, waitSec?: number, range?: import("../index.d.ts").Range }} effort
+   * Record user listening effort (`listenUs`, `waitUs`, `range`) in the effort ledger.
+   *
+   * @param {{ listenUs?: number, waitUs?: number, range?: import("../index.d.ts").RangeUs }} effort
    * @param {import("../index.d.ts").TraceAuthor} [author]
    */
   recordListenEffort(effort, author = { kind: "host" }) {
     this._assertOpen();
     const event = this._commitEvent("listen_effort", effort, author);
-    return { event: structuredClone(event), state: this.getState() };
+    return { event, state: this.getState() };
   }
 
   /**
-   * Mark the session ready.
+   * Mark the document ready.
+   *
    * @param {string} [notes]
    * @param {import("../index.d.ts").TraceAuthor} [author]
    */
   markReady(notes, author = { kind: "user" }) {
     this._assertOpen();
-    const event = this._commitEvent("ready", { ready: true, ...(notes ? { notes } : {}) }, author);
-    return { event: structuredClone(event), state: this.getState() };
+    const event = this._commitEvent(
+      "ready",
+      { ready: true, ...(notes ? { notes } : {}) },
+      author,
+    );
+    return { event, state: this.getState() };
   }
 
   /**
-   * Layer 3 (`heavy_recompute`): Explicitly trigger constrained provider recompute on the
-   * `"heavy_recompute"` slot. Preempts any prior `"heavy_recompute"` without touching
-   * `"song_open"` or `"micro_assist"`.
-   *
-   * @param {{ scope: import("../index.d.ts").Range | "song", reason: string }} request
-   * @param {import("../index.d.ts").TraceAuthor} [author]
-   * @returns {Promise<import("../index.d.ts").RecomputeOutcome>}
+   * Shared `heavy_recompute` lifecycle runner for `recompute`, `matchSounds`, and `suggestSegmentation`.
    */
-  async recompute(request, author = { kind: "user" }) {
+  async _runHeavyLayer(scope, reason, author, invokeProvider) {
     this._assertOpen();
-    if (!request || typeof request !== "object") {
-      throw new EnsomiError("INVALID_SIGNAL", "recompute requires a request object");
+    if (!this._state.audio) {
+      throw new EnsomiError("AUDIO_NOT_BOUND", "bindAudio() must be called before heavy_recompute");
     }
-    const scope = request.scope === "song" ? "song" : assertRange(request.scope);
+    const normalizedScope =
+      scope === "song" ? "song" : assertRangeUs(scope, this._state.durationUs);
 
     const slot = this._slots.heavy_recompute;
-    if (slot.abort) {
-      slot.abort.abort(new EnsomiError("SUPERSEDED", "Superseded by newer recompute()"));
-      slot.abort = null;
-    }
+    this._preemptSlot("heavy_recompute", "SUPERSEDED", "Superseded by newer heavy_recompute call");
 
-    const songId = this._currentSongId();
-    slot.songId = songId;
+    const audioId = this._state.audio.audioId;
+    slot.audioId = audioId;
     slot.generation = Math.max(slot.generation, this._state.generation) + 1;
     const gen = slot.generation;
     const epoch = this._audioEpoch;
-
-    const abortController = new AbortController();
-    slot.abort = abortController;
 
     this._commitEvent(
       "signal",
       {
         layer: "heavy_recompute",
-        scope,
-        reason: request.reason,
+        scope: normalizedScope,
+        reason,
         generation: gen,
       },
       author,
     );
 
+    // Capture immutable basis BEFORE awaiting debounce / prepare / provider!
     const basisSeq = this._state.lastSeq;
-    const constraints = compileConstraints(this._state);
-    const snapshotState = cloneSessionStateFast(this._state);
+    const capturedView = createProviderView(this._state);
+    const requestId = `req_heavy_g${gen}_s${basisSeq}`;
+
+    const abortController = new AbortController();
+    slot.abort = abortController;
+    slot.requestId = requestId;
     const startMs = this._clock();
 
-    let result;
+    let rawResult;
     try {
-      const heavyDebounceMs = this._triggerPolicy.heavy_recompute.debounceMs;
-      if (heavyDebounceMs > 0) {
-        const debounceOk = await waitDebounce(heavyDebounceMs, abortController.signal);
+      const debounceMs = this._triggerPolicy.heavy_recompute.debounceMs;
+      if (debounceMs > 0) {
+        const ok = await waitDebounce(debounceMs, abortController.signal);
         if (
-          !debounceOk ||
+          !ok ||
           abortController.signal.aborted ||
           slot.generation !== gen ||
-          this._currentSongId() !== songId ||
+          this._currentAudioId() !== audioId ||
           epoch !== this._audioEpoch
         ) {
           return {
             status: this._abortedStatus(abortController),
-            songId,
+            audioId,
             generation: gen,
             offers: [],
             suppressedOffers: [],
@@ -1196,51 +1376,44 @@ export class SessionController {
         }
       }
 
-      const evidence =
-        this._evidence !== null && this._evidenceEpoch === epoch
-          ? this._evidence
-          : this._state.audio
-            ? await this._ensurePreparedEvidence(epoch, abortController.signal)
-            : {};
-
+      const evidenceRef = await this._ensureEvidenceRef(epoch, abortController.signal);
       if (
         abortController.signal.aborted ||
         slot.generation !== gen ||
-        this._currentSongId() !== songId ||
+        this._currentAudioId() !== audioId ||
         epoch !== this._audioEpoch
       ) {
         return {
           status: this._abortedStatus(abortController),
-          songId,
+          audioId,
           generation: gen,
           offers: [],
           suppressedOffers: [],
         };
       }
 
-      result = await this._provider.recompute(
-        evidence,
-        snapshotState,
-        {
-          scope,
-          reason: request.reason,
-          generation: gen,
-          basisSeq,
-          constraints,
-        },
-        abortController.signal,
-      );
+      rawResult = await invokeProvider({
+        requestId,
+        generation: gen,
+        basisSeq,
+        audioId,
+        evidenceRef,
+        scope: normalizedScope,
+        reason,
+        view: capturedView,
+        signal: abortController.signal,
+      });
     } catch (err) {
       if (
         abortController.signal.aborted ||
         slot.generation !== gen ||
-        this._currentSongId() !== songId ||
+        this._currentAudioId() !== audioId ||
         epoch !== this._audioEpoch ||
         this._closed
       ) {
         return {
           status: this._abortedStatus(abortController),
-          songId,
+          audioId,
           generation: gen,
           offers: [],
           suppressedOffers: [],
@@ -1250,141 +1423,84 @@ export class SessionController {
     } finally {
       if (slot.abort === abortController) {
         slot.abort = null;
+        slot.requestId = null;
       }
     }
 
     if (
       abortController.signal.aborted ||
       slot.generation !== gen ||
-      this._currentSongId() !== songId ||
+      this._currentAudioId() !== audioId ||
       epoch !== this._audioEpoch ||
       this._closed
     ) {
       return {
         status: this._abortedStatus(abortController),
-        songId,
+        audioId,
         generation: gen,
         offers: [],
         suppressedOffers: [],
       };
     }
 
-    const waitSec = Math.max(0, (this._clock() - startMs) / 1000);
+    const waitUs = Math.max(0, Math.round((this._clock() - startMs) * 1000));
     const manifest = this._provider.manifest();
-    const defaultBatchId = result?.batchId ?? `batch_g${gen}_s${basisSeq}_${this._nextSeq}`;
-    const rawOffers = Array.isArray(result?.offers) ? result.offers : [];
+    const rawOffers = Array.isArray(rawResult)
+      ? rawResult
+      : Array.isArray(rawResult?.offers)
+        ? rawResult.offers
+        : [];
+    const defaultBatchId =
+      (!Array.isArray(rawResult) && rawResult?.batchId) ||
+      `batch_g${gen}_s${basisSeq}_${this._nextSeq}`;
 
-    /** @type {Map<string, number>} */
-    const batchCounts = new Map();
-    for (const raw of rawOffers) {
-      const bId = raw.batchId ?? defaultBatchId;
-      batchCounts.set(bId, (batchCounts.get(bId) ?? 0) + 1);
-    }
-
-    const normalizedOffers = rawOffers.map((raw, idx) => {
-      const bId = raw.batchId ?? defaultBatchId;
-      const siblingCount = batchCounts.get(bId) ?? 1;
-      const ops = raw.ops ? structuredClone(raw.ops) : {};
-
-      // Normalize writeScopes against snapshotState segments if needed
-      let writeScopes = Array.isArray(raw.writeScopes) ? raw.writeScopes : [];
-      if (writeScopes.length === 0 && raw.writeRange) {
-        writeScopes = decomposeRangeToSpans(snapshotState.segments, raw.writeRange);
-      }
-      writeScopes = writeScopes.map((ws) => ({
-        segmentId: ws.segmentId,
-        ...assertRange(ws),
-      }));
-
-      // Bind immutable expectedRevisions from snapshotState for modified/removed entities
-      const expectedRevisions =
-        raw.expectedRevisions && typeof raw.expectedRevisions === "object"
-          ? { ...raw.expectedRevisions }
-          : {};
-      const bindSnapshotRev = (entityId) => {
-        if (Object.prototype.hasOwnProperty.call(expectedRevisions, entityId)) return;
-        const rev = snapshotState.entityRevisions.get(entityId);
-        if (rev) expectedRevisions[entityId] = rev;
-      };
-      for (const b of ops.upsertBeats ?? []) {
-        if (snapshotState.beats.has(b.id)) bindSnapshotRev(b.id);
-      }
-      for (const id of ops.removeBeatIds ?? []) bindSnapshotRev(id);
-      for (const s of ops.upsertSounds ?? []) {
-        if (snapshotState.sounds.has(s.id)) bindSnapshotRev(s.id);
-      }
-      for (const id of ops.removeSoundIds ?? []) bindSnapshotRev(id);
-      for (const sp of ops.splitSegments ?? []) bindSnapshotRev(sp.segmentId);
-      for (const mv of ops.moveSegmentBoundaries ?? []) {
-        bindSnapshotRev(mv.leftSegmentId);
-        bindSnapshotRev(mv.rightSegmentId);
-      }
-      for (const rg of ops.setSegmentRegimes ?? []) bindSnapshotRev(rg.segmentId);
-
-      const expectedScopeBeatIds =
-        raw.expectedScopeBeatIds ?? getScopeBeatIds(snapshotState, writeScopes);
-
-      return {
-        ...raw,
-        id: raw.id ?? `offer_g${gen}_s${basisSeq}_${this._nextSeq}_${idx}`,
-        batchId: bId,
-        ...(siblingCount > 1 && raw.optionCount === undefined
-          ? { optionCount: siblingCount }
-          : {}),
-        ...(siblingCount > 1 && raw.optionIndex === undefined ? { optionIndex: idx } : {}),
-        providerId: raw.providerId ?? manifest.id,
-        providerKind: raw.providerKind ?? manifest.kind,
-        generation: gen,
-        basisSeq: raw.basisSeq ?? basisSeq,
-        expectedRevisions,
-        expectedScopeBeatIds,
-        writeScopes,
-        ...(raw.readScope !== undefined
-          ? { readScope: raw.readScope === "song" ? "song" : assertRange(raw.readScope) }
-          : {}),
-        ops,
-        title: raw.title ?? "Refine timing grid",
-        consequenceSummary:
-          typeof raw.consequenceSummary === "string" && raw.consequenceSummary.trim().length > 0
-            ? raw.consequenceSummary
-            : formatConsequenceSummary(snapshotState, ops),
-        advisoryNotes: Array.isArray(raw.advisoryNotes) ? raw.advisoryNotes.slice() : [],
-        providerAdvisories: Array.isArray(raw.advisoryNotes) ? raw.advisoryNotes.slice() : [],
-        consequences: raw.consequences ?? computeConsequences(snapshotState, ops),
-        conflicts: [],
-        semanticKey:
-          raw.semanticKey || computeSemanticKey(writeScopes, ops, expectedRevisions),
-        status: /** @type {const} */ ("valid"),
-      };
-    });
+    // Host-bind every returned Offer strictly to `capturedView.snapshot`!
+    const boundOffers = rawOffers.map((raw, idx) =>
+      bindOfferToBasis(
+        capturedView.snapshot,
+        {
+          ...raw,
+          id: raw.id ?? `offer_g${gen}_s${basisSeq}_${this._nextSeq}_${idx}`,
+          batchId: raw.batchId ?? defaultBatchId,
+        },
+        {
+          defaultBatchId,
+          defaultProviderId: manifest.id,
+          defaultModelRevision: manifest.modelRevision ?? manifest.version,
+          defaultAudioId: audioId,
+          defaultBasisSeq: basisSeq,
+        },
+      ),
+    );
 
     if (this._holdOffers) {
-      if (waitSec > 0) {
-        this._commitEvent("listen_effort", { waitSec }, { kind: "host" });
+      if (waitUs > 0) {
+        this._commitEvent("listen_effort", { waitUs }, { kind: "host" });
       }
-      const liveConstraints = compileConstraints(this._state);
-      /** @type {import("../index.d.ts").PatchOffer[]} */
+      /** @type {import("../index.d.ts").Offer[]} */
       const suppressedWhileHeld = [];
-      /** @type {import("../index.d.ts").PatchOffer[]} */
+      /** @type {import("../index.d.ts").Offer[]} */
       const previewOffers = [];
-      /** @type {import("../index.d.ts").PatchOffer[]} */
+      /** @type {import("../index.d.ts").Offer[]} */
       const retainableOffers = [];
-      for (const offer of normalizedOffers) {
+      for (const offer of boundOffers) {
         if (isOfferSuppressed(this._state, offer)) {
           suppressedWhileHeld.push(offer);
           continue;
         }
         retainableOffers.push(offer);
-        const check = validatePatchOffer(this._state, offer, liveConstraints);
-        previewOffers.push({
-          ...offer,
-          status: check.status,
-          conflicts: check.conflicts,
-          advisoryNotes: check.advisoryNotes,
-        });
+        const check = validateOffer(this._state, offer, { ignoreTerminalStatus: true });
+        previewOffers.push(
+          deepFreeze({
+            ...offer,
+            status: check.status,
+            conflicts: check.conflicts,
+            notes: check.notes,
+          }),
+        );
       }
       this._heldOfferBatch = {
-        songId,
+        audioId,
         audioEpoch: epoch,
         generation: gen,
         batchId: defaultBatchId,
@@ -1392,10 +1508,10 @@ export class SessionController {
       };
       return {
         status: "held",
-        songId,
+        audioId,
         generation: gen,
-        offers: structuredClone(previewOffers),
-        suppressedOffers: structuredClone(suppressedWhileHeld),
+        offers: previewOffers,
+        suppressedOffers: suppressedWhileHeld,
       };
     }
 
@@ -1405,91 +1521,279 @@ export class SessionController {
       "offer_batch",
       {
         batchId: defaultBatchId,
-        offers: normalizedOffers,
-        waitSec,
+        offers: boundOffers,
+        waitUs,
       },
       { kind: authorKind, id: manifest.id },
     );
 
     const newlySuppressed = this._state.suppressedOffers.slice(beforeSuppressedCount);
     const newlySuppressedIds = new Set(newlySuppressed.map((o) => o.id));
-    const surfacedOffers = normalizedOffers
+    const surfacedOffers = boundOffers
       .filter((o) => !newlySuppressedIds.has(o.id))
       .map((o) => this._state.offers.get(o.id))
       .filter(Boolean);
 
     return {
       status: "applied",
-      songId,
+      audioId,
       generation: gen,
-      offers: /** @type {import("../index.d.ts").PatchOffer[]} */ (structuredClone(surfacedOffers)),
-      suppressedOffers: structuredClone(newlySuppressed),
+      offers: /** @type {import("../index.d.ts").Offer[]} */ (surfacedOffers),
+      suppressedOffers: newlySuppressed,
     };
   }
 
   /**
-   * Conflict-first offer acceptance.
-   * Requires `offer.status === "valid"` and passes `validatePatchOffer(this._state, offer)`.
+   * Layer 3 (`heavy_recompute`): Constrained timing/propagation recompute.
    *
-   * @param {string} offerId
+   * @param {{ scope: import("../index.d.ts").RangeUs | "song", reason: string }} request
+   * @param {import("../index.d.ts").TraceAuthor} [author]
+   * @returns {Promise<import("../index.d.ts").RecomputeOutcome>}
+   */
+  async recompute(request, author = { kind: "user" }) {
+    if (!request || typeof request !== "object") {
+      throw new EnsomiError("INVALID_SIGNAL", "recompute requires { scope, reason }");
+    }
+    return await this._runHeavyLayer(
+      request.scope,
+      request.reason ?? "recompute",
+      author,
+      async (ctx) =>
+        await this._provider.recompute(
+          deepFreeze({
+            requestId: ctx.requestId,
+            generation: ctx.generation,
+            basisSeq: ctx.basisSeq,
+            audioId: ctx.audioId,
+            evidenceRef: ctx.evidenceRef,
+            scope: ctx.scope,
+            reason: ctx.reason,
+            view: ctx.view,
+          }),
+          ctx.signal,
+        ),
+    );
+  }
+
+  /**
+   * Layer 3 (`heavy_recompute`): Whole-song or scoped Sound matching (`hit | voice | figure`).
+   *
+   * @param {{
+   *   exemplarSoundIds: string[],
+   *   matchMode: import("../index.d.ts").SoundMatchMode,
+   *   classId?: string,
+   *   scope?: import("../index.d.ts").RangeUs | "song",
+   *   reason?: string
+   * }} request
+   * @param {import("../index.d.ts").TraceAuthor} [author]
+   * @returns {Promise<import("../index.d.ts").RecomputeOutcome>}
+   */
+  async matchSounds(request, author = { kind: "user" }) {
+    if (typeof this._provider.matchSounds !== "function") {
+      throw new EnsomiError("UNSUPPORTED_CAPABILITY", "Provider does not implement matchSounds()");
+    }
+    if (
+      !request ||
+      typeof request !== "object" ||
+      !Array.isArray(request.exemplarSoundIds) ||
+      request.exemplarSoundIds.length === 0
+    ) {
+      throw new EnsomiError("INVALID_REQUEST", "matchSounds requires non-empty exemplarSoundIds[]");
+    }
+    if (!SOUND_MATCH_MODE_SET.has(request.matchMode)) {
+      throw new EnsomiError("INVALID_REQUEST", `Invalid matchMode: ${String(request.matchMode)}`);
+    }
+    for (const id of request.exemplarSoundIds) {
+      assertNonEmptyId(id, "exemplarSoundId", "INVALID_REQUEST");
+    }
+    return await this._runHeavyLayer(
+      request.scope ?? "song",
+      request.reason ?? `match_sounds:${request.matchMode}`,
+      author,
+      async (ctx) =>
+        await this._provider.matchSounds(
+          deepFreeze({
+            requestId: ctx.requestId,
+            generation: ctx.generation,
+            basisSeq: ctx.basisSeq,
+            audioId: ctx.audioId,
+            evidenceRef: ctx.evidenceRef,
+            exemplarSoundIds: request.exemplarSoundIds.slice(),
+            matchMode: request.matchMode,
+            ...(request.classId ? { classId: request.classId } : {}),
+            scope: ctx.scope,
+            view: ctx.view,
+          }),
+          ctx.signal,
+        ),
+    );
+  }
+
+  /**
+   * Layer 3 (`heavy_recompute`): Request structural segmentation offers.
+   *
+   * @param {{ scope?: import("../index.d.ts").RangeUs | "song", reason?: string }} [request]
+   * @param {import("../index.d.ts").TraceAuthor} [author]
+   * @returns {Promise<import("../index.d.ts").RecomputeOutcome>}
+   */
+  async suggestSegmentation(request = {}, author = { kind: "user" }) {
+    if (typeof this._provider.suggestSegmentation !== "function") {
+      throw new EnsomiError(
+        "UNSUPPORTED_CAPABILITY",
+        "Provider does not implement suggestSegmentation()",
+      );
+    }
+    return await this._runHeavyLayer(
+      request.scope ?? "song",
+      request.reason ?? "suggest_segmentation",
+      author,
+      async (ctx) =>
+        await this._provider.suggestSegmentation(
+          deepFreeze({
+            requestId: ctx.requestId,
+            generation: ctx.generation,
+            basisSeq: ctx.basisSeq,
+            audioId: ctx.audioId,
+            evidenceRef: ctx.evidenceRef,
+            scope: ctx.scope,
+            reason: ctx.reason,
+            view: ctx.view,
+          }),
+          ctx.signal,
+        ),
+    );
+  }
+
+  /**
+   * Preview an `Offer` (by ID or object) against current state using the pure transaction interpreter.
+   *
+   * @param {string | import("../index.d.ts").Offer} offerIdOrOffer
+   * @param {import("../index.d.ts").TempoMapOptions} [tempoOptions]
+   * @returns {import("../index.d.ts").OfferPreviewResult}
+   */
+  previewOffer(offerIdOrOffer, tempoOptions) {
+    this._assertOpen();
+    const offer =
+      typeof offerIdOrOffer === "string"
+        ? this._state.offers.get(offerIdOrOffer)
+        : offerIdOrOffer;
+    if (!offer) {
+      throw new EnsomiError("MISSING_OFFER", `Offer "${String(offerIdOrOffer)}" does not exist`);
+    }
+    return previewOfferPure(this._state, offer, tempoOptions);
+  }
+
+  /**
+   * Accept one or more `Offer`s atomically, enforcing `protected_keep`, `protected_verified`,
+   * `authorizedChallenges`, and `alternativeGroup`-scoped sibling supersession.
+   *
+   * @param {string | { offerIds: string[], authorizedChallenges?: import("../index.d.ts").ChallengeAuthorization[] }} offerIdOrInput
    * @param {import("../index.d.ts").TraceAuthor} [author]
    * @returns {import("../index.d.ts").AcceptOfferOutcome}
    */
-  acceptOffer(offerId, author = { kind: "user" }) {
+  acceptOffer(offerIdOrInput, author = { kind: "user" }) {
     this._assertOpen();
-    const offer = this._state.offers.get(offerId);
-    if (!offer) {
+    const offerIds =
+      typeof offerIdOrInput === "string"
+        ? [offerIdOrInput]
+        : Array.isArray(offerIdOrInput?.offerIds)
+          ? offerIdOrInput.offerIds
+          : [];
+    const authorizedChallenges =
+      typeof offerIdOrInput === "object" && Array.isArray(offerIdOrInput?.authorizedChallenges)
+        ? offerIdOrInput.authorizedChallenges
+        : [];
+
+    if (offerIds.length === 0) {
       return {
         ok: false,
-        conflicts: [
-          {
-            kind: "range_changed",
-            message: "This suggestion is no longer available.",
-          },
-        ],
+        status: "invalid",
+        conflicts: [{ kind: "invalid_op", message: "No suggestion IDs specified." }],
+        requiredChallenges: [],
       };
     }
 
-    const check = validatePatchOffer(this._state, offer);
-    if (offer.status !== "valid" || !check.valid) {
-      return {
-        ok: false,
-        conflicts:
-          check.conflicts.length > 0
-            ? check.conflicts
-            : [
-                {
-                  kind: "version_mismatch",
-                  message: "This suggestion is no longer active.",
-                },
-              ],
-      };
+    for (const offerId of offerIds) {
+      const offer = this._state.offers.get(offerId);
+      if (!offer) {
+        return {
+          ok: false,
+          status: "invalid",
+          conflicts: [{ kind: "range_changed", message: "This suggestion is no longer available." }],
+          requiredChallenges: [],
+        };
+      }
+      const check = validateOffer(this._state, offer);
+      if (check.status !== "valid" && check.status !== "requires_challenge_confirm") {
+        return {
+          ok: false,
+          status: check.status,
+          conflicts:
+            check.conflicts.length > 0
+              ? check.conflicts
+              : [{ kind: "version_mismatch", message: "Suggestion is no longer valid." }],
+          requiredChallenges: [],
+        };
+      }
+      if (check.status === "requires_challenge_confirm") {
+        const missing = check.requiredChallenges.filter((reqCh) => {
+          const auth = authorizedChallenges.find(
+            (a) =>
+              a &&
+              a.offerId === offer.id &&
+              a.challengeId === reqCh.challengeId &&
+              a.targetId === reqCh.targetId &&
+              a.expectedValueDigest === reqCh.expectedValueDigest &&
+              CHALLENGE_DISPOSITION_SET.has(a.disposition),
+          );
+          return !auth;
+        });
+        if (missing.length > 0) {
+          return {
+            ok: false,
+            status: "requires_challenge_confirm",
+            conflicts: [],
+            requiredChallenges: missing,
+          };
+        }
+      }
     }
 
-    const siblingsBefore = Array.from(this._state.offers.values())
-      .filter(
-        (o) =>
-          o.id !== offerId &&
-          o.batchId === offer.batchId &&
-          o.status !== "accepted" &&
-          o.status !== "rejected" &&
-          o.status !== "superseded",
-      )
+    const prePendingIds = new Set(
+      Array.from(this._state.offers.values())
+        .filter((o) => o.status !== "superseded")
+        .map((o) => o.id),
+    );
+
+    this._commitEvent(
+      "offer_accept",
+      {
+        offerIds,
+        ...(authorizedChallenges.length > 0 ? { authorizedChallenges } : {}),
+      },
+      author,
+    );
+
+    const acceptedOffers = offerIds
+      .map((id) => this._state.offers.get(id))
+      .filter(Boolean);
+    const supersededOfferIds = Array.from(this._state.offers.values())
+      .filter((o) => prePendingIds.has(o.id) && o.status === "superseded")
       .map((o) => o.id);
 
-    this._commitEvent("offer_accept", { offerId }, author);
-
-    const acceptedOffer = this._state.offers.get(offerId);
     return {
       ok: true,
+      status: "accepted",
       conflicts: [],
-      offer: acceptedOffer ? structuredClone(acceptedOffer) : undefined,
-      supersededOfferIds: siblingsBefore,
+      requiredChallenges: [],
+      acceptedOffers: /** @type {import("../index.d.ts").Offer[]} */ (acceptedOffers),
+      supersededOfferIds,
     };
   }
 
   /**
-   * Dismiss/reject an active offer, recording semantic suppression over its `writeScopes`.
+   * Dismiss/reject an active offer, recording semantic suppression over its `writeRanges`.
+   *
    * @param {string} offerId
    * @param {string} [reason]
    * @param {import("../index.d.ts").TraceAuthor} [author]
@@ -1499,20 +1803,23 @@ export class SessionController {
     this._assertOpen();
     const offer = this._state.offers.get(offerId);
     if (!offer) {
-      throw new EnsomiError("MISSING_OFFER", "Suggestion does not exist in session state");
+      throw new EnsomiError("MISSING_OFFER", `Offer "${offerId}" does not exist`);
     }
-    if (offer.status === "accepted" || offer.status === "rejected" || offer.status === "superseded") {
+    if (
+      offer.status === "accepted" ||
+      offer.status === "rejected" ||
+      offer.status === "superseded"
+    ) {
       throw new EnsomiError(
         "OFFER_NOT_REJECTABLE",
-        `Suggestion with status "${offer.status}" cannot be dismissed`,
+        `Offer "${offerId}" with status "${offer.status}" cannot be dismissed`,
         { status: offer.status },
       );
     }
     this._commitEvent("offer_reject", { offerId, ...(reason ? { reason } : {}) }, author);
-    const rejectedOffer = this._state.offers.get(offerId);
     return {
       ok: true,
-      offer: rejectedOffer ? structuredClone(rejectedOffer) : undefined,
+      offer: this._state.offers.get(offerId),
     };
   }
 }

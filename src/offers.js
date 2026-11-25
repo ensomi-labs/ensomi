@@ -1,235 +1,467 @@
 /**
- * Soft-first PatchOffer semantics & human-safe validation:
- *  - Deterministic semantic keys independent of freshly minted ephemeral IDs
- *  - Hard invalidation ONLY on:
- *      1. `protected_keep`
- *      2. `version_mismatch`
- *      3. `range_changed`
- *      4. `out_of_scope`
- *      (+ `sibling_conflict` when an alternative in the same batch was already accepted)
- *  - Soft cues (`beat`, `unbeat`, `sound`, `free`) NEVER hard-block acceptance;
- *    disagreements surface as concise musical `advisoryNotes` while `status` stays `"valid"`.
- *  - Zero internal IDs, batchIds, or hashes in user-facing conflict/advisory/consequence strings.
+ * Unified `Offer` engine (`0.1.0`):
+ *  - Host-bound `computeOfferDependencies` & `computeOfferBasisDigest` (covering `writeRanges`
+ *    segments, boundaries, spans, marks including empty-range membership, AND `derivedFrom`!)
+ *  - `validateOffer(snapshot, offer, options?)` running the EXACT pure `executeTransaction`
+ *    interpreter on scratch state + Full Influence-Footprint `Approval` (`keep`) check +
+ *    `protected_verified` & `OfferChallenge` check + `alternativeGroup` sibling supersession
+ *  - `previewOffer(snapshot, offer, options?)` -> `{ validation, nextSnapshot, diff, previewTempoMap, consequences }`
+ *  - `buildOffer` / `normalizeHostOffer` for binding provider proposals to `capturedBasis`
  */
 
-import { compileConstraints, DEFAULT_BEAT_GUIDE_TOL_SEC } from "./constraints.js";
-import { canonicalJson, roundTime, sha256Hex } from "./hash.js";
+import { compileConstraints } from "./constraints.js";
+import { executeTransaction, getVerdictEntity } from "./interpreter.js";
+import { canonicalJson, compareCodeUnits, EnsomiError, jcsSha256Hex } from "./jcs.js";
+import { toScratchSessionState, toSnapshot } from "./state.js";
 import {
-  assertRange,
-  formatTimeCode,
-  normalizeBeat,
-  normalizeSoundAnchor,
-  rangeContainsTime,
-  rangesOverlap,
-  SEGMENT_REGIMES,
+  assertRangeUs,
+  formatTimeUs,
+  mergeRangesUs,
+  rangeContainsUs,
+  rangesOverlapUs,
+} from "./time.js";
+import {
+  assertNonEmptyId,
+  assertOfferShape,
+  assertPositiveRevision,
+  computeEntityValueDigest,
+  deepFreeze,
+  isOfferOpKind,
+  normalizeStructuredNote,
+  OFFER_KINDS,
+  VERDICT_TARGET_KINDS,
 } from "./types.js";
+import { computeIntervalMusicalDigest, projectTempoMap } from "./views.js";
 
-const SEGMENT_REGIME_SET = new Set(SEGMENT_REGIMES);
-
-/**
- * Parse originating trace seq from an immutable entity revision token (`"${seq}:${eventId}"`).
- * @param {string | undefined} rev
- * @returns {number | null}
- */
-export function parseRevisionSeq(rev) {
-  if (typeof rev !== "string") return null;
-  const colonIdx = rev.indexOf(":");
-  if (colonIdx <= 0) return null;
-  const seq = Number(rev.slice(0, colonIdx));
-  return Number.isInteger(seq) && seq >= 0 ? seq : null;
-}
+const OFFER_KIND_SET = new Set(OFFER_KINDS);
+const VERDICT_TARGET_KIND_SET = new Set(VERDICT_TARGET_KINDS);
 
 /**
- * Strip `revision` counter for content-equality checks inside `Keep` locks.
- * @param {Record<string, unknown>} entity
+ * Look up any active entity in `state` by ID for `derivedFrom.supportingIds`.
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ * @param {string} id
+ * @returns {{ kind: import("../index.d.ts").EntityKind, revision: number, valueDigest: string } | null}
  */
-function stripRevision(entity) {
-  const { revision: _ignored, ...rest } = entity;
-  return rest;
-}
-
-/**
- * Normalize writeScopes array into validated `{ segmentId, t0, t1 }[]`.
- * @param {readonly import("../index.d.ts").WriteScope[]} writeScopes
- */
-function normalizeWriteScopes(writeScopes) {
-  if (!Array.isArray(writeScopes) || writeScopes.length === 0) {
-    return [];
+function inspectSupportingEntity(state, id) {
+  const b = state.beats.get(id);
+  if (b) {
+    return {
+      kind: "beat",
+      revision: b.revision,
+      valueDigest: computeEntityValueDigest("beat", b),
+    };
   }
-  return writeScopes.map((ws) => {
-    const r = assertRange(ws);
-    return { segmentId: ws.segmentId, t0: r.t0, t1: r.t1 };
+  const u = state.unbeats.get(id);
+  if (u) {
+    return {
+      kind: "unbeat",
+      revision: u.revision,
+      valueDigest: computeEntityValueDigest("unbeat", u),
+    };
+  }
+  const s = state.sounds.get(id);
+  if (s) {
+    return {
+      kind: "sound",
+      revision: s.revision,
+      valueDigest: computeEntityValueDigest("sound", s, s.verdict?.facet ?? "occurrence"),
+    };
+  }
+  const sc = state.soundClasses.get(id);
+  if (sc) {
+    return {
+      kind: "sound_class",
+      revision: sc.revision,
+      valueDigest: computeEntityValueDigest("sound_class", sc),
+    };
+  }
+  const bnd = state.boundaries.get(id);
+  if (bnd) {
+    return {
+      kind: "boundary",
+      revision: bnd.revision,
+      valueDigest: computeEntityValueDigest("boundary", bnd),
+    };
+  }
+  const seg = state.segments.find((x) => x.id === id);
+  if (seg) {
+    return {
+      kind: "segment",
+      revision: seg.revision,
+      valueDigest: jcsSha256Hex({
+        id: seg.id,
+        startUs: seg.startUs,
+        endUs: seg.endUs,
+        regime: seg.regime,
+        kinematics: seg.kinematics ?? null,
+      }),
+    };
+  }
+  return null;
+}
+
+/**
+ * Compute deterministic `OfferDependencies` over `writeRanges` (and optional `derivedFrom`)
+ * from `snapshotOrState`. Captures empty-range membership so insertions into previously empty
+ * ranges are detected cleanly!
+ *
+ * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} snapshotOrState
+ * @param {readonly import("../index.d.ts").RangeUs[]} writeRanges
+ * @param {{ range: import("../index.d.ts").RangeUs, supportingIds?: readonly string[] }} [derivedFrom]
+ * @returns {import("../index.d.ts").OfferDependencies}
+ */
+export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFrom) {
+  const state = toScratchSessionState(snapshotOrState);
+  const durationUs = state.durationUs;
+  if (!Array.isArray(writeRanges) || writeRanges.length === 0) {
+    throw new EnsomiError("INVALID_OFFER", "Offer writeRanges must be a non-empty RangeUs[]");
+  }
+  const mergedRanges = mergeRangesUs(
+    writeRanges.map((r) => assertRangeUs(r, durationUs > 0 ? durationUs : undefined)),
+  );
+
+  const overlapsWrite = (startUs, endUs) =>
+    mergedRanges.some((wr) => startUs < wr.endUs && endUs > wr.startUs);
+  const pointInWrite = (atUs) =>
+    mergedRanges.some((wr) => atUs >= wr.startUs && atUs < wr.endUs);
+  const boundaryTouchesWrite = (atUs) =>
+    mergedRanges.some((wr) => atUs >= wr.startUs && atUs <= wr.endUs);
+
+  const segments = state.segments
+    .filter((s) => overlapsWrite(s.startUs, s.endUs))
+    .map((s) => ({
+      id: s.id,
+      startUs: s.startUs,
+      endUs: s.endUs,
+      regime: s.regime,
+      kinematics: s.kinematics ?? null,
+      revision: s.revision,
+      approved: Boolean(s.approval),
+    }))
+    .sort((a, b) => a.startUs - b.startUs || a.endUs - b.endUs || compareCodeUnits(a.id, b.id));
+
+  const boundaries = Array.from(state.boundaries.values())
+    .filter((b) => boundaryTouchesWrite(b.atUs))
+    .map((b) => ({ id: b.id, atUs: b.atUs, revision: b.revision }))
+    .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+
+  const spans = state.spans
+    .filter((sp) => overlapsWrite(sp.startUs, sp.endUs))
+    .map((sp) => ({
+      id: sp.id,
+      segmentId: sp.segmentId,
+      startUs: sp.startUs,
+      endUs: sp.endUs,
+      kind: sp.kind,
+      revision: sp.revision,
+      approved: Boolean(sp.approval),
+    }))
+    .sort(
+      (a, b) =>
+        a.startUs - b.startUs ||
+        a.endUs - b.endUs ||
+        compareCodeUnits(a.kind, b.kind) ||
+        compareCodeUnits(a.id, b.id),
+    );
+
+  const beats = Array.from(state.beats.values())
+    .filter((b) => pointInWrite(b.atUs))
+    .map((b) => ({ id: b.id, atUs: b.atUs, revision: b.revision }))
+    .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+
+  const unbeats = Array.from(state.unbeats.values())
+    .filter((u) => pointInWrite(u.atUs))
+    .map((u) => ({ id: u.id, atUs: u.atUs, revision: u.revision }))
+    .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+
+  const sounds = Array.from(state.sounds.values())
+    .filter((s) => overlapsWrite(s.startUs, s.endUs))
+    .map((s) => ({ id: s.id, startUs: s.startUs, endUs: s.endUs, revision: s.revision }))
+    .sort((a, b) => a.startUs - b.startUs || a.endUs - b.endUs || compareCodeUnits(a.id, b.id));
+
+  const soundClasses = Array.from(state.soundClasses.values())
+    .map((sc) => ({ id: sc.id, revision: sc.revision }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  /** @type {import("../index.d.ts").OfferDependencies["derivedFrom"]} */
+  let derivedDeps;
+  if (derivedFrom) {
+    const srcRange = assertRangeUs(
+      derivedFrom.range,
+      durationUs > 0 ? durationUs : undefined,
+    );
+    const sourceDigest = computeIntervalMusicalDigest(state, srcRange.startUs, srcRange.endUs);
+    const uniqueSupportingIds = [...new Set(derivedFrom.supportingIds ?? [])].sort(
+      compareCodeUnits,
+    );
+    /** @type {Array<{ id: string, kind: import("../index.d.ts").EntityKind, revision: number, valueDigest: string }>} */
+    const supportingRevisions = [];
+    for (const sid of uniqueSupportingIds) {
+      const info = inspectSupportingEntity(state, sid);
+      if (info) {
+        supportingRevisions.push({
+          id: sid,
+          kind: info.kind,
+          revision: info.revision,
+          valueDigest: info.valueDigest,
+        });
+      } else {
+        supportingRevisions.push({
+          id: sid,
+          kind: "beat",
+          revision: 0,
+          valueDigest: "missing",
+        });
+      }
+    }
+    derivedDeps = {
+      range: srcRange,
+      sourceDigest,
+      supportingRevisions,
+    };
+  }
+
+  return deepFreeze({
+    audioId: state.audio?.audioId ?? null,
+    durationUs,
+    writeRanges: mergedRanges,
+    segments,
+    boundaries,
+    spans,
+    beats,
+    unbeats,
+    sounds,
+    soundClasses,
+    ...(derivedDeps ? { derivedFrom: derivedDeps } : {}),
   });
 }
 
 /**
- * Compute a deterministic semantic key for a PatchOffer's `writeScopes` and `ops`.
- * Preserves stable IDs for existing/referenced entities while stripping ephemeral IDs
- * and revision counters from newly proposed entities.
+ * Compute RFC 8785 (JCS) SHA-256 `basisDigest` from `OfferDependencies`.
  *
- * @param {readonly import("../index.d.ts").WriteScope[]} writeScopes
- * @param {import("../index.d.ts").PatchOp} [ops]
- * @param {Record<string, string>} [expectedRevisions]
+ * @param {import("../index.d.ts").OfferDependencies} dependencies
  * @returns {string}
  */
-export function computeSemanticKey(writeScopes, ops = {}, expectedRevisions = {}) {
-  const scopes = normalizeWriteScopes(writeScopes)
-    .map((ws) => ({
-      segmentId: ws.segmentId,
-      t0: roundTime(ws.t0, 4),
-      t1: roundTime(ws.t1, 4),
-    }))
-    .sort(
-      (a, b) =>
-        a.t0 - b.t0 || a.t1 - b.t1 || a.segmentId.localeCompare(b.segmentId),
-    );
-
-  const stableIds = new Set([
-    ...Object.keys(expectedRevisions ?? {}),
-    ...(ops.removeBeatIds ?? []),
-    ...(ops.removeSoundIds ?? []),
-  ]);
-
-  const canonicalBeats = (ops.upsertBeats ?? [])
-    .map((b) => ({
-      id: typeof b.id === "string" && stableIds.has(b.id) ? b.id : null,
-      timeSec: roundTime(b.timeSec, 4),
-      source: b.source ?? "offer",
-      snapEventId: b.snapEventId ?? null,
-    }))
-    .sort(
-      (a, b) =>
-        a.timeSec - b.timeSec ||
-        (a.id ?? "").localeCompare(b.id ?? "") ||
-        a.source.localeCompare(b.source),
-    );
-
-  const canonicalSounds = (ops.upsertSounds ?? [])
-    .map((s) => ({
-      id: typeof s.id === "string" && stableIds.has(s.id) ? s.id : null,
-      timeSec: roundTime(s.timeSec, 4),
-      strength: s.strength !== undefined ? roundTime(s.strength, 4) : null,
-      family: s.family ?? null,
-      role: s.role ?? null,
-    }))
-    .sort(
-      (a, b) =>
-        a.timeSec - b.timeSec ||
-        (a.id ?? "").localeCompare(b.id ?? ""),
-    );
-
-  const canonicalSplits = (ops.splitSegments ?? [])
-    .map((s) => ({
-      segmentId: s.segmentId,
-      timeSec: roundTime(s.timeSec, 4),
-    }))
-    .sort((a, b) => a.timeSec - b.timeSec || a.segmentId.localeCompare(b.segmentId));
-
-  const canonicalMoves = (ops.moveSegmentBoundaries ?? [])
-    .map((m) => ({
-      leftSegmentId: m.leftSegmentId,
-      rightSegmentId: m.rightSegmentId,
-      timeSec: roundTime(m.timeSec, 4),
-    }))
-    .sort((a, b) => a.timeSec - b.timeSec || a.leftSegmentId.localeCompare(b.leftSegmentId));
-
-  const canonicalRegimes = (ops.setSegmentRegimes ?? [])
-    .map((r) => ({ segmentId: r.segmentId, regime: r.regime }))
-    .sort((a, b) => a.segmentId.localeCompare(b.segmentId));
-
-  const canonical = {
-    v: 3,
-    writeScopes: scopes,
-    upsertBeats: canonicalBeats,
-    removeBeatIds: [...new Set(ops.removeBeatIds ?? [])].sort(),
-    upsertSounds: canonicalSounds,
-    removeSoundIds: [...new Set(ops.removeSoundIds ?? [])].sort(),
-    splitSegments: canonicalSplits,
-    moveSegmentBoundaries: canonicalMoves,
-    setSegmentRegimes: canonicalRegimes,
-  };
-
-  return `sk:${sha256Hex(canonicalJson(canonical)).slice(0, 32)}`;
+export function computeOfferBasisDigest(dependencies) {
+  return jcsSha256Hex(dependencies);
 }
 
 /**
- * Collect sorted beat IDs currently inside `writeScopes`.
- * @param {import("../index.d.ts").SessionState} state
- * @param {readonly import("../index.d.ts").WriteScope[]} writeScopes
- * @returns {string[]}
- */
-export function getScopeBeatIds(state, writeScopes) {
-  const scopes = normalizeWriteScopes(writeScopes);
-  if (scopes.length === 0) return [];
-  /** @type {string[]} */
-  const ids = [];
-  for (const beat of state.beats.values()) {
-    if (scopes.some((ws) => rangeContainsTime(ws, beat.timeSec))) {
-      ids.push(beat.id);
-    }
-  }
-  ids.sort();
-  return ids;
-}
-
-/**
- * Compute numeric consequences of applying `ops` to `state`.
- * @param {import("../index.d.ts").SessionState} state
- * @param {import("../index.d.ts").PatchOp} [ops]
- * @returns {import("../index.d.ts").OfferConsequences}
- */
-export function computeConsequences(state, ops = {}) {
-  let beatsAdded = 0;
-  let beatsMoved = 0;
-  let beatsRemoved = 0;
-  let maxShiftMs = 0;
-
-  const removedSet = new Set(ops.removeBeatIds ?? []);
-  const upsertedIds = new Set((ops.upsertBeats ?? []).map((b) => b.id));
-
-  for (const id of removedSet) {
-    if (state.beats.has(id) && !upsertedIds.has(id)) {
-      beatsRemoved += 1;
-    }
-  }
-
-  for (const beat of ops.upsertBeats ?? []) {
-    const existing = state.beats.get(beat.id);
-    if (!existing) {
-      beatsAdded += 1;
-    } else if (existing.timeSec !== beat.timeSec) {
-      beatsMoved += 1;
-      const shiftMs = Math.abs(beat.timeSec - existing.timeSec) * 1000;
-      if (shiftMs > maxShiftMs) maxShiftMs = shiftMs;
-    }
-  }
-
-  const segmentChanges =
-    (ops.splitSegments?.length ?? 0) +
-    (ops.moveSegmentBoundaries?.length ?? 0) +
-    (ops.setSegmentRegimes?.length ?? 0);
-
-  return {
-    beatsAdded,
-    beatsMoved,
-    beatsRemoved,
-    maxShiftMs: roundTime(maxShiftMs, 2),
-    segmentChanges,
-  };
-}
-
-/**
- * Generate a concise, human-safe musical summary of offer consequences (zero internal IDs).
- * @param {import("../index.d.ts").SessionState} state
- * @param {import("../index.d.ts").PatchOp} [ops]
+ * Compute a deterministic semantic key for rejection suppression across recompute runs
+ * (strips ephemeral newly-minted mark IDs while preserving target timestamps, roles, and ranges).
+ *
+ * @param {{ kind?: string, writeRanges: readonly import("../index.d.ts").RangeUs[], ops: readonly import("../index.d.ts").OfferOp[] }} offer
  * @returns {string}
  */
-export function formatConsequenceSummary(state, ops = {}) {
-  const c = computeConsequences(state, ops);
+export function computeOfferSemanticKey(offer) {
+  const ranges = mergeRangesUs(offer.writeRanges ?? []);
+  const canonicalOps = (offer.ops ?? []).map((op) => {
+    switch (op.op) {
+      case "upsert_beat":
+        return {
+          op: "upsert_beat",
+          atUs: op.beat.atUs,
+          boundTo: op.beat.boundTo ?? null,
+          structural: op.beat.structural ?? null,
+        };
+      case "upsert_sound":
+        return {
+          op: "upsert_sound",
+          startUs: op.sound.startUs,
+          endUs: op.sound.endUs,
+          anchors: (op.sound.anchors ?? []).map((a) => ({ role: a.role, atUs: a.atUs })),
+          classId: op.sound.classId ?? null,
+          voiceGroupId: op.sound.voiceGroupId ?? null,
+        };
+      case "split_segment":
+        return {
+          op: "split_segment",
+          segmentId: op.segmentId,
+          atUs: op.atUs,
+          rightRegime: op.rightRegime ?? null,
+        };
+      default:
+        return op;
+    }
+  });
+  return `sk:${jcsSha256Hex({
+    v: 1,
+    kind: offer.kind ?? "pulse",
+    writeRanges: ranges,
+    ops: canonicalOps,
+  }).slice(0, 32)}`;
+}
+
+/**
+ * Check whether an offer is suppressed by a prior user dismissal (`offer_reject`) whose
+ * `writeRanges` have not yet been touched by a subsequent user edit.
+ *
+ * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} stateOrSnapshot
+ * @param {{ semanticKey?: string, kind?: string, writeRanges: readonly import("../index.d.ts").RangeUs[], ops: readonly import("../index.d.ts").OfferOp[] }} offer
+ * @returns {boolean}
+ */
+export function isOfferSuppressed(stateOrSnapshot, offer) {
+  const suppressions = stateOrSnapshot?.suppressions;
+  if (!Array.isArray(suppressions) || suppressions.length === 0) return false;
+  const key = offer.semanticKey || computeOfferSemanticKey(offer);
+  return suppressions.some(
+    (entry) =>
+      entry.semanticKey === key &&
+      entry.writeRanges.some((er) => offer.writeRanges.some((or) => rangesOverlapUs(er, or))),
+  );
+}
+
+/**
+ * Compute structured diff and numeric `OfferConsequences` between `beforeState` and `afterState`.
+ *
+ * @param {import("../index.d.ts").SessionState} beforeState
+ * @param {import("../index.d.ts").SessionState} afterState
+ * @returns {{ diff: import("../index.d.ts").OfferPreviewDiff, consequences: import("../index.d.ts").OfferConsequences }}
+ */
+export function computeOfferDiffAndConsequences(beforeState, afterState) {
+  /** @type {import("../index.d.ts").Beat[]} */
+  const beatsAdded = [];
+  /** @type {Array<{ before: import("../index.d.ts").Beat, after: import("../index.d.ts").Beat, deltaUs: number }>} */
+  const beatsMoved = [];
+  /** @type {import("../index.d.ts").Beat[]} */
+  const beatsRemoved = [];
+  let maxShiftUs = 0;
+
+  for (const [id, bBefore] of beforeState.beats) {
+    const bAfter = afterState.beats.get(id);
+    if (!bAfter) {
+      beatsRemoved.push(bBefore);
+    } else if (bAfter.atUs !== bBefore.atUs) {
+      const deltaUs = bAfter.atUs - bBefore.atUs;
+      const absShift = Math.abs(deltaUs);
+      if (absShift > maxShiftUs) maxShiftUs = absShift;
+      beatsMoved.push({ before: bBefore, after: bAfter, deltaUs });
+    }
+  }
+  for (const [id, bAfter] of afterState.beats) {
+    if (!beforeState.beats.has(id)) {
+      beatsAdded.push(bAfter);
+    }
+  }
+  beatsAdded.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+  beatsMoved.sort((a, b) => a.after.atUs - b.after.atUs || compareCodeUnits(a.after.id, b.after.id));
+  beatsRemoved.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+
+  /** @type {import("../index.d.ts").Unbeat[]} */
+  const unbeatsAdded = [];
+  /** @type {import("../index.d.ts").Unbeat[]} */
+  const unbeatsRemoved = [];
+  for (const [id, uBefore] of beforeState.unbeats) {
+    if (!afterState.unbeats.has(id)) unbeatsRemoved.push(uBefore);
+  }
+  for (const [id, uAfter] of afterState.unbeats) {
+    if (!beforeState.unbeats.has(id)) unbeatsAdded.push(uAfter);
+  }
+  unbeatsAdded.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+  unbeatsRemoved.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+
+  /** @type {import("../index.d.ts").Sound[]} */
+  const soundsAdded = [];
+  /** @type {Array<{ before: import("../index.d.ts").Sound, after: import("../index.d.ts").Sound }>} */
+  const soundsUpdated = [];
+  /** @type {import("../index.d.ts").Sound[]} */
+  const soundsRemoved = [];
+  for (const [id, sBefore] of beforeState.sounds) {
+    const sAfter = afterState.sounds.get(id);
+    if (!sAfter) {
+      soundsRemoved.push(sBefore);
+    } else if (sAfter.revision !== sBefore.revision) {
+      soundsUpdated.push({ before: sBefore, after: sAfter });
+    }
+  }
+  for (const [id, sAfter] of afterState.sounds) {
+    if (!beforeState.sounds.has(id)) soundsAdded.push(sAfter);
+  }
+  soundsAdded.sort((a, b) => a.startUs - b.startUs || compareCodeUnits(a.id, b.id));
+  soundsUpdated.sort((a, b) => a.after.startUs - b.after.startUs || compareCodeUnits(a.after.id, b.after.id));
+  soundsRemoved.sort((a, b) => a.startUs - b.startUs || compareCodeUnits(a.id, b.id));
+
+  /** @type {import("../index.d.ts").Boundary[]} */
+  const boundariesAdded = [];
+  /** @type {Array<{ before: import("../index.d.ts").Boundary, after: import("../index.d.ts").Boundary, deltaUs: number }>} */
+  const boundariesMoved = [];
+  /** @type {import("../index.d.ts").Boundary[]} */
+  const boundariesRemoved = [];
+  for (const [id, bndBefore] of beforeState.boundaries) {
+    const bndAfter = afterState.boundaries.get(id);
+    if (!bndAfter) {
+      boundariesRemoved.push(bndBefore);
+    } else if (bndAfter.atUs !== bndBefore.atUs) {
+      boundariesMoved.push({
+        before: bndBefore,
+        after: bndAfter,
+        deltaUs: bndAfter.atUs - bndBefore.atUs,
+      });
+    }
+  }
+  for (const [id, bndAfter] of afterState.boundaries) {
+    if (!beforeState.boundaries.has(id)) boundariesAdded.push(bndAfter);
+  }
+  boundariesAdded.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+  boundariesMoved.sort((a, b) => a.after.atUs - b.after.atUs || compareCodeUnits(a.after.id, b.after.id));
+  boundariesRemoved.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+
+  const beforeSegMap = new Map(beforeState.segments.map((s) => [s.id, s]));
+  const afterSegMap = new Map(afterState.segments.map((s) => [s.id, s]));
+  /** @type {import("../index.d.ts").Segment[]} */
+  const segmentsAdded = [];
+  /** @type {Array<{ before: import("../index.d.ts").Segment, after: import("../index.d.ts").Segment }>} */
+  const segmentsUpdated = [];
+  /** @type {import("../index.d.ts").Segment[]} */
+  const segmentsRemoved = [];
+  for (const [id, segBefore] of beforeSegMap) {
+    const segAfter = afterSegMap.get(id);
+    if (!segAfter) segmentsRemoved.push(segBefore);
+    else if (segAfter.revision !== segBefore.revision) {
+      segmentsUpdated.push({ before: segBefore, after: segAfter });
+    }
+  }
+  for (const [id, segAfter] of afterSegMap) {
+    if (!beforeSegMap.has(id)) segmentsAdded.push(segAfter);
+  }
+
+  const diff = deepFreeze({
+    beats: { added: beatsAdded, moved: beatsMoved, removed: beatsRemoved },
+    unbeats: { added: unbeatsAdded, removed: unbeatsRemoved },
+    sounds: { added: soundsAdded, updated: soundsUpdated, removed: soundsRemoved },
+    boundaries: { added: boundariesAdded, moved: boundariesMoved, removed: boundariesRemoved },
+    segments: { added: segmentsAdded, updated: segmentsUpdated, removed: segmentsRemoved },
+  });
+
+  const consequences = deepFreeze({
+    beatsAdded: beatsAdded.length,
+    beatsMoved: beatsMoved.length,
+    beatsRemoved: beatsRemoved.length,
+    maxShiftUs,
+    soundsAdded: soundsAdded.length,
+    soundsUpdated: soundsUpdated.length,
+    soundsRemoved: soundsRemoved.length,
+    boundaryChanges:
+      boundariesAdded.length + boundariesMoved.length + boundariesRemoved.length,
+    segmentChanges: segmentsAdded.length + segmentsUpdated.length + segmentsRemoved.length,
+  });
+
+  return { diff, consequences };
+}
+
+/**
+ * Format a concise human-safe summary string from `OfferConsequences` (zero internal IDs).
+ *
+ * @param {import("../index.d.ts").OfferConsequences} c
+ * @returns {string}
+ */
+export function formatConsequenceSummary(c) {
   /** @type {string[]} */
   const parts = [];
   if (c.beatsMoved > 0) {
-    const shiftNote = c.maxShiftMs >= 1 ? ` (up to ${Math.round(c.maxShiftMs)} ms)` : "";
+    const maxMs = Math.round(c.maxShiftUs / 1000);
+    const shiftNote = maxMs >= 1 ? ` (up to ${maxMs} ms)` : "";
     parts.push(`Nudges ${c.beatsMoved} beat${c.beatsMoved === 1 ? "" : "s"}${shiftNote}`);
   }
   if (c.beatsAdded > 0 && c.beatsRemoved > 0) {
@@ -241,32 +473,35 @@ export function formatConsequenceSummary(state, ops = {}) {
   } else if (c.beatsRemoved > 0) {
     parts.push(`removes ${c.beatsRemoved} beat${c.beatsRemoved === 1 ? "" : "s"}`);
   }
-  if (c.segmentChanges > 0) {
-    parts.push(`updates ${c.segmentChanges} section boundary${c.segmentChanges === 1 ? "" : " changes"}`);
+  if (c.soundsAdded > 0 || c.soundsUpdated > 0 || c.soundsRemoved > 0) {
+    const totalSounds = c.soundsAdded + c.soundsUpdated + c.soundsRemoved;
+    parts.push(`matches ${totalSounds} sound${totalSounds === 1 ? "" : "s"}`);
   }
-  if (parts.length === 0) {
-    return "No beat timing changes";
+  if (c.boundaryChanges > 0 || c.segmentChanges > 0) {
+    const count = Math.max(c.boundaryChanges, c.segmentChanges);
+    parts.push(`updates ${count} section${count === 1 ? "" : "s"}`);
   }
+  if (parts.length === 0) return "No timing changes";
   const joined = parts.join(" · ");
   return joined.charAt(0).toUpperCase() + joined.slice(1);
 }
 
 /**
- * Detect mutually exclusive sibling offers within a batch (human-safe metadata, zero ID leaks).
- * Note: sibling alternatives remain `status: "valid"` until one sibling is accepted, at which
- * point other siblings in the batch transition cleanly to `status: "superseded"`.
+ * Detect mutually exclusive sibling offers sharing the same non-null `alternativeGroup`.
+ * Offers in the same `batchId` WITHOUT a shared `alternativeGroup` are independent!
  *
- * @param {readonly import("../index.d.ts").PatchOffer[]} offers
- * @returns {Map<string, number[]>} Map from offer.id -> conflicting sibling optionIndices
+ * @param {readonly import("../index.d.ts").Offer[]} offers
+ * @returns {Map<string, number[]>}
  */
 export function detectSiblingConflicts(offers) {
   /** @type {Map<string, number[]>} */
   const map = new Map();
   for (let i = 0; i < offers.length; i += 1) {
     const a = offers[i];
+    if (!a.alternativeGroup) continue;
     for (let j = i + 1; j < offers.length; j += 1) {
       const b = offers[j];
-      if (a.id === b.id || a.batchId !== b.batchId) continue;
+      if (a.id === b.id || b.alternativeGroup !== a.alternativeGroup) continue;
       if (!map.has(a.id)) map.set(a.id, []);
       if (!map.has(b.id)) map.set(b.id, []);
       map.get(a.id).push(b.optionIndex ?? j);
@@ -277,1004 +512,1030 @@ export function detectSiblingConflicts(offers) {
 }
 
 /**
- * Check whether an offer is currently suppressed by a prior user rejection whose
- * `writeScopes` have not yet been invalidated by an overlapping user edit.
+ * Check that every op in `offer.ops` targets coordinates inside `mergedWriteRanges`.
  *
- * @param {import("../index.d.ts").SessionState} state
- * @param {{ semanticKey?: string, writeScopes: readonly import("../index.d.ts").WriteScope[], ops?: import("../index.d.ts").PatchOp, expectedRevisions?: Record<string, string> }} offer
- * @returns {boolean}
+ * @param {import("../index.d.ts").SessionState} beforeState
+ * @param {readonly import("../index.d.ts").OfferOp[]} ops
+ * @param {readonly import("../index.d.ts").RangeUs[]} mergedWriteRanges
+ * @returns {import("../index.d.ts").OfferConflict[]}
  */
-export function isOfferSuppressed(state, offer) {
-  if (!state || !Array.isArray(state.suppressions) || state.suppressions.length === 0) {
-    return false;
-  }
-  const key =
-    offer.semanticKey ||
-    computeSemanticKey(offer.writeScopes, offer.ops ?? {}, offer.expectedRevisions ?? {});
-  return state.suppressions.some(
-    (entry) =>
-      entry.semanticKey === key &&
-      entry.writeScopes.some((es) => offer.writeScopes.some((os) => rangesOverlap(es, os))),
-  );
-}
+function checkOpsWithinWriteRanges(beforeState, ops, mergedWriteRanges) {
+  /** @type {import("../index.d.ts").OfferConflict[]} */
+  const conflicts = [];
+  const pointInWrite = (atUs) =>
+    typeof atUs === "number" &&
+    mergedWriteRanges.some((wr) => atUs >= wr.startUs && atUs < wr.endUs);
+  const intervalInWrite = (startUs, endUs) =>
+    typeof startUs === "number" &&
+    typeof endUs === "number" &&
+    mergedWriteRanges.some((wr) => startUs >= wr.startUs && endUs <= wr.endUs);
 
-/**
- * Look up any revisioned entity in `SessionState` by ID.
- * @param {import("../index.d.ts").SessionState} state
- * @param {string} id
- */
-function findEntityKind(state, id) {
-  if (state.beats.has(id)) return "beat";
-  if (state.sounds.has(id)) return "sound";
-  if (state.segments.some((s) => s.id === id)) return "segment";
-  if (state.spans.some((s) => s.id === id)) return "span";
-  if (state.unbeats.some((u) => u.id === id)) return "unbeat";
-  return null;
-}
+  for (let i = 0; i < ops.length; i += 1) {
+    const op = ops[i];
+    if (!op || typeof op !== "object") {
+      conflicts.push({
+        kind: "invalid_op",
+        message: "Suggestion contains a malformed operation.",
+      });
+      continue;
+    }
+    if (!isOfferOpKind(op.op)) {
+      conflicts.push({
+        kind: "authority_violation",
+        message: `Suggestion attempts user-only operation "${String(op.op)}".`,
+      });
+      continue;
+    }
 
-function inAnyScope(scopes, timeSec) {
-  return scopes.some((ws) => rangeContainsTime(ws, timeSec));
-}
-
-/**
- * Merge overlapping or touching `[t0, t1)` intervals into contiguous ranges.
- * @param {readonly Array<{ t0: number, t1: number }>} ranges
- * @returns {Array<{ t0: number, t1: number }>}
- */
-function mergeContiguousRanges(ranges) {
-  const valid = ranges
-    .filter((r) => r.t1 > r.t0 + 1e-12)
-    .map((r) => ({ t0: r.t0, t1: r.t1 }))
-    .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
-  if (valid.length <= 1) return valid;
-  /** @type {Array<{ t0: number, t1: number }>} */
-  const merged = [valid[0]];
-  for (let i = 1; i < valid.length; i += 1) {
-    const prev = merged[merged.length - 1];
-    const curr = valid[i];
-    if (curr.t0 <= prev.t1 + 1e-9) {
-      if (curr.t1 > prev.t1) prev.t1 = curr.t1;
-    } else {
-      merged.push(curr);
+    switch (op.op) {
+      case "upsert_beat": {
+        const atUs = op.beat?.atUs;
+        const existing = typeof op.beat?.id === "string" ? beforeState.beats.get(op.beat.id) : undefined;
+        if (!pointInWrite(atUs) || (existing && !pointInWrite(existing.atUs))) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: `Suggestion modifies a beat near ${formatTimeUs(atUs ?? 0)} outside its target range.`,
+          });
+        }
+        break;
+      }
+      case "move_beat":
+      case "snap_beat": {
+        const existing = beforeState.beats.get(op.id);
+        if (!pointInWrite(op.atUs) || (existing && !pointInWrite(existing.atUs))) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: `Suggestion moves a beat near ${formatTimeUs(op.atUs)} outside its target range.`,
+          });
+        }
+        break;
+      }
+      case "shift_beats": {
+        if (
+          !intervalInWrite(op.startUs, op.endUs) ||
+          !intervalInWrite(op.startUs + op.deltaUs, op.endUs + op.deltaUs)
+        ) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: "Suggestion shifts beats outside its target range.",
+          });
+        }
+        break;
+      }
+      case "remove_beats": {
+        for (const id of op.ids ?? []) {
+          const existing = beforeState.beats.get(id);
+          if (existing && !pointInWrite(existing.atUs)) {
+            conflicts.push({
+              kind: "out_of_scope",
+              message: `Suggestion removes a beat near ${formatTimeUs(existing.atUs)} outside its target range.`,
+            });
+          }
+        }
+        break;
+      }
+      case "remove_unbeats": {
+        for (const id of op.ids ?? []) {
+          const existing = beforeState.unbeats.get(id);
+          if (existing && !pointInWrite(existing.atUs)) {
+            conflicts.push({
+              kind: "out_of_scope",
+              message: `Suggestion removes an unbeat near ${formatTimeUs(existing.atUs)} outside its target range.`,
+            });
+          }
+        }
+        break;
+      }
+      case "upsert_sound": {
+        const s = op.sound;
+        const existing = typeof s?.id === "string" ? beforeState.sounds.get(s.id) : undefined;
+        if (
+          !intervalInWrite(s?.startUs, s?.endUs) ||
+          (existing && !intervalInWrite(existing.startUs, existing.endUs))
+        ) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: `Suggestion modifies a sound near ${formatTimeUs(s?.startUs ?? 0)} outside its target range.`,
+          });
+        }
+        break;
+      }
+      case "update_sound": {
+        const existing = beforeState.sounds.get(op.id);
+        const nextStart = op.patch?.startUs ?? existing?.startUs;
+        const nextEnd = op.patch?.endUs ?? existing?.endUs;
+        if (
+          (existing && !intervalInWrite(existing.startUs, existing.endUs)) ||
+          !intervalInWrite(nextStart, nextEnd)
+        ) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: "Suggestion updates a sound outside its target range.",
+          });
+        }
+        break;
+      }
+      case "remove_sounds": {
+        for (const id of op.ids ?? []) {
+          const existing = beforeState.sounds.get(id);
+          if (existing && !intervalInWrite(existing.startUs, existing.endUs)) {
+            conflicts.push({
+              kind: "out_of_scope",
+              message: `Suggestion removes a sound near ${formatTimeUs(existing.startUs)} outside its target range.`,
+            });
+          }
+        }
+        break;
+      }
+      case "split_segment": {
+        const inside = mergedWriteRanges.some(
+          (wr) => op.atUs > wr.startUs && op.atUs < wr.endUs,
+        );
+        if (!inside) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: `Suggestion splits a section at ${formatTimeUs(op.atUs)} outside its target range.`,
+          });
+        }
+        break;
+      }
+      case "move_boundary": {
+        const bnd = beforeState.boundaries.get(op.boundaryId);
+        if (bnd) {
+          const lo = Math.min(bnd.atUs, op.atUs);
+          const hi = Math.max(bnd.atUs, op.atUs);
+          const covered = mergedWriteRanges.some(
+            (wr) =>
+              wr.startUs <= lo &&
+              wr.endUs >= hi &&
+              (lo < hi || (op.atUs > wr.startUs && op.atUs < wr.endUs)),
+          );
+          if (!covered) {
+            conflicts.push({
+              kind: "out_of_scope",
+              message: `Suggestion moves a boundary to ${formatTimeUs(op.atUs)} outside its target range.`,
+            });
+          }
+        }
+        break;
+      }
+      case "merge_segments": {
+        const left = beforeState.segments.find((s) => s.id === op.leftSegmentId);
+        if (left) {
+          const covered = mergedWriteRanges.some(
+            (wr) => left.endUs > wr.startUs && left.endUs < wr.endUs,
+          );
+          if (!covered) {
+            conflicts.push({
+              kind: "out_of_scope",
+              message: `Suggestion merges sections at ${formatTimeUs(left.endUs)} outside its target range.`,
+            });
+          }
+        }
+        break;
+      }
+      case "promote_range_to_segments":
+      case "set_range_regime": {
+        if (!intervalInWrite(op.startUs, op.endUs)) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: "Suggestion modifies section range outside its target range.",
+          });
+        }
+        break;
+      }
+      case "set_segment_regime":
+      case "set_segment_kinematics": {
+        const seg = beforeState.segments.find((s) => s.id === op.segmentId);
+        if (seg && !intervalInWrite(seg.startUs, seg.endUs)) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: "Suggestion changes section mode outside its target range.",
+          });
+        }
+        break;
+      }
+      default:
+        break;
     }
   }
-  return merged;
-}
-
-function findOverlappingKeepLock(keepLocks, timeSec) {
-  for (const lock of keepLocks) {
-    if (rangeContainsTime(lock, timeSec)) return lock;
-  }
-  return null;
-}
-
-function findIntersectingKeepLock(keepLocks, t0, t1) {
-  const lo = Math.min(t0, t1);
-  const hi = Math.max(t0, t1);
-  for (const lock of keepLocks) {
-    if (lo === hi) {
-      if (lo > lock.t0 && lo < lock.t1) return lock;
-    } else if (rangesOverlap(lock, { t0: lo, t1: hi })) {
-      return lock;
-    }
-  }
-  return null;
+  return conflicts;
 }
 
 /**
- * Validate a `PatchOffer` against current `SessionState` without mutating state.
+ * Evaluate `offer` against `snapshotOrState`, returning both validation and scratch state
+ * (shared by `validateOffer`, `previewOffer`, and `acceptOffer`!).
  *
- * Hard-invalidates ONLY on:
- *  1. `protected_keep`
- *  2. `version_mismatch`
- *  3. `range_changed`
- *  4. `out_of_scope`
- *  (plus terminal/sibling supersession if already accepted/rejected/superseded)
- *
- * Soft-cue disagreements (`user` beat shifted/removed beyond ±20 ms, or beat placed inside
- * an `unbeat` repulsion zone) NEVER hard-block acceptance; they keep `status: "valid"` and
- * append concise musical `advisoryNotes`.
- *
- * @param {import("../index.d.ts").SessionState} state
- * @param {import("../index.d.ts").PatchOffer} offer
- * @param {import("../index.d.ts").CompiledConstraints} [precompiledConstraints]
- * @returns {import("../index.d.ts").OfferValidationResult}
+ * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} snapshotOrState
+ * @param {import("../index.d.ts").Offer} offer
+ * @param {{ ignoreTerminalStatus?: boolean }} [options]
  */
-export function validatePatchOffer(state, offer, precompiledConstraints) {
-  const constraints = precompiledConstraints ?? compileConstraints(state);
-  const baseAdvisories = Array.isArray(offer.providerAdvisories)
-    ? offer.providerAdvisories.slice()
-    : Array.isArray(offer.advisoryNotes)
-      ? offer.advisoryNotes.slice()
-      : [];
-
-  /** @type {string[]} */
-  const advisoryNotes = [];
-  const pushAdvisory = (note) => {
-    if (typeof note === "string" && note.length > 0 && !advisoryNotes.includes(note)) {
-      advisoryNotes.push(note);
+export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
+  const beforeState = toScratchSessionState(snapshotOrState);
+  /** @type {import("../index.d.ts").StructuredNote[]} */
+  const notes = Array.isArray(offer?.notes) ? offer.notes.map((n) => normalizeStructuredNote(n)) : [];
+  const pushNote = (code, message, params) => {
+    if (!notes.some((n) => n.code === code && n.message === message)) {
+      notes.push(deepFreeze({ code, message, ...(params ? { params } : {}) }));
     }
   };
-  for (const note of baseAdvisories) pushAdvisory(note);
 
-  if (offer.status === "accepted") {
-    return {
-      valid: false,
-      status: "accepted",
-      conflicts: [
-        {
-          kind: "version_mismatch",
-          message: "This suggestion has already been applied.",
-        },
-      ],
-      advisoryNotes,
-    };
-  }
-  if (offer.status === "rejected") {
-    return {
-      valid: false,
-      status: "rejected",
-      conflicts: [
-        {
-          kind: "version_mismatch",
-          message: "This suggestion was dismissed.",
-        },
-      ],
-      advisoryNotes,
-    };
-  }
-  if (offer.status === "superseded") {
-    return {
-      valid: false,
-      status: "superseded",
-      conflicts: [
-        {
-          kind: "sibling_conflict",
-          message: "Another option in this set was already applied.",
-        },
-      ],
-      advisoryNotes,
-    };
-  }
-
-  for (const other of state.offers.values()) {
-    if (other.id !== offer.id && other.batchId === offer.batchId && other.status === "accepted") {
+  if (!options.ignoreTerminalStatus) {
+    if (offer.status === "accepted") {
       return {
-        valid: false,
-        status: "superseded",
-        conflicts: [
-          {
-            kind: "sibling_conflict",
-            message: "Another option in this set was already applied.",
-          },
-        ],
-        advisoryNotes,
+        validation: deepFreeze({
+          valid: false,
+          status: "accepted",
+          conflicts: [
+            { kind: "version_mismatch", message: "This suggestion has already been applied." },
+          ],
+          requiredChallenges: [],
+          notes,
+        }),
+        beforeState,
+        afterState: beforeState,
+        executedOk: false,
       };
+    }
+    if (offer.status === "rejected") {
+      return {
+        validation: deepFreeze({
+          valid: false,
+          status: "rejected",
+          conflicts: [{ kind: "version_mismatch", message: "This suggestion was dismissed." }],
+          requiredChallenges: [],
+          notes,
+        }),
+        beforeState,
+        afterState: beforeState,
+        executedOk: false,
+      };
+    }
+    if (offer.status === "superseded") {
+      return {
+        validation: deepFreeze({
+          valid: false,
+          status: "superseded",
+          conflicts: [
+            { kind: "sibling_conflict", message: "Another option in this group was applied." },
+          ],
+          requiredChallenges: [],
+          notes,
+        }),
+        beforeState,
+        afterState: beforeState,
+        executedOk: false,
+      };
+    }
+  }
+
+  // Mutual exclusion ONLY across identical non-null `alternativeGroup`!
+  if (offer.alternativeGroup) {
+    for (const other of beforeState.offers.values()) {
+      if (
+        other.id !== offer.id &&
+        other.alternativeGroup === offer.alternativeGroup &&
+        other.status === "accepted"
+      ) {
+        return {
+          validation: deepFreeze({
+            valid: false,
+            status: "superseded",
+            conflicts: [
+              {
+                kind: "sibling_conflict",
+                message: "Another alternative for this passage was already applied.",
+              },
+            ],
+            requiredChallenges: [],
+            notes,
+          }),
+          beforeState,
+          afterState: beforeState,
+          executedOk: false,
+        };
+      }
     }
   }
 
   /** @type {import("../index.d.ts").OfferConflict[]} */
   const conflicts = [];
-  const pushConflict = (conflict) => {
-    if (!conflicts.some((c) => c.kind === conflict.kind && c.message === conflict.message)) {
-      conflicts.push(conflict);
+  const pushConflict = (c) => {
+    if (
+      !conflicts.some(
+        (x) =>
+          x.kind === c.kind &&
+          (x.message === c.message ||
+            (c.kind === "protected_keep" && x.startUs === c.startUs && x.endUs === c.endUs)),
+      )
+    ) {
+      conflicts.push(deepFreeze(c));
     }
   };
 
-  let scopes;
+  let mergedWriteRanges = [];
   try {
-    scopes = normalizeWriteScopes(offer.writeScopes);
+    if (!Array.isArray(offer.writeRanges) || offer.writeRanges.length === 0) {
+      throw new EnsomiError("INVALID_RANGE", "Missing writeRanges");
+    }
+    mergedWriteRanges = mergeRangesUs(
+      offer.writeRanges.map((r) =>
+        assertRangeUs(r, beforeState.durationUs > 0 ? beforeState.durationUs : undefined),
+      ),
+    );
   } catch {
-    scopes = [];
-  }
-  if (scopes.length === 0) {
     return {
-      valid: false,
-      status: "invalid",
-      conflicts: [
-        {
-          kind: "out_of_scope",
-          message: "Suggestion is missing a valid target range.",
-        },
-      ],
-      advisoryNotes,
+      validation: deepFreeze({
+        valid: false,
+        status: "invalid",
+        conflicts: [
+          { kind: "out_of_scope", message: "Suggestion target range is outside track bounds." },
+        ],
+        requiredChallenges: [],
+        notes,
+      }),
+      beforeState,
+      afterState: beforeState,
+      executedOk: false,
     };
   }
 
-  const segById = new Map(state.segments.map((s) => [s.id, s]));
-  const ops = offer.ops ?? {};
-  const expectedRevisions =
-    offer.expectedRevisions && typeof offer.expectedRevisions === "object"
-      ? offer.expectedRevisions
-      : {};
+  if (beforeState.audio && offer.audioId !== beforeState.audio.audioId) {
+    pushConflict({
+      kind: "range_changed",
+      message: "Bound audio changed since this suggestion was prepared.",
+    });
+  }
 
-  // 1. range_changed: check referenced segment existence/bounds & post-basisSeq topology changes
-  for (const ws of scopes) {
-    const seg = segById.get(ws.segmentId);
-    if (!seg) {
-      pushConflict({
-        kind: "range_changed",
-        message: `Section structure near ${formatTimeCode(ws.t0)}–${formatTimeCode(ws.t1)} changed since this suggestion was prepared.`,
-        t0: ws.t0,
-        t1: ws.t1,
-      });
-      continue;
+  // 1. Scope & forbidden-op check
+  for (const sc of checkOpsWithinWriteRanges(beforeState, offer.ops ?? [], mergedWriteRanges)) {
+    pushConflict(sc);
+  }
+
+  // 2. Compare `offer.dependencies` & `offer.basisDigest` against current state!
+  if (offer.dependencies && typeof offer.dependencies === "object") {
+    const currentDeps = computeOfferDependencies(
+      beforeState,
+      offer.writeRanges,
+      offer.derivedFrom
+        ? {
+            range: offer.derivedFrom.range,
+            supportingIds: offer.derivedFrom.supportingIds,
+          }
+        : undefined,
+    );
+    const currentDigest = computeOfferBasisDigest(currentDeps);
+
+    if (currentDigest !== offer.basisDigest) {
+      // Classify staleness precisely: `source_changed`, `range_changed`, `policy_changed`, `version_mismatch`
+      if (offer.dependencies.derivedFrom || offer.derivedFrom) {
+        const prevDerived = offer.dependencies.derivedFrom;
+        const currDerived = currentDeps.derivedFrom;
+        if (
+          !prevDerived ||
+          !currDerived ||
+          canonicalJson(prevDerived) !== canonicalJson(currDerived) ||
+          (offer.derivedFrom && currDerived.sourceDigest !== offer.derivedFrom.sourceDigest)
+        ) {
+          pushConflict({
+            kind: "source_changed",
+            message: "Source passage used to derive this suggestion was edited or retracted.",
+            ...(offer.derivedFrom?.range
+              ? { startUs: offer.derivedFrom.range.startUs, endUs: offer.derivedFrom.range.endUs }
+              : {}),
+          });
+        }
+      }
+
+      const prevTopology = {
+        boundaries: offer.dependencies.boundaries,
+        segBounds: (offer.dependencies.segments ?? []).map((s) => ({
+          id: s.id,
+          startUs: s.startUs,
+          endUs: s.endUs,
+        })),
+      };
+      const currTopology = {
+        boundaries: currentDeps.boundaries,
+        segBounds: currentDeps.segments.map((s) => ({
+          id: s.id,
+          startUs: s.startUs,
+          endUs: s.endUs,
+        })),
+      };
+      if (canonicalJson(prevTopology) !== canonicalJson(currTopology)) {
+        pushConflict({
+          kind: "range_changed",
+          message: "Section boundaries in this passage changed since the suggestion was prepared.",
+        });
+      }
+
+      const prevPolicy = {
+        segPolicies: (offer.dependencies.segments ?? []).map((s) => ({
+          id: s.id,
+          regime: s.regime,
+          kinematics: s.kinematics,
+        })),
+        freeSpans: (offer.dependencies.spans ?? []).filter((sp) => sp.kind === "free"),
+      };
+      const currPolicy = {
+        segPolicies: currentDeps.segments.map((s) => ({
+          id: s.id,
+          regime: s.regime,
+          kinematics: s.kinematics,
+        })),
+        freeSpans: currentDeps.spans.filter((sp) => sp.kind === "free"),
+      };
+      if (canonicalJson(prevPolicy) !== canonicalJson(currPolicy)) {
+        pushConflict({
+          kind: "policy_changed",
+          message: "Section timing mode changed since this suggestion was prepared.",
+        });
+      }
+
+      const prevMarks = {
+        beats: offer.dependencies.beats,
+        unbeats: offer.dependencies.unbeats,
+        sounds: offer.dependencies.sounds,
+        soundClasses: offer.dependencies.soundClasses,
+      };
+      const currMarks = {
+        beats: currentDeps.beats,
+        unbeats: currentDeps.unbeats,
+        sounds: currentDeps.sounds,
+        soundClasses: currentDeps.soundClasses,
+      };
+      if (canonicalJson(prevMarks) !== canonicalJson(currMarks)) {
+        pushConflict({
+          kind: "version_mismatch",
+          message: "Marks in this passage changed since the suggestion was prepared.",
+        });
+      }
+
+      // If only `approved` changed (user newly locked Keep!), the Keep check below emits `protected_keep`.
+      // Catch any remaining digest difference not covered above:
+      const newlyKept =
+        currentDeps.segments.some((s) => s.approved) ||
+        currentDeps.spans.some((sp) => sp.kind === "keep" && sp.approved);
+      if (conflicts.length === 0 && !newlyKept) {
+        pushConflict({
+          kind: "version_mismatch",
+          message: "Document state changed since this suggestion was prepared.",
+        });
+      }
     }
-    if (ws.t0 < seg.t0 - 1e-9 || ws.t1 > seg.t1 + 1e-9) {
-      pushConflict({
-        kind: "range_changed",
-        message: `Section boundaries near ${formatTimeCode(ws.t0)}–${formatTimeCode(ws.t1)} moved since this suggestion was prepared.`,
-        t0: ws.t0,
-        t1: ws.t1,
+  }
+
+  // 3. Execute `offer.ops` on scratch state using the SINGLE pure transaction interpreter!
+  const afterState = toScratchSessionState(beforeState);
+  const actorOrigin = offer.providerId?.includes("rule") ? "rule" : "model";
+  let executedOk = false;
+
+  if ((offer.ops ?? []).length > 0) {
+    try {
+      executeTransaction(afterState, offer.ops, {
+        txId: `offer:${offer.id}`,
+        eventId: `offer:${offer.id}`,
+        actorMode: "offer",
+        actorOrigin,
+      });
+      executedOk = true;
+    } catch (err) {
+      const code = err instanceof EnsomiError ? err.code : "INVALID_EDIT";
+      if (code === "AUTHORITY_VIOLATION") {
+        pushConflict({
+          kind: "authority_violation",
+          message: err.message,
+        });
+      } else if (code === "OUT_OF_BOUNDS") {
+        pushConflict({
+          kind: "out_of_scope",
+          message: err.message,
+        });
+      } else if (
+        (code === "MISSING_ENTITY" || code === "INVALID_SEGMENT_EDIT") &&
+        conflicts.some((c) => c.kind === "range_changed" || c.kind === "version_mismatch")
+      ) {
+        pushConflict({
+          kind: "range_changed",
+          message: "Target section or mark no longer matches current document structure.",
+        });
+      } else {
+        pushConflict({
+          kind: "invalid_op",
+          message: err instanceof Error ? err.message : "Invalid suggestion operation.",
+        });
+      }
+    }
+  } else {
+    executedOk = true;
+  }
+
+  // 4. Full Influence-Footprint `Approval` (`keep`) check!
+  //    Every active Approval in `beforeState` (both `Segment.approval` and `Span.approval`)
+  //    must survive on its exact `[startUs, endUs)` interval with `postDigest === preDigest`
+  //    AND zero ops directly touching entities inside `[startUs, endUs)`!
+  const beforeKeepIntervals = [];
+  for (const seg of beforeState.segments) {
+    if (seg.approval) {
+      beforeKeepIntervals.push({
+        approvalId: seg.approval.id,
+        kind: "segment",
+        ownerId: seg.id,
+        startUs: seg.startUs,
+        endUs: seg.endUs,
+      });
+    }
+  }
+  for (const sp of beforeState.spans) {
+    if (sp.kind === "keep" && sp.approval) {
+      beforeKeepIntervals.push({
+        approvalId: sp.approval.id,
+        kind: "span",
+        ownerId: sp.id,
+        startUs: sp.startUs,
+        endUs: sp.endUs,
       });
     }
   }
 
-  if (Array.isArray(state.segmentMutations) && typeof offer.basisSeq === "number") {
-    for (const mut of state.segmentMutations) {
-      if (mut.seq <= offer.basisSeq) continue;
-      for (const ws of scopes) {
-        const overlapsRange =
-          mut.t0 === mut.t1
-            ? mut.t0 >= ws.t0 && mut.t0 <= ws.t1
-            : rangesOverlap({ t0: mut.t0, t1: mut.t1 }, ws);
-        const touchedSegment = Array.isArray(mut.segmentIds) && mut.segmentIds.includes(ws.segmentId);
-        if (overlapsRange || touchedSegment) {
+  if (beforeKeepIntervals.length > 0) {
+    for (const kp of beforeKeepIntervals) {
+      // Check direct op writes into `[kp.startUs, kp.endUs)` even if executedOk was false
+      for (const op of offer.ops ?? []) {
+        let touchesKeep = false;
+        if (op.op === "upsert_beat" && rangeContainsUs(kp, op.beat?.atUs)) touchesKeep = true;
+        else if ((op.op === "move_beat" || op.op === "snap_beat") && rangeContainsUs(kp, op.atUs))
+          touchesKeep = true;
+        else if (
+          op.op === "split_segment" &&
+          (op.segmentId === kp.ownerId || (op.atUs > kp.startUs && op.atUs < kp.endUs))
+        )
+          touchesKeep = true;
+        else if (op.op === "set_segment_regime" && op.segmentId === kp.ownerId)
+          touchesKeep = true;
+        else if (op.op === "set_segment_kinematics" && op.segmentId === kp.ownerId)
+          touchesKeep = true;
+        else if (
+          op.op === "upsert_sound" &&
+          op.sound &&
+          rangesOverlapUs(kp, { startUs: op.sound.startUs, endUs: op.sound.endUs })
+        )
+          touchesKeep = true;
+
+        if (touchesKeep) {
           pushConflict({
-            kind: "range_changed",
-            message: `Section boundaries near ${formatTimeCode(ws.t0)}–${formatTimeCode(ws.t1)} were edited after this suggestion was prepared.`,
-            t0: ws.t0,
-            t1: ws.t1,
+            kind: "protected_keep",
+            message: `Keep-approved passage at ${formatTimeUs(kp.startUs)}–${formatTimeUs(kp.endUs)} blocks automated changes.`,
+            startUs: kp.startUs,
+            endUs: kp.endUs,
+          });
+        }
+      }
+
+      if (executedOk) {
+        const survivesOwner =
+          kp.kind === "segment"
+            ? afterState.segments.some(
+                (s) =>
+                  s.id === kp.ownerId &&
+                  s.startUs === kp.startUs &&
+                  s.endUs === kp.endUs &&
+                  s.approval?.id === kp.approvalId,
+              )
+            : afterState.spans.some(
+                (sp) =>
+                  sp.id === kp.ownerId &&
+                  sp.startUs === kp.startUs &&
+                  sp.endUs === kp.endUs &&
+                  sp.approval?.id === kp.approvalId,
+              );
+
+        const preDigest = computeIntervalMusicalDigest(beforeState, kp.startUs, kp.endUs);
+        const postDigest = computeIntervalMusicalDigest(afterState, kp.startUs, kp.endUs);
+
+        if (!survivesOwner || postDigest !== preDigest) {
+          pushConflict({
+            kind: "protected_keep",
+            message: `Keep-approved passage at ${formatTimeUs(kp.startUs)}–${formatTimeUs(kp.endUs)} blocks changes to its musical projection.`,
+            startUs: kp.startUs,
+            endUs: kp.endUs,
           });
         }
       }
     }
   }
 
-  // 2. out_of_scope + entity kind / duplicate checks + sequential segment simulation
-  const seenBeatUpsertIds = new Set();
-  for (const item of ops.upsertBeats ?? []) {
-    if (!item || typeof item.id !== "string" || item.id.length === 0) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains an invalid beat entry.",
-      });
-      continue;
-    }
-    if (seenBeatUpsertIds.has(item.id)) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains conflicting duplicate timing entries.",
-      });
-      break;
-    }
-    seenBeatUpsertIds.add(item.id);
-  }
-
-  const seenSoundUpsertIds = new Set();
-  for (const item of ops.upsertSounds ?? []) {
-    if (!item || typeof item.id !== "string" || item.id.length === 0) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains an invalid onset entry.",
-      });
-      continue;
-    }
-    if (seenSoundUpsertIds.has(item.id) || seenBeatUpsertIds.has(item.id)) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains conflicting duplicate timing entries.",
-      });
-      break;
-    }
-    seenSoundUpsertIds.add(item.id);
-  }
-
-  const hasExpectedRev = (id) => Object.prototype.hasOwnProperty.call(expectedRevisions, id);
-
-  for (const beat of ops.upsertBeats ?? []) {
-    if (!beat || typeof beat.id !== "string") continue;
-    const existing = state.beats.get(beat.id);
-    if (
-      typeof beat.timeSec !== "number" ||
-      !Number.isFinite(beat.timeSec) ||
-      !inAnyScope(scopes, beat.timeSec) ||
-      (existing && !inAnyScope(scopes, existing.timeSec))
-    ) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion modifies a beat near ${formatTimeCode(beat.timeSec)} outside its target range.`,
-      });
-    }
-    const kind = findEntityKind(state, beat.id);
-    if (kind !== null && kind !== "beat") {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion modifies a non-beat item near ${formatTimeCode(beat.timeSec)}.`,
-      });
-    } else if (kind === "beat" && !hasExpectedRev(beat.id)) {
+  // 5. `protected_verified` & `OfferChallenge` check!
+  const declaredChallenges = Array.isArray(offer.challenges) ? offer.challenges : [];
+  for (const ch of declaredChallenges) {
+    const entity = getVerdictEntity(beforeState, ch.targetKind, ch.targetId);
+    if (!entity || !entity.verdict) {
       pushConflict({
         kind: "version_mismatch",
-        message: `Timing near ${formatTimeCode(beat.timeSec)} changed since this suggestion was prepared.`,
-      });
-    }
-  }
-
-  for (const id of ops.removeBeatIds ?? []) {
-    const kind = findEntityKind(state, id);
-    if (kind !== null && kind !== "beat") {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion targets a non-beat item for beat removal.",
+        message: "Verified mark targeted by challenge changed since the suggestion was prepared.",
       });
       continue;
-    }
-    const existing = state.beats.get(id);
-    if (existing && !inAnyScope(scopes, existing.timeSec)) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion removes a beat near ${formatTimeCode(existing.timeSec)} outside its target range.`,
-      });
-    }
-    if (!hasExpectedRev(id)) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Beats in this range changed since this suggestion was prepared.",
-      });
-    }
-  }
-
-  for (const sound of ops.upsertSounds ?? []) {
-    if (!sound || typeof sound.id !== "string") continue;
-    const existing = state.sounds.get(sound.id);
-    if (
-      typeof sound.timeSec !== "number" ||
-      !Number.isFinite(sound.timeSec) ||
-      !inAnyScope(scopes, sound.timeSec) ||
-      (existing && !inAnyScope(scopes, existing.timeSec))
-    ) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion modifies an onset near ${formatTimeCode(sound.timeSec)} outside its target range.`,
-      });
-    }
-    const kind = findEntityKind(state, sound.id);
-    if (kind !== null && kind !== "sound") {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion modifies a non-onset item near ${formatTimeCode(sound.timeSec)}.`,
-      });
-    } else if (kind === "sound" && !hasExpectedRev(sound.id)) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: `Onsets near ${formatTimeCode(sound.timeSec)} changed since this suggestion was prepared.`,
-      });
-    }
-  }
-
-  for (const id of ops.removeSoundIds ?? []) {
-    const kind = findEntityKind(state, id);
-    if (kind !== null && kind !== "sound") {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion targets a non-onset item for onset removal.",
-      });
-      continue;
-    }
-    const existing = state.sounds.get(id);
-    if (existing && !inAnyScope(scopes, existing.timeSec)) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion removes an onset near ${formatTimeCode(existing.timeSec)} outside its target range.`,
-      });
-    }
-    if (!hasExpectedRev(id)) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Onsets in this range changed since this suggestion was prepared.",
-      });
-    }
-  }
-
-  // 3. Simulate segment operations in exact `applyOfferOps` order:
-  //    splitSegments -> moveSegmentBoundaries -> setSegmentRegimes
-  const keepLocks = constraints.keepLocks;
-  const simSegments = state.segments.map((s) => ({ ...s }));
-  /** @type {Array<{ segmentId: string, t0: number, t1: number }>} */
-  let simScopes = [];
-  for (const ws of scopes) {
-    const seg = segById.get(ws.segmentId);
-    if (!seg) continue;
-    const t0 = Math.max(seg.t0, ws.t0);
-    const t1 = Math.min(seg.t1, ws.t1);
-    if (t1 > t0 + 1e-12) {
-      simScopes.push({ segmentId: seg.id, t0, t1 });
-    }
-  }
-
-  const simKnownIds = new Set([
-    ...state.segments.map((s) => s.id),
-    ...state.entityRevisions.keys(),
-    ...state.beats.keys(),
-    ...state.sounds.keys(),
-    ...state.spans.map((s) => s.id),
-    ...state.unbeats.map((u) => u.id),
-  ]);
-  for (const id of ops.removeBeatIds ?? []) {
-    if (state.beats.has(id)) simKnownIds.delete(id);
-  }
-  for (const b of ops.upsertBeats ?? []) {
-    if (b && typeof b.id === "string" && b.id.length > 0) simKnownIds.add(b.id);
-  }
-  for (const id of ops.removeSoundIds ?? []) {
-    if (state.sounds.has(id)) simKnownIds.delete(id);
-  }
-  for (const s of ops.upsertSounds ?? []) {
-    if (s && typeof s.id === "string" && s.id.length > 0) simKnownIds.add(s.id);
-  }
-
-  const createdSegIds = new Set();
-
-  for (const split of ops.splitSegments ?? []) {
-    if (!split || typeof split !== "object") {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains an invalid section split.",
-      });
-      continue;
-    }
-    if (!createdSegIds.has(split.segmentId) && !hasExpectedRev(split.segmentId)) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Section state changed since this suggestion was prepared.",
-      });
     }
     if (
-      typeof split.newSegmentId !== "string" ||
-      split.newSegmentId.length === 0 ||
-      simKnownIds.has(split.newSegmentId)
+      entity.revision !== ch.expectedRevision ||
+      entity.verdict.valueDigest !== ch.expectedValueDigest
     ) {
       pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains a conflicting section identifier.",
+        kind: "version_mismatch",
+        message: "Verified mark targeted by challenge was edited after the suggestion was prepared.",
       });
-      continue;
     }
+  }
 
-    const idx = simSegments.findIndex((s) => s.id === split.segmentId);
-    if (idx < 0) {
-      pushConflict({
-        kind: hasExpectedRev(split.segmentId) ? "range_changed" : "out_of_scope",
-        message: `Suggestion splits a section at ${formatTimeCode(split.timeSec)} outside its target range.`,
-      });
-      continue;
-    }
-    const seg = simSegments[idx];
-    if (
-      typeof split.timeSec !== "number" ||
-      !Number.isFinite(split.timeSec) ||
-      split.timeSec <= seg.t0 ||
-      split.timeSec >= seg.t1
-    ) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion splits a section at ${formatTimeCode(split.timeSec)} outside its target range.`,
-      });
-      continue;
-    }
+  /** @type {import("../index.d.ts").OfferChallenge[]} */
+  const requiredChallenges = [];
 
-    const matchesScope = simScopes.some(
-      (ws) => ws.segmentId === split.segmentId && split.timeSec > ws.t0 && split.timeSec < ws.t1,
-    );
-    if (!matchesScope) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion splits a section at ${formatTimeCode(split.timeSec)} outside its target range.`,
-      });
-    }
-
-    if (keepLocks.length > 0) {
-      const lock = findIntersectingKeepLock(keepLocks, split.timeSec, split.timeSec);
-      if (seg.kept || lock) {
-        const ref = lock ?? { t0: seg.t0, t1: seg.t1 };
+  if (executedOk) {
+    /**
+     * Record a human-verdict violation and match against `declaredChallenges`.
+     * @param {"beat" | "unbeat" | "sound" | "sound_class" | "boundary"} kind
+     * @param {any} beforeEntity
+     * @param {string} description
+     */
+    const handleVerifiedViolation = (kind, beforeEntity, description) => {
+      const match = declaredChallenges.find(
+        (ch) =>
+          ch.targetKind === kind &&
+          ch.targetId === beforeEntity.id &&
+          ch.expectedRevision === beforeEntity.revision &&
+          ch.expectedValueDigest === beforeEntity.verdict.valueDigest,
+      );
+      if (match) {
+        if (!requiredChallenges.some((c) => c.challengeId === match.challengeId)) {
+          requiredChallenges.push(deepFreeze({ ...match }));
+        }
+      } else {
         pushConflict({
-          kind: "protected_keep",
-          message: `Locked Keep passage at ${formatTimeCode(ref.t0)}–${formatTimeCode(ref.t1)} prevents splitting — unlock Keep to apply.`,
-          t0: ref.t0,
-          t1: ref.t1,
+          kind: "protected_verified",
+          targetKind: kind,
+          targetId: beforeEntity.id,
+          message: description,
         });
       }
-    }
+    };
 
-    simKnownIds.add(split.newSegmentId);
-    createdSegIds.add(split.newSegmentId);
-    const leftSeg = { ...seg, t1: split.timeSec };
-    const rightSeg = { ...seg, id: split.newSegmentId, t0: split.timeSec, t1: seg.t1 };
-    simSegments.splice(idx, 1, leftSeg, rightSeg);
-
-    /** @type {Array<{ segmentId: string, t0: number, t1: number }>} */
-    const nextSimScopes = [];
-    for (const ws of simScopes) {
-      if (ws.segmentId !== split.segmentId) {
-        nextSimScopes.push(ws);
+    for (const [id, bBefore] of beforeState.beats) {
+      if (!bBefore.verdict) continue;
+      const bAfter = afterState.beats.get(id);
+      if (!bAfter) {
+        handleVerifiedViolation(
+          "beat",
+          bBefore,
+          `Verified beat near ${formatTimeUs(bBefore.atUs)} cannot be removed without confirmation.`,
+        );
         continue;
       }
-      if (ws.t1 <= split.timeSec + 1e-12) {
-        nextSimScopes.push({ ...ws, t1: Math.min(ws.t1, split.timeSec) });
-      } else if (ws.t0 >= split.timeSec - 1e-12) {
-        nextSimScopes.push({
-          segmentId: split.newSegmentId,
-          t0: Math.max(ws.t0, split.timeSec),
-          t1: ws.t1,
-        });
-      } else {
-        nextSimScopes.push(
-          { segmentId: split.segmentId, t0: ws.t0, t1: split.timeSec },
-          { segmentId: split.newSegmentId, t0: split.timeSec, t1: ws.t1 },
+      const shiftUs = Math.abs(bAfter.atUs - bBefore.atUs);
+      const bindingChanged =
+        Boolean(bBefore.boundTo) &&
+        (!bAfter.boundTo ||
+          canonicalJson({
+            soundId: bBefore.boundTo.soundId ?? null,
+            candidateEventId: bBefore.boundTo.candidateEventId ?? null,
+            anchorId: bBefore.boundTo.anchorId ?? null,
+            anchorRole: bBefore.boundTo.anchorRole,
+          }) !==
+            canonicalJson({
+              soundId: bAfter.boundTo.soundId ?? null,
+              candidateEventId: bAfter.boundTo.candidateEventId ?? null,
+              anchorId: bAfter.boundTo.anchorId ?? null,
+              anchorRole: bAfter.boundTo.anchorRole,
+            }));
+      const structuralChanged =
+        Boolean(bBefore.structural) &&
+        canonicalJson(bBefore.structural) !== canonicalJson(bAfter.structural ?? null);
+
+      if (shiftUs > bBefore.verdict.tolUs || bindingChanged || structuralChanged) {
+        handleVerifiedViolation(
+          "beat",
+          bBefore,
+          `Verified beat near ${formatTimeUs(bBefore.atUs)} cannot be altered beyond tolerance without confirmation.`,
+        );
+      } else if (shiftUs > 0) {
+        pushNote(
+          "refines_verified_beat",
+          `Refines verified beat near ${formatTimeUs(bBefore.atUs)} within tolerance (${Math.round(shiftUs / 1000)} ms)`,
+          { shiftUs, atUs: bBefore.atUs },
         );
       }
     }
-    simScopes = nextSimScopes;
-  }
 
-  for (const move of ops.moveSegmentBoundaries ?? []) {
-    if (!move || typeof move !== "object") {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains an invalid section boundary move.",
-      });
-      continue;
-    }
-    if (
-      (!createdSegIds.has(move.leftSegmentId) && !hasExpectedRev(move.leftSegmentId)) ||
-      (!createdSegIds.has(move.rightSegmentId) && !hasExpectedRev(move.rightSegmentId))
-    ) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Adjacent section state changed since this suggestion was prepared.",
-      });
-    }
-
-    const idx = simSegments.findIndex((s) => s.id === move.leftSegmentId);
-    const isAdjacent =
-      idx >= 0 &&
-      idx + 1 < simSegments.length &&
-      simSegments[idx + 1].id === move.rightSegmentId;
-    if (!isAdjacent) {
-      const priorStale = conflicts.some(
-        (c) => c.kind === "range_changed" || c.kind === "version_mismatch",
-      );
-      pushConflict({
-        kind: priorStale ? "range_changed" : "out_of_scope",
-        message: `Suggestion moves a section boundary to ${formatTimeCode(move.timeSec)} outside adjacent sections.`,
-      });
-      continue;
-    }
-
-    const left = simSegments[idx];
-    const right = simSegments[idx + 1];
-    if (
-      typeof move.timeSec !== "number" ||
-      !Number.isFinite(move.timeSec) ||
-      move.timeSec <= left.t0 ||
-      move.timeSec >= right.t1
-    ) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion moves a section boundary to ${formatTimeCode(move.timeSec)} outside its target range.`,
-      });
-      continue;
-    }
-
-    const oldBoundary = left.t1;
-    const lo = Math.min(oldBoundary, move.timeSec);
-    const hi = Math.max(oldBoundary, move.timeSec);
-    const leftTouchesBoundary = simScopes.some(
-      (ws) => ws.segmentId === left.id && ws.t1 >= oldBoundary - 1e-9,
-    );
-    const rightTouchesBoundary = simScopes.some(
-      (ws) => ws.segmentId === right.id && ws.t0 <= oldBoundary + 1e-9,
-    );
-    const mergedPairScopes = mergeContiguousRanges(
-      simScopes.filter((ws) => ws.segmentId === left.id || ws.segmentId === right.id),
-    );
-    const sweptCovered = mergedPairScopes.some(
-      (iv) =>
-        iv.t0 <= lo + 1e-9 &&
-        iv.t1 >= hi - 1e-9 &&
-        (lo < hi || (move.timeSec > iv.t0 + 1e-9 && move.timeSec < iv.t1 - 1e-9)),
-    );
-
-    if (!leftTouchesBoundary || !rightTouchesBoundary || !sweptCovered) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: `Suggestion moves a section boundary to ${formatTimeCode(move.timeSec)} outside its target range.`,
-      });
-    }
-
-    if (keepLocks.length > 0) {
-      const lock = findIntersectingKeepLock(keepLocks, oldBoundary, move.timeSec);
-      if (left.kept || right.kept || lock) {
-        const ref = lock ?? (left.kept ? { t0: left.t0, t1: left.t1 } : { t0: right.t0, t1: right.t1 });
-        pushConflict({
-          kind: "protected_keep",
-          message: `Locked Keep passage at ${formatTimeCode(ref.t0)}–${formatTimeCode(ref.t1)} prevents moving section boundary — unlock Keep to apply.`,
-          t0: ref.t0,
-          t1: ref.t1,
-        });
+    for (const [id, uBefore] of beforeState.unbeats) {
+      if (!uBefore.verdict) continue;
+      const uAfter = afterState.unbeats.get(id);
+      if (!uAfter || Math.abs(uAfter.atUs - uBefore.atUs) > uBefore.verdict.tolUs) {
+        handleVerifiedViolation(
+          "unbeat",
+          uBefore,
+          `Verified unbeat near ${formatTimeUs(uBefore.atUs)} cannot be removed or shifted without confirmation.`,
+        );
       }
     }
 
-    simSegments[idx] = { ...left, t1: move.timeSec };
-    simSegments[idx + 1] = { ...right, t0: move.timeSec };
+    for (const [id, bndBefore] of beforeState.boundaries) {
+      if (!bndBefore.verdict) continue;
+      const bndAfter = afterState.boundaries.get(id);
+      if (!bndAfter || Math.abs(bndAfter.atUs - bndBefore.atUs) > bndBefore.verdict.tolUs) {
+        handleVerifiedViolation(
+          "boundary",
+          bndBefore,
+          `Verified section boundary near ${formatTimeUs(bndBefore.atUs)} cannot be removed or moved beyond tolerance without confirmation.`,
+        );
+      }
+    }
 
-    /** @type {Array<{ segmentId: string, t0: number, t1: number }>} */
-    const nextSimScopes = [];
-    for (const ws of simScopes) {
-      if (ws.segmentId !== left.id && ws.segmentId !== right.id) {
-        nextSimScopes.push(ws);
+    for (const [id, sBefore] of beforeState.sounds) {
+      if (!sBefore.verdict) continue;
+      const sAfter = afterState.sounds.get(id);
+      if (!sAfter) {
+        handleVerifiedViolation(
+          "sound",
+          sBefore,
+          `Verified sound near ${formatTimeUs(sBefore.startUs)} cannot be removed without confirmation.`,
+        );
         continue;
       }
-      if (ws.t1 <= move.timeSec + 1e-12) {
-        nextSimScopes.push({ segmentId: left.id, t0: ws.t0, t1: Math.min(ws.t1, move.timeSec) });
-      } else if (ws.t0 >= move.timeSec - 1e-12) {
-        nextSimScopes.push({ segmentId: right.id, t0: Math.max(ws.t0, move.timeSec), t1: ws.t1 });
-      } else {
-        nextSimScopes.push(
-          { segmentId: left.id, t0: ws.t0, t1: move.timeSec },
-          { segmentId: right.id, t0: move.timeSec, t1: ws.t1 },
+      const facet = sBefore.verdict.facet ?? "occurrence";
+      const afterFacetDigest = computeEntityValueDigest("sound", sAfter, facet);
+      if (afterFacetDigest !== sBefore.verdict.valueDigest) {
+        handleVerifiedViolation(
+          "sound",
+          sBefore,
+          `Verified sound ${facet} near ${formatTimeUs(sBefore.startUs)} cannot be overwritten without confirmation.`,
         );
       }
     }
-    simScopes = nextSimScopes;
-  }
 
-  for (const reg of ops.setSegmentRegimes ?? []) {
-    if (!reg || typeof reg !== "object" || !SEGMENT_REGIME_SET.has(reg.regime)) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion specifies an unsupported section mode.",
-      });
-      continue;
-    }
-    if (!createdSegIds.has(reg.segmentId) && !hasExpectedRev(reg.segmentId)) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Section state changed since this suggestion was prepared.",
-      });
-    }
-    const idx = simSegments.findIndex((s) => s.id === reg.segmentId);
-    if (idx < 0) {
-      pushConflict({
-        kind: hasExpectedRev(reg.segmentId) ? "range_changed" : "out_of_scope",
-        message: "Suggestion changes section pulse mode outside its target range.",
-      });
-      continue;
-    }
-    const seg = simSegments[idx];
-    const mergedSegScopes = mergeContiguousRanges(
-      simScopes.filter((ws) => ws.segmentId === seg.id),
-    );
-    const covered = mergedSegScopes.some(
-      (iv) => iv.t0 <= seg.t0 + 1e-9 && iv.t1 >= seg.t1 - 1e-9,
-    );
-    if (!covered) {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion changes section pulse mode outside its target range.",
-      });
-    }
-
-    if (keepLocks.length > 0 && seg.regime !== reg.regime) {
-      const lock = seg.kept
-        ? { t0: seg.t0, t1: seg.t1 }
-        : findIntersectingKeepLock(keepLocks, seg.t0, seg.t1);
-      if (lock) {
-        pushConflict({
-          kind: "protected_keep",
-          message: `Locked Keep passage at ${formatTimeCode(lock.t0)}–${formatTimeCode(lock.t1)} prevents changing section mode — unlock Keep to apply.`,
-          t0: lock.t0,
-          t1: lock.t1,
-        });
+    for (const [id, scBefore] of beforeState.soundClasses) {
+      if (!scBefore.verdict) continue;
+      const scAfter = afterState.soundClasses.get(id);
+      if (
+        !scAfter ||
+        computeEntityValueDigest("sound_class", scAfter) !== scBefore.verdict.valueDigest
+      ) {
+        handleVerifiedViolation(
+          "sound_class",
+          scBefore,
+          "Verified sound class cannot be altered without confirmation.",
+        );
       }
     }
 
-    simSegments[idx] = { ...seg, regime: reg.regime };
-  }
-
-  for (const [entityId, expectedRev] of Object.entries(expectedRevisions)) {
-    const actualRev = state.entityRevisions.get(entityId);
-    if (actualRev !== expectedRev || findEntityKind(state, entityId) === null) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Local edits changed this passage since the suggestion was prepared.",
-      });
-      break;
-    }
-  }
-
-  if (typeof offer.basisSeq === "number" && Number.isInteger(offer.basisSeq)) {
-    for (const beat of state.beats.values()) {
-      if (!inAnyScope(scopes, beat.timeSec)) continue;
-      const revSeq = parseRevisionSeq(state.entityRevisions.get(beat.id));
-      if (revSeq !== null && revSeq > offer.basisSeq) {
-        pushConflict({
-          kind: "version_mismatch",
-          message: `Beats near ${formatTimeCode(beat.timeSec)} were edited while this suggestion was running.`,
-        });
-        break;
-      }
-    }
-  }
-
-  if (Array.isArray(offer.expectedScopeBeatIds)) {
-    const currentIds = getScopeBeatIds(state, scopes);
-    if (
-      currentIds.length !== offer.expectedScopeBeatIds.length ||
-      currentIds.some((id, idx) => id !== offer.expectedScopeBeatIds[idx])
-    ) {
-      pushConflict({
-        kind: "version_mismatch",
-        message: "Beats inside this range changed since the suggestion was prepared.",
-      });
-    }
-  }
-
-  // 4. Simulate final beat & sound state and check `protected_keep`
-  const finalBeats = new Map(state.beats);
-  const touchedBeatIds = new Set();
-  for (const id of ops.removeBeatIds ?? []) {
-    if (state.beats.has(id)) {
-      touchedBeatIds.add(id);
-      finalBeats.delete(id);
-    }
-  }
-  for (const rawBeat of ops.upsertBeats ?? []) {
-    if (!rawBeat || typeof rawBeat.id !== "string" || rawBeat.id.length === 0) continue;
-    try {
-      touchedBeatIds.add(rawBeat.id);
-      const existing = finalBeats.get(rawBeat.id);
-      const nextRev = existing ? existing.revision + 1 : rawBeat.revision ?? 1;
-      finalBeats.set(
-        rawBeat.id,
-        normalizeBeat(
-          {
-            ...rawBeat,
-            source: rawBeat.source ?? "offer",
-            revision: nextRev,
-          },
-          nextRev,
-        ),
-      );
-    } catch {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains an invalid beat entry.",
-      });
-    }
-  }
-
-  const finalSounds = new Map(state.sounds);
-  const touchedSoundIds = new Set();
-  for (const id of ops.removeSoundIds ?? []) {
-    if (state.sounds.has(id)) {
-      touchedSoundIds.add(id);
-      finalSounds.delete(id);
-    }
-  }
-  for (const rawSound of ops.upsertSounds ?? []) {
-    if (!rawSound || typeof rawSound.id !== "string" || rawSound.id.length === 0) continue;
-    try {
-      touchedSoundIds.add(rawSound.id);
-      const existing = finalSounds.get(rawSound.id);
-      const nextRev = existing ? existing.revision + 1 : rawSound.revision ?? 1;
-      finalSounds.set(
-        rawSound.id,
-        normalizeSoundAnchor(
-          {
-            ...rawSound,
-            source: rawSound.source ?? "offer",
-            revision: nextRev,
-          },
-          nextRev,
-        ),
-      );
-    } catch {
-      pushConflict({
-        kind: "out_of_scope",
-        message: "Suggestion contains an invalid onset entry.",
-      });
-    }
-  }
-
-  if (keepLocks.length > 0) {
-    for (const id of touchedBeatIds) {
-      const before = state.beats.get(id);
-      const after = finalBeats.get(id);
-      const lockBefore = before ? findOverlappingKeepLock(keepLocks, before.timeSec) : null;
-      const lockAfter = after ? findOverlappingKeepLock(keepLocks, after.timeSec) : null;
-      const lock = lockBefore ?? lockAfter;
-      if (!lock) continue;
-
-      const unchanged =
-        before !== undefined &&
-        after !== undefined &&
-        canonicalJson(stripRevision(before)) === canonicalJson(stripRevision(after));
-      if (!unchanged) {
-        pushConflict({
-          kind: "protected_keep",
-          message: `Locked Keep passage at ${formatTimeCode(lock.t0)}–${formatTimeCode(lock.t1)} prevents changes — unlock Keep to apply.`,
-          t0: lock.t0,
-          t1: lock.t1,
-        });
-      }
-    }
-
-    for (const id of touchedSoundIds) {
-      const before = state.sounds.get(id);
-      const after = finalSounds.get(id);
-      const lockBefore = before ? findOverlappingKeepLock(keepLocks, before.timeSec) : null;
-      const lockAfter = after ? findOverlappingKeepLock(keepLocks, after.timeSec) : null;
-      const lock = lockBefore ?? lockAfter;
-      if (!lock) continue;
-
-      const unchanged =
-        before !== undefined &&
-        after !== undefined &&
-        canonicalJson(stripRevision(before)) === canonicalJson(stripRevision(after));
-      if (!unchanged) {
-        pushConflict({
-          kind: "protected_keep",
-          message: `Locked Keep passage at ${formatTimeCode(lock.t0)}–${formatTimeCode(lock.t1)} prevents changes — unlock Keep to apply.`,
-          t0: lock.t0,
-          t1: lock.t1,
-        });
-      }
-    }
-  }
-
-  // 5. Soft-cue disagreement advisories (NEVER block acceptance!)
-  // 5a. User beat shifted/removed beyond ±20 ms
-  for (const guide of constraints.beatGuides) {
-    if (!touchedBeatIds.has(guide.beatId)) continue;
-    const after = finalBeats.get(guide.beatId);
-    if (after) {
-      const diffSec = after.timeSec - guide.timeSec;
-      if (Math.abs(diffSec) > DEFAULT_BEAT_GUIDE_TOL_SEC) {
-        const deltaMs = Math.round(diffSec * 1000);
-        const sign = deltaMs >= 0 ? "+" : "";
-        pushAdvisory(`Moves your beat near ${formatTimeCode(guide.timeSec)} by ${sign}${deltaMs} ms`);
-      }
-      continue;
-    }
-
-    // Guide beat ID was removed — check if a replacement beat lands within ±20 ms or nearby
-    let withinTol = false;
-    /** @type {{ timeSec: number, absDiff: number } | null} */
-    let nearestNew = null;
-    for (const b of finalBeats.values()) {
-      const absDiff = Math.abs(b.timeSec - guide.timeSec);
-      if (absDiff <= DEFAULT_BEAT_GUIDE_TOL_SEC) {
-        withinTol = true;
-        break;
-      }
-    }
-    if (!withinTol) {
-      for (const rawBeat of ops.upsertBeats ?? []) {
-        const absDiff = Math.abs(rawBeat.timeSec - guide.timeSec);
-        if (absDiff <= 0.15 && (!nearestNew || absDiff < nearestNew.absDiff)) {
-          nearestNew = { timeSec: rawBeat.timeSec, absDiff };
+    // Soft unbeat repulsion advisory note (if offer places a new beat inside an Unbeat repulsion zone)
+    const constraints = compileConstraints(beforeState);
+    for (const rep of constraints.unbeatRepulsions) {
+      for (const [id, bAfter] of afterState.beats) {
+        const bBefore = beforeState.beats.get(id);
+        if (bBefore && bBefore.atUs === bAfter.atUs) continue;
+        if (Math.abs(bAfter.atUs - rep.atUs) <= rep.repulsionRadiusUs) {
+          pushNote(
+            "near_unbeat_repulsion",
+            `Places a beat near your unbeat cue at ${formatTimeUs(rep.atUs)}`,
+            { unbeatAtUs: rep.atUs, beatAtUs: bAfter.atUs },
+          );
+          break;
         }
       }
-      if (nearestNew) {
-        const deltaMs = Math.round((nearestNew.timeSec - guide.timeSec) * 1000);
-        const sign = deltaMs >= 0 ? "+" : "";
-        pushAdvisory(`Moves your beat near ${formatTimeCode(guide.timeSec)} by ${sign}${deltaMs} ms`);
-      } else {
-        pushAdvisory(`Removes your beat near ${formatTimeCode(guide.timeSec)}`);
-      }
     }
   }
 
-  // 5b. User SoundAnchor shifted/removed beyond ±20 ms
-  for (const obs of constraints.soundObservations) {
-    if (!touchedSoundIds.has(obs.soundId)) continue;
-    const after = finalSounds.get(obs.soundId);
-    if (after) {
-      const diffSec = after.timeSec - obs.timeSec;
-      if (Math.abs(diffSec) > DEFAULT_BEAT_GUIDE_TOL_SEC) {
-        const deltaMs = Math.round(diffSec * 1000);
-        const sign = deltaMs >= 0 ? "+" : "";
-        pushAdvisory(
-          `Adjusts your sound marker near ${formatTimeCode(obs.timeSec)} by ${sign}${deltaMs} ms`,
-        );
-      }
-      continue;
-    }
-
-    let withinTol = false;
-    /** @type {{ timeSec: number, absDiff: number } | null} */
-    let nearestNew = null;
-    for (const s of finalSounds.values()) {
-      const absDiff = Math.abs(s.timeSec - obs.timeSec);
-      if (absDiff <= DEFAULT_BEAT_GUIDE_TOL_SEC) {
-        withinTol = true;
-        break;
-      }
-    }
-    if (!withinTol) {
-      for (const rawSound of ops.upsertSounds ?? []) {
-        const absDiff = Math.abs(rawSound.timeSec - obs.timeSec);
-        if (absDiff <= 0.15 && (!nearestNew || absDiff < nearestNew.absDiff)) {
-          nearestNew = { timeSec: rawSound.timeSec, absDiff };
-        }
-      }
-      if (nearestNew) {
-        const deltaMs = Math.round((nearestNew.timeSec - obs.timeSec) * 1000);
-        const sign = deltaMs >= 0 ? "+" : "";
-        pushAdvisory(
-          `Adjusts your sound marker near ${formatTimeCode(obs.timeSec)} by ${sign}${deltaMs} ms`,
-        );
-      } else {
-        pushAdvisory(`Removes your sound marker near ${formatTimeCode(obs.timeSec)}`);
-      }
-    }
-  }
-
-  // 5c. Beat placed inside an UnbeatCue repulsion zone
-  for (const rep of constraints.unbeatRepulsions) {
-    let placesNearUnbeat = false;
-    for (const rawBeat of ops.upsertBeats ?? []) {
-      const after = finalBeats.get(rawBeat.id);
-      if (!after) continue;
-      const before = state.beats.get(rawBeat.id);
-      if (before && before.timeSec === after.timeSec) continue;
-      if (Math.abs(after.timeSec - rep.timeSec) <= rep.repulsionRadiusSec) {
-        placesNearUnbeat = true;
-        break;
-      }
-    }
-    if (placesNearUnbeat) {
-      pushAdvisory(`Places a beat near your muted tick at ${formatTimeCode(rep.timeSec)}`);
-    }
-  }
-
-  if (conflicts.length === 0) {
-    const storedOffer = state?.offers instanceof Map ? state.offers.get(offer.id) : undefined;
-    if (offer.status === "stale" || storedOffer?.status === "stale") {
-      const staleConflicts =
-        Array.isArray(offer.conflicts) && offer.conflicts.length > 0
-          ? offer.conflicts.slice()
-          : Array.isArray(storedOffer?.conflicts) && storedOffer.conflicts.length > 0
-            ? storedOffer.conflicts.slice()
-            : [
-                {
-                  kind: "version_mismatch",
-                  message: "Superseded by a newer suggestion.",
-                },
-              ];
-      return {
-        valid: false,
-        status: "stale",
-        conflicts: staleConflicts,
-        advisoryNotes,
-      };
-    }
+  if (conflicts.length > 0) {
+    const hardInvalid = conflicts.some(
+      (c) =>
+        c.kind === "protected_keep" ||
+        c.kind === "protected_verified" ||
+        c.kind === "authority_violation" ||
+        c.kind === "out_of_scope" ||
+        c.kind === "invalid_op",
+    );
     return {
-      valid: true,
-      status: "valid",
-      conflicts: [],
-      advisoryNotes,
+      validation: deepFreeze({
+        valid: false,
+        status: hardInvalid ? "invalid" : "stale",
+        conflicts,
+        requiredChallenges: [],
+        notes,
+      }),
+      beforeState,
+      afterState: executedOk ? afterState : beforeState,
+      executedOk,
     };
   }
 
-  const hasHardInvalid = conflicts.some(
-    (c) => c.kind === "protected_keep" || c.kind === "out_of_scope",
-  );
+  if (requiredChallenges.length > 0) {
+    return {
+      validation: deepFreeze({
+        valid: false,
+        status: "requires_challenge_confirm",
+        conflicts: [],
+        requiredChallenges,
+        notes,
+      }),
+      beforeState,
+      afterState,
+      executedOk,
+    };
+  }
+
   return {
-    valid: false,
-    status: hasHardInvalid ? "invalid" : "stale",
-    conflicts,
-    advisoryNotes,
+    validation: deepFreeze({
+      valid: true,
+      status: "valid",
+      conflicts: [],
+      requiredChallenges: [],
+      notes,
+    }),
+    beforeState,
+    afterState,
+    executedOk,
   };
+}
+
+/**
+ * Validate an `Offer` against `snapshotOrState` without mutating caller state.
+ *
+ * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} snapshotOrState
+ * @param {import("../index.d.ts").Offer} offer
+ * @param {{ ignoreTerminalStatus?: boolean }} [options]
+ * @returns {import("../index.d.ts").OfferValidationResult}
+ */
+export function validateOffer(snapshotOrState, offer, options = {}) {
+  return evaluateOfferInternal(snapshotOrState, offer, options).validation;
+}
+
+/**
+ * Preview applying `offer` onto `snapshotOrState` using the unified transaction interpreter!
+ * Powers full `Alt` A/B comparison across beats, segments/boundaries, sounds, and `TempoMap`.
+ *
+ * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} snapshotOrState
+ * @param {import("../index.d.ts").Offer} offer
+ * @param {import("../index.d.ts").TempoMapOptions} [tempoOptions]
+ * @returns {import("../index.d.ts").OfferPreviewResult}
+ */
+export function previewOffer(snapshotOrState, offer, tempoOptions) {
+  const { validation, beforeState, afterState, executedOk } = evaluateOfferInternal(
+    snapshotOrState,
+    offer,
+  );
+  const effectiveAfter = executedOk ? afterState : beforeState;
+  const nextSnapshot = toSnapshot(effectiveAfter);
+  const { diff, consequences } = computeOfferDiffAndConsequences(beforeState, effectiveAfter);
+  const previewTempoMap = projectTempoMap(nextSnapshot, tempoOptions);
+
+  return deepFreeze({
+    validation,
+    nextSnapshot,
+    diff,
+    previewTempoMap,
+    consequences,
+  });
+}
+
+/**
+ * Bind and normalize a raw provider `OfferInput` against a host-captured basis `Snapshot` / `SessionState`.
+ * Computes `dependencies` and `basisDigest` strictly from `capturedBasis` (never blindly trusting
+ * provider-supplied revisions or digests!).
+ *
+ * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} capturedBasis
+ * @param {import("../index.d.ts").OfferInput} rawOffer
+ * @param {{
+ *   defaultBatchId?: string,
+ *   defaultProviderId?: string,
+ *   defaultModelRevision?: string,
+ *   defaultAudioId?: string,
+ *   defaultBasisSeq?: number
+ * }} [defaults]
+ * @returns {import("../index.d.ts").Offer}
+ */
+export function bindOfferToBasis(capturedBasis, rawOffer, defaults = {}) {
+  if (!rawOffer || typeof rawOffer !== "object") {
+    throw new EnsomiError("INVALID_OFFER", "OfferInput must be an object");
+  }
+  const basisState = toScratchSessionState(capturedBasis);
+  const id = assertNonEmptyId(rawOffer.id, "offer.id", "INVALID_OFFER");
+  const batchId = assertNonEmptyId(
+    rawOffer.batchId ?? defaults.defaultBatchId ?? `batch_${id}`,
+    "offer.batchId",
+    "INVALID_OFFER",
+  );
+  const kind = rawOffer.kind ?? "pulse";
+  if (!OFFER_KIND_SET.has(kind)) {
+    throw new EnsomiError("INVALID_OFFER", `Invalid offer.kind: ${String(kind)}`);
+  }
+  const providerId = assertNonEmptyId(
+    rawOffer.providerId ?? defaults.defaultProviderId ?? "provider",
+    "offer.providerId",
+    "INVALID_OFFER",
+  );
+  const audioId = assertNonEmptyId(
+    rawOffer.audioId ?? defaults.defaultAudioId ?? basisState.audio?.audioId ?? "unknown_audio",
+    "offer.audioId",
+    "INVALID_OFFER",
+  );
+  const basisSeq =
+    rawOffer.basisSeq ?? defaults.defaultBasisSeq ?? basisState.lastSeq;
+  if (!Array.isArray(rawOffer.writeRanges) || rawOffer.writeRanges.length === 0) {
+    throw new EnsomiError("INVALID_OFFER", "OfferInput.writeRanges must be non-empty");
+  }
+  const writeRanges = mergeRangesUs(
+    rawOffer.writeRanges.map((r) =>
+      assertRangeUs(r, basisState.durationUs > 0 ? basisState.durationUs : undefined),
+    ),
+  );
+
+  /** @type {import("../index.d.ts").OfferDerivedFrom | undefined} */
+  let derivedFrom;
+  if (rawOffer.derivedFrom) {
+    const srcRange = assertRangeUs(
+      rawOffer.derivedFrom.range,
+      basisState.durationUs > 0 ? basisState.durationUs : undefined,
+    );
+    const supportingIds = [...new Set(rawOffer.derivedFrom.supportingIds ?? [])].sort(
+      compareCodeUnits,
+    );
+    const sourceDigest = computeIntervalMusicalDigest(
+      basisState,
+      srcRange.startUs,
+      srcRange.endUs,
+    );
+    derivedFrom = {
+      range: srcRange,
+      sourceDigest,
+      supportingIds,
+    };
+  }
+
+  const dependencies = computeOfferDependencies(basisState, writeRanges, derivedFrom);
+  const basisDigest = computeOfferBasisDigest(dependencies);
+  const ops = Array.isArray(rawOffer.ops) ? structuredClone(rawOffer.ops) : [];
+  const notes = (rawOffer.notes ?? []).map((n) => normalizeStructuredNote(n));
+  const semanticKey = rawOffer.semanticKey ?? computeOfferSemanticKey({ kind, writeRanges, ops });
+
+  /** @type {import("../index.d.ts").OfferChallenge[] | undefined} */
+  let challenges;
+  if (rawOffer.challenges && rawOffer.challenges.length > 0) {
+    challenges = rawOffer.challenges.map((ch) => {
+      assertNonEmptyId(ch.challengeId, "challenge.challengeId", "INVALID_OFFER");
+      if (!VERDICT_TARGET_KIND_SET.has(ch.targetKind)) {
+        throw new EnsomiError("INVALID_OFFER", `Invalid challenge.targetKind: ${String(ch.targetKind)}`);
+      }
+      assertNonEmptyId(ch.targetId, "challenge.targetId", "INVALID_OFFER");
+      assertPositiveRevision(ch.expectedRevision, "OfferChallenge");
+      assertNonEmptyId(ch.expectedValueDigest, "challenge.expectedValueDigest", "INVALID_OFFER");
+      assertNonEmptyId(ch.reasonCode, "challenge.reasonCode", "INVALID_OFFER");
+      return {
+        challengeId: ch.challengeId,
+        targetKind: ch.targetKind,
+        targetId: ch.targetId,
+        expectedRevision: ch.expectedRevision,
+        expectedValueDigest: ch.expectedValueDigest,
+        reasonCode: ch.reasonCode,
+        ...(ch.replacementId ? { replacementId: ch.replacementId } : {}),
+        ...(ch.message ? { message: ch.message } : {}),
+      };
+    });
+  }
+
+  /** @type {import("../index.d.ts").Offer} */
+  const offer = {
+    id,
+    batchId,
+    ...(rawOffer.alternativeGroup ? { alternativeGroup: rawOffer.alternativeGroup } : {}),
+    kind,
+    providerId,
+    ...(rawOffer.modelRevision ?? defaults.defaultModelRevision
+      ? { modelRevision: rawOffer.modelRevision ?? defaults.defaultModelRevision }
+      : {}),
+    audioId,
+    basisSeq,
+    writeRanges,
+    dependencies,
+    basisDigest,
+    ops,
+    ...(challenges ? { challenges } : {}),
+    ...(derivedFrom ? { derivedFrom } : {}),
+    notes,
+    ...(rawOffer.title ? { title: rawOffer.title } : {}),
+    ...(rawOffer.optionIndex !== undefined ? { optionIndex: rawOffer.optionIndex } : {}),
+    ...(rawOffer.optionCount !== undefined ? { optionCount: rawOffer.optionCount } : {}),
+    ...(rawOffer.score !== undefined ? { score: rawOffer.score } : {}),
+    semanticKey,
+    status: "valid",
+    conflicts: [],
+  };
+
+  assertOfferShape(offer);
+  const check = validateOffer(basisState, offer, { ignoreTerminalStatus: true });
+  return deepFreeze({
+    ...offer,
+    status: check.status,
+    conflicts: check.conflicts,
+    notes: check.notes,
+  });
 }

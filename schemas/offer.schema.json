@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ensomi.dev/schemas/v0.1/offer.schema.json",
+  "title": "Ensomi 0.1.0 Offer, Dependencies, and Challenges",
+  "type": "object",
+  "$ref": "#/$defs/Offer",
+  "$defs": {
+    "OfferKind": {
+      "type": "string",
+      "enum": ["pulse", "segmentation", "sound_match", "propagation"]
+    },
+    "OfferStatus": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "requires_challenge_confirm",
+        "stale",
+        "invalid",
+        "accepted",
+        "rejected",
+        "superseded"
+      ]
+    },
+    "ConflictKind": {
+      "type": "string",
+      "enum": [
+        "protected_keep",
+        "protected_verified",
+        "authority_violation",
+        "version_mismatch",
+        "range_changed",
+        "policy_changed",
+        "source_changed",
+        "out_of_scope",
+        "invalid_op",
+        "sibling_conflict"
+      ]
+    },
+    "ChallengeDisposition": {
+      "type": "string",
+      "enum": ["confirm_replacement", "clear_verdict"]
+    },
+    "OfferOpKind": {
+      "type": "string",
+      "enum": [
+        "upsert_beat",
+        "move_beat",
+        "snap_beat",
+        "shift_beats",
+        "remove_beats",
+        "remove_unbeats",
+        "upsert_sound",
+        "update_sound",
+        "remove_sounds",
+        "upsert_sound_class",
+        "remove_sound_classes",
+        "split_segment",
+        "merge_segments",
+        "move_boundary",
+        "promote_range_to_segments",
+        "set_segment_regime",
+        "set_segment_kinematics",
+        "set_range_regime"
+      ]
+    },
+    "OfferConflict": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/ConflictKind" },
+        "message": { "type": "string", "minLength": 1 },
+        "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+        "endUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+        "targetKind": { "$ref": "entities.schema.json#/$defs/VerdictTargetKind" },
+        "targetId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "OfferChallenge": {
+      "type": "object",
+      "required": ["challengeId", "targetKind", "targetId", "expectedRevision", "expectedValueDigest", "reasonCode"],
+      "properties": {
+        "challengeId": { "type": "string", "minLength": 1 },
+        "targetKind": { "$ref": "entities.schema.json#/$defs/VerdictTargetKind" },
+        "targetId": { "type": "string", "minLength": 1 },
+        "expectedRevision": { "type": "integer", "minimum": 1 },
+        "expectedValueDigest": { "type": "string", "minLength": 1 },
+        "reasonCode": { "type": "string", "minLength": 1 },
+        "replacementId": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Offer": {
+      "type": "object",
+      "required": [
+        "id",
+        "batchId",
+        "kind",
+        "providerId",
+        "audioId",
+        "basisSeq",
+        "writeRanges",
+        "dependencies",
+        "basisDigest",
+        "ops",
+        "notes",
+        "status",
+        "conflicts"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "batchId": { "type": "string", "minLength": 1 },
+        "alternativeGroup": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/OfferKind" },
+        "providerId": { "type": "string", "minLength": 1 },
+        "modelRevision": { "type": "string", "minLength": 1 },
+        "audioId": { "type": "string", "minLength": 1 },
+        "basisSeq": { "type": "integer", "minimum": -1 },
+        "writeRanges": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "entities.schema.json#/$defs/RangeUs" }
+        },
+        "dependencies": { "type": "object" },
+        "basisDigest": { "type": "string", "minLength": 1 },
+        "ops": { "type": "array", "items": { "type": "object" } },
+        "challenges": { "type": "array", "items": { "$ref": "#/$defs/OfferChallenge" } },
+        "derivedFrom": {
+          "type": "object",
+          "required": ["range", "sourceDigest", "supportingIds"],
+          "properties": {
+            "range": { "$ref": "entities.schema.json#/$defs/RangeUs" },
+            "sourceDigest": { "type": "string", "minLength": 1 },
+            "supportingIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        "notes": {
+          "type": "array",
+          "items": { "$ref": "entities.schema.json#/$defs/StructuredNote" }
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "optionIndex": { "type": "integer", "minimum": 0 },
+        "optionCount": { "type": "integer", "minimum": 1 },
+        "score": { "type": "number" },
+        "semanticKey": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/OfferStatus" },
+        "conflicts": { "type": "array", "items": { "$ref": "#/$defs/OfferConflict" } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

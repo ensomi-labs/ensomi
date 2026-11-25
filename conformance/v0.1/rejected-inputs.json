@@ -1,0 +1,306 @@
+{
+  "conformanceVersion": "0.1.0",
+  "description": "Malformed, out-of-bounds, duplicate-ID, and authority-violating traces that must fail.",
+  "cases": [
+    {
+      "id": "reject_legacy_schema_0_2",
+      "events": [
+        {
+          "schemaVersion": "0.2",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 1000000
+          }
+        }
+      ],
+      "expectedErrorCode": "UNSUPPORTED_SCHEMA_VERSION"
+    },
+    {
+      "id": "reject_non_monotonic_seq",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e1",
+          "type": "ready",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "ready": true
+          }
+        }
+      ],
+      "expectedErrorCode": "NON_MONOTONIC_SEQ"
+    },
+    {
+      "id": "reject_cross_kind_duplicate_entity_id",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "e1",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "shared_id",
+              "atUs": 1000000
+            }
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "e2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "upsert_sound",
+            "sound": {
+              "id": "shared_id",
+              "startUs": 1000000,
+              "endUs": 1200000,
+              "anchors": [
+                {
+                  "id": "a0",
+                  "role": "transient_attack",
+                  "atUs": 1000000
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "expectedErrorCode": "DUPLICATE_ENTITY_ID"
+    },
+    {
+      "id": "reject_retired_entity_id_reuse",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "e1",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "b_once",
+              "atUs": 1000000
+            }
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "e2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "remove_beats",
+            "ids": [
+              "b_once"
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 3,
+          "id": "e3",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "b_once",
+              "atUs": 2000000
+            }
+          }
+        }
+      ],
+      "expectedErrorCode": "DUPLICATE_ENTITY_ID"
+    },
+    {
+      "id": "reject_out_of_bounds_beat_at_duration",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "e1",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "b_end",
+              "atUs": 5000000
+            }
+          }
+        }
+      ],
+      "expectedErrorCode": "OUT_OF_BOUNDS"
+    },
+    {
+      "id": "reject_model_draft_authority_injection",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "e1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "beats": [
+              {
+                "id": "b0",
+                "atUs": 500000,
+                "origin": "user"
+              }
+            ]
+          }
+        }
+      ],
+      "expectedErrorCode": "AUTHORITY_VIOLATION"
+    },
+    {
+      "id": "reject_draft_replace_over_human_verdict",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "e1",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "u0",
+              "atUs": 500000
+            }
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "e2",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "beats": [
+              {
+                "id": "m0",
+                "atUs": 1000000
+              }
+            ],
+            "replace": true
+          }
+        }
+      ],
+      "expectedErrorCode": "PROTECTED_HUMAN_TRUTH"
+    }
+  ]
+}

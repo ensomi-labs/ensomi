@@ -1,22 +1,47 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ensomi.dev/schemas/tempo/entities.schema.json",
-  "title": "Ensomi Tempo Contract Core Entities",
-  "description": "Clock-agnostic source-audio-second entities for Ensomi.",
+  "$id": "https://ensomi.dev/schemas/v0.1/entities.schema.json",
+  "title": "Ensomi 0.1.0 Core Entities",
+  "description": "Integer-microsecond epistemic entities for Ensomi.",
   "$defs": {
-    "EntitySource": {
+    "NonNegUs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "Origin": {
       "type": "string",
-      "enum": ["draft", "user", "offer"]
+      "enum": ["import", "model", "rule", "user"]
+    },
+    "VerdictKind": {
+      "type": "string",
+      "enum": ["placed", "adjusted", "confirmed"]
+    },
+    "VerdictVia": {
+      "type": "string",
+      "enum": ["tap", "snap", "nudge", "review", "challenge_accept"]
+    },
+    "EntityKind": {
+      "type": "string",
+      "enum": ["beat", "unbeat", "sound", "sound_class", "boundary", "segment", "span", "approval"]
+    },
+    "VerdictTargetKind": {
+      "type": "string",
+      "enum": ["beat", "unbeat", "sound", "sound_class", "boundary"]
     },
     "SegmentRegime": {
       "type": "string",
       "enum": ["auto", "free", "break"]
     },
+    "SegmentKinematics": {
+      "type": "string",
+      "enum": ["steady", "ramp", "rubato", "unknown"]
+    },
     "SpanKind": {
       "type": "string",
-      "enum": ["keep", "free", "inbox"]
+      "enum": ["free", "keep"]
     },
-    "SpanPriority": {
+    "InboxPriority": {
       "type": "string",
       "enum": ["high", "medium", "low"]
     },
@@ -24,123 +49,290 @@
       "type": "string",
       "enum": ["transient_attack", "p_center", "harmonic_change", "release"]
     },
-    "SnapFamily": {
+    "SoundRegister": {
       "type": "string",
-      "enum": ["percussion", "piano_keys", "strings_winds", "vocal", "bass_synth", "other"]
+      "enum": ["sub", "low", "mid", "high"]
     },
-    "Range": {
+    "SoundEndKind": {
+      "type": "string",
+      "enum": ["observed", "estimated", "right_censored"]
+    },
+    "SoundBlendStatus": {
+      "type": "string",
+      "enum": ["isolated", "blended"]
+    },
+    "SoundMatchMode": {
+      "type": "string",
+      "enum": ["hit", "voice", "figure"]
+    },
+    "PulseLayer": {
+      "type": "string",
+      "enum": ["tactus", "subdivision", "any"]
+    },
+    "BeatAnchorKind": {
+      "type": "string",
+      "enum": ["anchored", "interpolated"]
+    },
+    "RangeUs": {
       "type": "object",
-      "description": "Transient half-open interval [t0, t1) in source-audio seconds (0 <= t0 < t1).",
-      "required": ["t0", "t1"],
+      "required": ["startUs", "endUs"],
       "properties": {
-        "t0": { "type": "number", "minimum": 0 },
-        "t1": { "type": "number", "exclusiveMinimum": 0 }
+        "startUs": { "$ref": "#/$defs/NonNegUs" },
+        "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      },
+      "additionalProperties": false
+    },
+    "StructuredNote": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "null"]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Verdict": {
+      "type": "object",
+      "required": ["kind", "eventId", "valueDigest", "tolUs"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/VerdictKind" },
+        "eventId": { "type": "string", "minLength": 1 },
+        "valueDigest": { "type": "string", "minLength": 1 },
+        "tolUs": { "$ref": "#/$defs/NonNegUs" },
+        "facet": { "type": "string", "minLength": 1 },
+        "via": { "$ref": "#/$defs/VerdictVia" }
+      },
+      "additionalProperties": false
+    },
+    "Approval": {
+      "type": "object",
+      "required": ["id", "eventId", "contentDigest"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "eventId": { "type": "string", "minLength": 1 },
+        "contentDigest": { "type": "string", "minLength": 1 },
+        "modifiedSinceApproval": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "AudioBinding": {
+      "type": "object",
+      "required": ["audioId", "durationUs"],
+      "properties": {
+        "audioId": { "type": "string", "minLength": 1 },
+        "durationUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "sampleRateHz": { "type": "number", "exclusiveMinimum": 0 },
+        "sampleCount": { "$ref": "#/$defs/NonNegUs" },
+        "audioSha256": { "type": "string", "minLength": 1 },
+        "decodedPcmSha256": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Boundary": {
+      "type": "object",
+      "required": ["id", "atUs", "origin", "createdByEventId", "revision"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "atUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "verdict": { "$ref": "#/$defs/Verdict" }
       },
       "additionalProperties": false
     },
     "Segment": {
       "type": "object",
-      "description": "Contiguous macro partition segment covering [t0, t1).",
-      "required": ["id", "t0", "t1", "regime", "kept", "source", "revision"],
+      "required": ["id", "startUs", "endUs", "startBoundaryId", "endBoundaryId", "regime", "origin", "createdByEventId", "revision"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "t0": { "type": "number", "minimum": 0 },
-        "t1": { "type": "number", "exclusiveMinimum": 0 },
+        "startUs": { "$ref": "#/$defs/NonNegUs" },
+        "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "startBoundaryId": { "type": ["string", "null"] },
+        "endBoundaryId": { "type": ["string", "null"] },
         "regime": { "$ref": "#/$defs/SegmentRegime" },
-        "kept": { "type": "boolean" },
-        "source": { "$ref": "#/$defs/EntitySource" },
-        "revision": { "type": "integer", "minimum": 1 }
+        "kinematics": { "$ref": "#/$defs/SegmentKinematics" },
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "approval": { "$ref": "#/$defs/Approval" }
       },
       "additionalProperties": false
     },
     "Span": {
       "type": "object",
-      "description": "Child interval strictly inside a single parent Segment (seg.t0 <= span.t0 < span.t1 <= seg.t1).",
-      "required": ["id", "segmentId", "t0", "t1", "kind", "source", "revision"],
+      "required": ["id", "segmentId", "startUs", "endUs", "kind", "origin", "createdByEventId", "revision"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "segmentId": { "type": "string", "minLength": 1 },
-        "t0": { "type": "number", "minimum": 0 },
-        "t1": { "type": "number", "exclusiveMinimum": 0 },
+        "startUs": { "$ref": "#/$defs/NonNegUs" },
+        "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "kind": { "$ref": "#/$defs/SpanKind" },
-        "priority": { "$ref": "#/$defs/SpanPriority" },
-        "reason": { "type": "string" },
-        "score": { "type": "number" },
-        "source": { "$ref": "#/$defs/EntitySource" },
-        "revision": { "type": "integer", "minimum": 1 }
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "approval": { "$ref": "#/$defs/Approval" }
+      },
+      "additionalProperties": false
+    },
+    "BeatBinding": {
+      "type": "object",
+      "required": ["anchorRole"],
+      "properties": {
+        "soundId": { "type": "string", "minLength": 1 },
+        "candidateEventId": { "type": "string", "minLength": 1 },
+        "anchorId": { "type": "string", "minLength": 1 },
+        "anchorRole": { "$ref": "#/$defs/SnapRole" },
+        "alignmentStale": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "BeatStructural": {
+      "type": "object",
+      "properties": {
+        "downbeat": { "type": "boolean" },
+        "phraseReset": { "type": "boolean" },
+        "fermata": { "type": "boolean" },
+        "anchorKind": { "$ref": "#/$defs/BeatAnchorKind" },
+        "groupId": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },
     "Beat": {
       "type": "object",
-      "description": "Pulse beat; source === 'user' acts directly as a soft beat guide cue.",
-      "required": ["id", "timeSec", "source", "revision"],
+      "required": ["id", "atUs", "origin", "createdByEventId", "revision"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "timeSec": { "type": "number", "minimum": 0 },
-        "source": { "$ref": "#/$defs/EntitySource" },
-        "snapEventId": { "type": "string", "minLength": 1 },
-        "snapFamily": { "$ref": "#/$defs/SnapFamily" },
-        "snapRole": { "$ref": "#/$defs/SnapRole" },
+        "atUs": { "$ref": "#/$defs/NonNegUs" },
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "revision": { "type": "integer", "minimum": 1 }
+        "boundTo": { "$ref": "#/$defs/BeatBinding" },
+        "structural": { "$ref": "#/$defs/BeatStructural" },
+        "lineage": {
+          "type": "object",
+          "required": ["origin", "atUs"],
+          "properties": {
+            "origin": { "$ref": "#/$defs/Origin" },
+            "atUs": { "$ref": "#/$defs/NonNegUs" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "verdict": { "$ref": "#/$defs/Verdict" }
       },
       "additionalProperties": false
     },
-    "SoundAnchor": {
+    "Unbeat": {
       "type": "object",
-      "description": "Acoustic onset anchor; source === 'user' acts directly as a soft sound observation cue.",
-      "required": ["id", "timeSec", "source", "revision"],
+      "required": ["id", "atUs", "origin", "createdByEventId", "revision", "tolUs", "pulseLayer"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "timeSec": { "type": "number", "minimum": 0 },
-        "strength": { "type": "number", "minimum": 0, "maximum": 1 },
-        "family": { "$ref": "#/$defs/SnapFamily" },
-        "role": { "$ref": "#/$defs/SnapRole" },
-        "sigmaMs": { "type": "number", "minimum": 0 },
-        "source": { "$ref": "#/$defs/EntitySource" },
-        "revision": { "type": "integer", "minimum": 1 }
+        "atUs": { "$ref": "#/$defs/NonNegUs" },
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "tolUs": { "$ref": "#/$defs/NonNegUs" },
+        "pulseLayer": { "$ref": "#/$defs/PulseLayer" },
+        "replaces": {
+          "type": "object",
+          "required": ["beatId", "origin", "createdByEventId", "priorRevision", "atUs"],
+          "properties": {
+            "beatId": { "type": "string", "minLength": 1 },
+            "origin": { "$ref": "#/$defs/Origin" },
+            "createdByEventId": { "type": "string", "minLength": 1 },
+            "priorRevision": { "type": "integer", "minimum": 1 },
+            "atUs": { "$ref": "#/$defs/NonNegUs" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "verdict": { "$ref": "#/$defs/Verdict" }
       },
       "additionalProperties": false
     },
-    "UnbeatCue": {
+    "SoundAnchorPoint": {
       "type": "object",
-      "description": "Standalone soft repulsion cue marking where no beat should fall.",
-      "required": ["id", "timeSec", "source", "revision"],
+      "required": ["id", "role", "atUs"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "timeSec": { "type": "number", "minimum": 0 },
-        "source": { "const": "user" },
-        "revision": { "type": "integer", "minimum": 1 }
+        "role": { "$ref": "#/$defs/SnapRole" },
+        "atUs": { "$ref": "#/$defs/NonNegUs" },
+        "sigmaUs": { "$ref": "#/$defs/NonNegUs" }
       },
       "additionalProperties": false
     },
-    "SnapCandidate": {
+    "SoundCharacteristics": {
       "type": "object",
-      "description": "Verifiable micro_assist acoustic snap target.",
-      "required": ["eventId", "targetSec", "deltaMs", "family", "role", "label", "salience"],
       "properties": {
-        "eventId": { "type": "string", "minLength": 1 },
-        "targetSec": { "type": "number", "minimum": 0 },
-        "deltaMs": { "type": "number" },
-        "family": { "$ref": "#/$defs/SnapFamily" },
-        "role": { "$ref": "#/$defs/SnapRole" },
-        "sigmaMs": { "type": "number", "minimum": 0 },
+        "family": { "type": "string", "minLength": 1 },
+        "register": { "$ref": "#/$defs/SoundRegister" },
+        "f0Hz": { "type": "number", "exclusiveMinimum": 0 },
+        "harmonicity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "stereoPan": { "type": "number", "minimum": -1, "maximum": 1 },
+        "stereoWidth": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Sound": {
+      "type": "object",
+      "required": ["id", "origin", "createdByEventId", "revision", "startUs", "endUs", "endKind", "anchors", "primaryAnchorId"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "startUs": { "$ref": "#/$defs/NonNegUs" },
+        "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "endKind": { "$ref": "#/$defs/SoundEndKind" },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SoundAnchorPoint" }
+        },
+        "primaryAnchorId": { "type": "string", "minLength": 1 },
+        "salience": { "type": "number", "minimum": 0, "maximum": 1 },
+        "characteristics": { "$ref": "#/$defs/SoundCharacteristics" },
+        "descriptor": {
+          "type": "object",
+          "required": ["schema", "values"],
+          "properties": {
+            "schema": { "type": "string", "minLength": 1 },
+            "values": { "type": "array", "items": { "type": "number" } }
+          },
+          "additionalProperties": false
+        },
+        "voiceGroupId": { "type": "string", "minLength": 1 },
+        "classId": { "type": "string", "minLength": 1 },
+        "blendStatus": { "$ref": "#/$defs/SoundBlendStatus" },
+        "verdict": { "$ref": "#/$defs/Verdict" }
+      },
+      "additionalProperties": false
+    },
+    "SoundClass": {
+      "type": "object",
+      "required": ["id", "origin", "createdByEventId", "revision", "exemplarSoundIds", "matchMode"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "origin": { "$ref": "#/$defs/Origin" },
+        "createdByEventId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 },
+        "exemplarSoundIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "matchMode": { "$ref": "#/$defs/SoundMatchMode" },
         "label": { "type": "string", "minLength": 1 },
-        "salience": { "type": "number", "minimum": 0, "maximum": 1 }
-      },
-      "additionalProperties": false
-    },
-    "AudioDescriptor": {
-      "type": "object",
-      "required": ["songId", "durationSec", "clock"],
-      "properties": {
-        "songId": { "type": "string", "minLength": 1 },
-        "durationSec": { "type": "number", "minimum": 0 },
-        "sampleRate": { "type": "number", "exclusiveMinimum": 0 },
-        "clock": { "type": "string", "minLength": 1 },
-        "decoder": { "type": "string" },
-        "leadOffsetSec": { "type": "number" }
+        "verdict": { "$ref": "#/$defs/Verdict" }
       },
       "additionalProperties": false
     }

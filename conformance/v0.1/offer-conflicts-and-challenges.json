@@ -1,0 +1,1421 @@
+{
+  "conformanceVersion": "0.1.0",
+  "description": "Offer validation conflicts, challenges, authorizations, and retract restoration.",
+  "validationCases": [
+    {
+      "id": "protected_keep_blocks_automated_write",
+      "setupEvents": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "offer": {
+        "id": "off_keep_block",
+        "batchId": "b_1",
+        "kind": "pulse",
+        "providerId": "provider",
+        "audioId": "oc_song",
+        "basisSeq": 2,
+        "writeRanges": [
+          {
+            "startUs": 0,
+            "endUs": 6000000
+          }
+        ],
+        "dependencies": {
+          "audioId": "oc_song",
+          "durationUs": 20000000,
+          "writeRanges": [
+            {
+              "startUs": 0,
+              "endUs": 6000000
+            }
+          ],
+          "segments": [
+            {
+              "id": "seg_kept",
+              "startUs": 0,
+              "endUs": 6000000,
+              "regime": "auto",
+              "kinematics": null,
+              "revision": 2,
+              "approved": true
+            }
+          ],
+          "boundaries": [
+            {
+              "id": "bnd_1",
+              "atUs": 6000000,
+              "revision": 1
+            }
+          ],
+          "spans": [],
+          "beats": [
+            {
+              "id": "b_k0",
+              "atUs": 1000000,
+              "revision": 1
+            },
+            {
+              "id": "b_k1",
+              "atUs": 1500000,
+              "revision": 1
+            }
+          ],
+          "unbeats": [],
+          "sounds": [],
+          "soundClasses": []
+        },
+        "basisDigest": "e325ad73d7125c048328352392c58abd47c1ca3d603d83a4c278ae71bd334d74",
+        "ops": [
+          {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "b_intrude",
+              "atUs": 2000000
+            }
+          }
+        ],
+        "notes": [],
+        "semanticKey": "sk:e61eef56af788478407f36f8671d4139",
+        "status": "invalid",
+        "conflicts": [
+          {
+            "kind": "protected_keep",
+            "message": "Keep-approved passage at 0:00.000–0:06.000 blocks automated changes.",
+            "startUs": 0,
+            "endUs": 6000000
+          }
+        ]
+      },
+      "expectedStatus": "invalid",
+      "expectedValid": false,
+      "expectedConflictKinds": [
+        "protected_keep"
+      ],
+      "expectedRequiredChallengeCount": 0
+    },
+    {
+      "id": "protected_verified_blocks_unchallenged_removal",
+      "setupEvents": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "offer": {
+        "id": "off_ver_block",
+        "batchId": "b_2",
+        "kind": "pulse",
+        "providerId": "provider",
+        "audioId": "oc_song",
+        "basisSeq": 2,
+        "writeRanges": [
+          {
+            "startUs": 6000000,
+            "endUs": 14000000
+          }
+        ],
+        "dependencies": {
+          "audioId": "oc_song",
+          "durationUs": 20000000,
+          "writeRanges": [
+            {
+              "startUs": 6000000,
+              "endUs": 14000000
+            }
+          ],
+          "segments": [
+            {
+              "id": "seg_work",
+              "startUs": 6000000,
+              "endUs": 14000000,
+              "regime": "auto",
+              "kinematics": null,
+              "revision": 1,
+              "approved": false
+            }
+          ],
+          "boundaries": [
+            {
+              "id": "bnd_1",
+              "atUs": 6000000,
+              "revision": 1
+            },
+            {
+              "id": "bnd_2",
+              "atUs": 14000000,
+              "revision": 1
+            }
+          ],
+          "spans": [],
+          "beats": [
+            {
+              "id": "b_w0",
+              "atUs": 7000000,
+              "revision": 2
+            }
+          ],
+          "unbeats": [],
+          "sounds": [],
+          "soundClasses": []
+        },
+        "basisDigest": "51ebfca237d3c71acf2d81a6375b5b1fa71fb762de4bf7ff7d68876d5604fcd5",
+        "ops": [
+          {
+            "op": "remove_beats",
+            "ids": [
+              "b_w0"
+            ]
+          }
+        ],
+        "notes": [],
+        "semanticKey": "sk:df5cc7f48253e33baf8ef46428a4f1cb",
+        "status": "invalid",
+        "conflicts": [
+          {
+            "kind": "protected_verified",
+            "targetKind": "beat",
+            "targetId": "b_w0",
+            "message": "Verified beat near 0:07.000 cannot be removed without confirmation."
+          }
+        ]
+      },
+      "expectedStatus": "invalid",
+      "expectedValid": false,
+      "expectedConflictKinds": [
+        "protected_verified"
+      ],
+      "expectedRequiredChallengeCount": 0
+    },
+    {
+      "id": "challenged_verified_mark_requires_challenge_confirm",
+      "setupEvents": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "offer": {
+        "id": "off_challenged",
+        "batchId": "b_3",
+        "kind": "pulse",
+        "providerId": "provider",
+        "audioId": "oc_song",
+        "basisSeq": 2,
+        "writeRanges": [
+          {
+            "startUs": 6000000,
+            "endUs": 14000000
+          }
+        ],
+        "dependencies": {
+          "audioId": "oc_song",
+          "durationUs": 20000000,
+          "writeRanges": [
+            {
+              "startUs": 6000000,
+              "endUs": 14000000
+            }
+          ],
+          "segments": [
+            {
+              "id": "seg_work",
+              "startUs": 6000000,
+              "endUs": 14000000,
+              "regime": "auto",
+              "kinematics": null,
+              "revision": 1,
+              "approved": false
+            }
+          ],
+          "boundaries": [
+            {
+              "id": "bnd_1",
+              "atUs": 6000000,
+              "revision": 1
+            },
+            {
+              "id": "bnd_2",
+              "atUs": 14000000,
+              "revision": 1
+            }
+          ],
+          "spans": [],
+          "beats": [
+            {
+              "id": "b_w0",
+              "atUs": 7000000,
+              "revision": 2
+            }
+          ],
+          "unbeats": [],
+          "sounds": [],
+          "soundClasses": []
+        },
+        "basisDigest": "51ebfca237d3c71acf2d81a6375b5b1fa71fb762de4bf7ff7d68876d5604fcd5",
+        "ops": [
+          {
+            "op": "move_beat",
+            "id": "b_w0",
+            "atUs": 7045000
+          }
+        ],
+        "challenges": [
+          {
+            "challengeId": "ch_bw0",
+            "targetKind": "beat",
+            "targetId": "b_w0",
+            "expectedRevision": 2,
+            "expectedValueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8",
+            "reasonCode": "half_time_reanchor"
+          }
+        ],
+        "notes": [],
+        "semanticKey": "sk:fd6e9dc2b66fa7a3116ae4b071efa04c",
+        "status": "requires_challenge_confirm",
+        "conflicts": []
+      },
+      "expectedStatus": "requires_challenge_confirm",
+      "expectedValid": false,
+      "expectedConflictKinds": [],
+      "expectedRequiredChallengeCount": 1
+    },
+    {
+      "id": "regime_change_marks_offer_stale_policy_changed",
+      "setupEvents": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 3,
+          "id": "oc_3",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "set_segment_regime",
+            "segmentId": "seg_dest",
+            "regime": "break"
+          }
+        }
+      ],
+      "offer": {
+        "id": "off_prop_dest",
+        "batchId": "b_4",
+        "kind": "propagation",
+        "providerId": "provider",
+        "audioId": "oc_song",
+        "basisSeq": 2,
+        "writeRanges": [
+          {
+            "startUs": 14000000,
+            "endUs": 20000000
+          }
+        ],
+        "dependencies": {
+          "audioId": "oc_song",
+          "durationUs": 20000000,
+          "writeRanges": [
+            {
+              "startUs": 14000000,
+              "endUs": 20000000
+            }
+          ],
+          "segments": [
+            {
+              "id": "seg_dest",
+              "startUs": 14000000,
+              "endUs": 20000000,
+              "regime": "auto",
+              "kinematics": null,
+              "revision": 1,
+              "approved": false
+            }
+          ],
+          "boundaries": [
+            {
+              "id": "bnd_2",
+              "atUs": 14000000,
+              "revision": 1
+            }
+          ],
+          "spans": [],
+          "beats": [],
+          "unbeats": [],
+          "sounds": [],
+          "soundClasses": [],
+          "derivedFrom": {
+            "range": {
+              "startUs": 6000000,
+              "endUs": 14000000
+            },
+            "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+            "supportingRevisions": [
+              {
+                "id": "b_w0",
+                "kind": "beat",
+                "revision": 2,
+                "valueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8"
+              }
+            ]
+          }
+        },
+        "basisDigest": "8cdf792173e207e2047731a1575108a238859123e6229fd46f341b102755fe49",
+        "ops": [
+          {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "b_dest_0",
+              "atUs": 15000000
+            }
+          }
+        ],
+        "derivedFrom": {
+          "range": {
+            "startUs": 6000000,
+            "endUs": 14000000
+          },
+          "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+          "supportingIds": [
+            "b_w0"
+          ]
+        },
+        "notes": [],
+        "semanticKey": "sk:c651afa1d4f7fa3c91590300a1014319",
+        "status": "valid",
+        "conflicts": []
+      },
+      "expectedStatus": "stale",
+      "expectedValid": false,
+      "expectedConflictKinds": [
+        "policy_changed"
+      ],
+      "expectedRequiredChallengeCount": 0
+    },
+    {
+      "id": "derived_from_edit_marks_offer_stale_source_changed",
+      "setupEvents": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 3,
+          "id": "oc_3s",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "op": "move_beat",
+            "id": "b_w0",
+            "atUs": 7030000
+          }
+        }
+      ],
+      "offer": {
+        "id": "off_prop_dest",
+        "batchId": "b_4",
+        "kind": "propagation",
+        "providerId": "provider",
+        "audioId": "oc_song",
+        "basisSeq": 2,
+        "writeRanges": [
+          {
+            "startUs": 14000000,
+            "endUs": 20000000
+          }
+        ],
+        "dependencies": {
+          "audioId": "oc_song",
+          "durationUs": 20000000,
+          "writeRanges": [
+            {
+              "startUs": 14000000,
+              "endUs": 20000000
+            }
+          ],
+          "segments": [
+            {
+              "id": "seg_dest",
+              "startUs": 14000000,
+              "endUs": 20000000,
+              "regime": "auto",
+              "kinematics": null,
+              "revision": 1,
+              "approved": false
+            }
+          ],
+          "boundaries": [
+            {
+              "id": "bnd_2",
+              "atUs": 14000000,
+              "revision": 1
+            }
+          ],
+          "spans": [],
+          "beats": [],
+          "unbeats": [],
+          "sounds": [],
+          "soundClasses": [],
+          "derivedFrom": {
+            "range": {
+              "startUs": 6000000,
+              "endUs": 14000000
+            },
+            "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+            "supportingRevisions": [
+              {
+                "id": "b_w0",
+                "kind": "beat",
+                "revision": 2,
+                "valueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8"
+              }
+            ]
+          }
+        },
+        "basisDigest": "8cdf792173e207e2047731a1575108a238859123e6229fd46f341b102755fe49",
+        "ops": [
+          {
+            "op": "upsert_beat",
+            "beat": {
+              "id": "b_dest_0",
+              "atUs": 15000000
+            }
+          }
+        ],
+        "derivedFrom": {
+          "range": {
+            "startUs": 6000000,
+            "endUs": 14000000
+          },
+          "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+          "supportingIds": [
+            "b_w0"
+          ]
+        },
+        "notes": [],
+        "semanticKey": "sk:c651afa1d4f7fa3c91590300a1014319",
+        "status": "valid",
+        "conflicts": []
+      },
+      "expectedStatus": "stale",
+      "expectedValid": false,
+      "expectedConflictKinds": [
+        "source_changed"
+      ],
+      "expectedRequiredChallengeCount": 0
+    }
+  ],
+  "traceCases": [
+    {
+      "id": "challenge_authorized_accept_commits_confirmed_replacement",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 3,
+          "id": "oc_batch",
+          "type": "offer_batch",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "batchId": "b_3",
+            "offers": [
+              {
+                "id": "off_challenged",
+                "batchId": "b_3",
+                "kind": "pulse",
+                "providerId": "provider",
+                "audioId": "oc_song",
+                "basisSeq": 2,
+                "writeRanges": [
+                  {
+                    "startUs": 6000000,
+                    "endUs": 14000000
+                  }
+                ],
+                "dependencies": {
+                  "audioId": "oc_song",
+                  "durationUs": 20000000,
+                  "writeRanges": [
+                    {
+                      "startUs": 6000000,
+                      "endUs": 14000000
+                    }
+                  ],
+                  "segments": [
+                    {
+                      "id": "seg_work",
+                      "startUs": 6000000,
+                      "endUs": 14000000,
+                      "regime": "auto",
+                      "kinematics": null,
+                      "revision": 1,
+                      "approved": false
+                    }
+                  ],
+                  "boundaries": [
+                    {
+                      "id": "bnd_1",
+                      "atUs": 6000000,
+                      "revision": 1
+                    },
+                    {
+                      "id": "bnd_2",
+                      "atUs": 14000000,
+                      "revision": 1
+                    }
+                  ],
+                  "spans": [],
+                  "beats": [
+                    {
+                      "id": "b_w0",
+                      "atUs": 7000000,
+                      "revision": 2
+                    }
+                  ],
+                  "unbeats": [],
+                  "sounds": [],
+                  "soundClasses": []
+                },
+                "basisDigest": "51ebfca237d3c71acf2d81a6375b5b1fa71fb762de4bf7ff7d68876d5604fcd5",
+                "ops": [
+                  {
+                    "op": "move_beat",
+                    "id": "b_w0",
+                    "atUs": 7045000
+                  }
+                ],
+                "challenges": [
+                  {
+                    "challengeId": "ch_bw0",
+                    "targetKind": "beat",
+                    "targetId": "b_w0",
+                    "expectedRevision": 2,
+                    "expectedValueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8",
+                    "reasonCode": "half_time_reanchor"
+                  }
+                ],
+                "notes": [],
+                "semanticKey": "sk:fd6e9dc2b66fa7a3116ae4b071efa04c",
+                "status": "requires_challenge_confirm",
+                "conflicts": []
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 4,
+          "id": "oc_accept",
+          "type": "offer_accept",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "offerIds": [
+              "off_challenged"
+            ],
+            "authorizedChallenges": [
+              {
+                "offerId": "off_challenged",
+                "challengeId": "ch_bw0",
+                "targetId": "b_w0",
+                "expectedValueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8",
+                "disposition": "confirm_replacement"
+              }
+            ]
+          }
+        }
+      ],
+      "expectedSnapshotDigest": "499a5f53cf97a701dd6ce5e1393af50eb9eab23eb686ef49252595d8f4d3a608"
+    },
+    {
+      "id": "retract_of_challenge_accept_restores_exact_prior_verdict",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "oc_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "oc_song",
+            "durationUs": 20000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "oc_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_kept",
+                "startUs": 0,
+                "endUs": 6000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_work",
+                "startUs": 6000000,
+                "endUs": 14000000,
+                "regime": "auto"
+              },
+              {
+                "id": "seg_dest",
+                "startUs": 14000000,
+                "endUs": 20000000,
+                "regime": "auto"
+              }
+            ],
+            "boundaries": [
+              {
+                "id": "bnd_1",
+                "atUs": 6000000
+              },
+              {
+                "id": "bnd_2",
+                "atUs": 14000000
+              }
+            ],
+            "beats": [
+              {
+                "id": "b_k0",
+                "atUs": 1000000
+              },
+              {
+                "id": "b_k1",
+                "atUs": 1500000
+              },
+              {
+                "id": "b_w0",
+                "atUs": 7000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "oc_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "set_segment_keep",
+              "segmentId": "seg_kept",
+              "keep": true,
+              "approvalId": "app_kept"
+            },
+            {
+              "op": "confirm_marks",
+              "targets": [
+                {
+                  "kind": "beat",
+                  "id": "b_w0",
+                  "expectedRevision": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 3,
+          "id": "oc_batch",
+          "type": "offer_batch",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "batchId": "b_3",
+            "offers": [
+              {
+                "id": "off_challenged",
+                "batchId": "b_3",
+                "kind": "pulse",
+                "providerId": "provider",
+                "audioId": "oc_song",
+                "basisSeq": 2,
+                "writeRanges": [
+                  {
+                    "startUs": 6000000,
+                    "endUs": 14000000
+                  }
+                ],
+                "dependencies": {
+                  "audioId": "oc_song",
+                  "durationUs": 20000000,
+                  "writeRanges": [
+                    {
+                      "startUs": 6000000,
+                      "endUs": 14000000
+                    }
+                  ],
+                  "segments": [
+                    {
+                      "id": "seg_work",
+                      "startUs": 6000000,
+                      "endUs": 14000000,
+                      "regime": "auto",
+                      "kinematics": null,
+                      "revision": 1,
+                      "approved": false
+                    }
+                  ],
+                  "boundaries": [
+                    {
+                      "id": "bnd_1",
+                      "atUs": 6000000,
+                      "revision": 1
+                    },
+                    {
+                      "id": "bnd_2",
+                      "atUs": 14000000,
+                      "revision": 1
+                    }
+                  ],
+                  "spans": [],
+                  "beats": [
+                    {
+                      "id": "b_w0",
+                      "atUs": 7000000,
+                      "revision": 2
+                    }
+                  ],
+                  "unbeats": [],
+                  "sounds": [],
+                  "soundClasses": []
+                },
+                "basisDigest": "51ebfca237d3c71acf2d81a6375b5b1fa71fb762de4bf7ff7d68876d5604fcd5",
+                "ops": [
+                  {
+                    "op": "move_beat",
+                    "id": "b_w0",
+                    "atUs": 7045000
+                  }
+                ],
+                "challenges": [
+                  {
+                    "challengeId": "ch_bw0",
+                    "targetKind": "beat",
+                    "targetId": "b_w0",
+                    "expectedRevision": 2,
+                    "expectedValueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8",
+                    "reasonCode": "half_time_reanchor"
+                  }
+                ],
+                "notes": [],
+                "semanticKey": "sk:fd6e9dc2b66fa7a3116ae4b071efa04c",
+                "status": "requires_challenge_confirm",
+                "conflicts": []
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 4,
+          "id": "oc_accept",
+          "type": "offer_accept",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "offerIds": [
+              "off_challenged"
+            ],
+            "authorizedChallenges": [
+              {
+                "offerId": "off_challenged",
+                "challengeId": "ch_bw0",
+                "targetId": "b_w0",
+                "expectedValueDigest": "3bb2873ff9ec838c1586e625aa1cf9b02263ae2f0832cd1c456fe4d6788bb1d8",
+                "disposition": "confirm_replacement"
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 5,
+          "id": "oc_undo_accept",
+          "type": "retract",
+          "author": {
+            "kind": "user"
+          },
+          "payload": {
+            "targetEventId": "oc_accept"
+          }
+        }
+      ],
+      "expectedSnapshotDigest": "8f6489e1fd5ff066f22e5777dcc16f35d2813e040834c93a6ec0d61fc9d23326"
+    }
+  ]
+}

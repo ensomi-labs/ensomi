@@ -1,26 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ensomi.dev/schemas/tempo/trace-event.schema.json",
-  "title": "Ensomi Tempo Contract Append-Only Trace Event",
-  "description": "Single NDJSON (.jsonl) event envelope for Ensomi session traces.",
+  "$id": "https://ensomi.dev/schemas/v0.1/trace-event.schema.json",
+  "title": "Ensomi 0.1.0 Append-Only Trace Event and Snapshot",
+  "description": "Single NDJSON (.jsonl) event envelope (schemaVersion 0.3) and JCS Snapshot.",
   "type": "object",
-  "required": ["schemaVersion", "seq", "id", "type", "author", "payload"],
-  "properties": {
-    "schemaVersion": {
-      "const": "0.2"
-    },
-    "seq": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "type": {
+  "$ref": "#/$defs/TraceEvent",
+  "$defs": {
+    "TraceEventType": {
       "type": "string",
       "enum": [
         "audio_bound",
+        "reset_document",
         "draft_loaded",
         "edit",
         "signal",
@@ -32,28 +22,154 @@
         "ready"
       ]
     },
-    "tsMs": {
-      "type": "number"
+    "AuthorKind": {
+      "type": "string",
+      "enum": ["user", "model", "rule", "host", "import"]
     },
-    "seedDurationSec": {
-      "type": "number",
-      "exclusiveMinimum": 0
+    "TransactionOpKind": {
+      "type": "string",
+      "enum": [
+        "upsert_beat",
+        "move_beat",
+        "snap_beat",
+        "shift_beats",
+        "remove_beats",
+        "place_unbeat",
+        "remove_unbeats",
+        "beat_to_unbeat",
+        "upsert_sound",
+        "update_sound",
+        "remove_sounds",
+        "upsert_sound_class",
+        "remove_sound_classes",
+        "confirm_marks",
+        "clear_verdicts",
+        "split_segment",
+        "merge_segments",
+        "move_boundary",
+        "promote_range_to_segments",
+        "set_segment_regime",
+        "set_segment_kinematics",
+        "set_segment_keep",
+        "set_range_regime",
+        "set_range_keep"
+      ]
     },
-    "author": {
+    "TraceEvent": {
       "type": "object",
-      "required": ["kind"],
+      "required": ["schemaVersion", "seq", "id", "type", "author", "payload"],
       "properties": {
-        "kind": {
-          "type": "string",
-          "enum": ["user", "model", "rule", "host", "import"]
+        "schemaVersion": { "const": "0.3" },
+        "seq": { "type": "integer", "minimum": 0 },
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/TraceEventType" },
+        "tsMs": { "type": "number" },
+        "author": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "$ref": "#/$defs/AuthorKind" },
+            "id": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
         },
-        "id": {
-          "type": "string"
-        }
+        "payload": {}
       },
       "additionalProperties": false
     },
-    "payload": {}
-  },
-  "additionalProperties": false
+    "OrphanedTransaction": {
+      "type": "object",
+      "required": ["seq", "eventId", "type", "code", "causeCode", "message"],
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "eventId": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/TraceEventType" },
+        "code": { "const": "ORPHANED_BY_RETRACT" },
+        "causeCode": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "Snapshot": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "audio",
+        "durationUs",
+        "segments",
+        "boundaries",
+        "spans",
+        "beats",
+        "unbeats",
+        "sounds",
+        "soundClasses",
+        "approvals",
+        "retiredEntityIds",
+        "offers",
+        "suppressions",
+        "orphanedTransactions",
+        "lastSignal",
+        "generation",
+        "effort",
+        "visitedRanges",
+        "ready",
+        "readyAtSeq",
+        "retractedEventIds",
+        "lastSeq"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "0.3" },
+        "audio": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "entities.schema.json#/$defs/AudioBinding" }
+          ]
+        },
+        "durationUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+        "segments": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Segment" } },
+        "boundaries": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Boundary" } },
+        "spans": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Span" } },
+        "beats": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Beat" } },
+        "unbeats": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Unbeat" } },
+        "sounds": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Sound" } },
+        "soundClasses": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/SoundClass" } },
+        "approvals": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/Approval" } },
+        "retiredEntityIds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "createdByEventId", "retiredByEventId"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "kind": { "$ref": "entities.schema.json#/$defs/EntityKind" },
+              "createdByEventId": { "type": "string", "minLength": 1 },
+              "retiredByEventId": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "offers": { "type": "array", "items": { "$ref": "offer.schema.json#/$defs/Offer" } },
+        "suppressions": { "type": "array", "items": { "type": "object" } },
+        "orphanedTransactions": { "type": "array", "items": { "$ref": "#/$defs/OrphanedTransaction" } },
+        "lastSignal": { "type": ["object", "null"] },
+        "generation": { "type": "integer", "minimum": 0 },
+        "effort": {
+          "type": "object",
+          "required": ["listenUs", "waitUs", "actionCount"],
+          "properties": {
+            "listenUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "waitUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "actionCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "visitedRanges": { "type": "array", "items": { "$ref": "entities.schema.json#/$defs/RangeUs" } },
+        "ready": { "type": "boolean" },
+        "readyAtSeq": { "type": ["integer", "null"] },
+        "retractedEventIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "lastSeq": { "type": "integer", "minimum": -1 }
+      },
+      "additionalProperties": false
+    }
+  }
 }

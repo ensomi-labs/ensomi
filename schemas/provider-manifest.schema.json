@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ensomi.dev/schemas/tempo/provider-manifest.schema.json",
-  "title": "Ensomi Tempo Contract TimingProvider Manifest",
+  "$id": "https://ensomi.dev/schemas/v0.1/provider-manifest.schema.json",
+  "title": "Ensomi 0.1.0 Provider Manifest",
   "type": "object",
   "required": ["id", "version", "kind", "capabilities"],
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "version": { "type": "string", "minLength": 1 },
     "kind": { "type": "string", "enum": ["model", "rule", "mock"] },
+    "modelRevision": { "type": "string", "minLength": 1 },
     "capabilities": {
       "type": "object",
       "required": [
@@ -17,7 +18,6 @@
         "constrainedRecompute",
         "supportedSnapFamilies",
         "supportedSnapRoles",
-        "diagnostics",
         "alternatives",
         "repeatPropagation"
       ],
@@ -25,16 +25,18 @@
         "draft": { "type": "boolean" },
         "sounds": { "type": "boolean" },
         "snapSuggestions": { "type": "boolean" },
+        "soundOptions": { "type": "boolean" },
+        "soundMatching": { "type": "boolean" },
+        "segmentation": { "type": "boolean" },
         "constrainedRecompute": { "type": "boolean" },
         "supportedSnapFamilies": {
           "type": "array",
-          "items": { "$ref": "entities.schema.json#/$defs/SnapFamily" }
+          "items": { "type": "string", "minLength": 1 }
         },
         "supportedSnapRoles": {
           "type": "array",
           "items": { "$ref": "entities.schema.json#/$defs/SnapRole" }
         },
-        "diagnostics": { "type": "boolean" },
         "alternatives": { "type": "boolean" },
         "repeatPropagation": { "type": "boolean" }
       },
