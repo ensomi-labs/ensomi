@@ -2,6 +2,7 @@ import {
   type AcceptOfferOutcome,
   type AudioBinding,
   applyEvent,
+  type BeatBinding,
   bindOfferToBasis,
   canonicalJson,
   compileConstraints,
@@ -11,6 +12,7 @@ import {
   computeSnapshotDigest,
   createInitialState,
   createProviderView,
+  type NormalizedIdPair,
   type Offer,
   type OfferPreviewResult,
   type Provider,
@@ -35,7 +37,20 @@ export async function verifyConsumerTypes(): Promise<string> {
     sampleRateHz: 48_000,
     sampleCount: 768_000,
   };
-  const provider: Provider = new ScriptedMockProvider();
+  const provider: Provider = new ScriptedMockProvider({
+    matchScript: [
+      {
+        batchId: "b_match_res",
+        offers: [],
+      },
+    ],
+    segmentationScript: [
+      {
+        batchId: "b_seg_res",
+        offers: [],
+      },
+    ],
+  });
   const ctrl = new SessionController({ provider });
   await ctrl.openSong(audio);
 
@@ -44,6 +59,23 @@ export async function verifyConsumerTypes(): Promise<string> {
   const sec = usToSec(sampleUs);
   void backSample;
   void sec;
+
+  const validSoundBinding: BeatBinding = {
+    soundId: "snd_0",
+    anchorRole: "transient_attack",
+  };
+  const validCandidateBinding: BeatBinding = {
+    candidateEventId: "cand_0",
+    anchorRole: "p_center",
+  };
+  void validSoundBinding;
+  void validCandidateBinding;
+
+  // @ts-expect-error BeatBinding requires at least one of soundId or candidateEventId
+  const invalidEmptyBinding: BeatBinding = {
+    anchorRole: "transient_attack",
+  };
+  void invalidEmptyBinding;
 
   const op: TransactionOp = {
     op: "upsert_beat",
@@ -55,6 +87,16 @@ export async function verifyConsumerTypes(): Promise<string> {
     via: "tap",
   };
   ctrl.applyEdit(op);
+
+  const promoteTuple = [undefined, "bnd_ts_r"] as const;
+  const promoteOp: TransactionOp = {
+    op: "promote_range_to_segments",
+    startUs: 2_000_000,
+    endUs: 6_000_000,
+    newBoundaryIds: promoteTuple,
+    newSegmentIds: [null, "seg_ts_r"] as const,
+  };
+  ctrl.applyEdit(promoteOp);
 
   const snap = ctrl.getSnapshot();
   const view = createProviderView(snap);
@@ -82,16 +124,49 @@ export async function verifyConsumerTypes(): Promise<string> {
   void draft;
 
   const beat0 = snap.beats[0];
+  const sound0 = snap.sounds[0];
+  const boundary0 = snap.boundaries[0];
+  const unbeat0 = snap.unbeats[0];
+  const sc0 = snap.soundClasses[0];
+
+  if (sound0) {
+    void computeEntityValueDigest("sound", sound0, "occurrence");
+  }
+  if (boundary0) {
+    void computeEntityValueDigest("boundary", boundary0);
+  }
+  if (unbeat0) {
+    void computeEntityValueDigest("unbeat", unbeat0);
+  }
+  if (sc0) {
+    void computeEntityValueDigest("sound_class", sc0);
+  }
+  void computeEntityValueDigest("beat", { id: "raw_b", atUs: 100_000 });
+
   if (beat0) {
-    const vd = computeEntityValueDigest("beat", beat0 as unknown as Record<string, unknown>);
+    // Direct typed Beat without `as unknown` casts under `--strict`!
+    const vd = computeEntityValueDigest("beat", beat0);
     const offer: Offer = bindOfferToBasis(snap, {
       id: "off_ts",
       batchId: "batch_ts",
       kind: "pulse",
       writeRanges: [{ startUs: 0, endUs: 4_000_000 }],
-      ops: [{ op: "upsert_beat", beat: { id: "b_ts_offer", atUs: 2_000_000 } }],
+      ops: [
+        { op: "upsert_beat", beat: { id: "b_ts_offer", atUs: 2_000_000 } },
+        {
+          op: "promote_range_to_segments",
+          startUs: 1_000_000,
+          endUs: 3_000_000,
+          newBoundaryIds: [undefined, "bnd_off_r"] as const,
+        },
+      ],
       notes: [{ code: "ok", message: "Test" }],
     });
+    const normOp = offer.ops[1];
+    if (normOp && normOp.op === "promote_range_to_segments" && normOp.newBoundaryIds) {
+      const pair: NormalizedIdPair = normOp.newBoundaryIds;
+      void pair;
+    }
     const val = validateOffer(snap, offer);
     const prev: OfferPreviewResult = ctrl.previewOffer(offer);
     const acc: AcceptOfferOutcome = ctrl.acceptOffer({

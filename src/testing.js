@@ -582,7 +582,7 @@ export class ScriptedMockProvider {
   /**
    * @param {import("../index.d.ts").MatchSoundsRequest} request
    * @param {AbortSignal} [signal]
-   * @returns {Promise<import("../index.d.ts").OfferInput[]>}
+   * @returns {Promise<import("../index.d.ts").OfferInput[] | import("../index.d.ts").RecomputeResult>}
    */
   async matchSounds(request, signal) {
     const record = {
@@ -673,7 +673,7 @@ export class ScriptedMockProvider {
   /**
    * @param {import("../index.d.ts").SuggestSegmentationRequest} request
    * @param {AbortSignal} [signal]
-   * @returns {Promise<import("../index.d.ts").OfferInput[]>}
+   * @returns {Promise<import("../index.d.ts").OfferInput[] | import("../index.d.ts").RecomputeResult>}
    */
   async suggestSegmentation(request, signal) {
     const record = {

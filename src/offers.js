@@ -11,7 +11,13 @@
 
 import { compileConstraints } from "./constraints.js";
 import { executeTransaction, getVerdictEntity } from "./interpreter.js";
-import { canonicalJson, compareCodeUnits, EnsomiError, jcsSha256Hex } from "./jcs.js";
+import {
+  assertPlainObject,
+  canonicalJson,
+  compareCodeUnits,
+  EnsomiError,
+  jcsSha256Hex,
+} from "./jcs.js";
 import { toScratchSessionState, toSnapshot } from "./state.js";
 import {
   assertRangeUs,
@@ -24,9 +30,11 @@ import {
   assertNonEmptyId,
   assertOfferShape,
   assertPositiveRevision,
+  assertUnitInterval,
   computeEntityValueDigest,
   deepFreeze,
   isOfferOpKind,
+  normalizeOptionalIdPair,
   normalizeStructuredNote,
   OFFER_KINDS,
   VERDICT_TARGET_KINDS,
@@ -95,6 +103,37 @@ function inspectSupportingEntity(state, id) {
         endUs: seg.endUs,
         regime: seg.regime,
         kinematics: seg.kinematics ?? null,
+        approvalId: seg.approval?.id ?? null,
+      }),
+    };
+  }
+  const sp = state.spans.find((x) => x.id === id);
+  if (sp) {
+    return {
+      kind: "span",
+      revision: sp.revision,
+      valueDigest: jcsSha256Hex({
+        id: sp.id,
+        segmentId: sp.segmentId,
+        startUs: sp.startUs,
+        endUs: sp.endUs,
+        kind: sp.kind,
+        approvalId: sp.approval?.id ?? null,
+        approvalDigest: sp.approval?.contentDigest ?? null,
+        modifiedSinceApproval: Boolean(sp.approval?.modifiedSinceApproval),
+      }),
+    };
+  }
+  const app = state.approvals.get(id);
+  if (app) {
+    return {
+      kind: "approval",
+      revision: 1,
+      valueDigest: jcsSha256Hex({
+        id: app.id,
+        eventId: app.eventId,
+        contentDigest: app.contentDigest,
+        modifiedSinceApproval: Boolean(app.modifiedSinceApproval),
       }),
     };
   }
@@ -102,16 +141,98 @@ function inspectSupportingEntity(state, id) {
 }
 
 /**
- * Compute deterministic `OfferDependencies` over `writeRanges` (and optional `derivedFrom`)
- * from `snapshotOrState`. Captures empty-range membership so insertions into previously empty
- * ranges are detected cleanly!
+ * Compute deterministic `sourceDigest` for `derivedFrom.range`, combining the musical interval
+ * digest with per-entity epistemic verdict digests (`verdict ? verdict.valueDigest + ":" + verdict.kind : "unverified"`)
+ * and active approvals so `clear_verdicts` or retracting `confirm_marks` in the source region
+ * marks pending derived offers `"stale"` (`source_changed`)!
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ * @param {number} startUs
+ * @param {number} endUs
+ * @returns {string}
+ */
+function computeDerivedSourceDigest(state, startUs, endUs) {
+  const musicalDigest = computeIntervalMusicalDigest(state, startUs, endUs);
+  const verdictTag = (v) => (v ? `${v.valueDigest}:${v.kind}` : "unverified");
+
+  const beatVerdicts = Array.from(state.beats.values())
+    .filter((b) => b.atUs >= startUs && b.atUs < endUs)
+    .map((b) => ({ id: b.id, verdict: verdictTag(b.verdict) }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  const unbeatVerdicts = Array.from(state.unbeats.values())
+    .filter((u) => u.atUs >= startUs && u.atUs < endUs)
+    .map((u) => ({ id: u.id, verdict: verdictTag(u.verdict) }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  const overlappingSounds = Array.from(state.sounds.values()).filter(
+    (s) => s.startUs < endUs && s.endUs > startUs,
+  );
+  const soundVerdicts = overlappingSounds
+    .map((s) => ({ id: s.id, verdict: verdictTag(s.verdict) }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  const classIdsInSource = new Set();
+  for (const s of overlappingSounds) {
+    if (s.classId) classIdsInSource.add(s.classId);
+  }
+  const soundClassVerdicts = Array.from(state.soundClasses.values())
+    .filter((sc) => classIdsInSource.has(sc.id))
+    .map((sc) => ({ id: sc.id, verdict: verdictTag(sc.verdict) }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  const boundaryVerdicts = Array.from(state.boundaries.values())
+    .filter((bnd) => bnd.atUs >= startUs && bnd.atUs <= endUs)
+    .map((bnd) => ({ id: bnd.id, verdict: verdictTag(bnd.verdict) }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  const approvalsInSource = [];
+  for (const seg of state.segments) {
+    if (seg.approval && seg.startUs < endUs && seg.endUs > startUs) {
+      approvalsInSource.push({
+        id: seg.approval.id,
+        contentDigest: seg.approval.contentDigest,
+        modifiedSinceApproval: Boolean(seg.approval.modifiedSinceApproval),
+      });
+    }
+  }
+  for (const sp of state.spans) {
+    if (sp.approval && sp.startUs < endUs && sp.endUs > startUs) {
+      approvalsInSource.push({
+        id: sp.approval.id,
+        contentDigest: sp.approval.contentDigest,
+        modifiedSinceApproval: Boolean(sp.approval.modifiedSinceApproval),
+      });
+    }
+  }
+  approvalsInSource.sort((a, b) => compareCodeUnits(a.id, b.id));
+
+  return jcsSha256Hex({
+    v: 1,
+    musicalDigest,
+    verdicts: {
+      beats: beatVerdicts,
+      unbeats: unbeatVerdicts,
+      sounds: soundVerdicts,
+      soundClasses: soundClassVerdicts,
+      boundaries: boundaryVerdicts,
+    },
+    approvals: approvalsInSource,
+  });
+}
+
+/**
+ * Compute deterministic `OfferDependencies` over `writeRanges` (and optional `derivedFrom` / `ops`)
+ * from `snapshotOrState`. Captures empty-range membership and scopes `soundClasses` strictly to
+ * classes referenced by sounds in `writeRanges`, `derivedFrom`, or `ops`.
  *
  * @param {import("../index.d.ts").Snapshot | import("../index.d.ts").SessionState} snapshotOrState
  * @param {readonly import("../index.d.ts").RangeUs[]} writeRanges
  * @param {{ range: import("../index.d.ts").RangeUs, supportingIds?: readonly string[] }} [derivedFrom]
+ * @param {readonly import("../index.d.ts").OfferOpInput[]} [ops]
  * @returns {import("../index.d.ts").OfferDependencies}
  */
-export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFrom) {
+export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFrom, ops = []) {
   const state = toScratchSessionState(snapshotOrState);
   const durationUs = state.durationUs;
   if (!Array.isArray(writeRanges) || writeRanges.length === 0) {
@@ -175,14 +296,35 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
     .map((u) => ({ id: u.id, atUs: u.atUs, revision: u.revision }))
     .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
 
-  const sounds = Array.from(state.sounds.values())
-    .filter((s) => overlapsWrite(s.startUs, s.endUs))
+  /** @type {Set<string>} */
+  const referencedClassIds = new Set();
+  const overlappingWriteSounds = Array.from(state.sounds.values()).filter((s) =>
+    overlapsWrite(s.startUs, s.endUs),
+  );
+  for (const s of overlappingWriteSounds) {
+    if (s.classId) referencedClassIds.add(s.classId);
+  }
+
+  const sounds = overlappingWriteSounds
     .map((s) => ({ id: s.id, startUs: s.startUs, endUs: s.endUs, revision: s.revision }))
     .sort((a, b) => a.startUs - b.startUs || a.endUs - b.endUs || compareCodeUnits(a.id, b.id));
 
-  const soundClasses = Array.from(state.soundClasses.values())
-    .map((sc) => ({ id: sc.id, revision: sc.revision }))
-    .sort((a, b) => compareCodeUnits(a.id, b.id));
+  if (Array.isArray(ops)) {
+    for (const op of ops) {
+      if (!op || typeof op !== "object") continue;
+      if (op.op === "upsert_sound_class" && typeof op.soundClass?.id === "string") {
+        referencedClassIds.add(op.soundClass.id);
+      } else if (op.op === "remove_sound_classes" && Array.isArray(op.ids)) {
+        for (const cid of op.ids) {
+          if (typeof cid === "string") referencedClassIds.add(cid);
+        }
+      } else if (op.op === "upsert_sound" && typeof op.sound?.classId === "string") {
+        referencedClassIds.add(op.sound.classId);
+      } else if (op.op === "update_sound" && typeof op.patch?.classId === "string") {
+        referencedClassIds.add(op.patch.classId);
+      }
+    }
+  }
 
   /** @type {import("../index.d.ts").OfferDependencies["derivedFrom"]} */
   let derivedDeps;
@@ -191,15 +333,32 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
       derivedFrom.range,
       durationUs > 0 ? durationUs : undefined,
     );
-    const sourceDigest = computeIntervalMusicalDigest(state, srcRange.startUs, srcRange.endUs);
+    for (const s of state.sounds.values()) {
+      if (s.startUs < srcRange.endUs && s.endUs > srcRange.startUs && s.classId) {
+        referencedClassIds.add(s.classId);
+      }
+    }
+    const sourceDigest = computeDerivedSourceDigest(state, srcRange.startUs, srcRange.endUs);
     const uniqueSupportingIds = [...new Set(derivedFrom.supportingIds ?? [])].sort(
       compareCodeUnits,
     );
     /** @type {Array<{ id: string, kind: import("../index.d.ts").EntityKind, revision: number, valueDigest: string }>} */
     const supportingRevisions = [];
     for (const sid of uniqueSupportingIds) {
+      if (state.soundClasses.has(sid)) referencedClassIds.add(sid);
+      const supSound = state.sounds.get(sid);
+      if (supSound?.classId) referencedClassIds.add(supSound.classId);
       const info = inspectSupportingEntity(state, sid);
       if (info) {
+        const epistemicSuffix =
+          info.kind === "beat" ||
+          info.kind === "unbeat" ||
+          info.kind === "sound" ||
+          info.kind === "sound_class" ||
+          info.kind === "boundary"
+            ? getVerdictEntity(state, info.kind, sid)
+            : null;
+        void epistemicSuffix;
         supportingRevisions.push({
           id: sid,
           kind: info.kind,
@@ -221,6 +380,11 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
       supportingRevisions,
     };
   }
+
+  const soundClasses = Array.from(state.soundClasses.values())
+    .filter((sc) => referencedClassIds.has(sc.id))
+    .map((sc) => ({ id: sc.id, revision: sc.revision }))
+    .sort((a, b) => compareCodeUnits(a.id, b.id));
 
   return deepFreeze({
     audioId: state.audio?.audioId ?? null,
@@ -512,14 +676,65 @@ export function detectSiblingConflicts(offers) {
 }
 
 /**
- * Check that every op in `offer.ops` targets coordinates inside `mergedWriteRanges`.
+ * Compute canonical merged effective `(regime, kinematics)` intervals across `[0, durationUs)`.
  *
- * @param {import("../index.d.ts").SessionState} beforeState
- * @param {readonly import("../index.d.ts").OfferOp[]} ops
+ * @param {import("../index.d.ts").SessionState} state
+ * @returns {Array<{ startUs: number, endUs: number, regime: string, kinematics: string | null }>}
+ */
+function computeEffectivePolicySlices(state) {
+  /** @type {Array<{ startUs: number, endUs: number, regime: string, kinematics: string | null }>} */
+  const slices = [];
+  const push = (s, e, regime, kinematics) => {
+    if (e <= s) return;
+    const prev = slices[slices.length - 1];
+    if (prev && prev.endUs === s && prev.regime === regime && prev.kinematics === kinematics) {
+      prev.endUs = e;
+    } else {
+      slices.push({ startUs: s, endUs: e, regime, kinematics });
+    }
+  };
+
+  for (let i = 0; i < state.segments.length; i += 1) {
+    const seg = state.segments[i];
+    const kin = seg.kinematics ?? null;
+    if (seg.regime !== "auto") {
+      push(seg.startUs, seg.endUs, seg.regime, kin);
+      continue;
+    }
+    const freeRanges = mergeRangesUs(
+      state.spans
+        .filter((sp) => sp.segmentId === seg.id && sp.kind === "free")
+        .map((sp) => ({
+          startUs: Math.max(seg.startUs, sp.startUs),
+          endUs: Math.min(seg.endUs, sp.endUs),
+        }))
+        .filter((r) => r.endUs > r.startUs),
+    );
+    if (freeRanges.length === 0) {
+      push(seg.startUs, seg.endUs, "auto", kin);
+    } else {
+      let cursor = seg.startUs;
+      for (const fr of freeRanges) {
+        if (fr.startUs > cursor) push(cursor, fr.startUs, "auto", kin);
+        push(fr.startUs, fr.endUs, "free", kin);
+        cursor = fr.endUs;
+      }
+      if (cursor < seg.endUs) push(cursor, seg.endUs, "auto", kin);
+    }
+  }
+  return slices;
+}
+
+/**
+ * Validate a single `OfferOp` against `stepState` (either `beforeState` or live mid-transaction
+ * state!) and `mergedWriteRanges`. Catches intra-transaction created entities & split/merge tails!
+ *
+ * @param {import("../index.d.ts").SessionState} stepState
+ * @param {any} op
  * @param {readonly import("../index.d.ts").RangeUs[]} mergedWriteRanges
  * @returns {import("../index.d.ts").OfferConflict[]}
  */
-function checkOpsWithinWriteRanges(beforeState, ops, mergedWriteRanges) {
+function checkSingleOpWithinWriteRanges(stepState, op, mergedWriteRanges) {
   /** @type {import("../index.d.ts").OfferConflict[]} */
   const conflicts = [];
   const pointInWrite = (atUs) =>
@@ -530,195 +745,471 @@ function checkOpsWithinWriteRanges(beforeState, ops, mergedWriteRanges) {
     typeof endUs === "number" &&
     mergedWriteRanges.some((wr) => startUs >= wr.startUs && endUs <= wr.endUs);
 
-  for (let i = 0; i < ops.length; i += 1) {
-    const op = ops[i];
-    if (!op || typeof op !== "object") {
-      conflicts.push({
-        kind: "invalid_op",
-        message: "Suggestion contains a malformed operation.",
-      });
-      continue;
-    }
-    if (!isOfferOpKind(op.op)) {
-      conflicts.push({
-        kind: "authority_violation",
-        message: `Suggestion attempts user-only operation "${String(op.op)}".`,
-      });
-      continue;
-    }
+  if (!op || typeof op !== "object") {
+    conflicts.push({
+      kind: "invalid_op",
+      message: "Suggestion contains a malformed operation.",
+    });
+    return conflicts;
+  }
+  if (!isOfferOpKind(op.op)) {
+    conflicts.push({
+      kind: "authority_violation",
+      message: `Suggestion attempts user-only operation "${String(op.op)}".`,
+    });
+    return conflicts;
+  }
 
-    switch (op.op) {
-      case "upsert_beat": {
-        const atUs = op.beat?.atUs;
-        const existing = typeof op.beat?.id === "string" ? beforeState.beats.get(op.beat.id) : undefined;
-        if (!pointInWrite(atUs) || (existing && !pointInWrite(existing.atUs))) {
+  switch (op.op) {
+    case "upsert_beat": {
+      const atUs = op.beat?.atUs;
+      const existing =
+        typeof op.beat?.id === "string" ? stepState.beats.get(op.beat.id) : undefined;
+      if (!pointInWrite(atUs) || (existing && !pointInWrite(existing.atUs))) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion modifies a beat near ${formatTimeUs(atUs ?? 0)} outside its target range.`,
+        });
+      }
+      break;
+    }
+    case "move_beat":
+    case "snap_beat": {
+      const existing = stepState.beats.get(op.id);
+      if (!pointInWrite(op.atUs) || (existing && !pointInWrite(existing.atUs))) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion moves a beat near ${formatTimeUs(op.atUs)} outside its target range.`,
+        });
+      }
+      break;
+    }
+    case "shift_beats": {
+      if (
+        !intervalInWrite(op.startUs, op.endUs) ||
+        !intervalInWrite(op.startUs + op.deltaUs, op.endUs + op.deltaUs)
+      ) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: "Suggestion shifts beats outside its target range.",
+        });
+      }
+      break;
+    }
+    case "remove_beats": {
+      for (const id of op.ids ?? []) {
+        const existing = stepState.beats.get(id);
+        if (existing && !pointInWrite(existing.atUs)) {
           conflicts.push({
             kind: "out_of_scope",
-            message: `Suggestion modifies a beat near ${formatTimeUs(atUs ?? 0)} outside its target range.`,
+            message: `Suggestion removes a beat near ${formatTimeUs(existing.atUs)} outside its target range.`,
           });
         }
-        break;
       }
-      case "move_beat":
-      case "snap_beat": {
-        const existing = beforeState.beats.get(op.id);
-        if (!pointInWrite(op.atUs) || (existing && !pointInWrite(existing.atUs))) {
+      break;
+    }
+    case "remove_unbeats": {
+      for (const id of op.ids ?? []) {
+        const existing = stepState.unbeats.get(id);
+        if (existing && !pointInWrite(existing.atUs)) {
           conflicts.push({
             kind: "out_of_scope",
-            message: `Suggestion moves a beat near ${formatTimeUs(op.atUs)} outside its target range.`,
+            message: `Suggestion removes an unbeat near ${formatTimeUs(existing.atUs)} outside its target range.`,
           });
         }
-        break;
       }
-      case "shift_beats": {
-        if (
-          !intervalInWrite(op.startUs, op.endUs) ||
-          !intervalInWrite(op.startUs + op.deltaUs, op.endUs + op.deltaUs)
-        ) {
+      break;
+    }
+    case "upsert_sound": {
+      const s = op.sound;
+      const existing = typeof s?.id === "string" ? stepState.sounds.get(s.id) : undefined;
+      if (
+        !intervalInWrite(s?.startUs, s?.endUs) ||
+        (existing && !intervalInWrite(existing.startUs, existing.endUs))
+      ) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion modifies a sound near ${formatTimeUs(s?.startUs ?? 0)} outside its target range.`,
+        });
+      }
+      break;
+    }
+    case "update_sound": {
+      const existing = stepState.sounds.get(op.id);
+      const nextStart = op.patch?.startUs ?? existing?.startUs;
+      const nextEnd = op.patch?.endUs ?? existing?.endUs;
+      if (
+        (existing && !intervalInWrite(existing.startUs, existing.endUs)) ||
+        !intervalInWrite(nextStart, nextEnd)
+      ) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: "Suggestion updates a sound outside its target range.",
+        });
+      }
+      break;
+    }
+    case "remove_sounds": {
+      for (const id of op.ids ?? []) {
+        const existing = stepState.sounds.get(id);
+        if (existing && !intervalInWrite(existing.startUs, existing.endUs)) {
           conflicts.push({
             kind: "out_of_scope",
-            message: "Suggestion shifts beats outside its target range.",
+            message: `Suggestion removes a sound near ${formatTimeUs(existing.startUs)} outside its target range.`,
           });
         }
+      }
+      break;
+    }
+    case "split_segment": {
+      const inside = mergedWriteRanges.some(
+        (wr) => op.atUs > wr.startUs && op.atUs < wr.endUs,
+      );
+      if (!inside) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion splits a section at ${formatTimeUs(op.atUs)} outside its target range.`,
+        });
         break;
       }
-      case "remove_beats": {
-        for (const id of op.ids ?? []) {
-          const existing = beforeState.beats.get(id);
-          if (existing && !pointInWrite(existing.atUs)) {
-            conflicts.push({
-              kind: "out_of_scope",
-              message: `Suggestion removes a beat near ${formatTimeUs(existing.atUs)} outside its target range.`,
-            });
-          }
-        }
-        break;
-      }
-      case "remove_unbeats": {
-        for (const id of op.ids ?? []) {
-          const existing = beforeState.unbeats.get(id);
-          if (existing && !pointInWrite(existing.atUs)) {
-            conflicts.push({
-              kind: "out_of_scope",
-              message: `Suggestion removes an unbeat near ${formatTimeUs(existing.atUs)} outside its target range.`,
-            });
-          }
-        }
-        break;
-      }
-      case "upsert_sound": {
-        const s = op.sound;
-        const existing = typeof s?.id === "string" ? beforeState.sounds.get(s.id) : undefined;
-        if (
-          !intervalInWrite(s?.startUs, s?.endUs) ||
-          (existing && !intervalInWrite(existing.startUs, existing.endUs))
-        ) {
+      const seg = stepState.segments.find((s) => s.id === op.segmentId);
+      if (seg && op.atUs > seg.startUs && op.atUs < seg.endUs) {
+        const changesRightRegime =
+          op.rightRegime !== undefined && op.rightRegime !== seg.regime;
+        const changesRightKinematics =
+          op.rightKinematics !== undefined &&
+          (op.rightKinematics ?? null) !== (seg.kinematics ?? null);
+        if ((changesRightRegime || changesRightKinematics) && !intervalInWrite(op.atUs, seg.endUs)) {
           conflicts.push({
             kind: "out_of_scope",
-            message: `Suggestion modifies a sound near ${formatTimeUs(s?.startUs ?? 0)} outside its target range.`,
+            message: `Suggestion changes section policy over ${formatTimeUs(op.atUs)}–${formatTimeUs(seg.endUs)} outside its target range.`,
           });
         }
-        break;
       }
-      case "update_sound": {
-        const existing = beforeState.sounds.get(op.id);
-        const nextStart = op.patch?.startUs ?? existing?.startUs;
-        const nextEnd = op.patch?.endUs ?? existing?.endUs;
-        if (
-          (existing && !intervalInWrite(existing.startUs, existing.endUs)) ||
-          !intervalInWrite(nextStart, nextEnd)
-        ) {
-          conflicts.push({
-            kind: "out_of_scope",
-            message: "Suggestion updates a sound outside its target range.",
-          });
-        }
-        break;
-      }
-      case "remove_sounds": {
-        for (const id of op.ids ?? []) {
-          const existing = beforeState.sounds.get(id);
-          if (existing && !intervalInWrite(existing.startUs, existing.endUs)) {
-            conflicts.push({
-              kind: "out_of_scope",
-              message: `Suggestion removes a sound near ${formatTimeUs(existing.startUs)} outside its target range.`,
-            });
-          }
-        }
-        break;
-      }
-      case "split_segment": {
-        const inside = mergedWriteRanges.some(
-          (wr) => op.atUs > wr.startUs && op.atUs < wr.endUs,
+      break;
+    }
+    case "move_boundary": {
+      const bnd = stepState.boundaries.get(op.boundaryId);
+      if (bnd) {
+        const lo = Math.min(bnd.atUs, op.atUs);
+        const hi = Math.max(bnd.atUs, op.atUs);
+        const covered = mergedWriteRanges.some(
+          (wr) =>
+            wr.startUs <= lo &&
+            wr.endUs >= hi &&
+            (lo < hi || (op.atUs > wr.startUs && op.atUs < wr.endUs)),
         );
-        if (!inside) {
+        if (!covered) {
           conflicts.push({
             kind: "out_of_scope",
-            message: `Suggestion splits a section at ${formatTimeUs(op.atUs)} outside its target range.`,
+            message: `Suggestion moves a boundary to ${formatTimeUs(op.atUs)} outside its target range.`,
           });
         }
-        break;
+      } else {
+        const destInside = mergedWriteRanges.some(
+          (wr) => typeof op.atUs === "number" && op.atUs > wr.startUs && op.atUs < wr.endUs,
+        );
+        if (!destInside) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: `Suggestion moves a boundary to ${formatTimeUs(op.atUs ?? 0)} outside its target range.`,
+          });
+        }
       }
-      case "move_boundary": {
-        const bnd = beforeState.boundaries.get(op.boundaryId);
-        if (bnd) {
-          const lo = Math.min(bnd.atUs, op.atUs);
-          const hi = Math.max(bnd.atUs, op.atUs);
-          const covered = mergedWriteRanges.some(
-            (wr) =>
-              wr.startUs <= lo &&
-              wr.endUs >= hi &&
-              (lo < hi || (op.atUs > wr.startUs && op.atUs < wr.endUs)),
-          );
-          if (!covered) {
+      break;
+    }
+    case "merge_segments": {
+      const leftIdx = stepState.segments.findIndex((s) => s.id === op.leftSegmentId);
+      const left = leftIdx >= 0 ? stepState.segments[leftIdx] : undefined;
+      const right =
+        leftIdx >= 0 &&
+        leftIdx + 1 < stepState.segments.length &&
+        stepState.segments[leftIdx + 1].id === op.rightSegmentId
+          ? stepState.segments[leftIdx + 1]
+          : undefined;
+      if (left) {
+        const covered = mergedWriteRanges.some(
+          (wr) => left.endUs > wr.startUs && left.endUs < wr.endUs,
+        );
+        if (!covered) {
+          conflicts.push({
+            kind: "out_of_scope",
+            message: `Suggestion merges sections at ${formatTimeUs(left.endUs)} outside its target range.`,
+          });
+          break;
+        }
+        if (right) {
+          const resolvedRegime =
+            op.mergedRegime ??
+            (left.regime === right.regime
+              ? left.regime
+              : left.regime === "auto" || right.regime === "auto"
+                ? "auto"
+                : "free");
+          const resolvedKinematics =
+            op.mergedKinematics === null
+              ? null
+              : op.mergedKinematics !== undefined
+                ? op.mergedKinematics
+                : (left.kinematics ?? null) === (right.kinematics ?? null)
+                  ? (left.kinematics ?? null)
+                  : null;
+          // Note: merging `"free"` + `"auto"` into `"auto"` preserves the `"free"` half via child Span,
+          // so effective regime only changes on a half if `break` is involved or `resolvedRegime === "free"` on an `"auto"` half!
+          const leftRegimeChanged =
+            left.regime !== resolvedRegime &&
+            !(left.regime === "free" && resolvedRegime === "auto");
+          const rightRegimeChanged =
+            right.regime !== resolvedRegime &&
+            !(right.regime === "free" && resolvedRegime === "auto");
+          const leftKinChanged = (left.kinematics ?? null) !== resolvedKinematics;
+          const rightKinChanged = (right.kinematics ?? null) !== resolvedKinematics;
+
+          if ((leftRegimeChanged || leftKinChanged) && !intervalInWrite(left.startUs, left.endUs)) {
             conflicts.push({
               kind: "out_of_scope",
-              message: `Suggestion moves a boundary to ${formatTimeUs(op.atUs)} outside its target range.`,
+              message: `Suggestion changes section policy over ${formatTimeUs(left.startUs)}–${formatTimeUs(left.endUs)} outside its target range.`,
+            });
+          } else if (
+            (rightRegimeChanged || rightKinChanged) &&
+            !intervalInWrite(right.startUs, right.endUs)
+          ) {
+            conflicts.push({
+              kind: "out_of_scope",
+              message: `Suggestion changes section policy over ${formatTimeUs(right.startUs)}–${formatTimeUs(right.endUs)} outside its target range.`,
             });
           }
         }
-        break;
       }
-      case "merge_segments": {
-        const left = beforeState.segments.find((s) => s.id === op.leftSegmentId);
-        if (left) {
-          const covered = mergedWriteRanges.some(
-            (wr) => left.endUs > wr.startUs && left.endUs < wr.endUs,
-          );
-          if (!covered) {
-            conflicts.push({
-              kind: "out_of_scope",
-              message: `Suggestion merges sections at ${formatTimeUs(left.endUs)} outside its target range.`,
-            });
-          }
-        }
-        break;
+      break;
+    }
+    case "promote_range_to_segments":
+    case "set_range_regime": {
+      if (!intervalInWrite(op.startUs, op.endUs)) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: "Suggestion modifies section range outside its target range.",
+        });
       }
-      case "promote_range_to_segments":
-      case "set_range_regime": {
-        if (!intervalInWrite(op.startUs, op.endUs)) {
-          conflicts.push({
-            kind: "out_of_scope",
-            message: "Suggestion modifies section range outside its target range.",
-          });
-        }
-        break;
+      break;
+    }
+    case "set_segment_regime":
+    case "set_segment_kinematics": {
+      const seg = stepState.segments.find((s) => s.id === op.segmentId);
+      if (seg && !intervalInWrite(seg.startUs, seg.endUs)) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: "Suggestion changes section mode outside its target range.",
+        });
       }
-      case "set_segment_regime":
-      case "set_segment_kinematics": {
-        const seg = beforeState.segments.find((s) => s.id === op.segmentId);
-        if (seg && !intervalInWrite(seg.startUs, seg.endUs)) {
-          conflicts.push({
-            kind: "out_of_scope",
-            message: "Suggestion changes section mode outside its target range.",
-          });
-        }
-        break;
+      break;
+    }
+    default:
+      break;
+  }
+  return conflicts;
+}
+
+/**
+ * Check that every op in `offer.ops` targets coordinates inside `mergedWriteRanges`.
+ *
+ * @param {import("../index.d.ts").SessionState} beforeState
+ * @param {readonly import("../index.d.ts").OfferOp[]} ops
+ * @param {readonly import("../index.d.ts").RangeUs[]} mergedWriteRanges
+ * @returns {import("../index.d.ts").OfferConflict[]}
+ */
+function checkOpsWithinWriteRanges(beforeState, ops, mergedWriteRanges) {
+  /** @type {import("../index.d.ts").OfferConflict[]} */
+  const conflicts = [];
+  for (let i = 0; i < ops.length; i += 1) {
+    conflicts.push(...checkSingleOpWithinWriteRanges(beforeState, ops[i], mergedWriteRanges));
+  }
+  return conflicts;
+}
+
+/**
+ * Compare full `beforeState` vs `afterState` footprint to verify zero entity mutations or
+ * effective `(regime, kinematics)` sub-interval changes escaped `mergedWriteRanges`.
+ *
+ * @param {import("../index.d.ts").SessionState} beforeState
+ * @param {import("../index.d.ts").SessionState} afterState
+ * @param {readonly import("../index.d.ts").RangeUs[]} mergedWriteRanges
+ * @returns {import("../index.d.ts").OfferConflict[]}
+ */
+function checkStateDiffWithinWriteRanges(beforeState, afterState, mergedWriteRanges) {
+  /** @type {import("../index.d.ts").OfferConflict[]} */
+  const conflicts = [];
+  const pointInWrite = (atUs) =>
+    mergedWriteRanges.some((wr) => atUs >= wr.startUs && atUs < wr.endUs);
+  const intervalInWrite = (startUs, endUs) =>
+    mergedWriteRanges.some((wr) => startUs >= wr.startUs && endUs <= wr.endUs);
+
+  for (const [id, bBefore] of beforeState.beats) {
+    const bAfter = afterState.beats.get(id);
+    if (!bAfter) {
+      if (!pointInWrite(bBefore.atUs)) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion removes a beat near ${formatTimeUs(bBefore.atUs)} outside its target range.`,
+        });
       }
-      default:
-        break;
+    } else if (
+      bAfter.revision !== bBefore.revision &&
+      (!pointInWrite(bBefore.atUs) || !pointInWrite(bAfter.atUs))
+    ) {
+      conflicts.push({
+        kind: "out_of_scope",
+        message: `Suggestion modifies a beat near ${formatTimeUs(bAfter.atUs)} outside its target range.`,
+      });
     }
   }
+  for (const [id, bAfter] of afterState.beats) {
+    if (!beforeState.beats.has(id) && !pointInWrite(bAfter.atUs)) {
+      conflicts.push({
+        kind: "out_of_scope",
+        message: `Suggestion adds a beat near ${formatTimeUs(bAfter.atUs)} outside its target range.`,
+      });
+    }
+  }
+
+  for (const [id, uBefore] of beforeState.unbeats) {
+    const uAfter = afterState.unbeats.get(id);
+    if (!uAfter) {
+      if (!pointInWrite(uBefore.atUs)) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion removes an unbeat near ${formatTimeUs(uBefore.atUs)} outside its target range.`,
+        });
+      }
+    } else if (
+      uAfter.revision !== uBefore.revision &&
+      (!pointInWrite(uBefore.atUs) || !pointInWrite(uAfter.atUs))
+    ) {
+      conflicts.push({
+        kind: "out_of_scope",
+        message: `Suggestion modifies an unbeat near ${formatTimeUs(uAfter.atUs)} outside its target range.`,
+      });
+    }
+  }
+  for (const [id, uAfter] of afterState.unbeats) {
+    if (!beforeState.unbeats.has(id) && !pointInWrite(uAfter.atUs)) {
+      conflicts.push({
+        kind: "out_of_scope",
+        message: `Suggestion adds an unbeat near ${formatTimeUs(uAfter.atUs)} outside its target range.`,
+      });
+    }
+  }
+
+  for (const [id, sBefore] of beforeState.sounds) {
+    const sAfter = afterState.sounds.get(id);
+    if (!sAfter) {
+      if (!intervalInWrite(sBefore.startUs, sBefore.endUs)) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion removes a sound near ${formatTimeUs(sBefore.startUs)} outside its target range.`,
+        });
+      }
+    } else if (
+      sAfter.revision !== sBefore.revision &&
+      (!intervalInWrite(sBefore.startUs, sBefore.endUs) ||
+        !intervalInWrite(sAfter.startUs, sAfter.endUs))
+    ) {
+      conflicts.push({
+        kind: "out_of_scope",
+        message: `Suggestion modifies a sound near ${formatTimeUs(sAfter.startUs)} outside its target range.`,
+      });
+    }
+  }
+  for (const [id, sAfter] of afterState.sounds) {
+    if (!beforeState.sounds.has(id) && !intervalInWrite(sAfter.startUs, sAfter.endUs)) {
+      conflicts.push({
+        kind: "out_of_scope",
+        message: `Suggestion adds a sound near ${formatTimeUs(sAfter.startUs)} outside its target range.`,
+      });
+    }
+  }
+
+  for (const [id, bndBefore] of beforeState.boundaries) {
+    const bndAfter = afterState.boundaries.get(id);
+    if (!bndAfter) {
+      const covered = mergedWriteRanges.some(
+        (wr) => bndBefore.atUs > wr.startUs && bndBefore.atUs < wr.endUs,
+      );
+      if (!covered) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion removes a section boundary at ${formatTimeUs(bndBefore.atUs)} outside its target range.`,
+        });
+      }
+    } else if (bndAfter.atUs !== bndBefore.atUs) {
+      const lo = Math.min(bndBefore.atUs, bndAfter.atUs);
+      const hi = Math.max(bndBefore.atUs, bndAfter.atUs);
+      const covered = mergedWriteRanges.some((wr) => wr.startUs <= lo && wr.endUs >= hi);
+      if (!covered) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion sweeps a section boundary across ${formatTimeUs(lo)}–${formatTimeUs(hi)} outside its target range.`,
+        });
+      }
+    }
+  }
+  for (const [id, bndAfter] of afterState.boundaries) {
+    if (!beforeState.boundaries.has(id)) {
+      const covered = mergedWriteRanges.some(
+        (wr) => bndAfter.atUs >= wr.startUs && bndAfter.atUs <= wr.endUs,
+      );
+      if (!covered) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion creates a section boundary at ${formatTimeUs(bndAfter.atUs)} outside its target range.`,
+        });
+      }
+    }
+  }
+
+  // Compare effective `(regime, kinematics)` step functions across `[0, durationUs)`
+  const beforePolicy = computeEffectivePolicySlices(beforeState);
+  const afterPolicy = computeEffectivePolicySlices(afterState);
+  if (beforePolicy.length > 0 || afterPolicy.length > 0) {
+    const cutSet = new Set([0, beforeState.durationUs]);
+    for (const s of beforePolicy) {
+      cutSet.add(s.startUs);
+      cutSet.add(s.endUs);
+    }
+    for (const s of afterPolicy) {
+      cutSet.add(s.startUs);
+      cutSet.add(s.endUs);
+    }
+    const cuts = Array.from(cutSet).sort((a, b) => a - b);
+    const lookupPolicy = (slices, midUs) => {
+      for (let i = 0; i < slices.length; i += 1) {
+        if (midUs >= slices[i].startUs && midUs < slices[i].endUs) return slices[i];
+      }
+      return null;
+    };
+    /** @type {Array<{ startUs: number, endUs: number }>} */
+    const rawChanged = [];
+    for (let i = 0; i + 1 < cuts.length; i += 1) {
+      const a = cuts[i];
+      const b = cuts[i + 1];
+      if (b <= a) continue;
+      const pb = lookupPolicy(beforePolicy, a);
+      const pa = lookupPolicy(afterPolicy, a);
+      if ((pb?.regime ?? "auto") !== (pa?.regime ?? "auto") || (pb?.kinematics ?? null) !== (pa?.kinematics ?? null)) {
+        rawChanged.push({ startUs: a, endUs: b });
+      }
+    }
+    const changedIntervals = mergeRangesUs(rawChanged);
+    for (const ch of changedIntervals) {
+      if (!intervalInWrite(ch.startUs, ch.endUs)) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion alters section policy over ${formatTimeUs(ch.startUs)}–${formatTimeUs(ch.endUs)} outside its target range.`,
+        });
+      }
+    }
+  }
+
   return conflicts;
 }
 
@@ -867,7 +1358,7 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     });
   }
 
-  // 1. Scope & forbidden-op check
+  // 1. Scope & forbidden-op pre-check against `beforeState`
   for (const sc of checkOpsWithinWriteRanges(beforeState, offer.ops ?? [], mergedWriteRanges)) {
     pushConflict(sc);
   }
@@ -883,6 +1374,7 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
             supportingIds: offer.derivedFrom.supportingIds,
           }
         : undefined,
+      offer.ops ?? [],
     );
     const currentDigest = computeOfferBasisDigest(currentDeps);
 
@@ -986,7 +1478,8 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     }
   }
 
-  // 3. Execute `offer.ops` on scratch state using the SINGLE pure transaction interpreter!
+  // 3. Execute `offer.ops` on scratch state using the SINGLE pure transaction interpreter,
+  //    checking per-step live scope AND post-execution full state-diff scope!
   const afterState = toScratchSessionState(beforeState);
   const actorOrigin = offer.providerId?.includes("rule") ? "rule" : "model";
   let executedOk = false;
@@ -998,6 +1491,11 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
         eventId: `offer:${offer.id}`,
         actorMode: "offer",
         actorOrigin,
+        onBeforeOp(liveState, rawOp) {
+          for (const sc of checkSingleOpWithinWriteRanges(liveState, rawOp, mergedWriteRanges)) {
+            pushConflict(sc);
+          }
+        },
       });
       executedOk = true;
     } catch (err) {
@@ -1029,6 +1527,12 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     }
   } else {
     executedOk = true;
+  }
+
+  if (executedOk) {
+    for (const sc of checkStateDiffWithinWriteRanges(beforeState, afterState, mergedWriteRanges)) {
+      pushConflict(sc);
+    }
   }
 
   // 4. Full Influence-Footprint `Approval` (`keep`) check!
@@ -1063,25 +1567,84 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     for (const kp of beforeKeepIntervals) {
       // Check direct op writes into `[kp.startUs, kp.endUs)` even if executedOk was false
       for (const op of offer.ops ?? []) {
+        if (!op || typeof op !== "object") continue;
         let touchesKeep = false;
-        if (op.op === "upsert_beat" && rangeContainsUs(kp, op.beat?.atUs)) touchesKeep = true;
-        else if ((op.op === "move_beat" || op.op === "snap_beat") && rangeContainsUs(kp, op.atUs))
-          touchesKeep = true;
-        else if (
+        if (op.op === "upsert_beat") {
+          const ex = typeof op.beat?.id === "string" ? beforeState.beats.get(op.beat.id) : undefined;
+          if (rangeContainsUs(kp, op.beat?.atUs) || (ex && rangeContainsUs(kp, ex.atUs))) {
+            touchesKeep = true;
+          }
+        } else if (op.op === "move_beat" || op.op === "snap_beat") {
+          const ex = beforeState.beats.get(op.id);
+          if (rangeContainsUs(kp, op.atUs) || (ex && rangeContainsUs(kp, ex.atUs))) {
+            touchesKeep = true;
+          }
+        } else if (op.op === "remove_beats") {
+          for (const bid of op.ids ?? []) {
+            const ex = beforeState.beats.get(bid);
+            if (ex && rangeContainsUs(kp, ex.atUs)) touchesKeep = true;
+          }
+        } else if (op.op === "remove_unbeats") {
+          for (const uid of op.ids ?? []) {
+            const ex = beforeState.unbeats.get(uid);
+            if (ex && rangeContainsUs(kp, ex.atUs)) touchesKeep = true;
+          }
+        } else if (op.op === "shift_beats") {
+          if (
+            typeof op.startUs === "number" &&
+            typeof op.endUs === "number" &&
+            typeof op.deltaUs === "number" &&
+            (rangesOverlapUs(kp, { startUs: op.startUs, endUs: op.endUs }) ||
+              rangesOverlapUs(kp, {
+                startUs: op.startUs + op.deltaUs,
+                endUs: op.endUs + op.deltaUs,
+              }))
+          ) {
+            touchesKeep = true;
+          }
+        } else if (
           op.op === "split_segment" &&
           (op.segmentId === kp.ownerId || (op.atUs > kp.startUs && op.atUs < kp.endUs))
-        )
+        ) {
           touchesKeep = true;
-        else if (op.op === "set_segment_regime" && op.segmentId === kp.ownerId)
+        } else if (op.op === "set_segment_regime" && op.segmentId === kp.ownerId) {
           touchesKeep = true;
-        else if (op.op === "set_segment_kinematics" && op.segmentId === kp.ownerId)
+        } else if (op.op === "set_segment_kinematics" && op.segmentId === kp.ownerId) {
           touchesKeep = true;
-        else if (
-          op.op === "upsert_sound" &&
-          op.sound &&
-          rangesOverlapUs(kp, { startUs: op.sound.startUs, endUs: op.sound.endUs })
-        )
+        } else if (
+          (op.op === "promote_range_to_segments" || op.op === "set_range_regime") &&
+          typeof op.startUs === "number" &&
+          typeof op.endUs === "number" &&
+          rangesOverlapUs(kp, { startUs: op.startUs, endUs: op.endUs })
+        ) {
           touchesKeep = true;
+        } else if (op.op === "upsert_sound" && op.sound) {
+          const ex = typeof op.sound.id === "string" ? beforeState.sounds.get(op.sound.id) : undefined;
+          if (
+            rangesOverlapUs(kp, { startUs: op.sound.startUs, endUs: op.sound.endUs }) ||
+            (ex && rangesOverlapUs(kp, ex))
+          ) {
+            touchesKeep = true;
+          }
+        } else if (op.op === "update_sound") {
+          const ex = beforeState.sounds.get(op.id);
+          const nextStart = op.patch?.startUs ?? ex?.startUs;
+          const nextEnd = op.patch?.endUs ?? ex?.endUs;
+          if (
+            (ex && rangesOverlapUs(kp, ex)) ||
+            (typeof nextStart === "number" &&
+              typeof nextEnd === "number" &&
+              nextEnd > nextStart &&
+              rangesOverlapUs(kp, { startUs: nextStart, endUs: nextEnd }))
+          ) {
+            touchesKeep = true;
+          }
+        } else if (op.op === "remove_sounds") {
+          for (const sid of op.ids ?? []) {
+            const ex = beforeState.sounds.get(sid);
+            if (ex && rangesOverlapUs(kp, ex)) touchesKeep = true;
+          }
+        }
 
         if (touchesKeep) {
           pushConflict({
@@ -1128,7 +1691,41 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
 
   // 5. `protected_verified` & `OfferChallenge` check!
   const declaredChallenges = Array.isArray(offer.challenges) ? offer.challenges : [];
+  const seenChallengeIds = new Set();
+  const seenChallengeTargets = new Set();
   for (const ch of declaredChallenges) {
+    if (!ch || typeof ch !== "object" || Array.isArray(ch)) {
+      pushConflict({
+        kind: "invalid_op",
+        message: "Suggestion contains a malformed challenge entry.",
+      });
+      continue;
+    }
+    if (typeof ch.challengeId !== "string" || ch.challengeId.length === 0) {
+      pushConflict({
+        kind: "invalid_op",
+        message: "Suggestion challenge is missing challengeId.",
+      });
+      continue;
+    }
+    if (seenChallengeIds.has(ch.challengeId)) {
+      pushConflict({
+        kind: "invalid_op",
+        message: `Suggestion reuses duplicate challengeId "${ch.challengeId}".`,
+      });
+      continue;
+    }
+    seenChallengeIds.add(ch.challengeId);
+    const targetKey = `${String(ch.targetKind)}:${String(ch.targetId)}`;
+    if (seenChallengeTargets.has(targetKey)) {
+      pushConflict({
+        kind: "invalid_op",
+        message: `Suggestion declares duplicate challenges targeting "${targetKey}".`,
+      });
+      continue;
+    }
+    seenChallengeTargets.add(targetKey);
+
     const entity = getVerdictEntity(beforeState, ch.targetKind, ch.targetId);
     if (!entity || !entity.verdict) {
       pushConflict({
@@ -1161,6 +1758,7 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     const handleVerifiedViolation = (kind, beforeEntity, description) => {
       const match = declaredChallenges.find(
         (ch) =>
+          ch &&
           ch.targetKind === kind &&
           ch.targetId === beforeEntity.id &&
           ch.expectedRevision === beforeEntity.revision &&
@@ -1191,37 +1789,11 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
         );
         continue;
       }
-      const shiftUs = Math.abs(bAfter.atUs - bBefore.atUs);
-      const bindingChanged =
-        Boolean(bBefore.boundTo) &&
-        (!bAfter.boundTo ||
-          canonicalJson({
-            soundId: bBefore.boundTo.soundId ?? null,
-            candidateEventId: bBefore.boundTo.candidateEventId ?? null,
-            anchorId: bBefore.boundTo.anchorId ?? null,
-            anchorRole: bBefore.boundTo.anchorRole,
-          }) !==
-            canonicalJson({
-              soundId: bAfter.boundTo.soundId ?? null,
-              candidateEventId: bAfter.boundTo.candidateEventId ?? null,
-              anchorId: bAfter.boundTo.anchorId ?? null,
-              anchorRole: bAfter.boundTo.anchorRole,
-            }));
-      const structuralChanged =
-        Boolean(bBefore.structural) &&
-        canonicalJson(bBefore.structural) !== canonicalJson(bAfter.structural ?? null);
-
-      if (shiftUs > bBefore.verdict.tolUs || bindingChanged || structuralChanged) {
+      if (computeEntityValueDigest("beat", bAfter) !== bBefore.verdict.valueDigest) {
         handleVerifiedViolation(
           "beat",
           bBefore,
-          `Verified beat near ${formatTimeUs(bBefore.atUs)} cannot be altered beyond tolerance without confirmation.`,
-        );
-      } else if (shiftUs > 0) {
-        pushNote(
-          "refines_verified_beat",
-          `Refines verified beat near ${formatTimeUs(bBefore.atUs)} within tolerance (${Math.round(shiftUs / 1000)} ms)`,
-          { shiftUs, atUs: bBefore.atUs },
+          `Verified beat near ${formatTimeUs(bBefore.atUs)} cannot be altered without confirmation.`,
         );
       }
     }
@@ -1229,11 +1801,11 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     for (const [id, uBefore] of beforeState.unbeats) {
       if (!uBefore.verdict) continue;
       const uAfter = afterState.unbeats.get(id);
-      if (!uAfter || Math.abs(uAfter.atUs - uBefore.atUs) > uBefore.verdict.tolUs) {
+      if (!uAfter || computeEntityValueDigest("unbeat", uAfter) !== uBefore.verdict.valueDigest) {
         handleVerifiedViolation(
           "unbeat",
           uBefore,
-          `Verified unbeat near ${formatTimeUs(uBefore.atUs)} cannot be removed or shifted without confirmation.`,
+          `Verified unbeat near ${formatTimeUs(uBefore.atUs)} cannot be removed or altered without confirmation.`,
         );
       }
     }
@@ -1241,11 +1813,14 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     for (const [id, bndBefore] of beforeState.boundaries) {
       if (!bndBefore.verdict) continue;
       const bndAfter = afterState.boundaries.get(id);
-      if (!bndAfter || Math.abs(bndAfter.atUs - bndBefore.atUs) > bndBefore.verdict.tolUs) {
+      if (
+        !bndAfter ||
+        computeEntityValueDigest("boundary", bndAfter) !== bndBefore.verdict.valueDigest
+      ) {
         handleVerifiedViolation(
           "boundary",
           bndBefore,
-          `Verified section boundary near ${formatTimeUs(bndBefore.atUs)} cannot be removed or moved beyond tolerance without confirmation.`,
+          `Verified section boundary near ${formatTimeUs(bndBefore.atUs)} cannot be removed or moved without confirmation.`,
         );
       }
     }
@@ -1383,7 +1958,20 @@ export function previewOffer(snapshotOrState, offer, tempoOptions) {
     snapshotOrState,
     offer,
   );
-  const effectiveAfter = executedOk ? afterState : beforeState;
+  const effectiveAfter = executedOk ? toScratchSessionState(afterState) : beforeState;
+  if (executedOk) {
+    // Ensure preview snapshot never carries a dangling `anchor:<removedId>` verdict facet
+    // when previewing a challenged sound anchor replacement prior to acceptance disposition!
+    for (const [sid, s] of effectiveAfter.sounds) {
+      if (
+        s.verdict?.facet?.startsWith("anchor:") &&
+        !s.anchors.some((a) => a.id === s.verdict.facet.slice(7))
+      ) {
+        const { verdict: _v, ...rest } = s;
+        effectiveAfter.sounds.set(sid, deepFreeze(rest));
+      }
+    }
+  }
   const nextSnapshot = toSnapshot(effectiveAfter);
   const { diff, consequences } = computeOfferDiffAndConsequences(beforeState, effectiveAfter);
   const previewTempoMap = projectTempoMap(nextSnapshot, tempoOptions);
@@ -1459,7 +2047,7 @@ export function bindOfferToBasis(capturedBasis, rawOffer, defaults = {}) {
     const supportingIds = [...new Set(rawOffer.derivedFrom.supportingIds ?? [])].sort(
       compareCodeUnits,
     );
-    const sourceDigest = computeIntervalMusicalDigest(
+    const sourceDigest = computeDerivedSourceDigest(
       basisState,
       srcRange.startUs,
       srcRange.endUs,
@@ -1471,33 +2059,63 @@ export function bindOfferToBasis(capturedBasis, rawOffer, defaults = {}) {
     };
   }
 
-  const dependencies = computeOfferDependencies(basisState, writeRanges, derivedFrom);
+  const rawOps = Array.isArray(rawOffer.ops) ? structuredClone(rawOffer.ops) : [];
+  const ops = rawOps.map((op) => {
+    if (op && typeof op === "object" && op.op === "promote_range_to_segments") {
+      const nextOp = { ...op };
+      if (op.newBoundaryIds !== undefined) {
+        nextOp.newBoundaryIds = normalizeOptionalIdPair(
+          op.newBoundaryIds,
+          "offer.ops.promote_range_to_segments.newBoundaryIds",
+        );
+      }
+      if (op.newSegmentIds !== undefined) {
+        nextOp.newSegmentIds = normalizeOptionalIdPair(
+          op.newSegmentIds,
+          "offer.ops.promote_range_to_segments.newSegmentIds",
+        );
+      }
+      return nextOp;
+    }
+    return op;
+  });
+  const dependencies = computeOfferDependencies(basisState, writeRanges, derivedFrom, ops);
   const basisDigest = computeOfferBasisDigest(dependencies);
-  const ops = Array.isArray(rawOffer.ops) ? structuredClone(rawOffer.ops) : [];
   const notes = (rawOffer.notes ?? []).map((n) => normalizeStructuredNote(n));
   const semanticKey = rawOffer.semanticKey ?? computeOfferSemanticKey({ kind, writeRanges, ops });
+  const validatedScore =
+    rawOffer.score !== undefined
+      ? assertUnitInterval(rawOffer.score, "offer.score", "INVALID_FIELD")
+      : undefined;
 
   /** @type {import("../index.d.ts").OfferChallenge[] | undefined} */
   let challenges;
   if (rawOffer.challenges && rawOffer.challenges.length > 0) {
     challenges = rawOffer.challenges.map((ch) => {
-      assertNonEmptyId(ch.challengeId, "challenge.challengeId", "INVALID_OFFER");
-      if (!VERDICT_TARGET_KIND_SET.has(ch.targetKind)) {
-        throw new EnsomiError("INVALID_OFFER", `Invalid challenge.targetKind: ${String(ch.targetKind)}`);
+      const c = assertPlainObject(ch, "OfferChallenge", "INVALID_OFFER");
+      assertNonEmptyId(c.challengeId, "challenge.challengeId", "INVALID_OFFER");
+      if (!VERDICT_TARGET_KIND_SET.has(/** @type {any} */ (c.targetKind))) {
+        throw new EnsomiError("INVALID_OFFER", `Invalid challenge.targetKind: ${String(c.targetKind)}`);
       }
-      assertNonEmptyId(ch.targetId, "challenge.targetId", "INVALID_OFFER");
-      assertPositiveRevision(ch.expectedRevision, "OfferChallenge");
-      assertNonEmptyId(ch.expectedValueDigest, "challenge.expectedValueDigest", "INVALID_OFFER");
-      assertNonEmptyId(ch.reasonCode, "challenge.reasonCode", "INVALID_OFFER");
+      assertNonEmptyId(c.targetId, "challenge.targetId", "INVALID_OFFER");
+      assertPositiveRevision(c.expectedRevision, "OfferChallenge");
+      assertNonEmptyId(c.expectedValueDigest, "challenge.expectedValueDigest", "INVALID_OFFER");
+      assertNonEmptyId(c.reasonCode, "challenge.reasonCode", "INVALID_OFFER");
+      if (c.replacementId !== undefined) {
+        assertNonEmptyId(c.replacementId, "challenge.replacementId", "INVALID_OFFER");
+      }
+      if (c.message !== undefined) {
+        assertNonEmptyId(c.message, "challenge.message", "INVALID_OFFER");
+      }
       return {
-        challengeId: ch.challengeId,
-        targetKind: ch.targetKind,
-        targetId: ch.targetId,
-        expectedRevision: ch.expectedRevision,
-        expectedValueDigest: ch.expectedValueDigest,
-        reasonCode: ch.reasonCode,
-        ...(ch.replacementId ? { replacementId: ch.replacementId } : {}),
-        ...(ch.message ? { message: ch.message } : {}),
+        challengeId: /** @type {string} */ (c.challengeId),
+        targetKind: /** @type {import("../index.d.ts").VerdictTargetKind} */ (c.targetKind),
+        targetId: /** @type {string} */ (c.targetId),
+        expectedRevision: /** @type {number} */ (c.expectedRevision),
+        expectedValueDigest: /** @type {string} */ (c.expectedValueDigest),
+        reasonCode: /** @type {string} */ (c.reasonCode),
+        ...(c.replacementId ? { replacementId: /** @type {string} */ (c.replacementId) } : {}),
+        ...(c.message ? { message: /** @type {string} */ (c.message) } : {}),
       };
     });
   }
@@ -1524,7 +2142,7 @@ export function bindOfferToBasis(capturedBasis, rawOffer, defaults = {}) {
     ...(rawOffer.title ? { title: rawOffer.title } : {}),
     ...(rawOffer.optionIndex !== undefined ? { optionIndex: rawOffer.optionIndex } : {}),
     ...(rawOffer.optionCount !== undefined ? { optionCount: rawOffer.optionCount } : {}),
-    ...(rawOffer.score !== undefined ? { score: rawOffer.score } : {}),
+    ...(validatedScore !== undefined ? { score: validatedScore } : {}),
     semanticKey,
     status: "valid",
     conflicts: [],

@@ -63,6 +63,365 @@
         "set_range_regime"
       ]
     },
+    "OfferOp": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": { "$ref": "#/$defs/OfferOpKind" }
+      },
+      "oneOf": [
+        {
+          "required": ["op", "beat"],
+          "properties": {
+            "op": { "const": "upsert_beat" },
+            "beat": { "$ref": "entities.schema.json#/$defs/BeatInput" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "id", "atUs"],
+          "properties": {
+            "op": { "const": "move_beat" },
+            "id": { "type": "string", "minLength": 1 },
+            "atUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "boundTo": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "entities.schema.json#/$defs/BeatBinding" }
+              ]
+            },
+            "structural": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "entities.schema.json#/$defs/BeatStructural" }
+              ]
+            },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "id", "atUs", "boundTo"],
+          "properties": {
+            "op": { "const": "snap_beat" },
+            "id": { "type": "string", "minLength": 1 },
+            "atUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "boundTo": { "$ref": "entities.schema.json#/$defs/BeatBinding" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "startUs", "endUs", "deltaUs"],
+          "properties": {
+            "op": { "const": "shift_beats" },
+            "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "deltaUs": { "type": "integer" },
+            "includeVerified": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "ids"],
+          "properties": {
+            "op": { "const": "remove_beats" },
+            "ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "ids"],
+          "properties": {
+            "op": { "const": "remove_unbeats" },
+            "ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "sound"],
+          "properties": {
+            "op": { "const": "upsert_sound" },
+            "sound": { "$ref": "entities.schema.json#/$defs/SoundInput" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "id", "patch"],
+          "properties": {
+            "op": { "const": "update_sound" },
+            "id": { "type": "string", "minLength": 1 },
+            "patch": { "$ref": "entities.schema.json#/$defs/SoundPatch" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "ids"],
+          "properties": {
+            "op": { "const": "remove_sounds" },
+            "ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "soundClass"],
+          "properties": {
+            "op": { "const": "upsert_sound_class" },
+            "soundClass": { "$ref": "entities.schema.json#/$defs/SoundClassInput" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "ids"],
+          "properties": {
+            "op": { "const": "remove_sound_classes" },
+            "ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "segmentId", "atUs"],
+          "properties": {
+            "op": { "const": "split_segment" },
+            "segmentId": { "type": "string", "minLength": 1 },
+            "atUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "newBoundaryId": { "type": "string", "minLength": 1 },
+            "newSegmentId": { "type": "string", "minLength": 1 },
+            "rightRegime": { "$ref": "entities.schema.json#/$defs/SegmentRegime" },
+            "rightKinematics": { "$ref": "entities.schema.json#/$defs/SegmentKinematics" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "leftSegmentId", "rightSegmentId"],
+          "properties": {
+            "op": { "const": "merge_segments" },
+            "leftSegmentId": { "type": "string", "minLength": 1 },
+            "rightSegmentId": { "type": "string", "minLength": 1 },
+            "mergedRegime": { "$ref": "entities.schema.json#/$defs/SegmentRegime" },
+            "mergedKinematics": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "entities.schema.json#/$defs/SegmentKinematics" }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "boundaryId", "atUs"],
+          "properties": {
+            "op": { "const": "move_boundary" },
+            "boundaryId": { "type": "string", "minLength": 1 },
+            "atUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "startUs", "endUs"],
+          "properties": {
+            "op": { "const": "promote_range_to_segments" },
+            "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "newBoundaryIds": { "$ref": "entities.schema.json#/$defs/NormalizedIdPair" },
+            "newSegmentIds": { "$ref": "entities.schema.json#/$defs/NormalizedIdPair" },
+            "regime": { "$ref": "entities.schema.json#/$defs/SegmentRegime" },
+            "kinematics": { "$ref": "entities.schema.json#/$defs/SegmentKinematics" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "segmentId", "regime"],
+          "properties": {
+            "op": { "const": "set_segment_regime" },
+            "segmentId": { "type": "string", "minLength": 1 },
+            "regime": { "$ref": "entities.schema.json#/$defs/SegmentRegime" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "segmentId", "kinematics"],
+          "properties": {
+            "op": { "const": "set_segment_kinematics" },
+            "segmentId": { "type": "string", "minLength": 1 },
+            "kinematics": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "entities.schema.json#/$defs/SegmentKinematics" }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "startUs", "endUs", "regime"],
+          "properties": {
+            "op": { "const": "set_range_regime" },
+            "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "regime": { "type": "string", "enum": ["auto", "free"] }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "OfferDependencies": {
+      "type": "object",
+      "required": [
+        "audioId",
+        "durationUs",
+        "writeRanges",
+        "segments",
+        "boundaries",
+        "spans",
+        "beats",
+        "unbeats",
+        "sounds",
+        "soundClasses"
+      ],
+      "properties": {
+        "audioId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "durationUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+        "writeRanges": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "entities.schema.json#/$defs/RangeUs" }
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "startUs", "endUs", "regime", "kinematics", "revision", "approved"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+              "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+              "regime": { "$ref": "entities.schema.json#/$defs/SegmentRegime" },
+              "kinematics": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "$ref": "entities.schema.json#/$defs/SegmentKinematics" }
+                ]
+              },
+              "revision": { "type": "integer", "minimum": 1 },
+              "approved": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "boundaries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "atUs", "revision"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "atUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+              "revision": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "spans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "segmentId", "startUs", "endUs", "kind", "revision", "approved"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "segmentId": { "type": "string", "minLength": 1 },
+              "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+              "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+              "kind": { "$ref": "entities.schema.json#/$defs/SpanKind" },
+              "revision": { "type": "integer", "minimum": 1 },
+              "approved": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "beats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "atUs", "revision"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "atUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+              "revision": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unbeats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "atUs", "revision"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "atUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+              "revision": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "sounds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "startUs", "endUs", "revision"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+              "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+              "revision": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "soundClasses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "revision"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "revision": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "derivedFrom": {
+          "type": "object",
+          "required": ["range", "sourceDigest", "supportingRevisions"],
+          "properties": {
+            "range": { "$ref": "entities.schema.json#/$defs/RangeUs" },
+            "sourceDigest": { "type": "string", "minLength": 1 },
+            "supportingRevisions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "kind", "revision", "valueDigest"],
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "kind": { "$ref": "entities.schema.json#/$defs/EntityKind" },
+                  "revision": { "type": "integer", "minimum": 0 },
+                  "valueDigest": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "OfferConflict": {
       "type": "object",
       "required": ["kind", "message"],
@@ -122,9 +481,9 @@
           "minItems": 1,
           "items": { "$ref": "entities.schema.json#/$defs/RangeUs" }
         },
-        "dependencies": { "type": "object" },
+        "dependencies": { "$ref": "#/$defs/OfferDependencies" },
         "basisDigest": { "type": "string", "minLength": 1 },
-        "ops": { "type": "array", "items": { "type": "object" } },
+        "ops": { "type": "array", "items": { "$ref": "#/$defs/OfferOp" } },
         "challenges": { "type": "array", "items": { "$ref": "#/$defs/OfferChallenge" } },
         "derivedFrom": {
           "type": "object",
@@ -143,7 +502,7 @@
         "title": { "type": "string", "minLength": 1 },
         "optionIndex": { "type": "integer", "minimum": 0 },
         "optionCount": { "type": "integer", "minimum": 1 },
-        "score": { "type": "number" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
         "semanticKey": { "type": "string", "minLength": 1 },
         "status": { "$ref": "#/$defs/OfferStatus" },
         "conflicts": { "type": "array", "items": { "$ref": "#/$defs/OfferConflict" } }

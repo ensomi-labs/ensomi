@@ -718,7 +718,7 @@
               "startUs": 6000000,
               "endUs": 14000000
             },
-            "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+            "sourceDigest": "f32bc0eb26c4c3e51413ba1b6818cca39bdb7b0f7350e7a5f77bdc8dfb9aa90d",
             "supportingRevisions": [
               {
                 "id": "b_w0",
@@ -729,7 +729,7 @@
             ]
           }
         },
-        "basisDigest": "8cdf792173e207e2047731a1575108a238859123e6229fd46f341b102755fe49",
+        "basisDigest": "f1ad7b878ac8f844805ba607168e507f944f706f20f8c819688082d89741c466",
         "ops": [
           {
             "op": "upsert_beat",
@@ -744,7 +744,7 @@
             "startUs": 6000000,
             "endUs": 14000000
           },
-          "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+          "sourceDigest": "f32bc0eb26c4c3e51413ba1b6818cca39bdb7b0f7350e7a5f77bdc8dfb9aa90d",
           "supportingIds": [
             "b_w0"
           ]
@@ -924,7 +924,7 @@
               "startUs": 6000000,
               "endUs": 14000000
             },
-            "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+            "sourceDigest": "f32bc0eb26c4c3e51413ba1b6818cca39bdb7b0f7350e7a5f77bdc8dfb9aa90d",
             "supportingRevisions": [
               {
                 "id": "b_w0",
@@ -935,7 +935,7 @@
             ]
           }
         },
-        "basisDigest": "8cdf792173e207e2047731a1575108a238859123e6229fd46f341b102755fe49",
+        "basisDigest": "f1ad7b878ac8f844805ba607168e507f944f706f20f8c819688082d89741c466",
         "ops": [
           {
             "op": "upsert_beat",
@@ -950,7 +950,7 @@
             "startUs": 6000000,
             "endUs": 14000000
           },
-          "sourceDigest": "eb389a2cf813e907a91befee39e7fde58447d693d75eb5ae1b3642d6065de201",
+          "sourceDigest": "f32bc0eb26c4c3e51413ba1b6818cca39bdb7b0f7350e7a5f77bdc8dfb9aa90d",
           "supportingIds": [
             "b_w0"
           ]
@@ -1185,7 +1185,7 @@
           }
         }
       ],
-      "expectedSnapshotDigest": "499a5f53cf97a701dd6ce5e1393af50eb9eab23eb686ef49252595d8f4d3a608"
+      "expectedSnapshotDigest": "7d3b51ab68217d2c7e05e3c24ff2c177c1f9477081ddfc1dacc142ad515850b3"
     },
     {
       "id": "retract_of_challenge_accept_restores_exact_prior_verdict",
@@ -1415,7 +1415,7 @@
           }
         }
       ],
-      "expectedSnapshotDigest": "8f6489e1fd5ff066f22e5777dcc16f35d2813e040834c93a6ec0d61fc9d23326"
+      "expectedSnapshotDigest": "f1811f2cfd470f477cbc09b2338c38c926de9f72023a995f1a3fa7b90a1c3bc3"
     }
   ]
 }

@@ -345,13 +345,21 @@ export function computeGridFit(snapshot, options = {}) {
 }
 
 /**
- * Ordinary least-squares linear fit `atUs[i] ≈ t0 + i * period` over `i = 0..n-1`.
+ * Ordinary least-squares linear fit `atUs[i] ≈ t0 + i * period` over `i = 0..n-1`,
+ * clamped so `t0Us >= minAtUs` (preventing steady runs in `[sliceStartUs, sliceEndUs)`
+ * from ever projecting a `TempoPoint` earlier than `Math.max(sliceStartUs, prevSliceEndUs)`!).
+ *
  * @param {readonly import("../index.d.ts").Beat[]} run
+ * @param {number} [minAtUs=0]
  */
-function fitSteadyLinearRunUs(run) {
+function fitSteadyLinearRunUs(run, minAtUs = 0) {
   const n = run.length;
   if (n < 2) {
-    return { t0Us: run[0].atUs, periodUs: DEFAULT_FALLBACK_PERIOD_US, maxResidualUs: 0 };
+    return {
+      t0Us: Math.max(minAtUs, run[0].atUs),
+      periodUs: DEFAULT_FALLBACK_PERIOD_US,
+      maxResidualUs: 0,
+    };
   }
   const meanI = (n - 1) / 2;
   let sumT = 0;
@@ -367,7 +375,7 @@ function fitSteadyLinearRunUs(run) {
   }
   const rawPeriod = den > 0 ? num / den : run[1].atUs - run[0].atUs;
   const periodUs = Math.max(1, Math.round(rawPeriod));
-  const t0Us = Math.max(0, Math.round(meanT - rawPeriod * meanI));
+  const t0Us = Math.max(minAtUs, Math.round(meanT - rawPeriod * meanI));
 
   let maxResidualUs = 0;
   for (let i = 0; i < n; i += 1) {
@@ -572,6 +580,7 @@ export function projectTempoMap(snapshot, options = {}) {
    * @typedef {{
    *   regime: "auto" | "free",
    *   kinematics: import("../index.d.ts").SegmentKinematics | null,
+   *   seg: import("../index.d.ts").Segment | null,
    *   segmentId: string | null,
    *   keepIndex: number,
    *   beats: import("../index.d.ts").Beat[],
@@ -587,6 +596,7 @@ export function projectTempoMap(snapshot, options = {}) {
   let currentGroup = {
     regime: firstPolicy.regime,
     kinematics: firstPolicy.kinematics,
+    seg: eligible[0].seg,
     segmentId: eligible[0].seg?.id ?? null,
     keepIndex: findKeepIndex(eligible[0].beat.atUs),
     beats: [eligible[0].beat],
@@ -634,6 +644,7 @@ export function projectTempoMap(snapshot, options = {}) {
       currentGroup = {
         regime: currPolicy.regime,
         kinematics: currPolicy.kinematics,
+        seg: curr.seg,
         segmentId: curr.seg?.id ?? null,
         keepIndex: currKeepIndex,
         beats: [curr.beat],
@@ -748,13 +759,43 @@ export function projectTempoMap(snapshot, options = {}) {
     const jitterTolUs = grp.regime === "free" ? freeJitterTolUs : steadyJitterTolUs;
     const pointKind = grp.regime === "free" ? "free_pulse" : "steady";
 
+    // Compute exact left slice boundary for `grp` so OLS steady fitting never projects `t0Us`
+    // across a preceding segment, free-span, or Keep-approval boundary!
+    let grpSliceStartUs = grp.seg?.startUs ?? 0;
+    const grpFirstBeatUs = grp.beats[0].atUs;
+    for (let k = 0; k < keepIntervals.length; k += 1) {
+      const ki = keepIntervals[k];
+      if (ki.startUs <= grpFirstBeatUs && grpFirstBeatUs < ki.endUs) {
+        if (ki.startUs > grpSliceStartUs) grpSliceStartUs = ki.startUs;
+      } else if (ki.endUs <= grpFirstBeatUs) {
+        if (ki.endUs > grpSliceStartUs) grpSliceStartUs = ki.endUs;
+      }
+    }
+    for (let k = 0; k < freeSpans.length; k += 1) {
+      const fs = freeSpans[k];
+      if (grp.seg && fs.segmentId !== grp.seg.id) continue;
+      if (fs.startUs <= grpFirstBeatUs && grpFirstBeatUs < fs.endUs) {
+        if (fs.startUs > grpSliceStartUs) grpSliceStartUs = fs.startUs;
+      } else if (fs.endUs <= grpFirstBeatUs) {
+        if (fs.endUs > grpSliceStartUs) grpSliceStartUs = fs.endUs;
+      }
+    }
+
     let idx = 0;
     while (idx < grp.beats.length - 1) {
+      const prevSliceEndUs =
+        idx > 0
+          ? grp.beats[idx].atUs
+          : points.length > 0
+            ? Math.max(points[points.length - 1].atUs, points[points.length - 1].endUs ?? 0)
+            : 0;
+      const minAtUs = Math.max(grpSliceStartUs, prevSliceEndUs);
+
       let end = idx + 1;
-      let bestFit = fitSteadyLinearRunUs(grp.beats.slice(idx, end + 1));
+      let bestFit = fitSteadyLinearRunUs(grp.beats.slice(idx, end + 1), minAtUs);
 
       while (jitterTolUs > 0 && end + 1 < grp.beats.length) {
-        const cand = fitSteadyLinearRunUs(grp.beats.slice(idx, end + 2));
+        const cand = fitSteadyLinearRunUs(grp.beats.slice(idx, end + 2), minAtUs);
         if (cand.periodUs > 0 && cand.maxResidualUs <= jitterTolUs) {
           end += 1;
           bestFit = cand;
@@ -877,14 +918,36 @@ export function computeIntervalMusicalDigest(snapshot, startUs, endUs) {
     .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
   const spans = valuesArray(snapshot?.spans);
 
-  // Effective policy sub-slices across `[sUs, eUs)`
-  /** @type {Array<{ segmentId: string, startUs: number, endUs: number, regime: string, kinematics: string | null }>} */
+  // Effective canonical merged policy sub-slices across `[sUs, eUs)` (excluding segmentId so
+  // splitting a parent segment to the left vs right of a kept Span behaves 100% symmetrically!)
+  /** @type {Array<{ startUs: number, endUs: number, regime: string, kinematics: string | null }>} */
   const policySlices = [];
+  const pushPolicySlice = (startUsSlice, endUsSlice, regime, kinematics) => {
+    if (endUsSlice <= startUsSlice) return;
+    const prev = policySlices[policySlices.length - 1];
+    if (
+      prev &&
+      prev.endUs === startUsSlice &&
+      prev.regime === regime &&
+      prev.kinematics === kinematics
+    ) {
+      prev.endUs = endUsSlice;
+    } else {
+      policySlices.push({
+        startUs: startUsSlice,
+        endUs: endUsSlice,
+        regime,
+        kinematics,
+      });
+    }
+  };
+
   for (let i = 0; i < segments.length; i += 1) {
     const seg = segments[i];
     const clipStart = Math.max(sUs, seg.startUs);
     const clipEnd = Math.min(eUs, seg.endUs);
     if (clipEnd <= clipStart) continue;
+    const kin = seg.kinematics ?? null;
 
     const freeInSeg = mergeRangesUs(
       spans
@@ -897,42 +960,18 @@ export function computeIntervalMusicalDigest(snapshot, startUs, endUs) {
     );
 
     if (seg.regime !== "auto" || freeInSeg.length === 0) {
-      policySlices.push({
-        segmentId: seg.id,
-        startUs: clipStart,
-        endUs: clipEnd,
-        regime: seg.regime,
-        kinematics: seg.kinematics ?? null,
-      });
+      pushPolicySlice(clipStart, clipEnd, seg.regime, kin);
     } else {
       let cursor = clipStart;
       for (const fr of freeInSeg) {
         if (fr.startUs > cursor) {
-          policySlices.push({
-            segmentId: seg.id,
-            startUs: cursor,
-            endUs: fr.startUs,
-            regime: "auto",
-            kinematics: seg.kinematics ?? null,
-          });
+          pushPolicySlice(cursor, fr.startUs, "auto", kin);
         }
-        policySlices.push({
-          segmentId: seg.id,
-          startUs: fr.startUs,
-          endUs: fr.endUs,
-          regime: "free",
-          kinematics: seg.kinematics ?? null,
-        });
+        pushPolicySlice(fr.startUs, fr.endUs, "free", kin);
         cursor = fr.endUs;
       }
       if (cursor < clipEnd) {
-        policySlices.push({
-          segmentId: seg.id,
-          startUs: cursor,
-          endUs: clipEnd,
-          regime: "auto",
-          kinematics: seg.kinematics ?? null,
-        });
+        pushPolicySlice(cursor, clipEnd, "auto", kin);
       }
     }
   }
@@ -948,6 +987,7 @@ export function computeIntervalMusicalDigest(snapshot, startUs, endUs) {
             candidateEventId: b.boundTo.candidateEventId ?? null,
             anchorId: b.boundTo.anchorId ?? null,
             anchorRole: b.boundTo.anchorRole,
+            ...(b.boundTo.alignmentStale ? { alignmentStale: true } : {}),
           }
         : null,
       structural: b.structural ?? null,
@@ -976,10 +1016,29 @@ export function computeIntervalMusicalDigest(snapshot, startUs, endUs) {
         id: a.id,
         role: a.role,
         atUs: a.atUs,
+        sigmaUs: a.sigmaUs ?? null,
       })),
-      family: s.characteristics?.family ?? null,
+      characteristics: s.characteristics
+        ? {
+            family: s.characteristics.family ?? null,
+            register: s.characteristics.register ?? null,
+            f0Hz: s.characteristics.f0Hz ?? null,
+            harmonicity: s.characteristics.harmonicity ?? null,
+            stereoPan: s.characteristics.stereoPan ?? null,
+            stereoWidth: s.characteristics.stereoWidth ?? null,
+            confidence: s.characteristics.confidence ?? null,
+          }
+        : null,
+      salience: s.salience ?? null,
+      blendStatus: s.blendStatus ?? null,
       voiceGroupId: s.voiceGroupId ?? null,
       classId: s.classId ?? null,
+      descriptor: s.descriptor
+        ? {
+            schema: s.descriptor.schema,
+            values: s.descriptor.values,
+          }
+        : null,
     }))
     .sort((a, b) => a.startUs - b.startUs || a.endUs - b.endUs || compareCodeUnits(a.id, b.id));
 

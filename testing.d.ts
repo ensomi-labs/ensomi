@@ -84,17 +84,19 @@ export interface ScriptedMockProviderOptions {
   >;
   matchScript?: Array<
     | OfferInput[]
+    | RecomputeResult
     | ((ctx: {
         request: MatchSoundsRequest;
         signal?: AbortSignal;
-      }) => OfferInput[] | Promise<OfferInput[]>)
+      }) => OfferInput[] | RecomputeResult | Promise<OfferInput[] | RecomputeResult>)
   >;
   segmentationScript?: Array<
     | OfferInput[]
+    | RecomputeResult
     | ((ctx: {
         request: SuggestSegmentationRequest;
         signal?: AbortSignal;
-      }) => OfferInput[] | Promise<OfferInput[]>)
+      }) => OfferInput[] | RecomputeResult | Promise<OfferInput[] | RecomputeResult>)
   >;
 }
 
@@ -137,10 +139,13 @@ export declare class ScriptedMockProvider implements Provider {
     request: SuggestSoundOptionsRequest,
     signal?: AbortSignal,
   ): Promise<SoundOptionCandidate[]>;
-  matchSounds(request: MatchSoundsRequest, signal?: AbortSignal): Promise<OfferInput[]>;
+  matchSounds(
+    request: MatchSoundsRequest,
+    signal?: AbortSignal,
+  ): Promise<OfferInput[] | RecomputeResult>;
   suggestSegmentation(
     request: SuggestSegmentationRequest,
     signal?: AbortSignal,
-  ): Promise<OfferInput[]>;
+  ): Promise<OfferInput[] | RecomputeResult>;
   recompute(request: RecomputeRequest, signal?: AbortSignal): Promise<RecomputeResult>;
 }

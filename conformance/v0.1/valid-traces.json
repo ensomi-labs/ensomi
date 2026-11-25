@@ -180,7 +180,7 @@
           }
         }
       ],
-      "expectedSnapshotDigest": "4a28ca1a69589ed7fa2b8c65b422fd8655051db4f9aa41e70b51c2ab92d2d186",
+      "expectedSnapshotDigest": "956353053bea93ddc764a2407ff828b03d84fceec5485e7775e6e8e435d1b196",
       "expectedSnapshot": {
         "schemaVersion": "0.3",
         "audio": {
@@ -206,7 +206,7 @@
             "approval": {
               "id": "app_intro_keep",
               "eventId": "ev_3",
-              "contentDigest": "59cb9fd0ce8976b552c6ad124e6960a67bfc15a135867ac5b0e0a6b945035537"
+              "contentDigest": "eb6217444ebf6726a2b3f966842af3f14ca12ad797f90f35f7ae91f6c3f59f4d"
             }
           },
           {
@@ -371,7 +371,7 @@
           {
             "id": "app_intro_keep",
             "eventId": "ev_3",
-            "contentDigest": "59cb9fd0ce8976b552c6ad124e6960a67bfc15a135867ac5b0e0a6b945035537"
+            "contentDigest": "eb6217444ebf6726a2b3f966842af3f14ca12ad797f90f35f7ae91f6c3f59f4d"
           }
         ],
         "retiredEntityIds": [

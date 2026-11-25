@@ -25,6 +25,35 @@ const LONE_SURROGATE_RE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
+ * Assert `value` is a non-null, non-array plain object (`Object.prototype` or `null` prototype).
+ *
+ * @param {unknown} value
+ * @param {string} [label="value"]
+ * @param {string} [errorCode="INVALID_FIELD"]
+ * @returns {Record<string, unknown>}
+ */
+export function assertPlainObject(value, label = "value", errorCode = "INVALID_FIELD") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new EnsomiError(errorCode, `${label} must be a plain object`);
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    throw new EnsomiError(errorCode, `${label} must be a plain object`);
+  }
+  return /** @type {Record<string, unknown>} */ (value);
+}
+
+/**
+ * Check whether `str` contains any lone UTF-16 surrogate.
+ *
+ * @param {string} str
+ * @returns {boolean}
+ */
+export function hasLoneSurrogate(str) {
+  return LONE_SURROGATE_RE.test(str);
+}
+
+/**
  * Deterministic UTF-16 code-unit comparator (RFC 8785 §3.2.3).
  * Uses raw 16-bit code-unit ordering rather than locale-dependent string collation.
  *

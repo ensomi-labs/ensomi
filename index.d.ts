@@ -186,13 +186,17 @@ export interface Span {
   approval?: Approval;
 }
 
-export interface BeatBinding {
-  soundId?: string;
-  candidateEventId?: string;
+export interface BeatBindingBase {
   anchorId?: string;
   anchorRole: SnapRole;
   alignmentStale?: boolean;
 }
+
+export type BeatBinding = BeatBindingBase &
+  (
+    | { soundId: string; candidateEventId?: string }
+    | { candidateEventId: string; soundId?: string }
+  );
 
 export interface BeatStructural {
   downbeat?: boolean;
@@ -408,6 +412,12 @@ export interface BeatToUnbeatConversion {
   pulseLayer?: PulseLayer;
 }
 
+export type OptionalIdPairInput = readonly [
+  (string | null | undefined)?,
+  (string | null | undefined)?,
+];
+export type NormalizedIdPair = [string | null, string | null];
+
 export type OfferOp =
   | { op: "upsert_beat"; beat: BeatInput }
   | {
@@ -418,7 +428,7 @@ export type OfferOp =
       structural?: BeatStructural | null;
       confidence?: number;
     }
-  | { op: "snap_beat"; id: string; atUs: number; boundTo: BeatBinding }
+  | { op: "snap_beat"; id: string; atUs: number; boundTo: BeatBinding; confidence?: number }
   | {
       op: "shift_beats";
       startUs: number;
@@ -454,8 +464,8 @@ export type OfferOp =
       op: "promote_range_to_segments";
       startUs: number;
       endUs: number;
-      newBoundaryIds?: [string?, string?];
-      newSegmentIds?: [string?, string?];
+      newBoundaryIds?: NormalizedIdPair;
+      newSegmentIds?: NormalizedIdPair;
       regime?: SegmentRegime;
       kinematics?: SegmentKinematics;
     }
@@ -466,6 +476,18 @@ export type OfferOp =
       kinematics: SegmentKinematics | null;
     }
   | { op: "set_range_regime"; startUs: number; endUs: number; regime: "auto" | "free" };
+
+export type OfferOpInput =
+  | Exclude<OfferOp, { op: "promote_range_to_segments" }>
+  | {
+      op: "promote_range_to_segments";
+      startUs: number;
+      endUs: number;
+      newBoundaryIds?: OptionalIdPairInput;
+      newSegmentIds?: OptionalIdPairInput;
+      regime?: SegmentRegime;
+      kinematics?: SegmentKinematics;
+    };
 
 export type TransactionOp =
   | { op: "upsert_beat"; beat: BeatInput; tolUs?: number; via?: VerdictVia }
@@ -486,6 +508,7 @@ export type TransactionOp =
       boundTo: BeatBinding;
       tolUs?: number;
       via?: VerdictVia;
+      confidence?: number;
     }
   | {
       op: "shift_beats";
@@ -564,8 +587,8 @@ export type TransactionOp =
       op: "promote_range_to_segments";
       startUs: number;
       endUs: number;
-      newBoundaryIds?: [string?, string?];
-      newSegmentIds?: [string?, string?];
+      newBoundaryIds?: OptionalIdPairInput;
+      newSegmentIds?: OptionalIdPairInput;
       regime?: SegmentRegime;
       kinematics?: SegmentKinematics;
       keep?: boolean;
@@ -771,7 +794,7 @@ export interface OfferInput {
   audioId?: string;
   basisSeq?: number;
   writeRanges: RangeUs[];
-  ops: OfferOp[];
+  ops: OfferOpInput[];
   challenges?: OfferChallenge[];
   derivedFrom?: {
     range: RangeUs;
@@ -1390,9 +1413,22 @@ export declare function validateSoundFacet(
   facet: unknown,
   anchors?: readonly { id: string }[],
 ): string;
+export type VerdictTargetEntity =
+  | Beat
+  | BeatInput
+  | Unbeat
+  | UnbeatInput
+  | Sound
+  | SoundInput
+  | SoundClass
+  | SoundClassInput
+  | Boundary
+  | BoundaryInput
+  | Record<string, unknown>;
+
 export declare function computeEntityValueDigest(
   kind: VerdictTargetKind,
-  entity: Record<string, unknown>,
+  entity: VerdictTargetEntity,
   facet?: string,
 ): string;
 export declare function normalizeVerdict(raw: unknown): Verdict;
@@ -1535,12 +1571,13 @@ export declare function computeOfferDependencies(
   snapshotOrState: Snapshot | SessionState,
   writeRanges: readonly RangeUs[],
   derivedFrom?: { range: RangeUs; supportingIds?: readonly string[] },
+  ops?: readonly OfferOpInput[],
 ): OfferDependencies;
 export declare function computeOfferBasisDigest(dependencies: OfferDependencies): string;
 export declare function computeOfferSemanticKey(offer: {
   kind?: string;
   writeRanges: readonly RangeUs[];
-  ops: readonly OfferOp[];
+  ops: readonly OfferOpInput[];
 }): string;
 export declare function isOfferSuppressed(
   stateOrSnapshot: Snapshot | SessionState,
@@ -1548,7 +1585,7 @@ export declare function isOfferSuppressed(
     semanticKey?: string;
     kind?: string;
     writeRanges: readonly RangeUs[];
-    ops: readonly OfferOp[];
+    ops: readonly OfferOpInput[];
   },
 ): boolean;
 export declare function computeOfferDiffAndConsequences(

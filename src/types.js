@@ -3,7 +3,14 @@
  * entity normalizers, partition utilities, and envelope validators.
  */
 
-import { canonicalJson, compareCodeUnits, EnsomiError, jcsSha256Hex, sha256Hex } from "./jcs.js";
+import {
+  assertPlainObject,
+  canonicalJson,
+  compareCodeUnits,
+  EnsomiError,
+  jcsSha256Hex,
+  sha256Hex,
+} from "./jcs.js";
 import {
   assertInteriorPointUs,
   assertIntervalUs,
@@ -275,6 +282,51 @@ export function clampUnit(value) {
 }
 
 /**
+ * Strictly validate that `value` is a finite number in `[0, 1]` (never clamping out-of-range values).
+ *
+ * @param {unknown} value
+ * @param {string} [label="value"]
+ * @param {string} [errorCode="INVALID_FIELD"]
+ * @returns {number}
+ */
+export function assertUnitInterval(value, label = "value", errorCode = "INVALID_FIELD") {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new EnsomiError(
+      errorCode,
+      `${label} must be a finite number in [0, 1], got ${String(value)}`,
+    );
+  }
+  return value === 0 ? 0 : value;
+}
+
+/**
+ * Validate and normalize an optional 2-slot ID tuple (`[string | null | undefined, string | null | undefined]`)
+ * into a JCS-safe `[string | null, string | null]` tuple with zero `undefined` elements.
+ *
+ * @param {unknown} raw
+ * @param {string} [label="idPair"]
+ * @returns {[string | null, string | null] | undefined}
+ */
+export function normalizeOptionalIdPair(raw, label = "idPair") {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length > 2) {
+    throw new EnsomiError(
+      "INVALID_FIELD",
+      `${label} must be an array of at most 2 elements`,
+    );
+  }
+  const s0 =
+    raw[0] === undefined || raw[0] === null
+      ? null
+      : assertNonEmptyId(raw[0], `${label}[0]`, "INVALID_ID");
+  const s1 =
+    raw[1] === undefined || raw[1] === null
+      ? null
+      : assertNonEmptyId(raw[1], `${label}[1]`, "INVALID_ID");
+  return /** @type {[string | null, string | null]} */ (Object.freeze([s0, s1]));
+}
+
+/**
  * Validate positive integer entity revision (`>= 1`).
  *
  * @param {unknown} revision
@@ -366,6 +418,7 @@ export function computeEntityValueDigest(kind, entity, facet) {
               candidateEventId: entity.boundTo.candidateEventId ?? null,
               anchorId: entity.boundTo.anchorId ?? null,
               anchorRole: entity.boundTo.anchorRole,
+              ...(entity.boundTo.alignmentStale ? { alignmentStale: true } : {}),
             }
           : null,
         structural: entity.structural ?? null,
@@ -397,7 +450,7 @@ export function computeEntityValueDigest(kind, entity, facet) {
       });
 
     case "sound": {
-      const resolvedFacet = validateSoundFacet(facet, entity.anchors);
+      const resolvedFacet = validateSoundFacet(facet);
       const primary =
         entity.anchors.find((/** @type {any} */ a) => a.id === entity.primaryAnchorId) ??
         entity.anchors[0];
@@ -854,7 +907,7 @@ export function normalizeBeat(raw, ctx = {}) {
     revision,
   };
   if (r.confidence !== undefined) {
-    out.confidence = clampUnit(/** @type {number} */ (r.confidence));
+    out.confidence = assertUnitInterval(r.confidence, "beat.confidence", "INVALID_FIELD");
   }
   if (r.boundTo !== undefined && r.boundTo !== null) {
     out.boundTo = normalizeBeatBinding(r.boundTo);
@@ -879,7 +932,11 @@ export function normalizeBeat(raw, ctx = {}) {
       atUs: assertNonNegSafeIntUs(ln.atUs, "lineage.atUs", "INVALID_BEAT"),
     };
     if (ln.confidence !== undefined) {
-      lineage.confidence = clampUnit(/** @type {number} */ (ln.confidence));
+      lineage.confidence = assertUnitInterval(
+        ln.confidence,
+        "beat.lineage.confidence",
+        "INVALID_FIELD",
+      );
     }
     out.lineage = lineage;
   }
@@ -953,7 +1010,11 @@ export function normalizeUnbeat(raw, ctx = {}) {
       atUs: assertNonNegSafeIntUs(rp.atUs, "replaces.atUs", "INVALID_UNBEAT"),
     };
     if (rp.confidence !== undefined) {
-      replaces.confidence = clampUnit(/** @type {number} */ (rp.confidence));
+      replaces.confidence = assertUnitInterval(
+        rp.confidence,
+        "unbeat.replaces.confidence",
+        "INVALID_FIELD",
+      );
     }
     out.replaces = replaces;
   }
@@ -996,7 +1057,11 @@ export function normalizeSoundCharacteristics(raw) {
     out.f0Hz = r.f0Hz === 0 ? 0 : r.f0Hz;
   }
   if (r.harmonicity !== undefined) {
-    out.harmonicity = clampUnit(/** @type {number} */ (r.harmonicity));
+    out.harmonicity = assertUnitInterval(
+      r.harmonicity,
+      "sound.characteristics.harmonicity",
+      "INVALID_FIELD",
+    );
   }
   if (r.stereoPan !== undefined) {
     if (
@@ -1013,10 +1078,18 @@ export function normalizeSoundCharacteristics(raw) {
     out.stereoPan = r.stereoPan === 0 ? 0 : r.stereoPan;
   }
   if (r.stereoWidth !== undefined) {
-    out.stereoWidth = clampUnit(/** @type {number} */ (r.stereoWidth));
+    out.stereoWidth = assertUnitInterval(
+      r.stereoWidth,
+      "sound.characteristics.stereoWidth",
+      "INVALID_FIELD",
+    );
   }
   if (r.confidence !== undefined) {
-    out.confidence = clampUnit(/** @type {number} */ (r.confidence));
+    out.confidence = assertUnitInterval(
+      r.confidence,
+      "sound.characteristics.confidence",
+      "INVALID_FIELD",
+    );
   }
   return deepFreeze(out);
 }
@@ -1123,7 +1196,7 @@ export function normalizeSound(raw, ctx = {}) {
     primaryAnchorId,
   };
   if (r.salience !== undefined) {
-    out.salience = clampUnit(/** @type {number} */ (r.salience));
+    out.salience = assertUnitInterval(r.salience, "sound.salience", "INVALID_FIELD");
   }
   if (r.characteristics !== undefined && r.characteristics !== null) {
     const ch = normalizeSoundCharacteristics(r.characteristics);
@@ -1315,7 +1388,7 @@ export function normalizeSnapCandidate(raw, queryAtUs, durationUs) {
   if (typeof r.label !== "string" || r.label.trim().length === 0) {
     throw new EnsomiError("INVALID_SNAP_CANDIDATE", "snapCandidate.label must be a non-empty string");
   }
-  const salience = clampUnit(/** @type {number} */ (r.salience));
+  const salience = assertUnitInterval(r.salience, "snapCandidate.salience", "INVALID_FIELD");
 
   if (!r.sound || typeof r.sound !== "object") {
     throw new EnsomiError(
@@ -1394,7 +1467,7 @@ export function normalizeSoundOptionCandidate(raw, durationUs) {
     "soundOption.optionId",
     "INVALID_SOUND_OPTION",
   );
-  const salience = clampUnit(/** @type {number} */ (r.salience));
+  const salience = assertUnitInterval(r.salience, "soundOption.salience", "INVALID_FIELD");
   const labelCode = assertNonEmptyId(
     r.labelCode ?? "sound_option",
     "soundOption.labelCode",
@@ -1594,28 +1667,114 @@ export function assertOfferShape(raw) {
   for (let i = 0; i < o.notes.length; i += 1) {
     normalizeStructuredNote(o.notes[i]);
   }
+  if (o.score !== undefined) {
+    assertUnitInterval(o.score, "offer.score", "INVALID_FIELD");
+  }
   if (o.challenges !== undefined) {
     if (!Array.isArray(o.challenges)) {
       throw new EnsomiError("INVALID_OFFER", "offer.challenges must be an array");
     }
+    const seenChallengeIds = new Set();
+    const seenTargets = new Set();
     for (const ch of o.challenges) {
-      if (!ch || typeof ch !== "object") {
-        throw new EnsomiError("INVALID_OFFER", "OfferChallenge must be an object");
+      const c = assertPlainObject(ch, "OfferChallenge", "INVALID_OFFER");
+      const cid = assertNonEmptyId(c.challengeId, "challenge.challengeId", "INVALID_OFFER");
+      if (seenChallengeIds.has(cid)) {
+        throw new EnsomiError(
+          "INVALID_OFFER",
+          `Duplicate challengeId "${cid}" in offer "${String(o.id)}"`,
+        );
       }
-      const c = /** @type {Record<string, unknown>} */ (ch);
-      assertNonEmptyId(c.challengeId, "challenge.challengeId", "INVALID_OFFER");
+      seenChallengeIds.add(cid);
       if (!VERDICT_TARGET_KIND_SET.has(/** @type {any} */ (c.targetKind))) {
         throw new EnsomiError("INVALID_OFFER", `Invalid challenge.targetKind: ${String(c.targetKind)}`);
       }
-      assertNonEmptyId(c.targetId, "challenge.targetId", "INVALID_OFFER");
+      const tid = assertNonEmptyId(c.targetId, "challenge.targetId", "INVALID_OFFER");
+      const targetKey = `${c.targetKind}:${tid}`;
+      if (seenTargets.has(targetKey)) {
+        throw new EnsomiError(
+          "INVALID_OFFER",
+          `Duplicate challenge target "${targetKey}" in offer "${String(o.id)}"`,
+        );
+      }
+      seenTargets.add(targetKey);
       assertPositiveRevision(c.expectedRevision, "OfferChallenge");
       assertNonEmptyId(c.expectedValueDigest, "challenge.expectedValueDigest", "INVALID_OFFER");
       assertNonEmptyId(c.reasonCode, "challenge.reasonCode", "INVALID_OFFER");
+      if (c.replacementId !== undefined) {
+        assertNonEmptyId(c.replacementId, "challenge.replacementId", "INVALID_OFFER");
+      }
+      if (c.message !== undefined) {
+        assertNonEmptyId(c.message, "challenge.message", "INVALID_OFFER");
+      }
     }
   }
   if (o.status !== undefined && !OFFER_STATUS_SET.has(/** @type {any} */ (o.status))) {
     throw new EnsomiError("INVALID_OFFER", `Invalid offer.status: ${String(o.status)}`);
   }
+}
+
+/**
+ * Strictly validate an `authorizedChallenges` list upfront, rejecting `null`, non-plain objects,
+ * missing/empty strings, invalid dispositions, and duplicate `(offerId, challengeId)` entries.
+ *
+ * @param {unknown} rawList
+ * @returns {Map<string, import("../index.d.ts").ChallengeAuthorization>}
+ */
+export function validateAuthorizedChallenges(rawList) {
+  /** @type {Map<string, import("../index.d.ts").ChallengeAuthorization>} */
+  const map = new Map();
+  if (rawList === undefined) return map;
+  if (!Array.isArray(rawList)) {
+    throw new EnsomiError("INVALID_OFFER", "authorizedChallenges must be an array");
+  }
+  for (let i = 0; i < rawList.length; i += 1) {
+    const a = assertPlainObject(rawList[i], `authorizedChallenges[${i}]`, "INVALID_OFFER");
+    const offerId = assertNonEmptyId(
+      a.offerId,
+      `authorizedChallenges[${i}].offerId`,
+      "INVALID_OFFER",
+    );
+    const challengeId = assertNonEmptyId(
+      a.challengeId,
+      `authorizedChallenges[${i}].challengeId`,
+      "INVALID_OFFER",
+    );
+    const targetId = assertNonEmptyId(
+      a.targetId,
+      `authorizedChallenges[${i}].targetId`,
+      "INVALID_OFFER",
+    );
+    const expectedValueDigest = assertNonEmptyId(
+      a.expectedValueDigest,
+      `authorizedChallenges[${i}].expectedValueDigest`,
+      "INVALID_OFFER",
+    );
+    if (!CHALLENGE_DISPOSITION_SET.has(/** @type {any} */ (a.disposition))) {
+      throw new EnsomiError(
+        "INVALID_OFFER",
+        `Invalid authorizedChallenges[${i}].disposition: ${String(a.disposition)}`,
+      );
+    }
+    const key = `${offerId}\0${challengeId}`;
+    if (map.has(key)) {
+      throw new EnsomiError(
+        "INVALID_OFFER",
+        `Duplicate challenge authorization for offer "${offerId}" challenge "${challengeId}"`,
+      );
+    }
+    map.set(
+      key,
+      deepFreeze({
+        offerId,
+        challengeId,
+        targetId,
+        expectedValueDigest,
+        disposition: /** @type {import("../index.d.ts").ChallengeDisposition} */ (a.disposition),
+      }),
+    );
+  }
+  return map;
 }
 
 export { CHALLENGE_DISPOSITION_SET, compareCodeUnits };

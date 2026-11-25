@@ -5,7 +5,14 @@
  */
 
 import { deriveChildEntityId, executeTransaction, getVerdictEntity } from "./interpreter.js";
-import { canonicalJson, compareCodeUnits, EnsomiError, jcsSha256Hex } from "./jcs.js";
+import {
+  assertPlainObject,
+  canonicalJson,
+  compareCodeUnits,
+  EnsomiError,
+  hasLoneSurrogate,
+  jcsSha256Hex,
+} from "./jcs.js";
 import {
   computeOfferSemanticKey,
   evaluateOfferInternal,
@@ -27,19 +34,20 @@ import {
   assertOfferShape,
   assertTraceEventEnvelope,
   authorKindToOrigin,
-  CHALLENGE_DISPOSITION_SET,
   computeEntityValueDigest,
   DEFAULT_BEAT_TOL_US,
   deepFreeze,
   normalizeAudioBinding,
   normalizeBeat,
   normalizeBoundary,
+  normalizeOptionalIdPair,
   normalizeSegment,
   normalizeSound,
   normalizeSoundClass,
   normalizeSpan,
   normalizeUnbeat,
   TRACE_SCHEMA_VERSION,
+  validateAuthorizedChallenges,
 } from "./types.js";
 
 const UNDOABLE_EVENT_TYPES = new Set([
@@ -57,6 +65,7 @@ const ORPHANABLE_ERROR_CODES = new Set([
   "REVISION_MISMATCH",
   "DIGEST_MISMATCH",
   "DUPLICATE_ENTITY_ID",
+  "REFERENTIAL_INTEGRITY",
   "INVALID_SEGMENT_EDIT",
   "INVALID_SPAN",
   "INVALID_RANGE",
@@ -69,33 +78,153 @@ const ORPHANABLE_ERROR_CODES = new Set([
 const FROZEN_EVENTS = new WeakSet();
 
 /**
- * Fast plain-JSON clone + freeze for TraceEvents.
+ * Normalize optional 2-slot ID tuples on `promote_range_to_segments` ops (`[undefined, "id"]` -> `[null, "id"]`)
+ * before JCS validation and freezing.
+ *
+ * @param {any} op
+ */
+function sanitizeOpTuples(op) {
+  if (
+    !op ||
+    typeof op !== "object" ||
+    op.op !== "promote_range_to_segments" ||
+    (op.newBoundaryIds === undefined && op.newSegmentIds === undefined)
+  ) {
+    return op;
+  }
+  const next = { ...op };
+  if (op.newBoundaryIds !== undefined) {
+    next.newBoundaryIds = normalizeOptionalIdPair(
+      op.newBoundaryIds,
+      "promote_range_to_segments.newBoundaryIds",
+    );
+  }
+  if (op.newSegmentIds !== undefined) {
+    next.newSegmentIds = normalizeOptionalIdPair(
+      op.newSegmentIds,
+      "promote_range_to_segments.newSegmentIds",
+    );
+  }
+  return next;
+}
+
+/**
+ * Sanitize `promote_range_to_segments` tuple `undefined` slots on `edit` and `offer_batch` events.
+ * Fast O(1) pass-through for all other event/op kinds.
+ *
+ * @param {import("../index.d.ts").TraceEvent} ev
+ * @returns {import("../index.d.ts").TraceEvent}
+ */
+function sanitizeEventTuples(ev) {
+  if (FROZEN_EVENTS.has(ev)) return ev;
+  const payload = /** @type {any} */ (ev.payload);
+  if (ev.type === "edit" && payload && typeof payload === "object") {
+    if (Array.isArray(payload)) {
+      if (payload.some((op) => op?.op === "promote_range_to_segments")) {
+        return { ...ev, payload: payload.map(sanitizeOpTuples) };
+      }
+    } else if (Array.isArray(payload.ops)) {
+      if (payload.ops.some((op) => op?.op === "promote_range_to_segments")) {
+        return { ...ev, payload: { ...payload, ops: payload.ops.map(sanitizeOpTuples) } };
+      }
+    } else if (payload.op === "promote_range_to_segments") {
+      return { ...ev, payload: sanitizeOpTuples(payload) };
+    }
+  } else if (ev.type === "offer_batch" && payload && Array.isArray(payload.offers)) {
+    const needsSanitize = payload.offers.some(
+      (off) =>
+        off &&
+        Array.isArray(off.ops) &&
+        off.ops.some((op) => op?.op === "promote_range_to_segments"),
+    );
+    if (needsSanitize) {
+      return {
+        ...ev,
+        payload: {
+          ...payload,
+          offers: payload.offers.map((off) =>
+            off && Array.isArray(off.ops) ? { ...off, ops: off.ops.map(sanitizeOpTuples) } : off,
+          ),
+        },
+      };
+    }
+  }
+  return ev;
+}
+
+/**
+ * Fast single-pass RFC 8785 (JCS)-validating plain-JSON clone + freeze for TraceEvents.
+ * Rejects `NaN`, `±Infinity`, lone UTF-16 surrogates, `undefined` inside arrays,
+ * non-plain objects (`Map`, `Set`, `Date`, etc.), functions, symbols, and bigints.
  *
  * @template T
  * @param {T} value
  * @returns {T}
  */
 function cloneAndFreezePlain(value) {
-  if (value === null || typeof value !== "object") return value;
+  if (value === null || typeof value === "boolean") return value;
+  const t = typeof value;
+  if (t === "number") {
+    if (!Number.isFinite(value)) {
+      throw new EnsomiError(
+        "INVALID_CANONICAL_VALUE",
+        `RFC 8785 canonical JSON forbids non-finite number: ${String(value)}`,
+      );
+    }
+    return /** @type {T} */ (value === 0 ? 0 : value);
+  }
+  if (t === "string") {
+    if (hasLoneSurrogate(/** @type {string} */ (value))) {
+      throw new EnsomiError(
+        "INVALID_CANONICAL_VALUE",
+        "RFC 8785 canonical JSON forbids lone UTF-16 surrogates",
+      );
+    }
+    return value;
+  }
   if (Array.isArray(value)) {
     const out = new Array(value.length);
     for (let i = 0; i < value.length; i += 1) {
+      if (value[i] === undefined) {
+        throw new EnsomiError(
+          "INVALID_CANONICAL_VALUE",
+          `RFC 8785 canonical JSON forbids undefined inside arrays (index ${i})`,
+        );
+      }
       out[i] = cloneAndFreezePlain(value[i]);
     }
     return /** @type {T} */ (Object.freeze(out));
   }
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) {
-    return deepFreeze(structuredClone(value));
-  }
-  /** @type {Record<string, unknown>} */
-  const out = {};
-  for (const k in /** @type {Record<string, unknown>} */ (value)) {
-    if (Object.hasOwn(value, k)) {
-      out[k] = cloneAndFreezePlain(/** @type {Record<string, unknown>} */ (value)[k]);
+  if (t === "object") {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) {
+      throw new EnsomiError(
+        "INVALID_CANONICAL_VALUE",
+        "RFC 8785 canonical JSON requires plain JSON objects",
+      );
     }
+    const obj = /** @type {Record<string, unknown>} */ (value);
+    const keys = Object.keys(obj);
+    /** @type {Record<string, unknown>} */
+    const out = {};
+    for (let i = 0; i < keys.length; i += 1) {
+      const k = keys[i];
+      const v = obj[k];
+      if (v === undefined) continue;
+      if (hasLoneSurrogate(k)) {
+        throw new EnsomiError(
+          "INVALID_CANONICAL_VALUE",
+          "RFC 8785 canonical JSON forbids lone UTF-16 surrogates",
+        );
+      }
+      out[k] = cloneAndFreezePlain(v);
+    }
+    return /** @type {T} */ (Object.freeze(out));
   }
-  return /** @type {T} */ (Object.freeze(out));
+  throw new EnsomiError(
+    "INVALID_CANONICAL_VALUE",
+    `RFC 8785 canonical JSON forbids value of type "${t}"`,
+  );
 }
 
 function cloneAndFreezeEvent(ev) {
@@ -763,6 +892,15 @@ function applyActiveEventAtomic(state, event) {
           createdByEventId: event.id,
           revision: 1,
         });
+        for (const exId of sc.exemplarSoundIds) {
+          if (!scratch.sounds.has(exId)) {
+            throw new EnsomiError(
+              "REFERENTIAL_INTEGRITY",
+              `Draft SoundClass "${sc.id}" references missing exemplar Sound "${exId}"`,
+              { soundClassId: sc.id, soundId: exId },
+            );
+          }
+        }
         scratch.soundClasses.set(sc.id, sc);
       }
 
@@ -914,186 +1052,29 @@ function applyActiveEventAtomic(state, event) {
     }
 
     case "offer_accept": {
-      if (!payload || typeof payload !== "object") {
-        throw new EnsomiError("INVALID_OFFER", "offer_accept payload must be an object");
-      }
-      /** @type {string[]} */
-      const offerIds = Array.isArray(payload.offerIds)
-        ? payload.offerIds
-        : typeof payload.offerId === "string"
-          ? [payload.offerId]
+      const p = assertPlainObject(payload, "offer_accept.payload", "INVALID_OFFER");
+      /** @type {unknown[]} */
+      const rawOfferIds = Array.isArray(p.offerIds)
+        ? p.offerIds
+        : typeof p.offerId === "string"
+          ? [p.offerId]
           : [];
-      if (offerIds.length === 0) {
+      if (rawOfferIds.length === 0) {
         throw new EnsomiError(
           "INVALID_OFFER",
           "offer_accept requires offerIds: string[] or offerId: string",
         );
       }
-      const authorizedChallenges = Array.isArray(payload.authorizedChallenges)
-        ? payload.authorizedChallenges
-        : [];
+      const offerIds = rawOfferIds.map((oid, idx) =>
+        assertNonEmptyId(oid, `offer_accept.offerIds[${idx}]`, "INVALID_OFFER"),
+      );
+      const authMap = validateAuthorizedChallenges(p.authorizedChallenges);
 
-      // Validate and apply all offers in `offerIds` atomically on a shallow copy first!
-      const scratch = cloneSessionStateShallow(state);
-
-      for (const offerId of offerIds) {
-        const offer = scratch.offers.get(offerId);
-        if (!offer) {
-          throw new EnsomiError("MISSING_OFFER", `Offer "${offerId}" does not exist`);
-        }
-        const { validation, beforeState, afterState } = evaluateOfferInternal(scratch, offer);
-        if (validation.status !== "valid" && validation.status !== "requires_challenge_confirm") {
-          throw new EnsomiError(
-            "OFFER_NOT_ACCEPTABLE",
-            `Offer "${offerId}" cannot be accepted in status "${validation.status}"`,
-            { offerId, status: validation.status, conflicts: validation.conflicts },
-          );
-        }
-
-        // Verify all required challenges are explicitly authorized!
-        if (validation.status === "requires_challenge_confirm") {
-          for (const reqCh of validation.requiredChallenges) {
-            const auth = authorizedChallenges.find(
-              (a) =>
-                a &&
-                a.offerId === offer.id &&
-                a.challengeId === reqCh.challengeId &&
-                a.targetId === reqCh.targetId &&
-                a.expectedValueDigest === reqCh.expectedValueDigest,
-            );
-            if (!auth || !CHALLENGE_DISPOSITION_SET.has(auth.disposition)) {
-              throw new EnsomiError(
-                "CHALLENGE_CONFIRM_REQUIRED",
-                `Offer "${offerId}" modifies verified ${reqCh.targetKind} "${reqCh.targetId}" and requires challenge authorization`,
-                { offerId, challengeId: reqCh.challengeId, targetId: reqCh.targetId },
-              );
-            }
-          }
-        }
-
-        // Adopt post-transaction entity tables from `afterState`
-        scratch.segments = afterState.segments;
-        scratch.boundaries = afterState.boundaries;
-        scratch.spans = afterState.spans;
-        scratch.beats = afterState.beats;
-        scratch.unbeats = afterState.unbeats;
-        scratch.sounds = afterState.sounds;
-        scratch.soundClasses = afterState.soundClasses;
-        scratch.approvals = afterState.approvals;
-        scratch.idRegistry = afterState.idRegistry;
-
-        // Apply authorized challenge verdict dispositions (`confirm_replacement` | `clear_verdict`)
-        for (const reqCh of validation.requiredChallenges) {
-          const auth = authorizedChallenges.find(
-            (a) => a.offerId === offer.id && a.challengeId === reqCh.challengeId,
-          );
-          if (!auth) continue;
-          const beforeEntity = getVerdictEntity(beforeState, reqCh.targetKind, reqCh.targetId);
-          const afterEntity = getVerdictEntity(scratch, reqCh.targetKind, reqCh.targetId);
-
-          if (auth.disposition === "clear_verdict") {
-            if (afterEntity && afterEntity.verdict) {
-              const { verdict: _v, ...rest } = afterEntity;
-              const cleared = deepFreeze({ ...rest });
-              if (reqCh.targetKind === "beat") scratch.beats.set(reqCh.targetId, cleared);
-              else if (reqCh.targetKind === "unbeat") scratch.unbeats.set(reqCh.targetId, cleared);
-              else if (reqCh.targetKind === "sound") scratch.sounds.set(reqCh.targetId, cleared);
-              else if (reqCh.targetKind === "sound_class")
-                scratch.soundClasses.set(reqCh.targetId, cleared);
-              else if (reqCh.targetKind === "boundary")
-                scratch.boundaries.set(reqCh.targetId, cleared);
-            }
-          } else if (auth.disposition === "confirm_replacement") {
-            let targetAfter = afterEntity;
-            let targetIdAfter = reqCh.targetId;
-
-            if (!targetAfter && reqCh.replacementId) {
-              targetAfter = getVerdictEntity(scratch, reqCh.targetKind, reqCh.replacementId);
-              targetIdAfter = reqCh.replacementId;
-            } else if (!targetAfter && reqCh.targetKind === "beat" && beforeEntity) {
-              // Find nearest newly inserted beat in `afterState` within writeRanges if unique/closest
-              let bestBeat = null;
-              let bestDist = Number.MAX_SAFE_INTEGER;
-              for (const [bid, bCand] of scratch.beats) {
-                if (beforeState.beats.has(bid)) continue;
-                const d = Math.abs(bCand.atUs - beforeEntity.atUs);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestBeat = bCand;
-                }
-              }
-              if (bestBeat) {
-                targetAfter = bestBeat;
-                targetIdAfter = bestBeat.id;
-              }
-            }
-
-            if (targetAfter) {
-              const facet =
-                reqCh.targetKind === "sound"
-                  ? beforeEntity?.verdict?.facet ?? "occurrence"
-                  : undefined;
-              const tolUs = beforeEntity?.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US;
-              const vd = computeEntityValueDigest(reqCh.targetKind, targetAfter, facet);
-              const confirmed = deepFreeze({
-                ...targetAfter,
-                verdict: deepFreeze({
-                  kind: "confirmed",
-                  eventId: event.id,
-                  valueDigest: vd,
-                  tolUs,
-                  ...(facet ? { facet } : {}),
-                  via: "challenge_accept",
-                }),
-              });
-              if (reqCh.targetKind === "beat") scratch.beats.set(targetIdAfter, confirmed);
-              else if (reqCh.targetKind === "unbeat") scratch.unbeats.set(targetIdAfter, confirmed);
-              else if (reqCh.targetKind === "sound") scratch.sounds.set(targetIdAfter, confirmed);
-              else if (reqCh.targetKind === "sound_class")
-                scratch.soundClasses.set(targetIdAfter, confirmed);
-              else if (reqCh.targetKind === "boundary")
-                scratch.boundaries.set(targetIdAfter, confirmed);
-            }
-          }
-        }
-
-        // Mark offer accepted and supersede ONLY offers sharing the same non-null `alternativeGroup`!
-        scratch.offers.set(
-          offer.id,
-          deepFreeze({
-            ...offer,
-            status: "accepted",
-            conflicts: [],
-          }),
-        );
-        if (offer.alternativeGroup) {
-          for (const [sid, sib] of scratch.offers) {
-            if (
-              sid !== offer.id &&
-              sib.alternativeGroup === offer.alternativeGroup &&
-              sib.status !== "accepted" &&
-              sib.status !== "rejected" &&
-              sib.status !== "superseded"
-            ) {
-              scratch.offers.set(
-                sid,
-                deepFreeze({
-                  ...sib,
-                  status: "superseded",
-                  conflicts: [
-                    {
-                      kind: "sibling_conflict",
-                      message: "Another alternative for this passage was applied.",
-                    },
-                  ],
-                }),
-              );
-            }
-          }
-        }
-
-        refreshOffersAndSuppressions(scratch);
+      const sim = evaluateOfferAcceptBatch(state, offerIds, authMap, event.id);
+      if (!sim.ok) {
+        throw new EnsomiError(sim.errorCode, sim.message, sim.details);
       }
+      const { scratch } = sim;
 
       // Commit all changes atomically
       state.segments = scratch.segments;
@@ -1200,6 +1181,226 @@ function applyActiveEventAtomic(state, event) {
 }
 
 /**
+ * Sequentially evaluate and apply a batch of `offerIds` onto a shallow scratch clone of `state`.
+ * Shared between `applyEvent("offer_accept")` and `SessionController.acceptOffer()` so sequential
+ * interactions across `[o1, o2]` (duplicate IDs, shared `alternativeGroup`, overlapping `writeRanges`,
+ * and challenge authorizations) behave 100% identically!
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ * @param {readonly string[]} offerIds
+ * @param {Map<string, import("../index.d.ts").ChallengeAuthorization>} authMap
+ * @param {string} eventId
+ */
+export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
+  const scratch = cloneSessionStateShallow(state);
+
+  for (const offerId of offerIds) {
+    const offer = scratch.offers.get(offerId);
+    if (!offer) {
+      return {
+        ok: /** @type {const} */ (false),
+        errorCode: "MISSING_OFFER",
+        message: `Offer "${offerId}" does not exist`,
+        details: { offerId },
+        status: /** @type {import("../index.d.ts").OfferStatus} */ ("invalid"),
+        conflicts: [
+          deepFreeze({
+            kind: /** @type {const} */ ("range_changed"),
+            message: "This suggestion is no longer available.",
+          }),
+        ],
+        requiredChallenges: /** @type {import("../index.d.ts").OfferChallenge[]} */ ([]),
+      };
+    }
+
+    const { validation, beforeState, afterState } = evaluateOfferInternal(scratch, offer);
+    if (validation.status !== "valid" && validation.status !== "requires_challenge_confirm") {
+      return {
+        ok: /** @type {const} */ (false),
+        errorCode: "OFFER_NOT_ACCEPTABLE",
+        message: `Offer "${offerId}" cannot be accepted in status "${validation.status}"`,
+        details: { offerId, status: validation.status, conflicts: validation.conflicts },
+        status: validation.status,
+        conflicts:
+          validation.conflicts.length > 0
+            ? validation.conflicts
+            : [
+                deepFreeze({
+                  kind: /** @type {const} */ ("version_mismatch"),
+                  message: "Suggestion is no longer valid.",
+                }),
+              ],
+        requiredChallenges: /** @type {import("../index.d.ts").OfferChallenge[]} */ ([]),
+      };
+    }
+
+    if (validation.status === "requires_challenge_confirm") {
+      /** @type {import("../index.d.ts").OfferChallenge[]} */
+      const missingChallenges = [];
+      for (const reqCh of validation.requiredChallenges) {
+        const auth = authMap.get(`${offer.id}\0${reqCh.challengeId}`);
+        if (
+          !auth ||
+          auth.targetId !== reqCh.targetId ||
+          auth.expectedValueDigest !== reqCh.expectedValueDigest
+        ) {
+          missingChallenges.push(reqCh);
+        }
+      }
+      if (missingChallenges.length > 0) {
+        const firstMissing = missingChallenges[0];
+        return {
+          ok: /** @type {const} */ (false),
+          errorCode: "CHALLENGE_CONFIRM_REQUIRED",
+          message: `Offer "${offerId}" modifies verified ${firstMissing.targetKind} "${firstMissing.targetId}" and requires challenge authorization`,
+          details: {
+            offerId,
+            challengeId: firstMissing.challengeId,
+            targetId: firstMissing.targetId,
+          },
+          status: /** @type {import("../index.d.ts").OfferStatus} */ ("requires_challenge_confirm"),
+          conflicts: /** @type {import("../index.d.ts").OfferConflict[]} */ ([]),
+          requiredChallenges: missingChallenges,
+        };
+      }
+    }
+
+    // Adopt post-transaction entity tables from `afterState`
+    scratch.segments = afterState.segments;
+    scratch.boundaries = afterState.boundaries;
+    scratch.spans = afterState.spans;
+    scratch.beats = afterState.beats;
+    scratch.unbeats = afterState.unbeats;
+    scratch.sounds = afterState.sounds;
+    scratch.soundClasses = afterState.soundClasses;
+    scratch.approvals = afterState.approvals;
+    scratch.idRegistry = afterState.idRegistry;
+
+    // Apply authorized challenge verdict dispositions (`confirm_replacement` | `clear_verdict`)
+    // strictly using the validated `authMap` entry!
+    for (const reqCh of validation.requiredChallenges) {
+      const auth = authMap.get(`${offer.id}\0${reqCh.challengeId}`);
+      if (!auth) continue;
+      const beforeEntity = getVerdictEntity(beforeState, reqCh.targetKind, reqCh.targetId);
+      const afterEntity = getVerdictEntity(scratch, reqCh.targetKind, reqCh.targetId);
+
+      if (auth.disposition === "clear_verdict") {
+        if (afterEntity && afterEntity.verdict) {
+          const { verdict: _v, ...rest } = afterEntity;
+          const cleared = deepFreeze({ ...rest });
+          if (reqCh.targetKind === "beat") scratch.beats.set(reqCh.targetId, cleared);
+          else if (reqCh.targetKind === "unbeat") scratch.unbeats.set(reqCh.targetId, cleared);
+          else if (reqCh.targetKind === "sound") scratch.sounds.set(reqCh.targetId, cleared);
+          else if (reqCh.targetKind === "sound_class")
+            scratch.soundClasses.set(reqCh.targetId, cleared);
+          else if (reqCh.targetKind === "boundary")
+            scratch.boundaries.set(reqCh.targetId, cleared);
+        }
+      } else if (auth.disposition === "confirm_replacement") {
+        let targetAfter = afterEntity;
+        let targetIdAfter = reqCh.targetId;
+
+        if (!targetAfter && reqCh.replacementId) {
+          targetAfter = getVerdictEntity(scratch, reqCh.targetKind, reqCh.replacementId);
+          targetIdAfter = reqCh.replacementId;
+        } else if (!targetAfter && reqCh.targetKind === "beat" && beforeEntity) {
+          let bestBeat = null;
+          let bestDist = Number.MAX_SAFE_INTEGER;
+          for (const [bid, bCand] of scratch.beats) {
+            if (beforeState.beats.has(bid)) continue;
+            const d = Math.abs(bCand.atUs - beforeEntity.atUs);
+            if (d < bestDist) {
+              bestDist = d;
+              bestBeat = bCand;
+            }
+          }
+          if (bestBeat) {
+            targetAfter = bestBeat;
+            targetIdAfter = bestBeat.id;
+          }
+        }
+
+        if (targetAfter) {
+          let facet;
+          if (reqCh.targetKind === "sound") {
+            const beforeFacet = beforeEntity?.verdict?.facet ?? "occurrence";
+            if (
+              beforeFacet.startsWith("anchor:") &&
+              !targetAfter.anchors.some((/** @type {any} */ a) => a.id === beforeFacet.slice(7))
+            ) {
+              facet = targetAfter.primaryAnchorId
+                ? `anchor:${targetAfter.primaryAnchorId}`
+                : "occurrence";
+            } else {
+              facet = beforeFacet;
+            }
+          }
+          const tolUs = beforeEntity?.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US;
+          const vd = computeEntityValueDigest(reqCh.targetKind, targetAfter, facet);
+          const confirmed = deepFreeze({
+            ...targetAfter,
+            verdict: deepFreeze({
+              kind: "confirmed",
+              eventId,
+              valueDigest: vd,
+              tolUs,
+              ...(facet ? { facet } : {}),
+              via: "challenge_accept",
+            }),
+          });
+          if (reqCh.targetKind === "beat") scratch.beats.set(targetIdAfter, confirmed);
+          else if (reqCh.targetKind === "unbeat") scratch.unbeats.set(targetIdAfter, confirmed);
+          else if (reqCh.targetKind === "sound") scratch.sounds.set(targetIdAfter, confirmed);
+          else if (reqCh.targetKind === "sound_class")
+            scratch.soundClasses.set(targetIdAfter, confirmed);
+          else if (reqCh.targetKind === "boundary")
+            scratch.boundaries.set(targetIdAfter, confirmed);
+        }
+      }
+    }
+
+    // Mark offer accepted and supersede ONLY offers sharing the same non-null `alternativeGroup`!
+    scratch.offers.set(
+      offer.id,
+      deepFreeze({
+        ...offer,
+        status: "accepted",
+        conflicts: [],
+      }),
+    );
+    if (offer.alternativeGroup) {
+      for (const [sid, sib] of scratch.offers) {
+        if (
+          sid !== offer.id &&
+          sib.alternativeGroup === offer.alternativeGroup &&
+          sib.status !== "accepted" &&
+          sib.status !== "rejected" &&
+          sib.status !== "superseded"
+        ) {
+          scratch.offers.set(
+            sid,
+            deepFreeze({
+              ...sib,
+              status: "superseded",
+              conflicts: [
+                {
+                  kind: "sibling_conflict",
+                  message: "Another alternative for this passage was applied.",
+                },
+              ],
+            }),
+          );
+        }
+      }
+    }
+
+    refreshOffersAndSuppressions(scratch);
+  }
+
+  return { ok: /** @type {const} */ (true), scratch };
+}
+
+/**
  * Validate and resolve the backward-referenced target of a `retract` event.
  *
  * @param {import("../index.d.ts").TraceEvent} retractEvent
@@ -1239,36 +1440,56 @@ function resolveRetractTarget(retractEvent, byId, bySeq) {
 }
 
 /**
- * Resolve active retractions newest-first (supporting nested retract-of-retract / redo to arbitrary depth).
+ * Resolve active retractions newest-first (supporting nested retract-of-retract / redo to arbitrary depth),
+ * and record the earliest active retract `seq` for each deactivated target event.
  *
  * @param {readonly import("../index.d.ts").TraceEvent[]} events
- * @returns {Set<string>}
+ * @param {Map<string, import("../index.d.ts").TraceEvent>} [knownById]
+ * @param {Map<number, import("../index.d.ts").TraceEvent>} [knownBySeq]
+ * @returns {{ retractedIds: Set<string>, minRetractSeqByTargetId: Map<string, number> }}
  */
-export function resolveActiveRetractions(events) {
+function resolveRetractionTimeline(events, knownById, knownBySeq) {
   /** @type {Map<string, import("../index.d.ts").TraceEvent>} */
-  const byId = new Map();
+  const byId = knownById ?? new Map();
   /** @type {Map<number, import("../index.d.ts").TraceEvent>} */
-  const bySeq = new Map();
-  for (let i = 0; i < events.length; i += 1) {
-    const ev = events[i];
-    byId.set(ev.id, ev);
-    bySeq.set(ev.seq, ev);
+  const bySeq = knownBySeq ?? new Map();
+  if (!knownById || !knownBySeq) {
+    for (let i = 0; i < events.length; i += 1) {
+      const ev = events[i];
+      byId.set(ev.id, ev);
+      bySeq.set(ev.seq, ev);
+    }
   }
 
   /** @type {Set<string>} */
   const retractedIds = new Set();
+  /** @type {Map<string, number>} */
+  const minRetractSeqByTargetId = new Map();
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const ev = events[i];
     if (ev.type !== "retract") continue;
     const target = resolveRetractTarget(ev, byId, bySeq);
     if (retractedIds.has(ev.id)) continue;
     retractedIds.add(target.id);
+    // Iterating newest-first (strictly decreasing ev.seq) leaves the smallest active retract seq!
+    minRetractSeqByTargetId.set(target.id, ev.seq);
   }
-  return retractedIds;
+  return { retractedIds, minRetractSeqByTargetId };
 }
 
 /**
- * Deterministically reconstruct `undoStack` and `redoStack` directly from trace events.
+ * Resolve active retractions newest-first (supporting nested retract-of-retract / redo to arbitrary depth).
+ *
+ * @param {readonly import("../index.d.ts").TraceEvent[]} events
+ * @returns {Set<string>}
+ */
+export function resolveActiveRetractions(events) {
+  return resolveRetractionTimeline(events).retractedIds;
+}
+
+/**
+ * Deterministically reconstruct `undoStack` and `redoStack` directly from trace events,
+ * excluding `ORPHANED_BY_RETRACT` transactions from `undoStack`.
  *
  * @param {import("../index.d.ts").SessionState | readonly import("../index.d.ts").TraceEvent[]} stateOrEvents
  * @returns {import("../index.d.ts").UndoRedoTargets}
@@ -1289,6 +1510,20 @@ export function computeUndoRedoTargets(stateOrEvents) {
       undoStack: [],
       redoStack: [],
     };
+  }
+
+  /** @type {Set<string>} */
+  let orphanedIds;
+  if (
+    !Array.isArray(stateOrEvents) &&
+    stateOrEvents &&
+    Array.isArray(stateOrEvents.orphanedTransactions)
+  ) {
+    orphanedIds = new Set(stateOrEvents.orphanedTransactions.map((o) => o.eventId));
+  } else if (events.some((ev) => ev.type === "retract")) {
+    orphanedIds = new Set(foldTrace(events).orphanedTransactions.map((o) => o.eventId));
+  } else {
+    orphanedIds = new Set();
   }
 
   /** @type {Map<string, import("../index.d.ts").TraceEvent>} */
@@ -1395,12 +1630,16 @@ export function computeUndoRedoTargets(stateOrEvents) {
     }
   }
 
+  const filteredUndoStack =
+    orphanedIds.size > 0 ? undoStack.filter((id) => !orphanedIds.has(id)) : undoStack;
+
   return {
-    canUndo: undoStack.length > 0,
+    canUndo: filteredUndoStack.length > 0,
     canRedo: redoStack.length > 0,
-    undoTargetEventId: undoStack.length > 0 ? undoStack[undoStack.length - 1] : null,
+    undoTargetEventId:
+      filteredUndoStack.length > 0 ? filteredUndoStack[filteredUndoStack.length - 1] : null,
     redoTargetEventId: redoStack.length > 0 ? redoStack[redoStack.length - 1] : null,
-    undoStack,
+    undoStack: filteredUndoStack,
     redoStack,
   };
 }
@@ -1427,17 +1666,19 @@ export function applyEvent(state, event) {
     throw new EnsomiError("DUPLICATE_EVENT_ID", `Duplicate trace event id "${event.id}"`);
   }
 
-  const clonedEvent = cloneAndFreezeEvent(event);
+  const sanitizedEvent = sanitizeEventTuples(event);
 
-  if (clonedEvent.type === "retract") {
-    return foldTrace([...state.events, clonedEvent]);
+  if (sanitizedEvent.type === "retract") {
+    const clonedRetract = cloneAndFreezeEvent(sanitizedEvent);
+    return foldTrace([...state.events, clonedRetract]);
   }
 
   const next = cloneSessionStateShallow(state);
+  next.eventIds.add(sanitizedEvent.id);
+  next.lastSeq = sanitizedEvent.seq;
+  applyActiveEventAtomic(next, sanitizedEvent);
+  const clonedEvent = cloneAndFreezeEvent(sanitizedEvent);
   next.events.push(clonedEvent);
-  next.eventIds.add(clonedEvent.id);
-  next.lastSeq = clonedEvent.seq;
-  applyActiveEventAtomic(next, clonedEvent);
   return next;
 }
 
@@ -1445,14 +1686,11 @@ export function applyEvent(state, event) {
  * Replay a full sequence of `TraceEvent`s from event 0 into a materialized `SessionState`.
  *
  * Event-Atomic Selective `Retract`:
- *  - Resolves active retractions newest-first (`resolveActiveRetractions`).
+ *  - Resolves active retractions newest-first (`resolveRetractionTimeline`).
  *  - Executes each non-retracted transaction atomically via rollback journal / scratch state.
- *  - If an earlier event before `ev` was retracted AND `ev` fails a precondition
- *    (`MISSING_ENTITY`, `REVISION_MISMATCH`, `DUPLICATE_ENTITY_ID`, `INVALID_SEGMENT_EDIT`,
- *    `AUDIO_NOT_BOUND`, `OUT_OF_BOUNDS`, `OFFER_NOT_ACCEPTABLE`, etc.), **aborts and skips
- *    the ENTIRE dependent transaction atomically** (zero partial ops!) and records an
- *    `OrphanedTransaction` entry with `code: "ORPHANED_BY_RETRACT"`.
- *  - When NO earlier event was retracted, malformed events throw `EnsomiError` directly!
+ *  - An event at `seq = k` experienced a timeline change after `k` was committed **iff**
+ *    there exists an active deactivated target event `t` whose earliest active deactivator `r`
+ *    satisfies `t.seq < k < r.seq` (preserving 100% equivalence between `applyEvent` and `foldTrace`!).
  *
  * @param {readonly import("../index.d.ts").TraceEvent[]} events
  * @param {{ durationUs?: number }} [options]
@@ -1466,48 +1704,61 @@ export function foldTrace(events, options = {}) {
   let prevSeq = -1;
   const seenIds = new Set();
   /** @type {import("../index.d.ts").TraceEvent[]} */
-  const clonedEvents = new Array(events.length);
+  const sanitizedEvents = new Array(events.length);
   /** @type {Map<string, import("../index.d.ts").TraceEvent>} */
   const byId = new Map();
   /** @type {Map<number, import("../index.d.ts").TraceEvent>} */
   const bySeq = new Map();
 
   for (let i = 0; i < events.length; i += 1) {
-    const ev = events[i];
-    assertTraceEventEnvelope(ev);
-    if (prevSeq >= 0 && ev.seq <= prevSeq) {
+    const rawEv = events[i];
+    assertTraceEventEnvelope(rawEv);
+    if (prevSeq >= 0 && rawEv.seq <= prevSeq) {
       throw new EnsomiError(
         "NON_MONOTONIC_SEQ",
-        `Event seq ${ev.seq} must be strictly greater than previous seq ${prevSeq}`,
+        `Event seq ${rawEv.seq} must be strictly greater than previous seq ${prevSeq}`,
       );
     }
-    if (seenIds.has(ev.id)) {
-      throw new EnsomiError("DUPLICATE_EVENT_ID", `Duplicate trace event id "${ev.id}"`);
+    if (seenIds.has(rawEv.id)) {
+      throw new EnsomiError("DUPLICATE_EVENT_ID", `Duplicate trace event id "${rawEv.id}"`);
     }
-    seenIds.add(ev.id);
-    prevSeq = ev.seq;
-    const cloned = cloneAndFreezeEvent(ev);
-    clonedEvents[i] = cloned;
-    byId.set(cloned.id, cloned);
-    bySeq.set(cloned.seq, cloned);
+    seenIds.add(rawEv.id);
+    prevSeq = rawEv.seq;
+    const sanitized = sanitizeEventTuples(rawEv);
+    sanitizedEvents[i] = sanitized;
+    byId.set(sanitized.id, sanitized);
+    bySeq.set(sanitized.seq, sanitized);
   }
 
-  const retractedIds = resolveActiveRetractions(clonedEvents);
+  const { retractedIds, minRetractSeqByTargetId } = resolveRetractionTimeline(
+    sanitizedEvents,
+    byId,
+    bySeq,
+  );
   const state = createInitialState(options);
   state.retractedEventIds = retractedIds;
 
-  let seenRetractedEarlier = false;
+  const hasTimelineChangeAfterSeq = (seqK) => {
+    for (const [targetId, minRetractSeq] of minRetractSeqByTargetId) {
+      const targetEv = byId.get(targetId);
+      if (targetEv && targetEv.seq < seqK && seqK < minRetractSeq) {
+        return true;
+      }
+    }
+    return false;
+  };
 
-  for (let i = 0; i < clonedEvents.length; i += 1) {
-    const ev = clonedEvents[i];
-    state.events.push(ev);
-    state.eventIds.add(ev.id);
-    state.lastSeq = ev.seq;
+  for (let i = 0; i < sanitizedEvents.length; i += 1) {
+    const sanitized = sanitizedEvents[i];
+    state.eventIds.add(sanitized.id);
+    state.lastSeq = sanitized.seq;
 
-    if (ev.type === "retract") {
-      resolveRetractTarget(ev, byId, bySeq);
-      if (!retractedIds.has(ev.id)) {
-        if (ev.author.kind === "user") {
+    if (sanitized.type === "retract") {
+      resolveRetractTarget(sanitized, byId, bySeq);
+      const cloned = cloneAndFreezeEvent(sanitized);
+      state.events.push(cloned);
+      if (!retractedIds.has(cloned.id)) {
+        if (cloned.author.kind === "user") {
           state.effort.actionCount += 1;
         }
         refreshOffersAndSuppressions(state);
@@ -1515,24 +1766,26 @@ export function foldTrace(events, options = {}) {
       continue;
     }
 
-    if (retractedIds.has(ev.id)) {
-      seenRetractedEarlier = true;
+    if (retractedIds.has(sanitized.id)) {
+      state.events.push(cloneAndFreezeEvent(sanitized));
       continue;
     }
 
     try {
-      applyActiveEventAtomic(state, ev);
+      applyActiveEventAtomic(state, sanitized);
     } catch (err) {
       if (
-        seenRetractedEarlier &&
+        hasTimelineChangeAfterSeq(sanitized.seq) &&
         err instanceof EnsomiError &&
         ORPHANABLE_ERROR_CODES.has(err.code)
       ) {
+        const cloned = cloneAndFreezeEvent(sanitized);
+        state.events.push(cloned);
         state.orphanedTransactions.push(
           deepFreeze({
-            seq: ev.seq,
-            eventId: ev.id,
-            type: ev.type,
+            seq: cloned.seq,
+            eventId: cloned.id,
+            type: cloned.type,
             code: "ORPHANED_BY_RETRACT",
             causeCode: err.code,
             message: err.message,
@@ -1542,6 +1795,8 @@ export function foldTrace(events, options = {}) {
       }
       throw err;
     }
+
+    state.events.push(cloneAndFreezeEvent(sanitized));
   }
 
   return state;

@@ -12,7 +12,7 @@
  *  - `analyze()` NEVER overwrites active human `verdict`s or `approval`s (`keep`).
  */
 
-import { canonicalJson, compareCodeUnits, EnsomiError } from "./jcs.js";
+import { assertPlainObject, canonicalJson, compareCodeUnits, EnsomiError } from "./jcs.js";
 import {
   bindOfferToBasis,
   isOfferSuppressed,
@@ -30,12 +30,12 @@ import { assertNonNegSafeIntUs, assertPointUs, assertRangeUs } from "./time.js";
 import {
   applyEvent,
   computeUndoRedoTargets,
+  evaluateOfferAcceptBatch,
   foldTrace,
   serializeTraceNdjson,
 } from "./trace.js";
 import {
   assertNonEmptyId,
-  CHALLENGE_DISPOSITION_SET,
   DEFAULT_TRIGGER_POLICY,
   deepFreeze,
   normalizeAudioBinding,
@@ -44,6 +44,7 @@ import {
   SOUND_MATCH_MODES,
   TRACE_SCHEMA_VERSION,
   TRIGGER_LAYERS,
+  validateAuthorizedChallenges,
 } from "./types.js";
 
 const TRIGGER_LAYER_SET = new Set(TRIGGER_LAYERS);
@@ -564,6 +565,21 @@ export class SessionController {
     });
   }
 
+  _advanceAudioEpoch(reason, audioChanged) {
+    this._audioEpoch += 1;
+    this.abortAll(reason, "SUPERSEDED");
+    const nextAudioId = this._currentAudioId();
+    for (const layer of TRIGGER_LAYERS) {
+      this._slots[layer].audioId = nextAudioId;
+    }
+    if (audioChanged || !this._state.audio) {
+      this._evidenceRef = null;
+      this._evidenceEpoch = -1;
+    } else if (this._evidenceRef !== null) {
+      this._evidenceEpoch = this._audioEpoch;
+    }
+  }
+
   _bindAudioSync(rawAudio) {
     this._assertOpen();
     const normalized = normalizeAudioBinding(rawAudio);
@@ -583,29 +599,19 @@ export class SessionController {
       );
     }
 
+    // Commit and validate `audio_bound` BEFORE mutating `_audioEpoch`, `_evidenceRef`, or `_slots`!
+    this._commitEvent("audio_bound", normalized, { kind: "host" });
+
     if (audioChanged) {
-      this._audioEpoch += 1;
-      this._heldOfferBatch = null;
-      if (audioIdChanged && prevAudioId !== null) {
-        this.abortAll(
-          `Switched audio from "${prevAudioId}" to "${normalized.audioId}"`,
-          "SUPERSEDED",
-        );
-      } else if (this._inFlightPrepare) {
-        const reqId = this._inFlightPrepare.requestId;
-        this._inFlightPrepare.abort.abort(new EnsomiError("SUPERSEDED", "Superseded bindAudio"));
-        this._inFlightPrepare = null;
-        this._notifyProviderCancel(reqId);
-      }
-      this._evidenceRef = null;
-      this._evidenceEpoch = -1;
-      for (const layer of TRIGGER_LAYERS) {
-        this._slots[layer].audioId = normalized.audioId;
-      }
+      this._advanceAudioEpoch(
+        audioIdChanged && prevAudioId !== null
+          ? `Switched audio from "${prevAudioId}" to "${normalized.audioId}"`
+          : `Updated audio binding for "${normalized.audioId}"`,
+        true,
+      );
     }
 
     const epoch = this._audioEpoch;
-    this._commitEvent("audio_bound", normalized, { kind: "host" });
     const basisSeq = this._state.lastSeq;
     return { epoch, basisSeq, audioId: normalized.audioId };
   }
@@ -656,16 +662,12 @@ export class SessionController {
    */
   resetDocument(options = {}, author = { kind: "user" }) {
     this._assertOpen();
-    this.abortAll("Reset document", "SUPERSEDED");
-    if (options.audio) {
-      this._audioEpoch += 1;
-      this._evidenceRef = null;
-      this._evidenceEpoch = -1;
-      for (const layer of TRIGGER_LAYERS) {
-        this._slots[layer].audioId = options.audio.audioId;
-      }
-    }
+    assertPlainObject(options, "resetDocument.options", "INVALID_EVENT");
+    const prevAudioJson = canonicalJson(this._state.audio);
+    // Validate & commit `reset_document` BEFORE mutating `_slots`, `_audioEpoch`, or `_evidenceRef`!
     const event = this._commitEvent("reset_document", options, author);
+    const audioChanged = canonicalJson(this._state.audio) !== prevAudioJson;
+    this._advanceAudioEpoch("Reset document", audioChanged);
     return { event, state: this.getState() };
   }
 
@@ -1213,30 +1215,21 @@ export class SessionController {
   retract(targetEventIdOrSeq, reason, author = { kind: "user" }) {
     this._assertOpen();
     const prevAudioJson = canonicalJson(this._state.audio);
-    const prevAudioId = this._currentAudioId();
+    const prevEvents = this._state.events;
+    const prevRetracted = this._state.retractedEventIds;
     const payload =
       typeof targetEventIdOrSeq === "number"
         ? { targetSeq: targetEventIdOrSeq, ...(reason ? { reason } : {}) }
         : { targetEventId: targetEventIdOrSeq, ...(reason ? { reason } : {}) };
     const event = this._commitEvent("retract", payload, author);
-    if (canonicalJson(this._state.audio) !== prevAudioJson) {
-      this._audioEpoch += 1;
-      this._heldOfferBatch = null;
-      if (this._currentAudioId() !== prevAudioId) {
-        this.abortAll("Audio changed due to retract()", "SUPERSEDED");
-        for (const layer of TRIGGER_LAYERS) {
-          this._slots[layer].audioId = this._currentAudioId();
-        }
-      } else if (this._inFlightPrepare) {
-        const reqId = this._inFlightPrepare.requestId;
-        this._inFlightPrepare.abort.abort(
-          new EnsomiError("SUPERSEDED", "Audio binding changed due to retract()"),
-        );
-        this._inFlightPrepare = null;
-        this._notifyProviderCancel(reqId);
-      }
-      this._evidenceRef = null;
-      this._evidenceEpoch = -1;
+    const audioChanged = canonicalJson(this._state.audio) !== prevAudioJson;
+    const resetOrAudioToggled = prevEvents.some(
+      (ev) =>
+        (ev.type === "audio_bound" || ev.type === "reset_document") &&
+        prevRetracted.has(ev.id) !== this._state.retractedEventIds.has(ev.id),
+    );
+    if (audioChanged || resetOrAudioToggled) {
+      this._advanceAudioEpoch("Audio or reset state changed due to retract()", audioChanged);
     }
     return { event, state: this.getState() };
   }
@@ -1693,18 +1686,7 @@ export class SessionController {
    */
   acceptOffer(offerIdOrInput, author = { kind: "user" }) {
     this._assertOpen();
-    const offerIds =
-      typeof offerIdOrInput === "string"
-        ? [offerIdOrInput]
-        : Array.isArray(offerIdOrInput?.offerIds)
-          ? offerIdOrInput.offerIds
-          : [];
-    const authorizedChallenges =
-      typeof offerIdOrInput === "object" && Array.isArray(offerIdOrInput?.authorizedChallenges)
-        ? offerIdOrInput.authorizedChallenges
-        : [];
-
-    if (offerIds.length === 0) {
+    if (typeof offerIdOrInput !== "string" && (!offerIdOrInput || typeof offerIdOrInput !== "object")) {
       return {
         ok: false,
         status: "invalid",
@@ -1712,51 +1694,40 @@ export class SessionController {
         requiredChallenges: [],
       };
     }
+    const rawOfferIds =
+      typeof offerIdOrInput === "string"
+        ? [offerIdOrInput]
+        : Array.isArray(offerIdOrInput.offerIds)
+          ? offerIdOrInput.offerIds
+          : [];
+    const rawAuthorized =
+      typeof offerIdOrInput === "object" ? offerIdOrInput.authorizedChallenges : undefined;
+    const authMap = validateAuthorizedChallenges(rawAuthorized);
 
-    for (const offerId of offerIds) {
-      const offer = this._state.offers.get(offerId);
-      if (!offer) {
-        return {
-          ok: false,
-          status: "invalid",
-          conflicts: [{ kind: "range_changed", message: "This suggestion is no longer available." }],
-          requiredChallenges: [],
-        };
-      }
-      const check = validateOffer(this._state, offer);
-      if (check.status !== "valid" && check.status !== "requires_challenge_confirm") {
-        return {
-          ok: false,
-          status: check.status,
-          conflicts:
-            check.conflicts.length > 0
-              ? check.conflicts
-              : [{ kind: "version_mismatch", message: "Suggestion is no longer valid." }],
-          requiredChallenges: [],
-        };
-      }
-      if (check.status === "requires_challenge_confirm") {
-        const missing = check.requiredChallenges.filter((reqCh) => {
-          const auth = authorizedChallenges.find(
-            (a) =>
-              a &&
-              a.offerId === offer.id &&
-              a.challengeId === reqCh.challengeId &&
-              a.targetId === reqCh.targetId &&
-              a.expectedValueDigest === reqCh.expectedValueDigest &&
-              CHALLENGE_DISPOSITION_SET.has(a.disposition),
-          );
-          return !auth;
-        });
-        if (missing.length > 0) {
-          return {
-            ok: false,
-            status: "requires_challenge_confirm",
-            conflicts: [],
-            requiredChallenges: missing,
-          };
-        }
-      }
+    if (
+      rawOfferIds.length === 0 ||
+      rawOfferIds.some((id) => typeof id !== "string" || id.length === 0)
+    ) {
+      return {
+        ok: false,
+        status: "invalid",
+        conflicts: [{ kind: "invalid_op", message: "No suggestion IDs specified." }],
+        requiredChallenges: [],
+      };
+    }
+    const offerIds = /** @type {string[]} */ (rawOfferIds);
+
+    // Run sequential scratch pre-check across all `offerIds` so duplicate IDs, shared
+    // `alternativeGroup`, overlapping `writeRanges`, and missing challenge confirmations
+    // return structured `{ ok: false, ... }` instead of throwing mid-commit!
+    const sim = evaluateOfferAcceptBatch(this._state, offerIds, authMap, "__preview__");
+    if (!sim.ok) {
+      return {
+        ok: false,
+        status: sim.status,
+        conflicts: sim.conflicts,
+        requiredChallenges: sim.requiredChallenges,
+      };
     }
 
     const prePendingIds = new Set(
@@ -1765,6 +1736,7 @@ export class SessionController {
         .map((o) => o.id),
     );
 
+    const authorizedChallenges = Array.from(authMap.values());
     this._commitEvent(
       "offer_accept",
       {

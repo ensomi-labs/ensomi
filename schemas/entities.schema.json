@@ -154,8 +154,18 @@
         "id": { "type": "string", "minLength": 1 },
         "startUs": { "$ref": "#/$defs/NonNegUs" },
         "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "startBoundaryId": { "type": ["string", "null"] },
-        "endBoundaryId": { "type": ["string", "null"] },
+        "startBoundaryId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
+        "endBoundaryId": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1 }
+          ]
+        },
         "regime": { "$ref": "#/$defs/SegmentRegime" },
         "kinematics": { "$ref": "#/$defs/SegmentKinematics" },
         "origin": { "$ref": "#/$defs/Origin" },
@@ -184,6 +194,10 @@
     "BeatBinding": {
       "type": "object",
       "required": ["anchorRole"],
+      "anyOf": [
+        { "required": ["soundId"] },
+        { "required": ["candidateEventId"] }
+      ],
       "properties": {
         "soundId": { "type": "string", "minLength": 1 },
         "candidateEventId": { "type": "string", "minLength": 1 },
@@ -333,6 +347,97 @@
         "matchMode": { "$ref": "#/$defs/SoundMatchMode" },
         "label": { "type": "string", "minLength": 1 },
         "verdict": { "$ref": "#/$defs/Verdict" }
+      },
+      "additionalProperties": false
+    },
+    "NormalizedIdPair": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "items": {
+        "oneOf": [
+          { "type": "null" },
+          { "type": "string", "minLength": 1 }
+        ]
+      }
+    },
+    "BeatInput": {
+      "type": "object",
+      "required": ["id", "atUs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "atUs": { "$ref": "#/$defs/NonNegUs" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "boundTo": { "$ref": "#/$defs/BeatBinding" },
+        "structural": { "$ref": "#/$defs/BeatStructural" }
+      },
+      "additionalProperties": false
+    },
+    "SoundDescriptor": {
+      "type": "object",
+      "required": ["schema", "values"],
+      "properties": {
+        "schema": { "type": "string", "minLength": 1 },
+        "values": { "type": "array", "items": { "type": "number" } }
+      },
+      "additionalProperties": false
+    },
+    "SoundInput": {
+      "type": "object",
+      "required": ["id", "startUs", "endUs", "anchors"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "startUs": { "$ref": "#/$defs/NonNegUs" },
+        "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "endKind": { "$ref": "#/$defs/SoundEndKind" },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SoundAnchorPoint" }
+        },
+        "primaryAnchorId": { "type": "string", "minLength": 1 },
+        "salience": { "type": "number", "minimum": 0, "maximum": 1 },
+        "characteristics": { "$ref": "#/$defs/SoundCharacteristics" },
+        "descriptor": { "$ref": "#/$defs/SoundDescriptor" },
+        "voiceGroupId": { "type": "string", "minLength": 1 },
+        "classId": { "type": "string", "minLength": 1 },
+        "blendStatus": { "$ref": "#/$defs/SoundBlendStatus" }
+      },
+      "additionalProperties": false
+    },
+    "SoundPatch": {
+      "type": "object",
+      "properties": {
+        "startUs": { "$ref": "#/$defs/NonNegUs" },
+        "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "endKind": { "$ref": "#/$defs/SoundEndKind" },
+        "anchors": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/SoundAnchorPoint" }
+        },
+        "primaryAnchorId": { "type": "string", "minLength": 1 },
+        "salience": { "type": "number", "minimum": 0, "maximum": 1 },
+        "characteristics": { "$ref": "#/$defs/SoundCharacteristics" },
+        "descriptor": { "$ref": "#/$defs/SoundDescriptor" },
+        "voiceGroupId": { "type": "string", "minLength": 1 },
+        "classId": { "type": "string", "minLength": 1 },
+        "blendStatus": { "$ref": "#/$defs/SoundBlendStatus" }
+      },
+      "additionalProperties": false
+    },
+    "SoundClassInput": {
+      "type": "object",
+      "required": ["id", "exemplarSoundIds", "matchMode"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "exemplarSoundIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "matchMode": { "$ref": "#/$defs/SoundMatchMode" },
+        "label": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     }

@@ -23,6 +23,7 @@ import {
 import {
   assertNonEmptyId,
   assertPositiveRevision,
+  assertUnitInterval,
   computeEntityValueDigest,
   DEFAULT_BEAT_TOL_US,
   DEFAULT_BOUNDARY_TOL_US,
@@ -37,6 +38,7 @@ import {
   normalizeBeatBinding,
   normalizeBeatStructural,
   normalizeBoundary,
+  normalizeOptionalIdPair,
   normalizeSegment,
   normalizeSound,
   normalizeSoundClass,
@@ -408,6 +410,137 @@ function setVerdictEntityInJournal(journal, kind, id, entity) {
 }
 
 /**
+ * Canonicalize child `Span`s on `state.segments[segIdx]` after structural segment edits
+ * (`split_segment`, `merge_segments`, `move_boundary`):
+ *  - On `"free"` segments, retire redundant child `"free"` spans.
+ *  - On `"auto"` segments, if child `"free"` spans cover 100% of `[seg.startUs, seg.endUs)`,
+ *    promote `seg.regime` to `"free"` and retire the child `"free"` spans.
+ *  - Coalesce touching/overlapping `"free"` spans within the same segment.
+ *  - On segments with `seg.approval`, retire redundant child `"keep"` spans; on segments without
+ *    `seg.approval`, if child `"keep"` spans cover 100% of `[seg.startUs, seg.endUs)`, promote
+ *    the `Approval` onto `seg.approval` and retire the child `"keep"` spans!
+ */
+function canonicalizeSegmentSpans(state, journal, segIdx, ctx, opIndex, slotPrefix = "") {
+  if (segIdx < 0 || segIdx >= state.segments.length) return;
+  let seg = state.segments[segIdx];
+
+  // 1. Canonicalize `"free"` spans
+  const freeSpans = state.spans.filter((sp) => sp.segmentId === seg.id && sp.kind === "free");
+  if (freeSpans.length > 0) {
+    if (seg.regime === "free") {
+      journal.ensureSpansMutable();
+      for (const sp of freeSpans) journal.retireId(sp.id, ctx.eventId);
+      state.spans = state.spans.filter((sp) => !(sp.segmentId === seg.id && sp.kind === "free"));
+    } else {
+      const mergedFree = mergeRangesUs(
+        freeSpans.map((sp) => ({ startUs: sp.startUs, endUs: sp.endUs })),
+      );
+      if (
+        seg.regime === "auto" &&
+        mergedFree.length === 1 &&
+        mergedFree[0].startUs === seg.startUs &&
+        mergedFree[0].endUs === seg.endUs
+      ) {
+        journal.ensureSegmentsMutable();
+        seg = normalizeSegment({
+          ...seg,
+          regime: "free",
+          revision: seg.revision + 1,
+        });
+        state.segments[segIdx] = seg;
+        journal.ensureSpansMutable();
+        for (const sp of freeSpans) journal.retireId(sp.id, ctx.eventId);
+        state.spans = state.spans.filter(
+          (sp) => !(sp.segmentId === seg.id && sp.kind === "free"),
+        );
+      } else if (
+        mergedFree.length !== freeSpans.length ||
+        mergedFree.some(
+          (iv, k) => iv.startUs !== freeSpans[k].startUs || iv.endUs !== freeSpans[k].endUs,
+        )
+      ) {
+        journal.ensureSpansMutable();
+        for (const sp of freeSpans) journal.retireId(sp.id, ctx.eventId);
+        const nextSpans = state.spans.filter(
+          (sp) => !(sp.segmentId === seg.id && sp.kind === "free"),
+        );
+        for (let k = 0; k < mergedFree.length; k += 1) {
+          const iv = mergedFree[k];
+          const spId = deriveChildEntityId(ctx.txId, opIndex, `${slotPrefix}cfree_${k}`);
+          journal.registerId(spId, "span", ctx.eventId);
+          nextSpans.push(
+            normalizeSpan({
+              id: spId,
+              segmentId: seg.id,
+              startUs: iv.startUs,
+              endUs: iv.endUs,
+              kind: "free",
+              origin: freeSpans[0].origin,
+              createdByEventId: ctx.eventId,
+              revision: 1,
+            }),
+          );
+        }
+        sortSpansInPlace(nextSpans);
+        state.spans = nextSpans;
+      }
+    }
+  }
+
+  // 2. Canonicalize `"keep"` spans
+  seg = state.segments[segIdx];
+  const keepSpans = state.spans.filter((sp) => sp.segmentId === seg.id && sp.kind === "keep");
+  if (keepSpans.length > 0) {
+    if (seg.approval) {
+      journal.ensureSpansMutable();
+      for (const sp of keepSpans) {
+        if (sp.approval && sp.approval.id !== seg.approval.id) {
+          journal.deleteApproval(sp.approval.id, ctx.eventId);
+        }
+        journal.retireId(sp.id, ctx.eventId);
+      }
+      state.spans = state.spans.filter((sp) => !(sp.segmentId === seg.id && sp.kind === "keep"));
+    } else {
+      const mergedKeep = mergeRangesUs(
+        keepSpans.map((sp) => ({ startUs: sp.startUs, endUs: sp.endUs })),
+      );
+      if (
+        mergedKeep.length === 1 &&
+        mergedKeep[0].startUs === seg.startUs &&
+        mergedKeep[0].endUs === seg.endUs
+      ) {
+        let promotedApproval;
+        if (keepSpans.length === 1 && keepSpans[0].approval) {
+          promotedApproval = keepSpans[0].approval;
+        } else {
+          for (const sp of keepSpans) {
+            if (sp.approval) journal.deleteApproval(sp.approval.id, ctx.eventId);
+          }
+          const appId = deriveChildEntityId(ctx.txId, opIndex, `${slotPrefix}ckeep_app`);
+          journal.registerId(appId, "approval", ctx.eventId);
+          promotedApproval = normalizeApproval({
+            id: appId,
+            eventId: ctx.eventId,
+            contentDigest: computeIntervalMusicalDigest(state, seg.startUs, seg.endUs),
+            modifiedSinceApproval: true,
+          });
+          journal.setApproval(appId, promotedApproval);
+        }
+        journal.ensureSpansMutable();
+        for (const sp of keepSpans) journal.retireId(sp.id, ctx.eventId);
+        state.spans = state.spans.filter((sp) => !(sp.segmentId === seg.id && sp.kind === "keep"));
+        journal.ensureSegmentsMutable();
+        state.segments[segIdx] = normalizeSegment({
+          ...seg,
+          revision: seg.revision + 1,
+          approval: promotedApproval,
+        });
+      }
+    }
+  }
+}
+
+/**
  * Split a single segment at `atUs` (`seg.startUs < atUs < seg.endUs`), maintaining `Boundary`,
  * `Segment` partition, and `Span ⊆ Segment` invariants with deterministic child IDs.
  */
@@ -587,6 +720,8 @@ function applySplitSegmentInternal(
     }
     sortSpansInPlace(nextSpans);
     state.spans = nextSpans;
+    canonicalizeSegmentSpans(state, journal, segIdx, ctx, opIndex, `${slotPrefix}l_`);
+    canonicalizeSegmentSpans(state, journal, segIdx + 1, ctx, opIndex, `${slotPrefix}r_`);
   }
 }
 
@@ -990,6 +1125,9 @@ export function executeTransaction(state, ops, ctx) {
       }
 
       const durationUs = assertAudioBoundDuration(state);
+      if (typeof ctx.onBeforeOp === "function") {
+        ctx.onBeforeOp(state, rawOp, opIndex);
+      }
 
       switch (opKind) {
         case "upsert_beat": {
@@ -1005,14 +1143,6 @@ export function executeTransaction(state, ops, ctx) {
           const origin = existing ? existing.origin : ctx.actorOrigin;
           const createdByEventId = existing ? existing.createdByEventId : ctx.eventId;
           const nextRev = existing ? existing.revision + 1 : 1;
-
-          // Preserve boundTo on verified beats if an unchallenged offer omitted boundTo
-          const resolvedBoundTo =
-            op.beat.boundTo !== undefined
-              ? op.beat.boundTo
-              : ctx.actorMode === "offer" && existing?.verdict && existing.boundTo
-                ? existing.boundTo
-                : undefined;
 
           /** @type {import("../index.d.ts").BeatLineage | undefined} */
           let lineage = existing?.lineage;
@@ -1032,9 +1162,8 @@ export function executeTransaction(state, ops, ctx) {
               createdByEventId,
               revision: nextRev,
               confidence: op.beat.confidence ?? existing?.confidence,
-              boundTo: resolvedBoundTo,
-              structural:
-                op.beat.structural !== undefined ? op.beat.structural : existing?.structural,
+              boundTo: op.beat.boundTo,
+              structural: op.beat.structural,
               lineage,
             },
             { durationUs },
@@ -1060,15 +1189,11 @@ export function executeTransaction(state, ops, ctx) {
               { durationUs },
             );
           } else if (existing?.verdict) {
-            // Unchallenged offer updating within tolUs NEVER erases human verdict!
-            const vd = computeEntityValueDigest("beat", draftBeat);
+            // In offer mode, NEVER synthesize, mutate, or re-hash pre-existing human verdicts!
             draftBeat = normalizeBeat(
               {
                 ...draftBeat,
-                verdict: {
-                  ...existing.verdict,
-                  valueDigest: vd,
-                },
+                verdict: existing.verdict,
               },
               { durationUs },
             );
@@ -1088,6 +1213,10 @@ export function executeTransaction(state, ops, ctx) {
             throw new EnsomiError("MISSING_ENTITY", `Beat "${op.id}" does not exist`);
           }
           const atUs = assertPointUs(op.atUs, durationUs, "move_beat.atUs");
+          const validatedConf =
+            op.confidence !== undefined
+              ? assertUnitInterval(op.confidence, "move_beat.confidence", "INVALID_FIELD")
+              : undefined;
           const nextBoundTo =
             op.boundTo === null
               ? undefined
@@ -1114,7 +1243,7 @@ export function executeTransaction(state, ops, ctx) {
             atUs === existing.atUs &&
             canonicalJson(nextBoundTo ?? null) === canonicalJson(existing.boundTo ?? null) &&
             canonicalJson(nextStructural ?? null) === canonicalJson(existing.structural ?? null) &&
-            (op.confidence === undefined || op.confidence === existing.confidence)
+            (validatedConf === undefined || validatedConf === existing.confidence)
           ) {
             break;
           }
@@ -1130,7 +1259,7 @@ export function executeTransaction(state, ops, ctx) {
           }
 
           const nextConfidence =
-            op.confidence !== undefined ? op.confidence : existing.confidence;
+            validatedConf !== undefined ? validatedConf : existing.confidence;
           const vdTarget = {
             id: existing.id,
             atUs,
@@ -1155,11 +1284,7 @@ export function executeTransaction(state, ops, ctx) {
               via,
             });
           } else if (existing.verdict) {
-            const vd = computeEntityValueDigest("beat", vdTarget);
-            verdict = Object.freeze({
-              ...existing.verdict,
-              valueDigest: vd,
-            });
+            verdict = existing.verdict;
           }
 
           /** @type {import("../index.d.ts").Beat} */
@@ -1192,6 +1317,11 @@ export function executeTransaction(state, ops, ctx) {
             throw new EnsomiError("MISSING_ENTITY", `Beat "${op.id}" does not exist`);
           }
           const atUs = assertPointUs(op.atUs, durationUs, "snap_beat.atUs");
+          const rawSnapConf = /** @type {any} */ (op).confidence;
+          const validatedSnapConf =
+            rawSnapConf !== undefined
+              ? assertUnitInterval(rawSnapConf, "snap_beat.confidence", "INVALID_FIELD")
+              : existing.confidence;
           const boundTo = normalizeBeatBinding(op.boundTo);
 
           let lineage = existing.lineage;
@@ -1210,7 +1340,7 @@ export function executeTransaction(state, ops, ctx) {
               origin: existing.origin,
               createdByEventId: existing.createdByEventId,
               revision: existing.revision + 1,
-              confidence: existing.confidence,
+              confidence: validatedSnapConf,
               boundTo,
               structural: existing.structural,
               lineage,
@@ -1238,11 +1368,10 @@ export function executeTransaction(state, ops, ctx) {
               { durationUs },
             );
           } else if (existing.verdict) {
-            const vd = computeEntityValueDigest("beat", nextBeat);
             nextBeat = normalizeBeat(
               {
                 ...nextBeat,
-                verdict: { ...existing.verdict, valueDigest: vd },
+                verdict: existing.verdict,
               },
               { durationUs },
             );
@@ -1291,7 +1420,7 @@ export function executeTransaction(state, ops, ctx) {
 
             // Epistemic invariant (A1): NEVER manufacture verdicts on unverified beats!
             let lineage = b.lineage;
-            if (b.verdict && b.origin !== "user" && !lineage) {
+            if (ctx.actorMode === "user" && b.verdict && b.origin !== "user" && !lineage) {
               lineage = {
                 origin: b.origin,
                 atUs: b.atUs,
@@ -1315,20 +1444,30 @@ export function executeTransaction(state, ops, ctx) {
             );
 
             if (b.verdict) {
-              const vd = computeEntityValueDigest("beat", shifted);
-              shifted = normalizeBeat(
-                {
-                  ...shifted,
-                  verdict: {
-                    kind: b.origin === "user" ? "placed" : "adjusted",
-                    eventId: ctx.eventId,
-                    valueDigest: vd,
-                    tolUs: b.verdict.tolUs,
-                    ...(b.verdict.via ? { via: b.verdict.via } : {}),
+              if (ctx.actorMode === "user") {
+                const vd = computeEntityValueDigest("beat", shifted);
+                shifted = normalizeBeat(
+                  {
+                    ...shifted,
+                    verdict: {
+                      kind: b.origin === "user" ? "placed" : "adjusted",
+                      eventId: ctx.eventId,
+                      valueDigest: vd,
+                      tolUs: b.verdict.tolUs,
+                      ...(b.verdict.via ? { via: b.verdict.via } : {}),
+                    },
                   },
-                },
-                { durationUs },
-              );
+                  { durationUs },
+                );
+              } else {
+                shifted = normalizeBeat(
+                  {
+                    ...shifted,
+                    verdict: b.verdict,
+                  },
+                  { durationUs },
+                );
+              }
             }
             journal.setBeat(b.id, shifted);
           }
@@ -1586,18 +1725,12 @@ export function executeTransaction(state, ops, ctx) {
               { durationUs },
             );
           } else if (existing?.verdict) {
-            const facet = existing.verdict.facet ?? "occurrence";
-            const vd = computeEntityValueDigest("sound", nextSound, facet);
-            nextSound = normalizeSound(
-              {
-                ...nextSound,
-                verdict: {
-                  ...existing.verdict,
-                  valueDigest: vd,
-                },
-              },
-              { durationUs },
-            );
+            // Keep pre-existing verdict intact without re-validating anchor facet against new anchors
+            // so `evaluateOfferInternal` detects anchor/facet mutations cleanly!
+            nextSound = deepFreeze({
+              ...nextSound,
+              verdict: existing.verdict,
+            });
           }
 
           if (existing && entitiesSemanticallyEqual(existing, nextSound)) break;
@@ -1651,18 +1784,10 @@ export function executeTransaction(state, ops, ctx) {
               { durationUs },
             );
           } else if (existing.verdict) {
-            const facet = existing.verdict.facet ?? "occurrence";
-            const vd = computeEntityValueDigest("sound", nextSound, facet);
-            nextSound = normalizeSound(
-              {
-                ...nextSound,
-                verdict: {
-                  ...existing.verdict,
-                  valueDigest: vd,
-                },
-              },
-              { durationUs },
-            );
+            nextSound = deepFreeze({
+              ...nextSound,
+              verdict: existing.verdict,
+            });
           }
 
           if (entitiesSemanticallyEqual(existing, nextSound)) break;
@@ -1675,13 +1800,68 @@ export function executeTransaction(state, ops, ctx) {
           if (!Array.isArray(op.ids) || op.ids.length === 0) {
             throw new EnsomiError("INVALID_EDIT", "remove_sounds requires non-empty ids[]");
           }
+          const deletingIds = new Set();
           for (const id of op.ids) {
             assertNonEmptyId(id, "remove_sounds.id", "INVALID_SOUND");
             if (!state.sounds.has(id)) {
               throw new EnsomiError("MISSING_ENTITY", `Sound "${id}" does not exist`);
             }
+            deletingIds.add(id);
           }
-          for (const id of op.ids) {
+          for (const sc of state.soundClasses.values()) {
+            for (const exId of sc.exemplarSoundIds) {
+              if (deletingIds.has(exId)) {
+                throw new EnsomiError(
+                  "REFERENTIAL_INTEGRITY",
+                  `Cannot remove Sound "${exId}" while referenced by SoundClass "${sc.id}" exemplarSoundIds`,
+                  { soundId: exId, soundClassId: sc.id },
+                );
+              }
+            }
+          }
+          for (const b of state.beats.values()) {
+            if (b.boundTo?.soundId && deletingIds.has(b.boundTo.soundId) && !b.boundTo.alignmentStale) {
+              const staleBoundTo = normalizeBeatBinding({
+                ...b.boundTo,
+                alignmentStale: true,
+              });
+              let updatedBeat = normalizeBeat(
+                {
+                  ...b,
+                  revision: b.revision + 1,
+                  boundTo: staleBoundTo,
+                  verdict: undefined,
+                },
+                { durationUs },
+              );
+              if (b.verdict) {
+                if (ctx.actorMode === "user") {
+                  const vd = computeEntityValueDigest("beat", updatedBeat);
+                  updatedBeat = normalizeBeat(
+                    {
+                      ...updatedBeat,
+                      verdict: {
+                        ...b.verdict,
+                        eventId: ctx.eventId,
+                        valueDigest: vd,
+                      },
+                    },
+                    { durationUs },
+                  );
+                } else {
+                  updatedBeat = normalizeBeat(
+                    {
+                      ...updatedBeat,
+                      verdict: b.verdict,
+                    },
+                    { durationUs },
+                  );
+                }
+              }
+              journal.setBeat(b.id, updatedBeat);
+            }
+          }
+          for (const id of deletingIds) {
             journal.deleteSound(id, ctx.eventId);
           }
           break;
@@ -1736,10 +1916,9 @@ export function executeTransaction(state, ops, ctx) {
               },
             });
           } else if (existing?.verdict) {
-            const vd = computeEntityValueDigest("sound_class", nextSc);
             nextSc = normalizeSoundClass({
               ...nextSc,
-              verdict: { ...existing.verdict, valueDigest: vd },
+              verdict: existing.verdict,
             });
           }
 
@@ -1965,10 +2144,9 @@ export function executeTransaction(state, ops, ctx) {
               },
             });
           } else if (bnd.verdict) {
-            const vd = computeEntityValueDigest("boundary", nextBnd);
             nextBnd = normalizeBoundary({
               ...nextBnd,
-              verdict: { ...bnd.verdict, valueDigest: vd },
+              verdict: bnd.verdict,
             });
           }
           journal.setBoundary(bnd.id, nextBnd);
@@ -2000,7 +2178,7 @@ export function executeTransaction(state, ops, ctx) {
           state.segments[leftIdx] = nextLeft;
           state.segments[leftIdx + 1] = nextRight;
 
-          // Maintain Span ⊆ Segment across moved boundary
+          // Maintain Span ⊆ Segment & canonical Span promotion/retirement across moved boundary
           const affectedSpans = state.spans.filter(
             (sp) => sp.segmentId === leftSeg.id || sp.segmentId === rightSeg.id,
           );
@@ -2012,74 +2190,91 @@ export function executeTransaction(state, ops, ctx) {
             let splitCounter = 0;
             for (const sp of affectedSpans) {
               if (sp.endUs <= atUs) {
-                unaffected.push(
-                  sp.segmentId === leftSeg.id
-                    ? sp
-                    : normalizeSpan({ ...sp, segmentId: leftSeg.id, revision: sp.revision + 1 }),
-                );
+                if (sp.kind === "free" && nextLeft.regime === "free") {
+                  journal.retireId(sp.id, ctx.eventId);
+                } else {
+                  unaffected.push(
+                    sp.segmentId === leftSeg.id
+                      ? sp
+                      : normalizeSpan({ ...sp, segmentId: leftSeg.id, revision: sp.revision + 1 }),
+                  );
+                }
               } else if (sp.startUs >= atUs) {
-                unaffected.push(
-                  sp.segmentId === rightSeg.id
-                    ? sp
-                    : normalizeSpan({ ...sp, segmentId: rightSeg.id, revision: sp.revision + 1 }),
-                );
+                if (sp.kind === "free" && nextRight.regime === "free") {
+                  journal.retireId(sp.id, ctx.eventId);
+                } else {
+                  unaffected.push(
+                    sp.segmentId === rightSeg.id
+                      ? sp
+                      : normalizeSpan({ ...sp, segmentId: rightSeg.id, revision: sp.revision + 1 }),
+                  );
+                }
               } else {
                 // Straddles new boundary `atUs` (swept across `[min(oldAtUs, atUs), max(oldAtUs, atUs)]`)
                 void oldAtUs;
-                let lApp = sp.approval;
-                if (lApp) {
-                  lApp = normalizeApproval({ ...lApp, modifiedSinceApproval: true });
-                  journal.setApproval(lApp.id, lApp);
+                if (sp.kind === "free" && nextLeft.regime === "free") {
+                  if (sp.approval) journal.deleteApproval(sp.approval.id, ctx.eventId);
+                  journal.retireId(sp.id, ctx.eventId);
+                } else {
+                  let lApp = sp.approval;
+                  if (lApp) {
+                    lApp = normalizeApproval({ ...lApp, modifiedSinceApproval: true });
+                    journal.setApproval(lApp.id, lApp);
+                  }
+                  unaffected.push(
+                    normalizeSpan({
+                      ...sp,
+                      segmentId: leftSeg.id,
+                      endUs: atUs,
+                      revision: sp.revision + 1,
+                      approval: lApp,
+                    }),
+                  );
                 }
-                unaffected.push(
-                  normalizeSpan({
-                    ...sp,
-                    segmentId: leftSeg.id,
-                    endUs: atUs,
-                    revision: sp.revision + 1,
-                    approval: lApp,
-                  }),
-                );
-                const rSpanId = deriveChildEntityId(
-                  ctx.txId,
-                  opIndex,
-                  `span_mv_${splitCounter}`,
-                );
-                journal.registerId(rSpanId, "span", ctx.eventId);
-                let rApp;
-                if (sp.approval) {
-                  const rAppId = deriveChildEntityId(
+                if (!(sp.kind === "free" && nextRight.regime === "free")) {
+                  const rSpanId = deriveChildEntityId(
                     ctx.txId,
                     opIndex,
-                    `app_mv_${splitCounter}`,
+                    `span_mv_${splitCounter}`,
                   );
-                  journal.registerId(rAppId, "approval", ctx.eventId);
-                  rApp = normalizeApproval({
-                    id: rAppId,
-                    eventId: ctx.eventId,
-                    contentDigest: sp.approval.contentDigest,
-                    modifiedSinceApproval: true,
-                  });
-                  journal.setApproval(rAppId, rApp);
+                  journal.registerId(rSpanId, "span", ctx.eventId);
+                  let rApp;
+                  if (sp.approval) {
+                    const rAppId = deriveChildEntityId(
+                      ctx.txId,
+                      opIndex,
+                      `app_mv_${splitCounter}`,
+                    );
+                    journal.registerId(rAppId, "approval", ctx.eventId);
+                    rApp = normalizeApproval({
+                      id: rAppId,
+                      eventId: ctx.eventId,
+                      contentDigest: sp.approval.contentDigest,
+                      modifiedSinceApproval: true,
+                    });
+                    journal.setApproval(rAppId, rApp);
+                  }
+                  unaffected.push(
+                    normalizeSpan({
+                      id: rSpanId,
+                      segmentId: rightSeg.id,
+                      startUs: atUs,
+                      endUs: sp.endUs,
+                      kind: sp.kind,
+                      origin: sp.origin,
+                      createdByEventId: ctx.eventId,
+                      revision: 1,
+                      approval: rApp,
+                    }),
+                  );
                 }
-                unaffected.push(
-                  normalizeSpan({
-                    id: rSpanId,
-                    segmentId: rightSeg.id,
-                    startUs: atUs,
-                    endUs: sp.endUs,
-                    kind: sp.kind,
-                    origin: sp.origin,
-                    createdByEventId: ctx.eventId,
-                    revision: 1,
-                    approval: rApp,
-                  }),
-                );
                 splitCounter += 1;
               }
             }
             sortSpansInPlace(unaffected);
             state.spans = unaffected;
+            canonicalizeSegmentSpans(state, journal, leftIdx, ctx, opIndex, "mv_l_");
+            canonicalizeSegmentSpans(state, journal, leftIdx + 1, ctx, opIndex, "mv_r_");
           }
           break;
         }
@@ -2248,6 +2443,7 @@ export function executeTransaction(state, ops, ctx) {
 
           sortSpansInPlace(nextSpans);
           state.spans = nextSpans;
+          canonicalizeSegmentSpans(state, journal, leftIdx, ctx, opIndex, "mg_");
           break;
         }
 
@@ -2259,6 +2455,14 @@ export function executeTransaction(state, ops, ctx) {
               "Automated offers cannot set keep on promote_range_to_segments",
             );
           }
+          const normBndIds = normalizeOptionalIdPair(
+            op.newBoundaryIds,
+            "promote_range_to_segments.newBoundaryIds",
+          );
+          const normSegIds = normalizeOptionalIdPair(
+            op.newSegmentIds,
+            "promote_range_to_segments.newSegmentIds",
+          );
           const range = assertIntervalUs(op.startUs, op.endUs, durationUs, "promote_range");
           if (range.startUs > 0 && !state.segments.some((s) => s.startUs === range.startUs)) {
             const idx = state.segments.findIndex(
@@ -2266,9 +2470,9 @@ export function executeTransaction(state, ops, ctx) {
             );
             if (idx >= 0) {
               const bId =
-                op.newBoundaryIds?.[0] ?? deriveChildEntityId(ctx.txId, opIndex, "bnd_pr0");
+                normBndIds?.[0] ?? deriveChildEntityId(ctx.txId, opIndex, "bnd_pr0");
               const sId =
-                op.newSegmentIds?.[0] ?? deriveChildEntityId(ctx.txId, opIndex, "seg_pr0");
+                normSegIds?.[0] ?? deriveChildEntityId(ctx.txId, opIndex, "seg_pr0");
               applySplitSegmentInternal(
                 state,
                 journal,
@@ -2293,9 +2497,9 @@ export function executeTransaction(state, ops, ctx) {
             );
             if (idx >= 0) {
               const bId =
-                op.newBoundaryIds?.[1] ?? deriveChildEntityId(ctx.txId, opIndex, "bnd_pr1");
+                normBndIds?.[1] ?? deriveChildEntityId(ctx.txId, opIndex, "bnd_pr1");
               const sId =
-                op.newSegmentIds?.[1] ?? deriveChildEntityId(ctx.txId, opIndex, "seg_pr1");
+                normSegIds?.[1] ?? deriveChildEntityId(ctx.txId, opIndex, "seg_pr1");
               applySplitSegmentInternal(
                 state,
                 journal,
