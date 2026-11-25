@@ -82,7 +82,7 @@ describe("All 12 Multi-Model Audit Counterexamples (A1–A7 + Astra #1–#5) & E
 
     assert.equal(compileConstraints(state).beatGuides.length, 2);
 
-    // Bulk shift entire 10-min song by +30 ms (`30_000 us`)
+    // Bulk shift entire 10-min song by +30 ms (`30_000 us`) with explicit `includeVerified: true`
     const shiftedAll = applyEvent(
       state,
       makeEvent(3, "ev_shift_all", "edit", {
@@ -90,6 +90,7 @@ describe("All 12 Multi-Model Audit Counterexamples (A1–A7 + Astra #1–#5) & E
         startUs: 0,
         endUs: 590_000_000,
         deltaUs: 30_000,
+        includeVerified: true,
       }),
     );
 
@@ -106,7 +107,24 @@ describe("All 12 Multi-Model Audit Counterexamples (A1–A7 + Astra #1–#5) & E
     assert.equal(snappedAfter.boundTo?.soundId, snd0.id);
     assert.equal(snappedAfter.boundTo?.alignmentStale, true);
 
-    // `includeVerified: false` shifts ONLY unverified beats and leaves verified beats stationary!
+    // Omitted `includeVerified` defaults to `false`: shifts ONLY unverified beats and leaves verified beats stationary!
+    const shiftedDefaultOmitted = applyEvent(
+      state,
+      makeEvent(3, "ev_shift_default", "edit", {
+        op: "shift_beats",
+        startUs: 0,
+        endUs: 590_000_000,
+        deltaUs: 15_000,
+      }),
+    );
+    assert.equal(shiftedDefaultOmitted.beats.get("beat_2").atUs, anc0.atUs);
+    assert.equal(shiftedDefaultOmitted.beats.get("b_user").atUs, 1_250_000);
+    assert.equal(
+      shiftedDefaultOmitted.beats.get("beat_10").atUs,
+      state.beats.get("beat_10").atUs + 15_000,
+    );
+
+    // Explicit `includeVerified: false` behaves identically!
     const shiftedUnverifiedOnly = applyEvent(
       state,
       makeEvent(3, "ev_shift_unver", "edit", {

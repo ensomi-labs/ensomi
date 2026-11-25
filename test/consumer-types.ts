@@ -63,10 +63,12 @@ export async function verifyConsumerTypes(): Promise<string> {
   const validSoundBinding: BeatBinding = {
     soundId: "snd_0",
     anchorRole: "transient_attack",
+    anchorAtUs: 1_000_000,
   };
   const validCandidateBinding: BeatBinding = {
     candidateEventId: "cand_0",
     anchorRole: "p_center",
+    anchorAtUs: 1_005_000,
   };
   void validSoundBinding;
   void validCandidateBinding;
@@ -98,11 +100,29 @@ export async function verifyConsumerTypes(): Promise<string> {
   };
   ctrl.applyEdit(promoteOp);
 
+  ctrl.applyEdit({
+    op: "place_unbeat",
+    id: "ub_ts_1",
+    atUs: 2_500_000,
+    pulseLayer: "tactus",
+  });
+  const moveUnbeatOp: TransactionOp = {
+    op: "move_unbeat",
+    id: "ub_ts_1",
+    atUs: 2_510_000,
+    tolUs: 30_000,
+    pulseLayer: "subdivision",
+    via: "nudge",
+  };
+  ctrl.applyEdit(moveUnbeatOp);
+
   const snap = ctrl.getSnapshot();
   const view = createProviderView(snap);
   const constraints = compileConstraints(view.snapshot);
   const grid = computeGridFit(snap, { anchorSelector: "primary", verifiedOnly: false });
   const tmap = projectTempoMap(snap);
+  const firstIntervals: number | undefined = tmap.points[0]?.intervalCount;
+  void firstIntervals;
   const inbox = rankInboxItems(snap);
   const ivDigest = computeIntervalMusicalDigest(snap, 0, 4_000_000);
   void constraints;
@@ -153,6 +173,7 @@ export async function verifyConsumerTypes(): Promise<string> {
       writeRanges: [{ startUs: 0, endUs: 4_000_000 }],
       ops: [
         { op: "upsert_beat", beat: { id: "b_ts_offer", atUs: 2_000_000 } },
+        { op: "move_unbeat", id: "ub_ts_1", atUs: 2_520_000 },
         {
           op: "promote_range_to_segments",
           startUs: 1_000_000,
@@ -162,13 +183,17 @@ export async function verifyConsumerTypes(): Promise<string> {
       ],
       notes: [{ code: "ok", message: "Test" }],
     });
-    const normOp = offer.ops[1];
+    const normOp = offer.ops[2];
     if (normOp && normOp.op === "promote_range_to_segments" && normOp.newBoundaryIds) {
       const pair: NormalizedIdPair = normOp.newBoundaryIds;
       void pair;
     }
     const val = validateOffer(snap, offer);
     const prev: OfferPreviewResult = ctrl.previewOffer(offer);
+    const movedUnbeatsCount: number = prev.consequences.unbeatsMoved;
+    const movedUnbeatDelta: number | undefined = prev.diff.unbeats.moved[0]?.deltaUs;
+    void movedUnbeatsCount;
+    void movedUnbeatDelta;
     const acc: AcceptOfferOutcome = ctrl.acceptOffer({
       offerIds: [offer.id],
       authorizedChallenges: [],

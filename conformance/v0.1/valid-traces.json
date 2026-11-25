@@ -180,7 +180,7 @@
           }
         }
       ],
-      "expectedSnapshotDigest": "956353053bea93ddc764a2407ff828b03d84fceec5485e7775e6e8e435d1b196",
+      "expectedSnapshotDigest": "9cd55fef0dc35f378cbc5407e4d2c358f11d6e5670dd072ce0c4fa5497e1b08a",
       "expectedSnapshot": {
         "schemaVersion": "0.3",
         "audio": {
@@ -258,7 +258,8 @@
             "boundTo": {
               "anchorRole": "transient_attack",
               "soundId": "snd_kick_1",
-              "anchorId": "anc_k1"
+              "anchorId": "anc_k1",
+              "anchorAtUs": 4001500
             },
             "structural": {
               "downbeat": true
@@ -674,6 +675,158 @@
             "kind": "segment",
             "createdByEventId": "s_0",
             "retiredByEventId": "s_1"
+          }
+        ],
+        "offers": [],
+        "suppressions": [],
+        "orphanedTransactions": [],
+        "lastSignal": null,
+        "generation": 0,
+        "effort": {
+          "listenUs": 0,
+          "waitUs": 0,
+          "actionCount": 1
+        },
+        "visitedRanges": [],
+        "ready": false,
+        "readyAtSeq": null,
+        "retractedEventIds": [],
+        "lastSeq": 2
+      }
+    },
+    {
+      "id": "shift_beats_omitted_include_verified_defaults_to_false",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "so_0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "conf_song_4",
+            "durationUs": 12000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "so_1",
+          "type": "draft_loaded",
+          "author": {
+            "kind": "model"
+          },
+          "payload": {
+            "segments": [
+              {
+                "id": "seg_0",
+                "startUs": 0,
+                "endUs": 12000000,
+                "regime": "auto"
+              }
+            ],
+            "beats": [
+              {
+                "id": "m_0",
+                "atUs": 1000000
+              },
+              {
+                "id": "m_1",
+                "atUs": 2000000
+              }
+            ]
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 2,
+          "id": "so_2",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "upsert_beat",
+              "beat": {
+                "id": "u_fixed",
+                "atUs": 1500000
+              }
+            },
+            {
+              "op": "shift_beats",
+              "startUs": 0,
+              "endUs": 10000000,
+              "deltaUs": 20000
+            }
+          ]
+        }
+      ],
+      "expectedSnapshotDigest": "415810abe33398441b64bc7ec86bca7385f6c9b9d1755eefb97f00b6ab0488fa",
+      "expectedSnapshot": {
+        "schemaVersion": "0.3",
+        "audio": {
+          "audioId": "conf_song_4",
+          "durationUs": 12000000
+        },
+        "durationUs": 12000000,
+        "segments": [
+          {
+            "id": "seg_0",
+            "startUs": 0,
+            "endUs": 12000000,
+            "startBoundaryId": null,
+            "endBoundaryId": null,
+            "regime": "auto",
+            "origin": "model",
+            "createdByEventId": "so_1",
+            "revision": 1
+          }
+        ],
+        "boundaries": [],
+        "spans": [],
+        "beats": [
+          {
+            "id": "m_0",
+            "atUs": 1020000,
+            "origin": "model",
+            "createdByEventId": "so_1",
+            "revision": 2
+          },
+          {
+            "id": "u_fixed",
+            "atUs": 1500000,
+            "origin": "user",
+            "createdByEventId": "so_2",
+            "revision": 1,
+            "verdict": {
+              "kind": "placed",
+              "eventId": "so_2",
+              "valueDigest": "2adcb16715bc92204c28d1713e869a5f279e38b63a12190ed08ad19c452d1615",
+              "tolUs": 20000,
+              "via": "tap"
+            }
+          },
+          {
+            "id": "m_1",
+            "atUs": 2020000,
+            "origin": "model",
+            "createdByEventId": "so_1",
+            "revision": 2
+          }
+        ],
+        "unbeats": [],
+        "sounds": [],
+        "soundClasses": [],
+        "approvals": [],
+        "retiredEntityIds": [
+          {
+            "id": "seg_audio_399d61d77bce",
+            "kind": "segment",
+            "createdByEventId": "so_0",
+            "retiredByEventId": "so_1"
           }
         ],
         "offers": [],

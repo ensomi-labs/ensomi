@@ -695,6 +695,7 @@ export function projectTempoMap(snapshot, options = {}) {
             meter: defaultMeter,
             startBeatId: b.id,
             beatCount: 1,
+            intervalCount: 1,
             segmentId: grp.segmentId,
             kind: "fermata_hold",
           },
@@ -720,6 +721,7 @@ export function projectTempoMap(snapshot, options = {}) {
           meter: defaultMeter,
           startBeatId: b.id,
           beatCount: 1,
+          intervalCount: grp.nextConnectedBeatUs !== null ? 1 : 0,
           segmentId: grp.segmentId,
           kind: grp.regime === "free" ? "free_pulse" : "steady",
         },
@@ -739,6 +741,8 @@ export function projectTempoMap(snapshot, options = {}) {
         grp.nextConnectedBeatUs !== null
           ? grp.nextConnectedBeatUs
           : grp.beats[grp.beats.length - 1].atUs;
+      const intervalCount =
+        grp.nextConnectedBeatUs !== null ? grp.beats.length : grp.beats.length - 1;
       pushPoint(
         {
           atUs: grp.beats[0].atUs,
@@ -748,6 +752,7 @@ export function projectTempoMap(snapshot, options = {}) {
           meter: defaultMeter,
           startBeatId: grp.beats[0].id,
           beatCount: grp.beats.length,
+          intervalCount,
           segmentId: grp.segmentId,
           kind: "ramp",
         },
@@ -830,6 +835,14 @@ export function projectTempoMap(snapshot, options = {}) {
           : runBeats.length
         : end - idx;
 
+      const ownedIntervalCount = isFinalRun
+        ? needsBridge
+          ? runBeats.length - 1
+          : grp.nextConnectedBeatUs !== null
+            ? runBeats.length
+            : runBeats.length - 1
+        : end - idx;
+
       const runEndUs = isFinalRun
         ? needsBridge
           ? grp.beats[end].atUs
@@ -845,6 +858,7 @@ export function projectTempoMap(snapshot, options = {}) {
           meter: defaultMeter,
           startBeatId: runBeats[0].id,
           beatCount: ownedBeatCount,
+          intervalCount: ownedIntervalCount,
           segmentId: grp.segmentId,
           kind: pointKind,
         },
@@ -863,6 +877,7 @@ export function projectTempoMap(snapshot, options = {}) {
               meter: defaultMeter,
               startBeatId: lastBeat.id,
               beatCount: 1,
+              intervalCount: 1,
               segmentId: grp.segmentId,
               kind: lastBeat.structural?.fermata ? "fermata_hold" : pointKind,
             },

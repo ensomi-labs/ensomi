@@ -171,6 +171,7 @@ export const TRANSACTION_OP_KINDS = Object.freeze([
   "shift_beats",
   "remove_beats",
   "place_unbeat",
+  "move_unbeat",
   "remove_unbeats",
   "beat_to_unbeat",
   "upsert_sound",
@@ -821,6 +822,9 @@ export function normalizeBeatBinding(raw) {
       "INVALID_BEAT",
       "boundTo requires at least one of soundId or candidateEventId",
     );
+  }
+  if (r.anchorAtUs !== undefined && r.anchorAtUs !== null) {
+    out.anchorAtUs = assertNonNegSafeIntUs(r.anchorAtUs, "boundTo.anchorAtUs", "INVALID_BEAT");
   }
   if (r.alignmentStale !== undefined) {
     if (typeof r.alignmentStale !== "boolean") {
@@ -1676,6 +1680,7 @@ export function assertOfferShape(raw) {
     }
     const seenChallengeIds = new Set();
     const seenTargets = new Set();
+    const seenReplacements = new Set();
     for (const ch of o.challenges) {
       const c = assertPlainObject(ch, "OfferChallenge", "INVALID_OFFER");
       const cid = assertNonEmptyId(c.challengeId, "challenge.challengeId", "INVALID_OFFER");
@@ -1702,7 +1707,15 @@ export function assertOfferShape(raw) {
       assertNonEmptyId(c.expectedValueDigest, "challenge.expectedValueDigest", "INVALID_OFFER");
       assertNonEmptyId(c.reasonCode, "challenge.reasonCode", "INVALID_OFFER");
       if (c.replacementId !== undefined) {
-        assertNonEmptyId(c.replacementId, "challenge.replacementId", "INVALID_OFFER");
+        const repId = assertNonEmptyId(c.replacementId, "challenge.replacementId", "INVALID_OFFER");
+        const repKey = `${c.targetKind}:${repId}`;
+        if (seenReplacements.has(repKey)) {
+          throw new EnsomiError(
+            "INVALID_OFFER",
+            `Duplicate challenge replacement "${repKey}" in offer "${String(o.id)}"`,
+          );
+        }
+        seenReplacements.add(repKey);
       }
       if (c.message !== undefined) {
         assertNonEmptyId(c.message, "challenge.message", "INVALID_OFFER");
@@ -1777,4 +1790,4 @@ export function validateAuthorizedChallenges(rawList) {
   return map;
 }
 
-export { CHALLENGE_DISPOSITION_SET, compareCodeUnits };
+export { CHALLENGE_DISPOSITION_SET, compareCodeUnits, VERDICT_VIA_SET };

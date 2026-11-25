@@ -4,7 +4,12 @@
  * and RFC 8785 (JCS) checkpoints.
  */
 
-import { deriveChildEntityId, executeTransaction, getVerdictEntity } from "./interpreter.js";
+import {
+  deriveChildEntityId,
+  executeTransaction,
+  getVerdictEntity,
+  resolveAndStampBeatBinding,
+} from "./interpreter.js";
 import {
   assertPlainObject,
   canonicalJson,
@@ -62,6 +67,8 @@ const ORPHANABLE_ERROR_CODES = new Set([
   "AUDIO_NOT_BOUND",
   "OUT_OF_BOUNDS",
   "MISSING_ENTITY",
+  "SOUND_NOT_FOUND",
+  "INVALID_BEAT_BINDING",
   "REVISION_MISMATCH",
   "DIGEST_MISMATCH",
   "DUPLICATE_ENTITY_ID",
@@ -356,6 +363,12 @@ function computeTouchedRangesForOps(beforeState, ops, durationUs) {
           op.atUs + (op.captureUnverifiedRadiusUs ?? 0) + 1,
         );
         break;
+      case "move_unbeat": {
+        const prev = beforeState.unbeats.get(op.id);
+        if (prev) pushPoint(prev.atUs);
+        pushPoint(op.atUs);
+        break;
+      }
       case "remove_unbeats":
         for (const id of op.ids) {
           const prev = beforeState.unbeats.get(id);
@@ -875,6 +888,13 @@ function applyActiveEventAtomic(state, event) {
         scratch.sounds.set(sound.id, sound);
       }
 
+      for (const [bid, beat] of scratch.beats) {
+        if (beat.boundTo) {
+          const resolvedBoundTo = resolveAndStampBeatBinding(scratch, beat.boundTo, beat.atUs);
+          scratch.beats.set(bid, deepFreeze({ ...beat, boundTo: resolvedBoundTo }));
+        }
+      }
+
       for (const rawSc of payload.soundClasses ?? []) {
         if (!rawSc || typeof rawSc !== "object") {
           throw new EnsomiError("INVALID_SOUND_CLASS", "Draft soundClass must be an object");
@@ -1277,12 +1297,50 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
     scratch.idRegistry = afterState.idRegistry;
 
     // Apply authorized challenge verdict dispositions (`confirm_replacement` | `clear_verdict`)
-    // strictly using the validated `authMap` entry!
+    // strictly using the validated `authMap` entry and explicit `replacementId` ONLY!
+    const claimedReplacementKeys = new Set();
     for (const reqCh of validation.requiredChallenges) {
       const auth = authMap.get(`${offer.id}\0${reqCh.challengeId}`);
       if (!auth) continue;
       const beforeEntity = getVerdictEntity(beforeState, reqCh.targetKind, reqCh.targetId);
       const afterEntity = getVerdictEntity(scratch, reqCh.targetKind, reqCh.targetId);
+
+      if (reqCh.replacementId !== undefined) {
+        const repKey = `${reqCh.targetKind}:${reqCh.replacementId}`;
+        if (claimedReplacementKeys.has(repKey)) {
+          return {
+            ok: /** @type {const} */ (false),
+            errorCode: "OFFER_NOT_ACCEPTABLE",
+            message: `Offer "${offerId}" declares duplicate challenges claiming replacement "${repKey}"`,
+            details: { offerId, replacementId: reqCh.replacementId },
+            status: /** @type {import("../index.d.ts").OfferStatus} */ ("invalid"),
+            conflicts: [
+              deepFreeze({
+                kind: /** @type {const} */ ("invalid_op"),
+                message: `Suggestion declares duplicate challenges claiming replacement "${repKey}".`,
+              }),
+            ],
+            requiredChallenges: /** @type {import("../index.d.ts").OfferChallenge[]} */ ([]),
+          };
+        }
+        claimedReplacementKeys.add(repKey);
+        if (!getVerdictEntity(scratch, reqCh.targetKind, reqCh.replacementId)) {
+          return {
+            ok: /** @type {const} */ (false),
+            errorCode: "OFFER_NOT_ACCEPTABLE",
+            message: `Offer "${offerId}" challenge replacement "${reqCh.replacementId}" does not exist`,
+            details: { offerId, replacementId: reqCh.replacementId },
+            status: /** @type {import("../index.d.ts").OfferStatus} */ ("invalid"),
+            conflicts: [
+              deepFreeze({
+                kind: /** @type {const} */ ("invalid_op"),
+                message: `Challenge replacement "${reqCh.replacementId}" (${reqCh.targetKind}) does not exist in post-offer state.`,
+              }),
+            ],
+            requiredChallenges: /** @type {import("../index.d.ts").OfferChallenge[]} */ ([]),
+          };
+        }
+      }
 
       if (auth.disposition === "clear_verdict") {
         if (afterEntity && afterEntity.verdict) {
@@ -1300,24 +1358,9 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
         let targetAfter = afterEntity;
         let targetIdAfter = reqCh.targetId;
 
-        if (!targetAfter && reqCh.replacementId) {
+        if (!targetAfter && reqCh.replacementId !== undefined) {
           targetAfter = getVerdictEntity(scratch, reqCh.targetKind, reqCh.replacementId);
           targetIdAfter = reqCh.replacementId;
-        } else if (!targetAfter && reqCh.targetKind === "beat" && beforeEntity) {
-          let bestBeat = null;
-          let bestDist = Number.MAX_SAFE_INTEGER;
-          for (const [bid, bCand] of scratch.beats) {
-            if (beforeState.beats.has(bid)) continue;
-            const d = Math.abs(bCand.atUs - beforeEntity.atUs);
-            if (d < bestDist) {
-              bestDist = d;
-              bestBeat = bCand;
-            }
-          }
-          if (bestBeat) {
-            targetAfter = bestBeat;
-            targetIdAfter = bestBeat.id;
-          }
         }
 
         if (targetAfter) {
@@ -1335,7 +1378,10 @@ export function evaluateOfferAcceptBatch(state, offerIds, authMap, eventId) {
               facet = beforeFacet;
             }
           }
-          const tolUs = beforeEntity?.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US;
+          const tolUs =
+            reqCh.targetKind === "unbeat"
+              ? targetAfter.tolUs
+              : (beforeEntity?.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US);
           const vd = computeEntityValueDigest(reqCh.targetKind, targetAfter, facet);
           const confirmed = deepFreeze({
             ...targetAfter,

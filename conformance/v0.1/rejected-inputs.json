@@ -301,6 +301,52 @@
         }
       ],
       "expectedErrorCode": "PROTECTED_HUMAN_TRUTH"
+    },
+    {
+      "id": "reject_snap_beat_missing_sound",
+      "events": [
+        {
+          "schemaVersion": "0.3",
+          "seq": 0,
+          "id": "e0",
+          "type": "audio_bound",
+          "author": {
+            "kind": "host"
+          },
+          "payload": {
+            "audioId": "a",
+            "durationUs": 5000000
+          }
+        },
+        {
+          "schemaVersion": "0.3",
+          "seq": 1,
+          "id": "e1",
+          "type": "edit",
+          "author": {
+            "kind": "user"
+          },
+          "payload": [
+            {
+              "op": "upsert_beat",
+              "beat": {
+                "id": "b0",
+                "atUs": 1000000
+              }
+            },
+            {
+              "op": "snap_beat",
+              "id": "b0",
+              "atUs": 1002000,
+              "boundTo": {
+                "soundId": "missing_sound",
+                "anchorRole": "transient_attack"
+              }
+            }
+          ]
+        }
+      ],
+      "expectedErrorCode": "SOUND_NOT_FOUND"
     }
   ]
 }

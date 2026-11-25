@@ -203,6 +203,7 @@
         "candidateEventId": { "type": "string", "minLength": 1 },
         "anchorId": { "type": "string", "minLength": 1 },
         "anchorRole": { "$ref": "#/$defs/SnapRole" },
+        "anchorAtUs": { "$ref": "#/$defs/NonNegUs" },
         "alignmentStale": { "type": "boolean" }
       },
       "additionalProperties": false

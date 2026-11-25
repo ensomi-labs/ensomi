@@ -189,6 +189,7 @@ export interface Span {
 export interface BeatBindingBase {
   anchorId?: string;
   anchorRole: SnapRole;
+  anchorAtUs?: number;
   alignmentStale?: boolean;
 }
 
@@ -434,9 +435,17 @@ export type OfferOp =
       startUs: number;
       endUs: number;
       deltaUs: number;
+      /** Defaults to `false` (verified beats stay anchored unless `true` is explicitly passed). */
       includeVerified?: boolean;
     }
   | { op: "remove_beats"; ids: string[] }
+  | {
+      op: "move_unbeat";
+      id: string;
+      atUs: number;
+      tolUs?: number;
+      pulseLayer?: PulseLayer;
+    }
   | { op: "remove_unbeats"; ids: string[] }
   | { op: "upsert_sound"; sound: SoundInput }
   | { op: "update_sound"; id: string; patch: SoundPatch }
@@ -515,6 +524,7 @@ export type TransactionOp =
       startUs: number;
       endUs: number;
       deltaUs: number;
+      /** Defaults to `false` (verified beats stay anchored unless `true` is explicitly passed). */
       includeVerified?: boolean;
     }
   | { op: "remove_beats"; ids: string[] }
@@ -526,6 +536,14 @@ export type TransactionOp =
       pulseLayer?: PulseLayer;
       captureUnverifiedRadiusUs?: number;
       removeVerifiedBeatIds?: string[];
+      via?: VerdictVia;
+    }
+  | {
+      op: "move_unbeat";
+      id: string;
+      atUs: number;
+      tolUs?: number;
+      pulseLayer?: PulseLayer;
       via?: VerdictVia;
     }
   | { op: "remove_unbeats"; ids: string[] }
@@ -824,6 +842,7 @@ export interface OfferPreviewDiff {
   };
   unbeats: {
     added: Unbeat[];
+    moved: Array<{ before: Unbeat; after: Unbeat; deltaUs: number }>;
     removed: Unbeat[];
   };
   sounds: {
@@ -847,6 +866,7 @@ export interface OfferConsequences {
   beatsAdded: number;
   beatsMoved: number;
   beatsRemoved: number;
+  unbeatsMoved: number;
   maxShiftUs: number;
   soundsAdded: number;
   soundsUpdated: number;
@@ -1032,6 +1052,7 @@ export interface TempoPoint {
   meter: number;
   startBeatId: string;
   beatCount: number;
+  intervalCount: number;
   segmentId: string | null;
   kind: TempoPointKind;
   downbeat?: boolean;

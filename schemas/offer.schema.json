@@ -48,6 +48,7 @@
         "snap_beat",
         "shift_beats",
         "remove_beats",
+        "move_unbeat",
         "remove_unbeats",
         "upsert_sound",
         "update_sound",
@@ -118,7 +119,7 @@
             "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
             "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
             "deltaUs": { "type": "integer" },
-            "includeVerified": { "type": "boolean" }
+            "includeVerified": { "type": "boolean", "default": false }
           },
           "additionalProperties": false
         },
@@ -127,6 +128,17 @@
           "properties": {
             "op": { "const": "remove_beats" },
             "ids": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "id", "atUs"],
+          "properties": {
+            "op": { "const": "move_unbeat" },
+            "id": { "type": "string", "minLength": 1 },
+            "atUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "tolUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "pulseLayer": { "$ref": "entities.schema.json#/$defs/PulseLayer" }
           },
           "additionalProperties": false
         },

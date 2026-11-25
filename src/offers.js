@@ -251,6 +251,8 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
 
   /** @type {Set<string>} */
   const referencedSegmentIds = new Set();
+  /** @type {Set<string>} */
+  const referencedUnbeatIds = new Set();
   if (Array.isArray(ops)) {
     for (const op of ops) {
       if (!op || typeof op !== "object") continue;
@@ -270,6 +272,8 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
             referencedSegmentIds.add(s.id);
           }
         }
+      } else if (op.op === "move_unbeat" && typeof op.id === "string") {
+        referencedUnbeatIds.add(op.id);
       }
     }
   }
@@ -317,7 +321,7 @@ export function computeOfferDependencies(snapshotOrState, writeRanges, derivedFr
     .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
 
   const unbeats = Array.from(state.unbeats.values())
-    .filter((u) => pointInWrite(u.atUs))
+    .filter((u) => pointInWrite(u.atUs) || referencedUnbeatIds.has(u.id))
     .map((u) => ({ id: u.id, atUs: u.atUs, revision: u.revision }))
     .sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
 
@@ -539,15 +543,26 @@ export function computeOfferDiffAndConsequences(beforeState, afterState) {
 
   /** @type {import("../index.d.ts").Unbeat[]} */
   const unbeatsAdded = [];
+  /** @type {Array<{ before: import("../index.d.ts").Unbeat, after: import("../index.d.ts").Unbeat, deltaUs: number }>} */
+  const unbeatsMoved = [];
   /** @type {import("../index.d.ts").Unbeat[]} */
   const unbeatsRemoved = [];
   for (const [id, uBefore] of beforeState.unbeats) {
-    if (!afterState.unbeats.has(id)) unbeatsRemoved.push(uBefore);
+    const uAfter = afterState.unbeats.get(id);
+    if (!uAfter) {
+      unbeatsRemoved.push(uBefore);
+    } else if (uAfter.revision !== uBefore.revision) {
+      const deltaUs = uAfter.atUs - uBefore.atUs;
+      const absShift = Math.abs(deltaUs);
+      if (absShift > maxShiftUs) maxShiftUs = absShift;
+      unbeatsMoved.push({ before: uBefore, after: uAfter, deltaUs });
+    }
   }
   for (const [id, uAfter] of afterState.unbeats) {
     if (!beforeState.unbeats.has(id)) unbeatsAdded.push(uAfter);
   }
   unbeatsAdded.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
+  unbeatsMoved.sort((a, b) => a.after.atUs - b.after.atUs || compareCodeUnits(a.after.id, b.after.id));
   unbeatsRemoved.sort((a, b) => a.atUs - b.atUs || compareCodeUnits(a.id, b.id));
 
   /** @type {import("../index.d.ts").Sound[]} */
@@ -617,7 +632,7 @@ export function computeOfferDiffAndConsequences(beforeState, afterState) {
 
   const diff = deepFreeze({
     beats: { added: beatsAdded, moved: beatsMoved, removed: beatsRemoved },
-    unbeats: { added: unbeatsAdded, removed: unbeatsRemoved },
+    unbeats: { added: unbeatsAdded, moved: unbeatsMoved, removed: unbeatsRemoved },
     sounds: { added: soundsAdded, updated: soundsUpdated, removed: soundsRemoved },
     boundaries: { added: boundariesAdded, moved: boundariesMoved, removed: boundariesRemoved },
     segments: { added: segmentsAdded, updated: segmentsUpdated, removed: segmentsRemoved },
@@ -627,6 +642,7 @@ export function computeOfferDiffAndConsequences(beforeState, afterState) {
     beatsAdded: beatsAdded.length,
     beatsMoved: beatsMoved.length,
     beatsRemoved: beatsRemoved.length,
+    unbeatsMoved: unbeatsMoved.length,
     maxShiftUs,
     soundsAdded: soundsAdded.length,
     soundsUpdated: soundsUpdated.length,
@@ -652,6 +668,9 @@ export function formatConsequenceSummary(c) {
     const maxMs = Math.round(c.maxShiftUs / 1000);
     const shiftNote = maxMs >= 1 ? ` (up to ${maxMs} ms)` : "";
     parts.push(`Nudges ${c.beatsMoved} beat${c.beatsMoved === 1 ? "" : "s"}${shiftNote}`);
+  }
+  if (c.unbeatsMoved > 0) {
+    parts.push(`nudges ${c.unbeatsMoved} unbeat${c.unbeatsMoved === 1 ? "" : "s"}`);
   }
   if (c.beatsAdded > 0 && c.beatsRemoved > 0) {
     parts.push(
@@ -830,6 +849,16 @@ function checkSingleOpWithinWriteRanges(stepState, op, mergedWriteRanges) {
             message: `Suggestion removes a beat near ${formatTimeUs(existing.atUs)} outside its target range.`,
           });
         }
+      }
+      break;
+    }
+    case "move_unbeat": {
+      const existing = stepState.unbeats.get(op.id);
+      if (!pointInWrite(op.atUs) || (existing && !pointInWrite(existing.atUs))) {
+        conflicts.push({
+          kind: "out_of_scope",
+          message: `Suggestion moves an unbeat near ${formatTimeUs(op.atUs ?? 0)} outside its target range.`,
+        });
       }
       break;
     }
@@ -1536,7 +1565,9 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
           message: err.message,
         });
       } else if (
-        (code === "MISSING_ENTITY" || code === "INVALID_SEGMENT_EDIT") &&
+        (code === "MISSING_ENTITY" ||
+          code === "SOUND_NOT_FOUND" ||
+          code === "INVALID_SEGMENT_EDIT") &&
         conflicts.some((c) => c.kind === "range_changed" || c.kind === "version_mismatch")
       ) {
         pushConflict({
@@ -1608,6 +1639,11 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
           for (const bid of op.ids ?? []) {
             const ex = beforeState.beats.get(bid);
             if (ex && rangeContainsUs(kp, ex.atUs)) touchesKeep = true;
+          }
+        } else if (op.op === "move_unbeat") {
+          const ex = beforeState.unbeats.get(op.id);
+          if (rangeContainsUs(kp, op.atUs) || (ex && rangeContainsUs(kp, ex.atUs))) {
+            touchesKeep = true;
           }
         } else if (op.op === "remove_unbeats") {
           for (const uid of op.ids ?? []) {
@@ -1718,6 +1754,7 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
   const declaredChallenges = Array.isArray(offer.challenges) ? offer.challenges : [];
   const seenChallengeIds = new Set();
   const seenChallengeTargets = new Set();
+  const seenChallengeReplacements = new Set();
   for (const ch of declaredChallenges) {
     if (!ch || typeof ch !== "object" || Array.isArray(ch)) {
       pushConflict({
@@ -1751,6 +1788,25 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
     }
     seenChallengeTargets.add(targetKey);
 
+    if (ch.replacementId !== undefined) {
+      if (typeof ch.replacementId !== "string" || ch.replacementId.length === 0) {
+        pushConflict({
+          kind: "invalid_op",
+          message: `Suggestion challenge "${ch.challengeId}" has an invalid replacementId.`,
+        });
+        continue;
+      }
+      const repKey = `${String(ch.targetKind)}:${ch.replacementId}`;
+      if (seenChallengeReplacements.has(repKey)) {
+        pushConflict({
+          kind: "invalid_op",
+          message: `Suggestion declares duplicate challenges claiming replacement "${repKey}".`,
+        });
+        continue;
+      }
+      seenChallengeReplacements.add(repKey);
+    }
+
     const entity = getVerdictEntity(beforeState, ch.targetKind, ch.targetId);
     if (!entity || !entity.verdict) {
       pushConflict({
@@ -1774,6 +1830,42 @@ export function evaluateOfferInternal(snapshotOrState, offer, options = {}) {
   const requiredChallenges = [];
 
   if (executedOk) {
+    const postVerdictTargets = new Set();
+    for (const ch of declaredChallenges) {
+      if (!ch || typeof ch !== "object" || Array.isArray(ch)) continue;
+      if (typeof ch.targetKind !== "string" || typeof ch.targetId !== "string") continue;
+      const afterTarget = getVerdictEntity(afterState, ch.targetKind, ch.targetId);
+      if (ch.replacementId !== undefined) {
+        if (typeof ch.replacementId !== "string" || ch.replacementId.length === 0) continue;
+        const repEntity = getVerdictEntity(afterState, ch.targetKind, ch.replacementId);
+        if (!repEntity) {
+          pushConflict({
+            kind: "invalid_op",
+            message: `Challenge replacement "${ch.replacementId}" (${ch.targetKind}) does not exist in post-offer state.`,
+          });
+          continue;
+        }
+        if (afterTarget && ch.replacementId !== ch.targetId) {
+          pushConflict({
+            kind: "invalid_op",
+            message: `Challenge "${ch.challengeId}" specifies replacementId "${ch.replacementId}" while target "${ch.targetId}" was not removed.`,
+          });
+          continue;
+        }
+      }
+      const effectiveAfterId = afterTarget ? ch.targetId : ch.replacementId;
+      if (effectiveAfterId !== undefined) {
+        const postKey = `${ch.targetKind}:${effectiveAfterId}`;
+        if (postVerdictTargets.has(postKey)) {
+          pushConflict({
+            kind: "invalid_op",
+            message: `Multiple challenges map to the same post-offer mark "${postKey}".`,
+          });
+        } else {
+          postVerdictTargets.add(postKey);
+        }
+      }
+    }
     /**
      * Record a human-verdict violation and match against `declaredChallenges`.
      * @param {"beat" | "unbeat" | "sound" | "sound_class" | "boundary"} kind

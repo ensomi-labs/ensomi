@@ -35,6 +35,7 @@
         "shift_beats",
         "remove_beats",
         "place_unbeat",
+        "move_unbeat",
         "remove_unbeats",
         "beat_to_unbeat",
         "upsert_sound",
@@ -116,7 +117,7 @@
             "startUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
             "endUs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
             "deltaUs": { "type": "integer" },
-            "includeVerified": { "type": "boolean" }
+            "includeVerified": { "type": "boolean", "default": false }
           },
           "additionalProperties": false
         },
@@ -141,6 +142,18 @@
               "type": "array",
               "items": { "type": "string", "minLength": 1 }
             },
+            "via": { "$ref": "entities.schema.json#/$defs/VerdictVia" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "required": ["op", "id", "atUs"],
+          "properties": {
+            "op": { "const": "move_unbeat" },
+            "id": { "type": "string", "minLength": 1 },
+            "atUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "tolUs": { "$ref": "entities.schema.json#/$defs/NonNegUs" },
+            "pulseLayer": { "$ref": "entities.schema.json#/$defs/PulseLayer" },
             "via": { "$ref": "entities.schema.json#/$defs/VerdictVia" }
           },
           "additionalProperties": false

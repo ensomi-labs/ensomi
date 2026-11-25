@@ -48,6 +48,7 @@ import {
   SEGMENT_REGIMES,
   validateSoundFacet,
   VERDICT_TARGET_KINDS,
+  VERDICT_VIA_SET,
 } from "./types.js";
 import { computeIntervalMusicalDigest } from "./views.js";
 
@@ -78,10 +79,30 @@ function withoutRevision(entity) {
   return rest;
 }
 
+function withoutRevisionAndVerdict(entity) {
+  const { revision: _rev, verdict: _verdict, ...rest } = entity;
+  return rest;
+}
+
 function entitiesSemanticallyEqual(a, b) {
   if (a === b) return true;
   if (!a || !b) return false;
   return canonicalJson(withoutRevision(a)) === canonicalJson(withoutRevision(b));
+}
+
+function coreFieldsEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    canonicalJson(withoutRevisionAndVerdict(a)) ===
+    canonicalJson(withoutRevisionAndVerdict(b))
+  );
+}
+
+function assertVerdictVia(via, label) {
+  if (!VERDICT_VIA_SET.has(/** @type {any} */ (via))) {
+    throw new EnsomiError("INVALID_VERDICT", `Invalid ${label}: ${String(via)}`);
+  }
 }
 
 /**
@@ -329,6 +350,54 @@ function sortSpansInPlace(spans) {
 }
 
 /**
+ * Validate `Beat.boundTo` against live `state.sounds` (`SOUND_NOT_FOUND` if `soundId` is missing,
+ * `INVALID_BEAT_BINDING` if `anchorId` does not exist on that sound) and stamp `anchorAtUs`.
+ *
+ * @param {import("../index.d.ts").SessionState} state
+ * @param {unknown} rawBoundTo
+ * @param {number} targetAtUs
+ * @returns {import("../index.d.ts").BeatBinding}
+ */
+export function resolveAndStampBeatBinding(state, rawBoundTo, targetAtUs) {
+  const norm = normalizeBeatBinding(rawBoundTo);
+  /** @type {import("../index.d.ts").SoundAnchorPoint | null} */
+  let resolvedSoundAnchor = null;
+  if (norm.soundId !== undefined) {
+    const sound = state.sounds.get(norm.soundId);
+    if (!sound) {
+      throw new EnsomiError(
+        "SOUND_NOT_FOUND",
+        `Beat boundTo references unknown sound "${norm.soundId}"`,
+        { soundId: norm.soundId },
+      );
+    }
+    if (norm.anchorId !== undefined) {
+      resolvedSoundAnchor = sound.anchors.find((a) => a.id === norm.anchorId) ?? null;
+      if (!resolvedSoundAnchor) {
+        throw new EnsomiError(
+          "INVALID_BEAT_BINDING",
+          `Sound "${norm.soundId}" has no anchor "${norm.anchorId}"`,
+          { soundId: norm.soundId, anchorId: norm.anchorId },
+        );
+      }
+    } else {
+      resolvedSoundAnchor =
+        sound.anchors.find((a) => a.role === norm.anchorRole) ??
+        sound.anchors.find((a) => a.id === sound.primaryAnchorId) ??
+        sound.anchors[0] ??
+        null;
+    }
+  }
+  const anchorAtUs = resolvedSoundAnchor
+    ? resolvedSoundAnchor.atUs
+    : (norm.anchorAtUs ?? targetAtUs);
+  return normalizeBeatBinding({
+    ...norm,
+    anchorAtUs,
+  });
+}
+
+/**
  * Evaluate whether a shifted beat's `boundTo` anchor alignment has drifted beyond tolerance.
  *
  * @param {import("../index.d.ts").SessionState} state
@@ -339,6 +408,7 @@ function sortSpansInPlace(spans) {
  * @returns {import("../index.d.ts").BeatBinding}
  */
 function updateBeatBindingAfterShift(state, boundTo, nextAtUs, deltaUs, verdictTolUs) {
+  const hasSoundId = Boolean(boundTo.soundId);
   const sound = boundTo.soundId ? state.sounds.get(boundTo.soundId) : undefined;
   let anchor = null;
   if (sound) {
@@ -348,16 +418,20 @@ function updateBeatBindingAfterShift(state, boundTo, nextAtUs, deltaUs, verdictT
       sound.anchors.find((a) => a.id === sound.primaryAnchorId) ??
       sound.anchors[0];
   }
+  const refAtUs = anchor ? anchor.atUs : boundTo.anchorAtUs;
   const tolUs = verdictTolUs ?? anchor?.sigmaUs ?? DEFAULT_SOUND_TOL_US;
-  const isStale = anchor
-    ? Math.abs(nextAtUs - anchor.atUs) > tolUs
-    : Math.abs(deltaUs) > tolUs || Boolean(boundTo.alignmentStale);
+  const isStale =
+    (hasSoundId && !sound) ||
+    (refAtUs !== undefined
+      ? Math.abs(nextAtUs - refAtUs) > tolUs
+      : Math.abs(deltaUs) > tolUs || Boolean(boundTo.alignmentStale));
 
   return normalizeBeatBinding({
     soundId: boundTo.soundId,
     candidateEventId: boundTo.candidateEventId,
     anchorId: boundTo.anchorId,
     anchorRole: boundTo.anchorRole,
+    anchorAtUs: refAtUs,
     alignmentStale: isStale ? true : undefined,
   });
 }
@@ -1168,6 +1242,17 @@ export function executeTransaction(state, ops, ctx) {
             },
             { durationUs },
           );
+          if (draftBeat.boundTo) {
+            const resolvedBoundTo = resolveAndStampBeatBinding(
+              state,
+              draftBeat.boundTo,
+              draftBeat.atUs,
+            );
+            draftBeat = deepFreeze({
+              ...draftBeat,
+              boundTo: resolvedBoundTo,
+            });
+          }
 
           if (ctx.actorMode === "user") {
             const tolUs =
@@ -1217,35 +1302,58 @@ export function executeTransaction(state, ops, ctx) {
             op.confidence !== undefined
               ? assertUnitInterval(op.confidence, "move_beat.confidence", "INVALID_FIELD")
               : undefined;
+          const resolvedTolUs =
+            ctx.actorMode === "user" && op.tolUs !== undefined
+              ? assertNonNegSafeIntUs(op.tolUs, "move_beat.tolUs", "INVALID_VERDICT")
+              : existing.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US;
+          if (ctx.actorMode === "user" && op.via !== undefined) {
+            assertVerdictVia(op.via, "move_beat.via");
+          }
           const nextBoundTo =
             op.boundTo === null
               ? undefined
               : op.boundTo !== undefined
-                ? normalizeBeatBinding(op.boundTo)
+                ? resolveAndStampBeatBinding(state, op.boundTo, atUs)
                 : existing.boundTo
-                  ? updateBeatBindingAfterShift(
-                      state,
-                      existing.boundTo,
-                      atUs,
-                      atUs - existing.atUs,
-                      existing.verdict?.tolUs,
-                    )
+                  ? atUs === existing.atUs
+                    ? existing.boundTo
+                    : updateBeatBindingAfterShift(
+                        state,
+                        existing.boundTo,
+                        atUs,
+                        atUs - existing.atUs,
+                        existing.verdict?.tolUs,
+                      )
                   : undefined;
-          const nextStructural =
-            op.structural === null
-              ? undefined
-              : op.structural !== undefined
-                ? normalizeBeatStructural(op.structural)
-                : existing.structural;
+          let nextStructural;
+          if (op.structural === null) {
+            nextStructural = undefined;
+          } else if (op.structural !== undefined) {
+            const normSt = normalizeBeatStructural(op.structural);
+            nextStructural = Object.keys(normSt).length > 0 ? normSt : undefined;
+          } else {
+            nextStructural = existing.structural;
+          }
+          const nextConfidence =
+            validatedConf !== undefined ? validatedConf : existing.confidence;
 
-          // Zero-delta check: accidental zero-delta move on unverified beat does NOT fabricate verdict
+          // Compare musical/structural fields BEFORE stamping a user verdict so clamped/zero-delta
+          // adjustments NEVER fabricate an `"adjusted"` verdict on unverified marks!
           if (
             atUs === existing.atUs &&
-            canonicalJson(nextBoundTo ?? null) === canonicalJson(existing.boundTo ?? null) &&
-            canonicalJson(nextStructural ?? null) === canonicalJson(existing.structural ?? null) &&
-            (validatedConf === undefined || validatedConf === existing.confidence)
+            nextConfidence === existing.confidence &&
+            (nextBoundTo === existing.boundTo ||
+              canonicalJson(nextBoundTo ?? null) === canonicalJson(existing.boundTo ?? null)) &&
+            (nextStructural === existing.structural ||
+              canonicalJson(nextStructural ?? null) === canonicalJson(existing.structural ?? null))
           ) {
-            break;
+            if (
+              ctx.actorMode !== "user" ||
+              !existing.verdict ||
+              resolvedTolUs === existing.verdict.tolUs
+            ) {
+              break;
+            }
           }
 
           /** @type {import("../index.d.ts").BeatLineage | undefined} */
@@ -1258,8 +1366,6 @@ export function executeTransaction(state, ops, ctx) {
             });
           }
 
-          const nextConfidence =
-            validatedConf !== undefined ? validatedConf : existing.confidence;
           const vdTarget = {
             id: existing.id,
             atUs,
@@ -1270,17 +1376,13 @@ export function executeTransaction(state, ops, ctx) {
           /** @type {import("../index.d.ts").Verdict | undefined} */
           let verdict;
           if (ctx.actorMode === "user") {
-            const tolUs =
-              op.tolUs !== undefined
-                ? assertNonNegSafeIntUs(op.tolUs, "move_beat.tolUs", "INVALID_VERDICT")
-                : existing.verdict?.tolUs ?? DEFAULT_BEAT_TOL_US;
             const vd = computeEntityValueDigest("beat", vdTarget);
             const via = op.via ?? "nudge";
             verdict = Object.freeze({
               kind: existing.origin === "user" ? "placed" : "adjusted",
               eventId: ctx.eventId,
               valueDigest: vd,
-              tolUs,
+              tolUs: resolvedTolUs,
               via,
             });
           } else if (existing.verdict) {
@@ -1296,9 +1398,7 @@ export function executeTransaction(state, ops, ctx) {
             revision: existing.revision + 1,
             ...(nextConfidence !== undefined ? { confidence: nextConfidence } : {}),
             ...(nextBoundTo ? { boundTo: nextBoundTo } : {}),
-            ...(nextStructural && Object.keys(nextStructural).length > 0
-              ? { structural: nextStructural }
-              : {}),
+            ...(nextStructural ? { structural: nextStructural } : {}),
             ...(lineage ? { lineage } : {}),
             ...(verdict ? { verdict } : {}),
           });
@@ -1322,7 +1422,7 @@ export function executeTransaction(state, ops, ctx) {
             rawSnapConf !== undefined
               ? assertUnitInterval(rawSnapConf, "snap_beat.confidence", "INVALID_FIELD")
               : existing.confidence;
-          const boundTo = normalizeBeatBinding(op.boundTo);
+          const boundTo = resolveAndStampBeatBinding(state, op.boundTo, atUs);
 
           let lineage = existing.lineage;
           if (ctx.actorMode === "user" && existing.origin !== "user" && !lineage) {
@@ -1386,7 +1486,7 @@ export function executeTransaction(state, ops, ctx) {
           const op = /** @type {Extract<import("../index.d.ts").TransactionOp, { op: "shift_beats" }>} */ (rawOp);
           const range = assertIntervalUs(op.startUs, op.endUs, durationUs, "shift_beats");
           const deltaUs = assertSafeIntUs(op.deltaUs, "shift_beats.deltaUs");
-          const includeVerified = op.includeVerified !== false;
+          const includeVerified = op.includeVerified === true;
           if (deltaUs === 0) break; // semantic no-op
 
           /** @type {import("../index.d.ts").Beat[]} */
@@ -1593,6 +1693,88 @@ export function executeTransaction(state, ops, ctx) {
           break;
         }
 
+        case "move_unbeat": {
+          const op = /** @type {Extract<import("../index.d.ts").TransactionOp, { op: "move_unbeat" }>} */ (rawOp);
+          if (ctx.actorMode !== "user" && /** @type {any} */ (op).via !== undefined) {
+            throw new EnsomiError(
+              "AUTHORITY_VIOLATION",
+              "Non-user transaction cannot set verdict via on move_unbeat",
+            );
+          }
+          if (ctx.actorMode === "user" && op.via !== undefined) {
+            assertVerdictVia(op.via, "move_unbeat.via");
+          }
+          const id = assertNonEmptyId(op.id, "move_unbeat.id", "INVALID_UNBEAT");
+          const existing = state.unbeats.get(id);
+          if (!existing) {
+            throw new EnsomiError("MISSING_ENTITY", `Unbeat "${id}" does not exist`);
+          }
+          const atUs = assertPointUs(op.atUs, durationUs, "move_unbeat.atUs");
+          const tolUs =
+            op.tolUs !== undefined
+              ? assertNonNegSafeIntUs(op.tolUs, "move_unbeat.tolUs", "INVALID_UNBEAT")
+              : existing.tolUs;
+
+          let nextUnbeat = normalizeUnbeat(
+            {
+              id: existing.id,
+              atUs,
+              origin: existing.origin,
+              createdByEventId: existing.createdByEventId,
+              revision: existing.revision + 1,
+              tolUs,
+              pulseLayer: op.pulseLayer ?? existing.pulseLayer,
+              replaces: existing.replaces,
+            },
+            { durationUs },
+          );
+
+          // Compare non-verdict, non-revision fields BEFORE stamping verdict so clamped/zero-delta
+          // nudges never fabricate an `"adjusted"` verdict on unverified unbeats!
+          if (
+            nextUnbeat.atUs === existing.atUs &&
+            nextUnbeat.tolUs === existing.tolUs &&
+            nextUnbeat.pulseLayer === existing.pulseLayer
+          ) {
+            if (
+              ctx.actorMode !== "user" ||
+              !existing.verdict ||
+              existing.verdict.tolUs === tolUs
+            ) {
+              break;
+            }
+          }
+
+          if (ctx.actorMode === "user") {
+            const vd = computeEntityValueDigest("unbeat", nextUnbeat);
+            nextUnbeat = normalizeUnbeat(
+              {
+                ...nextUnbeat,
+                verdict: {
+                  kind: existing.origin === "user" ? "placed" : "adjusted",
+                  eventId: ctx.eventId,
+                  valueDigest: vd,
+                  tolUs,
+                  via: op.via ?? "nudge",
+                },
+              },
+              { durationUs },
+            );
+          } else if (existing.verdict) {
+            nextUnbeat = normalizeUnbeat(
+              {
+                ...nextUnbeat,
+                verdict: existing.verdict,
+              },
+              { durationUs },
+            );
+          }
+
+          if (entitiesSemanticallyEqual(existing, nextUnbeat)) break;
+          journal.setUnbeat(existing.id, nextUnbeat);
+          break;
+        }
+
         case "remove_unbeats": {
           const op = /** @type {Extract<import("../index.d.ts").TransactionOp, { op: "remove_unbeats" }>} */ (rawOp);
           if (!Array.isArray(op.ids) || op.ids.length === 0) {
@@ -1762,13 +1944,37 @@ export function executeTransaction(state, ops, ctx) {
             { durationUs },
           );
 
+          let resolvedFacet;
+          let resolvedTolUs;
           if (ctx.actorMode === "user") {
-            const facet = validateSoundFacet(op.facet ?? existing.verdict?.facet, nextSound.anchors);
-            const tolUs =
+            resolvedFacet = validateSoundFacet(
+              op.facet ?? existing.verdict?.facet,
+              nextSound.anchors,
+            );
+            resolvedTolUs =
               op.tolUs !== undefined
                 ? assertNonNegSafeIntUs(op.tolUs, "update_sound.tolUs", "INVALID_VERDICT")
                 : existing.verdict?.tolUs ?? DEFAULT_SOUND_TOL_US;
-            const vd = computeEntityValueDigest("sound", nextSound, facet);
+            if (op.via !== undefined) {
+              assertVerdictVia(op.via, "update_sound.via");
+            }
+          }
+
+          // Compare non-verdict, non-revision fields BEFORE stamping user verdict so clamped
+          // / unchanged adjustments NEVER fabricate an `"adjusted"` verdict!
+          if (coreFieldsEqual(existing, nextSound)) {
+            if (
+              ctx.actorMode !== "user" ||
+              !existing.verdict ||
+              (resolvedFacet === (existing.verdict.facet ?? "occurrence") &&
+                resolvedTolUs === existing.verdict.tolUs)
+            ) {
+              break;
+            }
+          }
+
+          if (ctx.actorMode === "user") {
+            const vd = computeEntityValueDigest("sound", nextSound, resolvedFacet);
             nextSound = normalizeSound(
               {
                 ...nextSound,
@@ -1776,8 +1982,8 @@ export function executeTransaction(state, ops, ctx) {
                   kind: existing.origin === "user" ? "placed" : "adjusted",
                   eventId: ctx.eventId,
                   valueDigest: vd,
-                  tolUs,
-                  facet,
+                  tolUs: /** @type {number} */ (resolvedTolUs),
+                  facet: resolvedFacet,
                   via: op.via ?? "nudge",
                 },
               },
@@ -1820,45 +2026,60 @@ export function executeTransaction(state, ops, ctx) {
             }
           }
           for (const b of state.beats.values()) {
-            if (b.boundTo?.soundId && deletingIds.has(b.boundTo.soundId) && !b.boundTo.alignmentStale) {
-              const staleBoundTo = normalizeBeatBinding({
-                ...b.boundTo,
-                alignmentStale: true,
-              });
-              let updatedBeat = normalizeBeat(
-                {
-                  ...b,
-                  revision: b.revision + 1,
-                  boundTo: staleBoundTo,
-                  verdict: undefined,
-                },
-                { durationUs },
-              );
-              if (b.verdict) {
-                if (ctx.actorMode === "user") {
-                  const vd = computeEntityValueDigest("beat", updatedBeat);
-                  updatedBeat = normalizeBeat(
-                    {
-                      ...updatedBeat,
-                      verdict: {
-                        ...b.verdict,
-                        eventId: ctx.eventId,
-                        valueDigest: vd,
+            if (b.boundTo?.soundId && deletingIds.has(b.boundTo.soundId)) {
+              const deletingSound = state.sounds.get(b.boundTo.soundId);
+              const deletingAnchor = deletingSound
+                ? (b.boundTo.anchorId
+                    ? deletingSound.anchors.find((a) => a.id === b.boundTo?.anchorId)
+                    : null) ??
+                  deletingSound.anchors.find((a) => a.role === b.boundTo?.anchorRole) ??
+                  deletingSound.anchors.find((a) => a.id === deletingSound.primaryAnchorId) ??
+                  deletingSound.anchors[0]
+                : null;
+              const preservedAnchorAtUs = deletingAnchor?.atUs ?? b.boundTo.anchorAtUs;
+              if (!b.boundTo.alignmentStale || b.boundTo.anchorAtUs !== preservedAnchorAtUs) {
+                const staleBoundTo = normalizeBeatBinding({
+                  ...b.boundTo,
+                  ...(preservedAnchorAtUs !== undefined
+                    ? { anchorAtUs: preservedAnchorAtUs }
+                    : {}),
+                  alignmentStale: true,
+                });
+                let updatedBeat = normalizeBeat(
+                  {
+                    ...b,
+                    revision: b.revision + 1,
+                    boundTo: staleBoundTo,
+                    verdict: undefined,
+                  },
+                  { durationUs },
+                );
+                if (b.verdict) {
+                  if (ctx.actorMode === "user") {
+                    const vd = computeEntityValueDigest("beat", updatedBeat);
+                    updatedBeat = normalizeBeat(
+                      {
+                        ...updatedBeat,
+                        verdict: {
+                          ...b.verdict,
+                          eventId: ctx.eventId,
+                          valueDigest: vd,
+                        },
                       },
-                    },
-                    { durationUs },
-                  );
-                } else {
-                  updatedBeat = normalizeBeat(
-                    {
-                      ...updatedBeat,
-                      verdict: b.verdict,
-                    },
-                    { durationUs },
-                  );
+                      { durationUs },
+                    );
+                  } else {
+                    updatedBeat = normalizeBeat(
+                      {
+                        ...updatedBeat,
+                        verdict: b.verdict,
+                      },
+                      { durationUs },
+                    );
+                  }
                 }
+                journal.setBeat(b.id, updatedBeat);
               }
-              journal.setBeat(b.id, updatedBeat);
             }
           }
           for (const id of deletingIds) {
@@ -2119,7 +2340,38 @@ export function executeTransaction(state, ops, ctx) {
               `move_boundary atUs (${atUs}) must lie strictly inside (${leftSeg.startUs}, ${rightSeg.endUs})`,
             );
           }
-          if (atUs === bnd.atUs) break; // semantic no-op
+          const resolvedBndTolUs =
+            ctx.actorMode === "user" && op.tolUs !== undefined
+              ? assertNonNegSafeIntUs(op.tolUs, "move_boundary.tolUs", "INVALID_VERDICT")
+              : bnd.verdict?.tolUs ?? DEFAULT_BOUNDARY_TOL_US;
+          if (ctx.actorMode === "user" && op.via !== undefined) {
+            assertVerdictVia(op.via, "move_boundary.via");
+          }
+          if (atUs === bnd.atUs) {
+            if (
+              ctx.actorMode !== "user" ||
+              !bnd.verdict ||
+              resolvedBndTolUs === bnd.verdict.tolUs
+            ) {
+              break; // semantic no-op (never fabricates verdict on unverified boundary!)
+            }
+            const vdSame = computeEntityValueDigest("boundary", bnd);
+            journal.setBoundary(
+              bnd.id,
+              normalizeBoundary({
+                ...bnd,
+                revision: bnd.revision + 1,
+                verdict: {
+                  kind: bnd.origin === "user" ? "placed" : "adjusted",
+                  eventId: ctx.eventId,
+                  valueDigest: vdSame,
+                  tolUs: resolvedBndTolUs,
+                  via: op.via ?? "nudge",
+                },
+              }),
+            );
+            break;
+          }
 
           const oldAtUs = bnd.atUs;
           let nextBnd = normalizeBoundary({
@@ -2128,10 +2380,6 @@ export function executeTransaction(state, ops, ctx) {
             revision: bnd.revision + 1,
           });
           if (ctx.actorMode === "user") {
-            const tolUs =
-              op.tolUs !== undefined
-                ? assertNonNegSafeIntUs(op.tolUs, "move_boundary.tolUs", "INVALID_VERDICT")
-                : bnd.verdict?.tolUs ?? DEFAULT_BOUNDARY_TOL_US;
             const vd = computeEntityValueDigest("boundary", nextBnd);
             nextBnd = normalizeBoundary({
               ...nextBnd,
@@ -2139,7 +2387,7 @@ export function executeTransaction(state, ops, ctx) {
                 kind: bnd.origin === "user" ? "placed" : "adjusted",
                 eventId: ctx.eventId,
                 valueDigest: vd,
-                tolUs,
+                tolUs: resolvedBndTolUs,
                 via: op.via ?? "nudge",
               },
             });
